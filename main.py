@@ -177,7 +177,27 @@ async def root():
 @app.get("/health")
 async def health():
     return {"status": "healthy", "timestamp": datetime.utcnow().isoformat(), "version": "0.2.0"}
-
+@app.get("/issue-test")
+async def issue_test():
+    """
+    Test endpoint — issues a real stored passport with no auth needed.
+    Proves the database connection works.
+    """
+    p = make_passport(
+        agent_name="verisigil-test-agent",
+        owner="raheem@verisigilai.com",
+        framework="langchain",
+        runtime="python",
+        version="1.0.0",
+        tags=["test", "verified"],
+        expiry_days=365,
+    )
+    try:
+        await db_insert("passports", p)
+        p["stored"] = True
+    except Exception as e:
+        p["error"] = str(e)
+    return {"success": True, "passport": p} 
 @app.post("/v1/passport/issue")
 async def issue(
     req: IssueReq,
