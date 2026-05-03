@@ -4,10 +4,11 @@ Best of both: clean structure + full feature set
 Ed25519 signatures + DID resolution + Audit log + Security scan + Compliance
 """
 import base64, hashlib, math, os, uuid, json
+from time import time
 from datetime import datetime, timedelta
 from typing import List, Optional
 
-from fastapi import FastAPI, HTTPException, Header
+from fastapi import FastAPI, HTTPException, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import httpx
@@ -29,11 +30,27 @@ SIGNING_KEY    = SigningKey(_seed)
 VERIFY_KEY     = SIGNING_KEY.verify_key
 PUBLIC_KEY_B64 = base64.b64encode(bytes(VERIFY_KEY)).decode()
 
+
+# ── Rate limiter ──────────────────────────────────────────
+RATE_LIMIT_STORE: dict = {}
+MAX_REQUESTS_PER_MINUTE = 10
+
+def check_rate_limit(client_ip: str) -> bool:
+    """Allow max 10 verify calls per IP per minute."""
+    now    = time()
+    window = RATE_LIMIT_STORE.get(client_ip, [])
+    window = [t for t in window if now - t < 60]
+    if len(window) >= MAX_REQUESTS_PER_MINUTE:
+        return False
+    window.append(now)
+    RATE_LIMIT_STORE[client_ip] = window
+    return True
+
 # ── App setup ─────────────────────────────────────────────
 app = FastAPI(
     title="VeriSigil AI API",
     description="The cryptographic identity and security layer for autonomous AI agents.",
-    version="0.3.2",
+    version="0.4.0",
     docs_url="/docs",
 )
 
@@ -93,6 +110,36 @@ def verify_payload(data: dict, sig_b64: str) -> bool:
     except Exception:
         return False
 
+
+
+async def get_verifier(api_key: str) -> dict:
+    """Look up verifier by API key. Returns None if not found."""
+    if not api_key or api_key == "demo":
+        return {
+            "id":         "ver_public",
+            "name":       "Public",
+            "type":       "public",
+            "reputation": 0.3,
+        }
+    verifier = await db_get("verifiers", "api_key", api_key)
+    return verifier
+
+async def update_verifier_reputation(verifier_id: str, action: str = "verify"):
+    """Update verifier reputation after a verification."""
+    verifier = await db_get("verifiers", "id", verifier_id)
+    if not verifier:
+        return
+    rep = verifier.get("reputation", 0.5)
+    if action == "verify":
+        rep += 0.01
+    elif action == "flag":
+        rep -= 0.05
+    rep = max(0.1, min(1.0, round(rep, 4)))
+    count = (verifier.get("verifications") or 0) + 1
+    await db_patch("verifiers", "id", verifier_id, {
+        "reputation":     rep,
+        "verifications":  count,
+    })
 
 # ── Dynamic trust score ───────────────────────────────────
 def calculate_trust_score(issued_at: str, verification_count: int,
@@ -230,7 +277,7 @@ class ComplianceReq(BaseModel):
 async def root():
     return {
         "name":           "VeriSigil AI API",
-        "version":        "0.3.2",
+        "version":        "0.4.0",
         "status":         "live",
         "description":    "Cryptographic identity and security for autonomous AI agents.",
         "website":        "https://www.verisigilai.com",
@@ -252,7 +299,7 @@ async def root():
 
 @app.get("/health")
 async def health():
-    return {"status": "healthy", "timestamp": datetime.utcnow().isoformat(), "version": "0.3.2"}
+    return {"status": "healthy", "timestamp": datetime.utcnow().isoformat(), "version": "0.4.0"}
 
 @app.get("/issue-test")
 async def issue_test():
@@ -312,8 +359,14 @@ async def get_p(agent_id: str):
     return {"success": True, "passport": p}
 
 @app.get("/verify/{agent_id}")
-async def verify_get(agent_id: str):
-    """PUBLIC — cryptographic verification. No auth needed."""
+async def verify_get(agent_id: str, request: Request,
+                     x_api_key: Optional[str] = Header(None)):
+    """PUBLIC — cryptographic verification. Rate limited to 10/min per IP."""
+    # Rate limit check
+    client_ip = request.client.host if request.client else "unknown"
+    if not check_rate_limit(client_ip):
+        raise HTTPException(429, "Too many requests — max 10 verifications per minute per IP.")
+
     p = await db_get("passports", "agent_id", agent_id)
     if not p:
         return {"valid": False, "verified": False, "agent_id": agent_id,
@@ -326,26 +379,57 @@ async def verify_get(agent_id: str):
     is_active   = p.get("status") == "ACTIVE"
     not_expired = datetime.utcnow() < datetime.fromisoformat(p["expires_at"])
 
-    # Increment verification count and recalculate trust score
-    new_count   = (p.get("verification_count") or 0) + 1
-    new_score   = calculate_trust_score(
-        p["issued_at"],
-        new_count,
+    # Get verifier identity
+    verifier     = await get_verifier(x_api_key)
+    verifier_id  = verifier["id"] if verifier else "ver_public"
+    verifier_rep = verifier.get("reputation", 0.3) if verifier else 0.3
+
+    # Check for duplicate verification from same verifier
+    existing_events = p.get("audit_events") or []
+    recent_verifier_ids = [
+        e.get("event_data", {}).get("verifier_id")
+        for e in existing_events[-10:]
+        if e.get("event") == "VERIFIED"
+    ]
+    is_duplicate = verifier_id in recent_verifier_ids
+
+    # Increment count and compute unique verifiers
+    new_count = (p.get("verification_count") or 0) + 1
+    all_verifier_ids = [
+        e.get("event_data", {}).get("verifier_id")
+        for e in existing_events
+        if e.get("event") == "VERIFIED"
+    ] + [verifier_id]
+    unique_verifier_count = len(set(v for v in all_verifier_ids if v))
+
+    # Recalculate trust score
+    new_score = calculate_trust_score(
+        p["issued_at"], new_count,
         p.get("high_threats", 0),
         p.get("medium_threats", 0),
+        unique_verifiers=unique_verifier_count,
+        avg_verifier_reputation=verifier_rep,
     )
 
-    # Update passport with new count and score
-    await db_patch("passports", "agent_id", agent_id, {
-        "verification_count": new_count,
-        "trust_score":        new_score,
-    })
+    # Only update if not duplicate from same verifier
+    if not is_duplicate:
+        await db_patch("passports", "agent_id", agent_id, {
+            "verification_count": new_count,
+            "trust_score":        new_score,
+        })
+        if verifier and verifier_id != "ver_public":
+            await update_verifier_reputation(verifier_id, "verify")
 
     await log_event(agent_id, "VERIFIED", {
-        "method":             "GET /verify",
-        "verification_count": new_count,
-        "trust_score":        new_score,
-        "trust_level":        trust_level(new_score),
+        "method":              "GET /verify",
+        "verifier_id":         verifier_id,
+        "verifier_type":       verifier.get("type", "public") if verifier else "public",
+        "verifier_reputation": verifier_rep,
+        "verification_count":  new_count,
+        "unique_verifiers":    unique_verifier_count,
+        "trust_score":         new_score,
+        "trust_level":         trust_level(new_score),
+        "duplicate":           is_duplicate,
     })
 
     return {
@@ -409,6 +493,65 @@ async def revoke(req: RevokeReq, x_api_key: Optional[str] = Header(None)):
                     "revoke_reason": req.reason})
     await log_event(req.agent_id, "REVOKED", {"reason": req.reason})
     return {"revoked": True, "agent_id": req.agent_id, "reason": req.reason}
+
+
+@app.get("/v1/trust/{agent_id}/graph")
+async def trust_graph(agent_id: str):
+    """
+    Trust graph — shows who has verified this agent and their reputation.
+    Public endpoint. Visualises the trust network around an agent.
+    """
+    p = await db_get("passports", "agent_id", agent_id)
+    if not p:
+        raise HTTPException(404, "Passport not found.")
+
+    events = p.get("audit_events") or []
+    nodes, edges = [], []
+    seen_verifiers = set()
+
+    for e in events:
+        if e.get("event") != "VERIFIED":
+            continue
+        v_id  = e.get("event_data", {}).get("verifier_id", "ver_public")
+        v_rep = e.get("event_data", {}).get("verifier_reputation", 0.3)
+        v_type = e.get("event_data", {}).get("verifier_type", "public")
+        ts    = e.get("timestamp", "")
+
+        if v_id not in seen_verifiers:
+            nodes.append({
+                "id":         v_id,
+                "type":       "verifier",
+                "verifier_type": v_type,
+                "reputation": v_rep,
+                "label":      v_id,
+            })
+            seen_verifiers.add(v_id)
+
+        edges.append({
+            "from":      v_id,
+            "to":        agent_id,
+            "type":      "verified",
+            "timestamp": ts,
+        })
+
+    nodes.append({
+        "id":          agent_id,
+        "type":        "agent",
+        "trust_score": p.get("trust_score", 0.97),
+        "trust_level": trust_level(p.get("trust_score", 0.97)),
+        "label":       agent_id,
+    })
+
+    return {
+        "agent_id":        agent_id,
+        "trust_score":     p.get("trust_score", 0.97),
+        "trust_level":     trust_level(p.get("trust_score", 0.97)),
+        "unique_verifiers": len(seen_verifiers),
+        "total_verifications": len(edges),
+        "nodes":           nodes,
+        "edges":           edges,
+        "note": "Visualise at: verisigil-api-production.up.railway.app/v1/trust/{agent_id}/graph",
+    }
 
 @app.post("/v1/security/scan")
 async def scan(req: ScanReq, x_api_key: Optional[str] = Header(None)):
