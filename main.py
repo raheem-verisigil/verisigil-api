@@ -17,10 +17,12 @@ from nacl.signing import SigningKey
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 SIGN_SECRET  = os.environ.get("SIGN_SECRET", "verisigil-secret-2026")
-API_KEY      = os.environ.get("VERISIGIL_API_KEY", "verisigil-secret-2026")
+API_KEY      = os.environ.get("VERISIGIL_API_KEY")
 
 if not SUPABASE_URL or not SUPABASE_KEY:
     raise Exception("SUPABASE_URL and SUPABASE_KEY must be set in environment variables")
+if not API_KEY:
+    raise Exception("VERISIGIL_API_KEY must be set in environment variables")
 
 _seed          = hashlib.sha256(SIGN_SECRET.encode()).digest()
 SIGNING_KEY    = SigningKey(_seed)
@@ -106,9 +108,10 @@ async def log_event(agent_id: str, event: str, event_data: dict = {}):
             "signature":      sign_payload({"agent_id": agent_id, "event": event, "timestamp": timestamp}),
             "signature_type": "Ed25519",
         }
-        existing = passport.get("audit_events") or []
+        existing = list(passport.get("audit_events") or [])
+        existing.append(new_event)
         await db_patch("passports", "agent_id", agent_id,
-                       {"audit_events": existing + [new_event]})
+                       {"audit_events": existing})
     except Exception as e:
         print(f"[AUDIT ERROR] agent={agent_id} event={event} error={e}")
 
