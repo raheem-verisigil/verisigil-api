@@ -109,10 +109,18 @@ async def log_event(agent_id, event, event_data={}):
         "signature":  signature,
         "timestamp":  timestamp,
     }
-    try:
-        await db_insert("audit_log", record)
-    except Exception:
-        pass
+    async with httpx.AsyncClient() as c:
+        r = await c.post(
+            f"{SUPABASE_URL}/rest/v1/audit_log",
+            headers={
+                "apikey":        SUPABASE_KEY,
+                "Authorization": f"Bearer {SUPABASE_KEY}",
+                "Content-Type":  "application/json",
+                "Prefer":        "return=representation",
+            },
+            json=record,
+            timeout=10,
+        )
     return record
 
 # ── Passport signing ──────────────────────────────────────
