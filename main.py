@@ -13,8 +13,8 @@ import httpx
 from nacl.signing import SigningKey
 from nacl.exceptions import BadSignatureError
 
-SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
-SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://ixiwsdjuduwwzbdfgunm.supabase.co")
+SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml4aXdzZGp1ZHV3d3piZGZndW5tIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc2Njg5NjAsImV4cCI6MjA5MzI0NDk2MH0.dV3_5Qg1MPmPVyc9_y7CC2GJBBRe0QRfOYGo6zuIo-U")
 SIGN_SECRET  = os.environ.get("SIGN_SECRET", "verisigil-secret-2026")
 
 _seed          = hashlib.sha256(SIGN_SECRET.encode()).digest()
