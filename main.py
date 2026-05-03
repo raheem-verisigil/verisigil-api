@@ -221,13 +221,23 @@ async def issue_test():
     """Test endpoint — issues a real stored passport. No auth. For testing only."""
     p = make_passport("verisigil-test-agent", "raheem@verisigilai.com",
                       "langchain", "python", "1.0.0", ["test"], 365)
-    try:
-        await db_insert("passports", p)
-        p["stored"] = True
-    except Exception as e:
-        p["stored"] = False
-        p["error"]  = str(e)
-    return {"success": True, "passport": p}
+    debug = {
+        "supabase_url": SUPABASE_URL[:40] + "..." if SUPABASE_URL else "NOT SET",
+        "supabase_key_set": bool(SUPABASE_KEY),
+        "supabase_key_length": len(SUPABASE_KEY) if SUPABASE_KEY else 0,
+        "api_key_set": bool(API_KEY),
+    }
+    async with httpx.AsyncClient() as c:
+        r = await c.post(
+            f"{SUPABASE_URL}/rest/v1/passports",
+            headers=get_headers(),
+            json=p,
+            timeout=10,
+        )
+        debug["status_code"] = r.status_code
+        debug["response"] = r.text[:300]
+        p["stored"] = r.status_code in (200, 201)
+    return {"success": True, "passport": p, "debug": debug}
 
 @app.post("/v1/passport/issue")
 async def issue(req: IssueReq, x_api_key: Optional[str] = Header(None)):
