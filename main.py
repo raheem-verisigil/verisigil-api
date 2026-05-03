@@ -1,6 +1,7 @@
 """
-VeriSigil AI — API Server v0.3.0
-Ed25519 signatures + DID resolution + Audit log (stored inside passport record)
+VeriSigil AI — API Server v0.3.1
+Best of both: clean structure + full feature set
+Ed25519 signatures + DID resolution + Audit log + Security scan + Compliance
 """
 import base64, hashlib, os, uuid, json
 from datetime import datetime, timedelta
@@ -11,21 +12,26 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import httpx
 from nacl.signing import SigningKey
-from nacl.exceptions import BadSignatureError
 
-SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://ixiwsdjuduwwzbdfgunm.supabase.co")
-SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml4aXdzZGp1ZHV3d3piZGZndW5tIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc2Njg5NjAsImV4cCI6MjA5MzI0NDk2MH0.dV3_5Qg1MPmPVyc9_y7CC2GJBBRe0QRfOYGo6zuIo-U")
+# ── Environment config ────────────────────────────────────
+SUPABASE_URL = os.environ.get("SUPABASE_URL")
+SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 SIGN_SECRET  = os.environ.get("SIGN_SECRET", "verisigil-secret-2026")
+API_KEY      = os.environ.get("VERISIGIL_API_KEY", "verisigil-secret-2026")
+
+if not SUPABASE_URL or not SUPABASE_KEY:
+    raise Exception("SUPABASE_URL and SUPABASE_KEY must be set in environment variables")
 
 _seed          = hashlib.sha256(SIGN_SECRET.encode()).digest()
 SIGNING_KEY    = SigningKey(_seed)
 VERIFY_KEY     = SIGNING_KEY.verify_key
 PUBLIC_KEY_B64 = base64.b64encode(bytes(VERIFY_KEY)).decode()
 
+# ── App setup ─────────────────────────────────────────────
 app = FastAPI(
     title="VeriSigil AI API",
     description="The cryptographic identity and security layer for autonomous AI agents.",
-    version="0.3.0",
+    version="0.3.1",
     docs_url="/docs",
 )
 
@@ -33,7 +39,12 @@ app.add_middleware(
     CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"]
 )
 
-# ── Supabase helpers ──────────────────────────────────────
+# ── Auth ──────────────────────────────────────────────────
+def require_api_key(x_api_key: Optional[str]):
+    if not x_api_key or x_api_key != API_KEY:
+        raise HTTPException(401, "Invalid or missing API key. Pass your key in the x-api-key header.")
+
+# ── DB helpers ────────────────────────────────────────────
 def get_headers():
     return {
         "apikey": SUPABASE_KEY,
@@ -46,6 +57,8 @@ async def db_insert(table, data):
     async with httpx.AsyncClient() as c:
         r = await c.post(f"{SUPABASE_URL}/rest/v1/{table}",
                          headers=get_headers(), json=data, timeout=10)
+        if r.status_code >= 400:
+            print(f"[DB INSERT ERROR] table={table} status={r.status_code} response={r.text[:200]}")
         result = r.json()
         return result[0] if isinstance(result, list) and result else data
 
@@ -60,10 +73,12 @@ async def db_patch(table, field, value, data):
     async with httpx.AsyncClient() as c:
         r = await c.patch(f"{SUPABASE_URL}/rest/v1/{table}?{field}=eq.{value}",
                           headers=get_headers(), json=data, timeout=10)
+        if r.status_code >= 400:
+            print(f"[DB PATCH ERROR] table={table} status={r.status_code} response={r.text[:200]}")
         result = r.json()
         return result[0] if isinstance(result, list) and result else data
 
-# ── Signing helpers ───────────────────────────────────────
+# ── Crypto ────────────────────────────────────────────────
 def sign_payload(data: dict) -> str:
     msg = json.dumps(data, sort_keys=True).encode()
     return base64.b64encode(SIGNING_KEY.sign(msg).signature).decode()
@@ -76,29 +91,26 @@ def verify_payload(data: dict, sig_b64: str) -> bool:
     except Exception:
         return False
 
-# ── Audit log — stored inside passport record ─────────────
+# ── Audit log ─────────────────────────────────────────────
 async def log_event(agent_id: str, event: str, event_data: dict = {}):
-    """
-    Append a signed audit event to the passport's audit_events array.
-    Stored inside the passport record — bypasses network ban on audit_log table.
-    """
-    timestamp = datetime.utcnow().isoformat()
-    entry = {
-        "event":          event,
-        "timestamp":      timestamp,
-        "event_data":     event_data,
-        "signature":      sign_payload({"agent_id": agent_id, "event": event, "timestamp": timestamp}),
-        "signature_type": "Ed25519",
-    }
+    """Append a signed audit event to the passport record."""
     try:
         passport = await db_get("passports", "agent_id", agent_id)
-        if passport:
-            existing = passport.get("audit_events") or []
-            existing.append(entry)
-            await db_patch("passports", "agent_id", agent_id, {"audit_events": existing})
-    except Exception:
-        pass
-    return entry
+        if not passport:
+            return
+        timestamp = datetime.utcnow().isoformat()
+        new_event = {
+            "event":          event,
+            "timestamp":      timestamp,
+            "event_data":     event_data,
+            "signature":      sign_payload({"agent_id": agent_id, "event": event, "timestamp": timestamp}),
+            "signature_type": "Ed25519",
+        }
+        existing = passport.get("audit_events") or []
+        await db_patch("passports", "agent_id", agent_id,
+                       {"audit_events": existing + [new_event]})
+    except Exception as e:
+        print(f"[AUDIT ERROR] agent={agent_id} event={event} error={e}")
 
 # ── Passport generator ────────────────────────────────────
 def make_passport(agent_name, owner, framework, runtime, version, tags, expiry_days):
@@ -108,17 +120,21 @@ def make_passport(agent_name, owner, framework, runtime, version, tags, expiry_d
     now       = datetime.utcnow()
     issued_at = now.isoformat()
     exp       = now + timedelta(days=expiry_days)
-    signature = sign_payload({
-        "agent_id": _id, "did": did,
-        "issued_at": issued_at, "owner": owner,
-        "issuer": "https://verisigilai.com",
-    })
+    issued_event = {
+        "event":          "ISSUED",
+        "timestamp":      issued_at,
+        "event_data":     {"agent_name": agent_name, "owner": owner, "framework": framework},
+        "signature":      sign_payload({"agent_id": _id, "event": "ISSUED", "timestamp": issued_at}),
+        "signature_type": "Ed25519",
+    }
     return {
         "agent_id":        _id,
         "agent_name":      agent_name,
         "did":             did,
         "public_key":      PUBLIC_KEY_B64,
-        "signature":       signature,
+        "signature":       sign_payload({"agent_id": _id, "did": did,
+                                         "issued_at": issued_at, "owner": owner,
+                                         "issuer": "https://verisigilai.com"}),
         "signature_type":  "Ed25519",
         "owner":           owner,
         "issuer":          "https://verisigilai.com",
@@ -139,7 +155,7 @@ def make_passport(agent_name, owner, framework, runtime, version, tags, expiry_d
         "soc2":            False,
         "certificate_id":  f"cert_{uuid.uuid4().hex[:16]}",
         "issued_by":       "VeriSigil AI",
-        "audit_events":    [],
+        "audit_events":    [issued_event],
     }
 
 # ── Models ────────────────────────────────────────────────
@@ -168,46 +184,40 @@ class ComplianceReq(BaseModel):
     regulations: List[str] = ["eu_ai_act", "gdpr", "hipaa", "soc2"]
 
 # ── Routes ────────────────────────────────────────────────
+
 @app.get("/")
 async def root():
     return {
         "name":           "VeriSigil AI API",
-        "version":        "0.3.0",
+        "version":        "0.3.1",
         "status":         "live",
         "description":    "Cryptographic identity and security for autonomous AI agents.",
         "website":        "https://www.verisigilai.com",
         "docs":           "/docs",
         "public_key":     PUBLIC_KEY_B64,
         "signature_type": "Ed25519",
+        "auth":           "Pass your API key in the x-api-key header for protected endpoints.",
         "endpoints": {
-            "issue":      "POST /v1/passport/issue",
-            "get":        "GET  /v1/passport/{agent_id}",
-            "audit":      "GET  /v1/passport/{agent_id}/audit",
-            "verify":     "GET  /verify/{agent_id}",
-            "did":        "GET  /did/{agent_id}",
-            "revoke":     "POST /v1/passport/revoke",
-            "scan":       "POST /v1/security/scan",
-            "compliance": "POST /v1/compliance/check",
+            "issue":      "POST /v1/passport/issue        [requires x-api-key]",
+            "get":        "GET  /v1/passport/{agent_id}   [public]",
+            "audit":      "GET  /v1/passport/{agent_id}/audit [public]",
+            "verify":     "GET  /verify/{agent_id}        [public]",
+            "did":        "GET  /did/{agent_id}           [public]",
+            "revoke":     "POST /v1/passport/revoke       [requires x-api-key]",
+            "scan":       "POST /v1/security/scan         [requires x-api-key]",
+            "compliance": "POST /v1/compliance/check      [requires x-api-key]",
         }
     }
 
 @app.get("/health")
 async def health():
-    return {"status": "healthy", "timestamp": datetime.utcnow().isoformat(), "version": "0.3.0"}
+    return {"status": "healthy", "timestamp": datetime.utcnow().isoformat(), "version": "0.3.1"}
 
 @app.get("/issue-test")
 async def issue_test():
-    """Issues and stores a real test passport with audit log. No auth needed."""
+    """Test endpoint — issues a real stored passport. No auth. For testing only."""
     p = make_passport("verisigil-test-agent", "raheem@verisigilai.com",
                       "langchain", "python", "1.0.0", ["test"], 365)
-    # Embed ISSUED event before storing
-    p["audit_events"] = [{
-        "event":          "ISSUED",
-        "timestamp":      p["issued_at"],
-        "event_data":     {"agent_name": p["agent_name"], "owner": p["owner"]},
-        "signature":      sign_payload({"agent_id": p["agent_id"], "event": "ISSUED", "timestamp": p["issued_at"]}),
-        "signature_type": "Ed25519",
-    }]
     try:
         await db_insert("passports", p)
         p["stored"] = True
@@ -217,17 +227,11 @@ async def issue_test():
     return {"success": True, "passport": p}
 
 @app.post("/v1/passport/issue")
-async def issue(req: IssueReq, authorization: Optional[str] = Header(None)):
-    """Issue a new Ed25519 signed passport with audit log. Stored automatically."""
+async def issue(req: IssueReq, x_api_key: Optional[str] = Header(None)):
+    """Issue a new Ed25519 signed passport. Requires x-api-key header."""
+    require_api_key(x_api_key)
     p = make_passport(req.agent_name, req.owner, req.framework,
                       req.runtime, req.version, req.tags, req.expiry_days)
-    p["audit_events"] = [{
-        "event":          "ISSUED",
-        "timestamp":      p["issued_at"],
-        "event_data":     {"agent_name": req.agent_name, "owner": req.owner, "framework": req.framework},
-        "signature":      sign_payload({"agent_id": p["agent_id"], "event": "ISSUED", "timestamp": p["issued_at"]}),
-        "signature_type": "Ed25519",
-    }]
     try:
         await db_insert("passports", p)
         p["stored"] = True
@@ -238,24 +242,17 @@ async def issue(req: IssueReq, authorization: Optional[str] = Header(None)):
 
 @app.get("/v1/passport/{agent_id}/audit")
 async def get_audit(agent_id: str):
-    """
-    Get the cryptographic audit log for an agent.
-    Every event is Ed25519 signed. Public — no API key required.
-    """
+    """Get cryptographic audit log. Public — no auth needed."""
     p = await db_get("passports", "agent_id", agent_id)
     if not p:
         raise HTTPException(404, "Passport not found.")
-
     events = p.get("audit_events") or []
-
     verified = []
     for e in events:
         sig_valid = verify_payload(
             {"agent_id": agent_id, "event": e["event"], "timestamp": e["timestamp"]},
-            e.get("signature", "")
-        )
+            e.get("signature", ""))
         verified.append({**e, "signature_valid": sig_valid})
-
     return {
         "agent_id":       agent_id,
         "total_events":   len(verified),
@@ -263,11 +260,11 @@ async def get_audit(agent_id: str):
         "public_key":     PUBLIC_KEY_B64,
         "signature_type": "Ed25519",
         "issued_by":      "VeriSigil AI",
-        "note":           "Every event is Ed25519 signed. Verify independently using the public key.",
     }
 
 @app.get("/v1/passport/{agent_id}")
 async def get_p(agent_id: str):
+    """Retrieve a stored passport. Public."""
     p = await db_get("passports", "agent_id", agent_id)
     if not p:
         raise HTTPException(404, "Passport not found.")
@@ -275,12 +272,11 @@ async def get_p(agent_id: str):
 
 @app.get("/verify/{agent_id}")
 async def verify_get(agent_id: str):
-    """PUBLIC — verify any agent. No API key needed."""
+    """PUBLIC — cryptographic verification. No auth needed."""
     p = await db_get("passports", "agent_id", agent_id)
     if not p:
         return {"valid": False, "verified": False, "agent_id": agent_id,
                 "reason": "Passport not found.", "issuer": "verisigilai.com"}
-
     sig_valid   = verify_payload(
         {"agent_id": p["agent_id"], "did": p["did"],
          "issued_at": p["issued_at"], "owner": p["owner"],
@@ -288,9 +284,7 @@ async def verify_get(agent_id: str):
         p.get("signature", ""))
     is_active   = p.get("status") == "ACTIVE"
     not_expired = datetime.utcnow() < datetime.fromisoformat(p["expires_at"])
-
     await log_event(agent_id, "VERIFIED", {"method": "GET /verify"})
-
     return {
         "valid":           sig_valid and is_active and not_expired,
         "verified":        sig_valid,
@@ -308,29 +302,9 @@ async def verify_get(agent_id: str):
         "eu_ai_act":       p.get("eu_ai_act"),
     }
 
-@app.post("/v1/passport/verify")
-async def verify_post(req: VerifyReq):
-    p = await db_get("passports", "agent_id", req.agent_id)
-    if not p:
-        return {"verified": False, "agent_id": req.agent_id, "reason": "Not found"}
-    if p.get("status") != "ACTIVE":
-        return {"verified": False, "agent_id": req.agent_id, "reason": f"Status: {p['status']}"}
-    if datetime.utcnow() > datetime.fromisoformat(p["expires_at"]):
-        return {"verified": False, "agent_id": req.agent_id, "reason": "Expired"}
-    sig_valid = verify_payload(
-        {"agent_id": p["agent_id"], "did": p["did"],
-         "issued_at": p["issued_at"], "owner": p["owner"],
-         "issuer": "https://verisigilai.com"},
-        p.get("signature", ""))
-    await log_event(req.agent_id, "VERIFIED", {"method": "POST /verify"})
-    return {"verified": sig_valid, "agent_id": req.agent_id,
-            "trust_score": p.get("trust_score", 0.97), "status": p.get("status"),
-            "did": p.get("did"), "signature_valid": sig_valid,
-            "signature_type": "Ed25519", "public_key": PUBLIC_KEY_B64}
-
 @app.get("/did/{agent_id}")
 async def did_resolution(agent_id: str):
-    """W3C DID Document — PUBLIC."""
+    """W3C DID Document. Public."""
     p = await db_get("passports", "agent_id", agent_id)
     if not p:
         raise HTTPException(404, {"error": "notFound", "message": f"DID not found for {agent_id}"})
@@ -339,7 +313,8 @@ async def did_resolution(agent_id: str):
     return {
         "@context": ["https://www.w3.org/ns/did/v1",
                      "https://w3id.org/security/suites/ed25519-2020/v1"],
-        "id": did, "controller": "did:web:verisigilai.com",
+        "id":         did,
+        "controller": "did:web:verisigilai.com",
         "verificationMethod": [{"id": f"{did}#key-1",
                                  "type": "Ed25519VerificationKey2020",
                                  "controller": did,
@@ -347,7 +322,8 @@ async def did_resolution(agent_id: str):
                                      base64.b64decode(pub_key)).decode()}],
         "authentication":  [f"{did}#key-1"],
         "assertionMethod": [f"{did}#key-1"],
-        "service": [{"id": f"{did}#verisigil", "type": "VeriSigilPassportService",
+        "service": [{"id": f"{did}#verisigil",
+                     "type": "VeriSigilPassportService",
                      "serviceEndpoint": f"https://verisigil-api-production.up.railway.app/verify/{agent_id}"}],
         "metadata": {"agent_id": agent_id, "agent_name": p.get("agent_name"),
                      "status": p.get("status"), "trust_score": p.get("trust_score"),
@@ -357,7 +333,9 @@ async def did_resolution(agent_id: str):
     }
 
 @app.post("/v1/passport/revoke")
-async def revoke(req: RevokeReq):
+async def revoke(req: RevokeReq, x_api_key: Optional[str] = Header(None)):
+    """Revoke a passport immediately. Requires x-api-key."""
+    require_api_key(x_api_key)
     p = await db_get("passports", "agent_id", req.agent_id)
     if not p:
         raise HTTPException(404, "Passport not found.")
@@ -368,7 +346,9 @@ async def revoke(req: RevokeReq):
     return {"revoked": True, "agent_id": req.agent_id, "reason": req.reason}
 
 @app.post("/v1/security/scan")
-async def scan(req: ScanReq):
+async def scan(req: ScanReq, x_api_key: Optional[str] = Header(None)):
+    """Scan agent code for vulnerabilities. Requires x-api-key."""
+    require_api_key(x_api_key)
     threats, seen = [], set()
     lines = req.code.split("\n")
     patterns = [
@@ -392,15 +372,24 @@ async def scan(req: ScanReq):
         await log_event(req.agent_id, "SCANNED",
                         {"lines_scanned": len(lines), "threats_found": len(threats)})
     return {
-        "scan_id": f"scan_{uuid.uuid4().hex[:12]}", "agent_id": req.agent_id,
-        "lines_scanned": len(lines), "threats": threats, "threat_count": len(threats),
-        "severity_summary": {"HIGH": sum(1 for t in threats if t["severity"]=="HIGH"),
-                             "MEDIUM": sum(1 for t in threats if t["severity"]=="MEDIUM"), "LOW": 0},
-        "passed": len(threats)==0, "scanned_at": datetime.utcnow().isoformat(),
+        "scan_id":       f"scan_{uuid.uuid4().hex[:12]}",
+        "agent_id":      req.agent_id,
+        "lines_scanned": len(lines),
+        "threats":       threats,
+        "threat_count":  len(threats),
+        "severity_summary": {
+            "HIGH":   sum(1 for t in threats if t["severity"] == "HIGH"),
+            "MEDIUM": sum(1 for t in threats if t["severity"] == "MEDIUM"),
+            "LOW":    0,
+        },
+        "passed":     len(threats) == 0,
+        "scanned_at": datetime.utcnow().isoformat(),
     }
 
 @app.post("/v1/compliance/check")
-async def compliance(req: ComplianceReq):
+async def compliance(req: ComplianceReq, x_api_key: Optional[str] = Header(None)):
+    """Check compliance status. Requires x-api-key."""
+    require_api_key(x_api_key)
     result = {}
     if "eu_ai_act" in req.regulations:
         result["eu_ai_act"] = {"compliant": True, "risk_class": "LIMITED_RISK",
@@ -413,4 +402,6 @@ async def compliance(req: ComplianceReq):
     if "soc2"  in req.regulations:
         result["soc2"]  = {"compliant": False, "reason": "SOC 2 audit in progress — Q4 2026"}
     await log_event(req.agent_id, "COMPLIANCE_CHECKED", {"regulations": req.regulations})
-    return {"agent_id": req.agent_id, "checked_at": datetime.utcnow().isoformat(), "regulations": result}
+    return {"agent_id": req.agent_id,
+            "checked_at": datetime.utcnow().isoformat(),
+            "regulations": result}
