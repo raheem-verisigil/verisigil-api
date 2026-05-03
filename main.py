@@ -97,7 +97,6 @@ def sign_event(agent_id, event, timestamp):
     }, sort_keys=True).encode()
     signed = SIGNING_KEY.sign(payload)
     return base64.b64encode(signed.signature).decode()
-
 async def log_event(agent_id, event, event_data={}):
     """Write a signed event to the audit log."""
     timestamp = datetime.utcnow().isoformat()
@@ -105,12 +104,12 @@ async def log_event(agent_id, event, event_data={}):
     record = {
         "agent_id":   agent_id,
         "event":      event,
-        "event_data": event_data,
+        "event_data": json.dumps(event_data),
         "signature":  signature,
         "timestamp":  timestamp,
     }
     async with httpx.AsyncClient() as c:
-        r = await c.post(
+        await c.post(
             f"{SUPABASE_URL}/rest/v1/audit_log",
             headers={
                 "apikey":        SUPABASE_KEY,
