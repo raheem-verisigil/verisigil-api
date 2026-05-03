@@ -3,7 +3,7 @@ VeriSigil AI — API Server v0.3.1
 Best of both: clean structure + full feature set
 Ed25519 signatures + DID resolution + Audit log + Security scan + Compliance
 """
-import base64, hashlib, os, uuid, json
+import base64, hashlib, math, os, uuid, json
 from datetime import datetime, timedelta
 from typing import List, Optional
 
@@ -33,7 +33,7 @@ PUBLIC_KEY_B64 = base64.b64encode(bytes(VERIFY_KEY)).decode()
 app = FastAPI(
     title="VeriSigil AI API",
     description="The cryptographic identity and security layer for autonomous AI agents.",
-    version="0.3.1",
+    version="0.3.2",
     docs_url="/docs",
 )
 
@@ -92,6 +92,44 @@ def verify_payload(data: dict, sig_b64: str) -> bool:
         return True
     except Exception:
         return False
+
+
+# ── Dynamic trust score ───────────────────────────────────
+def calculate_trust_score(issued_at: str, verification_count: int,
+                           high_threats: int, medium_threats: int) -> float:
+    """
+    Dynamic trust score based on:
+    - Age of passport (time decay)
+    - Number of verifications (trust grows with use)
+    - Security threats found (reduces trust)
+
+    Formula:
+    T = 0.97
+      - 0.001 × days_since_issued
+      - 0.15  × high_threats
+      - 0.05  × medium_threats
+      + 0.005 × log(verifications + 1)
+    """
+    try:
+        now    = datetime.utcnow()
+        issued = datetime.fromisoformat(issued_at)
+        days   = max(0, (now - issued).days)
+    except Exception:
+        days = 0
+
+    score = 0.97
+    score -= 0.001 * days
+    score -= 0.15  * high_threats
+    score -= 0.05  * medium_threats
+    score += 0.005 * math.log(verification_count + 1)
+
+    return max(0.0, min(1.0, round(score, 4)))
+
+def trust_level(score: float) -> str:
+    """Convert trust score to human-readable level."""
+    if score >= 0.80: return "TRUSTED"
+    if score >= 0.60: return "FLAGGED"
+    return "BLOCKED"
 
 # ── Audit log ─────────────────────────────────────────────
 async def log_event(agent_id: str, event: str, event_data: dict = {}):
@@ -192,7 +230,7 @@ class ComplianceReq(BaseModel):
 async def root():
     return {
         "name":           "VeriSigil AI API",
-        "version":        "0.3.1",
+        "version":        "0.3.2",
         "status":         "live",
         "description":    "Cryptographic identity and security for autonomous AI agents.",
         "website":        "https://www.verisigilai.com",
@@ -214,30 +252,20 @@ async def root():
 
 @app.get("/health")
 async def health():
-    return {"status": "healthy", "timestamp": datetime.utcnow().isoformat(), "version": "0.3.1"}
+    return {"status": "healthy", "timestamp": datetime.utcnow().isoformat(), "version": "0.3.2"}
 
 @app.get("/issue-test")
 async def issue_test():
     """Test endpoint — issues a real stored passport. No auth. For testing only."""
     p = make_passport("verisigil-test-agent", "raheem@verisigilai.com",
                       "langchain", "python", "1.0.0", ["test"], 365)
-    debug = {
-        "supabase_url": SUPABASE_URL[:40] + "..." if SUPABASE_URL else "NOT SET",
-        "supabase_key_set": bool(SUPABASE_KEY),
-        "supabase_key_length": len(SUPABASE_KEY) if SUPABASE_KEY else 0,
-        "api_key_set": bool(API_KEY),
-    }
-    async with httpx.AsyncClient() as c:
-        r = await c.post(
-            f"{SUPABASE_URL}/rest/v1/passports",
-            headers=get_headers(),
-            json=p,
-            timeout=10,
-        )
-        debug["status_code"] = r.status_code
-        debug["response"] = r.text[:300]
-        p["stored"] = r.status_code in (200, 201)
-    return {"success": True, "passport": p, "debug": debug}
+    try:
+        await db_insert("passports", p)
+        p["stored"] = True
+    except Exception as e:
+        p["stored"] = False
+        p["error"]  = str(e)
+    return {"success": True, "passport": p}
 
 @app.post("/v1/passport/issue")
 async def issue(req: IssueReq, x_api_key: Optional[str] = Header(None)):
@@ -297,22 +325,46 @@ async def verify_get(agent_id: str):
         p.get("signature", ""))
     is_active   = p.get("status") == "ACTIVE"
     not_expired = datetime.utcnow() < datetime.fromisoformat(p["expires_at"])
-    await log_event(agent_id, "VERIFIED", {"method": "GET /verify"})
+
+    # Increment verification count and recalculate trust score
+    new_count   = (p.get("verification_count") or 0) + 1
+    new_score   = calculate_trust_score(
+        p["issued_at"],
+        new_count,
+        p.get("high_threats", 0),
+        p.get("medium_threats", 0),
+    )
+
+    # Update passport with new count and score
+    await db_patch("passports", "agent_id", agent_id, {
+        "verification_count": new_count,
+        "trust_score":        new_score,
+    })
+
+    await log_event(agent_id, "VERIFIED", {
+        "method":             "GET /verify",
+        "verification_count": new_count,
+        "trust_score":        new_score,
+        "trust_level":        trust_level(new_score),
+    })
+
     return {
-        "valid":           sig_valid and is_active and not_expired,
-        "verified":        sig_valid,
-        "agent_id":        agent_id,
-        "did":             p.get("did"),
-        "status":          p.get("status"),
-        "trust_score":     p.get("trust_score"),
-        "signature_valid": sig_valid,
-        "signature_type":  "Ed25519",
-        "public_key":      PUBLIC_KEY_B64,
-        "issuer":          "verisigilai.com",
-        "issued_at":       p.get("issued_at"),
-        "expires_at":      p.get("expires_at"),
-        "compliant":       p.get("compliant"),
-        "eu_ai_act":       p.get("eu_ai_act"),
+        "valid":              sig_valid and is_active and not_expired,
+        "verified":           sig_valid,
+        "agent_id":           agent_id,
+        "did":                p.get("did"),
+        "status":             p.get("status"),
+        "trust_score":        new_score,
+        "trust_level":        trust_level(new_score),
+        "verification_count": new_count,
+        "signature_valid":    sig_valid,
+        "signature_type":     "Ed25519",
+        "public_key":         PUBLIC_KEY_B64,
+        "issuer":             "verisigilai.com",
+        "issued_at":          p.get("issued_at"),
+        "expires_at":         p.get("expires_at"),
+        "compliant":          p.get("compliant"),
+        "eu_ai_act":          p.get("eu_ai_act"),
     }
 
 @app.get("/did/{agent_id}")
@@ -382,8 +434,33 @@ async def scan(req: ScanReq, x_api_key: Optional[str] = Header(None)):
                 threats.append({"line": i, "severity": sev,
                                  "description": desc, "code": line.strip()})
     if req.agent_id:
-        await log_event(req.agent_id, "SCANNED",
-                        {"lines_scanned": len(lines), "threats_found": len(threats)})
+        high_count   = sum(1 for t in threats if t["severity"] == "HIGH")
+        medium_count = sum(1 for t in threats if t["severity"] == "MEDIUM")
+
+        # Update threat counts and recalculate trust score
+        passport = await db_get("passports", "agent_id", req.agent_id)
+        if passport:
+            new_high   = (passport.get("high_threats")   or 0) + high_count
+            new_medium = (passport.get("medium_threats") or 0) + medium_count
+            new_score  = calculate_trust_score(
+                passport["issued_at"],
+                passport.get("verification_count", 0),
+                new_high,
+                new_medium,
+            )
+            await db_patch("passports", "agent_id", req.agent_id, {
+                "high_threats":   new_high,
+                "medium_threats": new_medium,
+                "trust_score":    new_score,
+            })
+
+        await log_event(req.agent_id, "SCANNED", {
+            "lines_scanned":  len(lines),
+            "threats_found":  len(threats),
+            "high_threats":   high_count,
+            "medium_threats": medium_count,
+            "new_trust_score": new_score if passport else None,
+        })
     return {
         "scan_id":       f"scan_{uuid.uuid4().hex[:12]}",
         "agent_id":      req.agent_id,
