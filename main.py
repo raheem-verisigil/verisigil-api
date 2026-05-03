@@ -172,14 +172,42 @@ async def issue_test():
     """Issues a real stored passport automatically. No auth needed. For testing."""
     p = make_passport("verisigil-test-agent", "raheem@verisigilai.com",
                       "langchain", "python", "1.0.0", ["test"], 365)
+    
+    # Show exactly what we are sending to Supabase
+    debug = {
+        "supabase_url": SUPABASE_URL[:40] + "..." if SUPABASE_URL else "NOT SET",
+        "supabase_key_set": bool(SUPABASE_KEY),
+        "supabase_key_length": len(SUPABASE_KEY) if SUPABASE_KEY else 0,
+    }
+    
     try:
-        await db_insert("passports", p)
-        p["stored"] = True
-        p["message"] = "Passport stored in Supabase successfully"
+        async with httpx.AsyncClient() as c:
+            r = await c.post(
+                f"{SUPABASE_URL}/rest/v1/passports",
+                headers={
+                    "apikey": SUPABASE_KEY,
+                    "Authorization": f"Bearer {SUPABASE_KEY}",
+                    "Content-Type": "application/json",
+                    "Prefer": "return=representation"
+                },
+                json=p,
+                timeout=10
+            )
+            debug["status_code"] = r.status_code
+            debug["response"] = r.text[:500]
+            
+            if r.status_code in (200, 201):
+                p["stored"] = True
+                p["message"] = "Passport stored in Supabase successfully"
+            else:
+                p["stored"] = False
+                p["error"] = f"Supabase returned {r.status_code}: {r.text[:200]}"
     except Exception as e:
         p["stored"] = False
         p["error"] = str(e)
-    return {"success": True, "passport": p}
+        debug["exception"] = str(e)
+    
+    return {"success": True, "passport": p, "debug": debug}
 
 @app.post("/v1/passport/issue")
 async def issue(req: IssueReq, authorization: Optional[str] = Header(None)):
