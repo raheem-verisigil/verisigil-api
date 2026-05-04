@@ -697,9 +697,11 @@ async def register_verifier(req: VerifierSignup):
     """Register a new verifier. Public endpoint."""
     verifier_id = f"ver_{uuid.uuid4().hex[:8]}"
     api_key     = f"vsk_{uuid.uuid4().hex[:24]}"
-    record = {
+   record = {
         "id":         verifier_id,
         "name":       req.name,
+        "email":      req.email,
+        "company":    req.company,
         "api_key":    api_key,
         "type":       req.type,
         "reputation": 0.5,
