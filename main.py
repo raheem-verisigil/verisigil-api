@@ -684,3 +684,31 @@ async def compliance(req: ComplianceReq, x_api_key: Optional[str] = Header(None)
     return {"agent_id": req.agent_id,
             "checked_at": datetime.utcnow().isoformat(),
             "regulations": result}
+    class VerifierSignup(BaseModel):
+    name:    str
+    email:   str
+    company: str = ""
+    type:    str = "developer"
+
+@app.post("/v1/verifier/register")
+async def register_verifier(req: VerifierSignup):
+    """Register a new verifier. Public endpoint."""
+    verifier_id = f"ver_{uuid.uuid4().hex[:8]}"
+    api_key     = f"vsk_{uuid.uuid4().hex[:24]}"
+    record = {
+        "id":         verifier_id,
+        "name":       req.name,
+        "api_key":    api_key,
+        "type":       req.type,
+        "reputation": 0.5,
+    }
+    try:
+        await db_insert("verifiers", record)
+        return {
+            "success":     True,
+            "verifier_id": verifier_id,
+            "api_key":     api_key,
+            "message":     f"Welcome to the VeriSigil trust network, {req.name}",
+        }
+    except Exception as e:
+        raise HTTPException(500, f"Registration failed: {str(e)}")
