@@ -684,7 +684,9 @@ async def compliance(req: ComplianceReq, x_api_key: Optional[str] = Header(None)
     return {"agent_id": req.agent_id,
             "checked_at": datetime.utcnow().isoformat(),
             "regulations": result}
-    class VerifierSignup(BaseModel):
+
+
+class VerifierSignup(BaseModel):
     name:    str
     email:   str
     company: str = ""
@@ -712,3 +714,5 @@ async def register_verifier(req: VerifierSignup):
         }
     except Exception as e:
         raise HTTPException(500, f"Registration failed: {str(e)}")
+
+
