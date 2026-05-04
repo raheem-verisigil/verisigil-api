@@ -362,94 +362,112 @@ async def get_p(agent_id: str):
 async def verify_get(agent_id: str, request: Request,
                      x_api_key: Optional[str] = Header(None)):
     """PUBLIC — cryptographic verification. Rate limited to 10/min per IP."""
-    # Rate limit check
-    client_ip = request.client.host if request.client else "unknown"
-    if not check_rate_limit(client_ip):
-        raise HTTPException(429, "Too many requests — max 10 verifications per minute per IP.")
+    try:
+        # Rate limit check
+        client_ip = request.client.host if request.client else "unknown"
+        if not check_rate_limit(client_ip):
+            raise HTTPException(429, "Too many requests — max 10/min per IP.")
 
-    p = await db_get("passports", "agent_id", agent_id)
-    if not p:
-        return {"valid": False, "verified": False, "agent_id": agent_id,
-                "reason": "Passport not found.", "issuer": "verisigilai.com"}
-    sig_valid   = verify_payload(
-        {"agent_id": p["agent_id"], "did": p["did"],
-         "issued_at": p["issued_at"], "owner": p["owner"],
-         "issuer": "https://verisigilai.com"},
-        p.get("signature", ""))
-    is_active   = p.get("status") == "ACTIVE"
-    not_expired = datetime.utcnow() < datetime.fromisoformat(p["expires_at"])
+        p = await db_get("passports", "agent_id", agent_id)
+        if not p:
+            return {"valid": False, "verified": False, "agent_id": agent_id,
+                    "reason": "Passport not found.", "issuer": "verisigilai.com"}
 
-    # Get verifier identity
-    verifier     = await get_verifier(x_api_key)
-    verifier_id  = verifier["id"] if verifier else "ver_public"
-    verifier_rep = verifier.get("reputation", 0.3) if verifier else 0.3
+        sig_valid   = verify_payload(
+            {"agent_id": p["agent_id"], "did": p["did"],
+             "issued_at": p["issued_at"], "owner": p["owner"],
+             "issuer": "https://verisigilai.com"},
+            p.get("signature", ""))
+        is_active   = p.get("status") == "ACTIVE"
+        not_expired = datetime.utcnow() < datetime.fromisoformat(p["expires_at"])
 
-    # Check for duplicate verification from same verifier
-    existing_events = p.get("audit_events") or []
-    recent_verifier_ids = [
-        e.get("event_data", {}).get("verifier_id")
-        for e in existing_events[-10:]
-        if e.get("event") == "VERIFIED"
-    ]
-    is_duplicate = verifier_id in recent_verifier_ids
+        # Get verifier — safe fallback
+        try:
+            verifier = await get_verifier(x_api_key)
+        except Exception:
+            verifier = {"id": "ver_public", "type": "public", "reputation": 0.3}
 
-    # Increment count and compute unique verifiers
-    new_count = (p.get("verification_count") or 0) + 1
-    all_verifier_ids = [
-        e.get("event_data", {}).get("verifier_id")
-        for e in existing_events
-        if e.get("event") == "VERIFIED"
-    ] + [verifier_id]
-    unique_verifier_count = len(set(v for v in all_verifier_ids if v))
+        verifier_id  = verifier.get("id", "ver_public")
+        verifier_rep = float(verifier.get("reputation", 0.3))
 
-    # Recalculate trust score
-    new_score = calculate_trust_score(
-        p["issued_at"], new_count,
-        p.get("high_threats", 0),
-        p.get("medium_threats", 0),
-        unique_verifiers=unique_verifier_count,
-        avg_verifier_reputation=verifier_rep,
-    )
+        # Compute unique verifiers from audit log
+        existing_events = p.get("audit_events") or []
+        all_verifier_ids = [
+            e.get("event_data", {}).get("verifier_id")
+            for e in existing_events
+            if e.get("event") == "VERIFIED"
+        ] + [verifier_id]
+        unique_verifier_count = len(set(v for v in all_verifier_ids if v))
 
-    # Only update if not duplicate from same verifier
-    if not is_duplicate:
-        await db_patch("passports", "agent_id", agent_id, {
-            "verification_count": new_count,
+        # Check duplicate
+        recent_ids = [
+            e.get("event_data", {}).get("verifier_id")
+            for e in existing_events[-5:]
+            if e.get("event") == "VERIFIED"
+        ]
+        is_duplicate = verifier_id in recent_ids
+
+        # New count and score
+        new_count = (p.get("verification_count") or 0) + 1
+        new_score = calculate_trust_score(
+            p["issued_at"], new_count,
+            p.get("high_threats") or 0,
+            p.get("medium_threats") or 0,
+            unique_verifiers=unique_verifier_count,
+            avg_verifier_reputation=verifier_rep,
+        )
+
+        # Update DB — non-blocking
+        if not is_duplicate:
+            try:
+                await db_patch("passports", "agent_id", agent_id, {
+                    "verification_count": new_count,
+                    "trust_score":        new_score,
+                })
+            except Exception as e:
+                print(f"[VERIFY PATCH ERROR] {e}")
+
+        # Log event — non-blocking
+        try:
+            await log_event(agent_id, "VERIFIED", {
+                "method":              "GET /verify",
+                "verifier_id":         verifier_id,
+                "verifier_type":       verifier.get("type", "public"),
+                "verifier_reputation": verifier_rep,
+                "verification_count":  new_count,
+                "unique_verifiers":    unique_verifier_count,
+                "trust_score":         new_score,
+                "trust_level":         trust_level(new_score),
+                "duplicate":           is_duplicate,
+            })
+        except Exception as e:
+            print(f"[VERIFY LOG ERROR] {e}")
+
+        return {
+            "valid":              sig_valid and is_active and not_expired,
+            "verified":           sig_valid,
+            "agent_id":           agent_id,
+            "did":                p.get("did"),
+            "status":             p.get("status"),
             "trust_score":        new_score,
-        })
-        if verifier and verifier_id != "ver_public":
-            await update_verifier_reputation(verifier_id, "verify")
+            "trust_level":        trust_level(new_score),
+            "verification_count": new_count,
+            "unique_verifiers":   unique_verifier_count,
+            "signature_valid":    sig_valid,
+            "signature_type":     "Ed25519",
+            "public_key":         PUBLIC_KEY_B64,
+            "issuer":             "verisigilai.com",
+            "issued_at":          p.get("issued_at"),
+            "expires_at":         p.get("expires_at"),
+            "compliant":          p.get("compliant"),
+            "eu_ai_act":          p.get("eu_ai_act"),
+        }
 
-    await log_event(agent_id, "VERIFIED", {
-        "method":              "GET /verify",
-        "verifier_id":         verifier_id,
-        "verifier_type":       verifier.get("type", "public") if verifier else "public",
-        "verifier_reputation": verifier_rep,
-        "verification_count":  new_count,
-        "unique_verifiers":    unique_verifier_count,
-        "trust_score":         new_score,
-        "trust_level":         trust_level(new_score),
-        "duplicate":           is_duplicate,
-    })
-
-    return {
-        "valid":              sig_valid and is_active and not_expired,
-        "verified":           sig_valid,
-        "agent_id":           agent_id,
-        "did":                p.get("did"),
-        "status":             p.get("status"),
-        "trust_score":        new_score,
-        "trust_level":        trust_level(new_score),
-        "verification_count": new_count,
-        "signature_valid":    sig_valid,
-        "signature_type":     "Ed25519",
-        "public_key":         PUBLIC_KEY_B64,
-        "issuer":             "verisigilai.com",
-        "issued_at":          p.get("issued_at"),
-        "expires_at":         p.get("expires_at"),
-        "compliant":          p.get("compliant"),
-        "eu_ai_act":          p.get("eu_ai_act"),
-    }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[VERIFY ERROR] agent={agent_id} error={e}")
+        raise HTTPException(500, f"Verification error: {str(e)}")
 
 @app.get("/did/{agent_id}")
 async def did_resolution(agent_id: str):
