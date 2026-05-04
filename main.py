@@ -21,7 +21,10 @@ SIGN_SECRET  = os.environ.get("SIGN_SECRET", "verisigil-secret-2026")
 API_KEY      = os.environ.get("VERISIGIL_API_KEY")
 
 if not SUPABASE_URL or not SUPABASE_KEY:
-    raise Exception("SUPABASE_URL and SUPABASE_KEY must be set in environment variables")
+    print("WARNING: SUPABASE_URL or SUPABASE_KEY not set — database writes will fail")
+if not API_KEY:
+    print("WARNING: VERISIGIL_API_KEY not set — using default key")
+    API_KEY = "verisigil-secret-2026"
 
 if not API_KEY:
     API_KEY = "verisigil-secret-2026"
