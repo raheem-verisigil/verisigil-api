@@ -327,15 +327,23 @@ async def root():
 
 @app.get("/health")
 async def health():
-    return {"status": "healthy", "timestamp": datetime.utcnow().isoformat(), "version": "0.4.2"}
+    return {"status": "healthy", "timestamp": datetime.utcnow().isoformat(), "version": "0.4.3"}
 
 @app.get("/issue-test")
 async def issue_test():
     """Test endpoint — issues a real stored passport. No auth. For testing only."""
     p = make_passport("verisigil-test-agent", "raheem@verisigilai.com",
                       "langchain", "python", "1.0.0", ["test"], 365)
+    db_record = {k: p[k] for k in [
+        "agent_id","agent_name","did","public_key","signature",
+        "signature_type","owner","issuer","status","trust_score",
+        "eu_risk_class","compliant","framework","runtime","version",
+        "tags","display_name","issuer_org","verification_tier",
+        "tier_label","issued_at","expires_at","eu_ai_act","gdpr","hipaa","soc2"
+    ] if k in p}
+    db_record["is_protected_name"] = p.get("is_protected", False)
     try:
-        await db_insert("passports", p)
+        await db_insert("passports", db_record)
         p["stored"] = True
     except Exception as e:
         p["stored"] = False
@@ -366,12 +374,47 @@ async def issue(req: IssueReq, x_api_key: Optional[str] = Header(None)):
         display_name=req.display_name,
         issuer_org=req.issuer_org
     )
+    # Strip fields that don't exist in Supabase — only insert DB columns
+    db_record = {
+        "agent_id":          p["agent_id"],
+        "agent_name":        p["agent_name"],
+        "did":               p["did"],
+        "public_key":        p["public_key"],
+        "signature":         p["signature"],
+        "signature_type":    p["signature_type"],
+        "owner":             p["owner"],
+        "issuer":            p["issuer"],
+        "status":            p["status"],
+        "trust_score":       p["trust_score"],
+        "eu_risk_class":     p["eu_risk_class"],
+        "compliant":         p["compliant"],
+        "framework":         p["framework"],
+        "runtime":           p["runtime"],
+        "version":           p["version"],
+        "tags":              p["tags"],
+        "display_name":      p["display_name"],
+        "issuer_org":        p["issuer_org"],
+        "verification_tier": p["verification_tier"],
+        "tier_label":        p["tier_label"],
+        "is_protected_name": p["is_protected"],
+        "issued_at":         p["issued_at"],
+        "expires_at":        p["expires_at"],
+        "eu_ai_act":         p["eu_ai_act"],
+        "gdpr":              p["gdpr"],
+        "hipaa":             p["hipaa"],
+        "soc2":              p["soc2"],
+    }
     try:
-        await db_insert("passports", p)
-        p["stored"] = True
+        result = await db_insert("passports", db_record)
+        # Check Supabase didn't return an error object
+        if isinstance(result, dict) and result.get("code"):
+            p["stored"]   = False
+            p["db_error"] = result.get("message", "DB insert rejected")
+        else:
+            p["stored"] = True
     except Exception as e:
-        p["stored"]  = False
-        p["warning"] = str(e)
+        p["stored"]   = False
+        p["db_error"] = str(e)
     return {"success": True, "passport": p}
 
 @app.get("/v1/passport/{agent_id}/audit")
