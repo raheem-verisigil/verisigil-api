@@ -15,10 +15,11 @@ import httpx
 from nacl.signing import SigningKey
 
 # ── Environment config ────────────────────────────────────
-SUPABASE_URL = os.environ.get("SUPABASE_URL")
-SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
-SIGN_SECRET  = os.environ.get("SIGN_SECRET", "verisigil-secret-2026")
-API_KEY      = os.environ.get("VERISIGIL_API_KEY")
+SUPABASE_URL         = os.environ.get("SUPABASE_URL")
+SUPABASE_KEY         = os.environ.get("SUPABASE_KEY")
+SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", os.environ.get("SUPABASE_KEY"))
+SIGN_SECRET          = os.environ.get("SIGN_SECRET", "verisigil-secret-2026")
+API_KEY              = os.environ.get("VERISIGIL_API_KEY")
 
 if not SUPABASE_URL or not SUPABASE_KEY:
     raise Exception("SUPABASE_URL and SUPABASE_KEY must be set in environment variables")
@@ -64,10 +65,11 @@ def require_api_key(x_api_key: Optional[str]):
         raise HTTPException(401, "Invalid or missing API key. Pass your key in the x-api-key header.")
 
 # ── DB helpers ────────────────────────────────────────────
-def get_headers():
+def get_headers(write=False):
+    key = SUPABASE_SERVICE_KEY if write else SUPABASE_KEY
     return {
-        "apikey": SUPABASE_KEY,
-        "Authorization": f"Bearer {SUPABASE_KEY}",
+        "apikey": key,
+        "Authorization": f"Bearer {key}",
         "Content-Type": "application/json",
         "Prefer": "return=representation",
     }
@@ -75,23 +77,24 @@ def get_headers():
 async def db_insert(table, data):
     async with httpx.AsyncClient() as c:
         r = await c.post(f"{SUPABASE_URL}/rest/v1/{table}",
-                         headers=get_headers(), json=data, timeout=10)
+                         headers=get_headers(write=True), json=data, timeout=10)
         if r.status_code >= 400:
             print(f"[DB INSERT ERROR] table={table} status={r.status_code} response={r.text[:200]}")
+            return {"code": r.status_code, "message": r.text[:200]}
         result = r.json()
         return result[0] if isinstance(result, list) and result else data
 
 async def db_get(table, field, value):
     async with httpx.AsyncClient() as c:
         r = await c.get(f"{SUPABASE_URL}/rest/v1/{table}?{field}=eq.{value}",
-                        headers=get_headers(), timeout=10)
+                        headers=get_headers(write=False), timeout=10)
         result = r.json()
         return result[0] if isinstance(result, list) and result else None
 
 async def db_patch(table, field, value, data):
     async with httpx.AsyncClient() as c:
         r = await c.patch(f"{SUPABASE_URL}/rest/v1/{table}?{field}=eq.{value}",
-                          headers=get_headers(), json=data, timeout=10)
+                          headers=get_headers(write=True), json=data, timeout=10)
         if r.status_code >= 400:
             print(f"[DB PATCH ERROR] table={table} status={r.status_code} response={r.text[:200]}")
         result = r.json()
@@ -327,7 +330,7 @@ async def root():
 
 @app.get("/health")
 async def health():
-    return {"status": "healthy", "timestamp": datetime.utcnow().isoformat(), "version": "0.4.3"}
+    return {"status": "healthy", "timestamp": datetime.utcnow().isoformat(), "version": "0.4.4"}
 
 @app.get("/issue-test")
 async def issue_test():
