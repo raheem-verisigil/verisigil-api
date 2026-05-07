@@ -750,3 +750,143 @@ async def compliance(req: ComplianceReq, x_api_key: Optional[str] = Header(None)
     return {"agent_id": req.agent_id,
             "checked_at": datetime.utcnow().isoformat(),
             "regulations": result}
+    # ─────────────────────────────────────────────────────────
+# VeriSigil v0.4.5 — POST /v1/action/evaluate
+# ─────────────────────────────────────────────────────────
+
+class ActionEvaluateRequest(BaseModel):
+    agent_id:    str
+    action_type: str
+    risk_level:  str  # "low", "medium", or "critical"
+    context:     Optional[str] = "production"
+
+class ActionEvaluateResponse(BaseModel):
+    decision:                     str
+    decision_confidence:          float
+    reason:                       str
+    trust_score:                  float
+    shadow_detected:              bool
+    eu_risk_class:                str
+    article_14_oversight_required: bool
+    suggested_policy:             str
+    evaluation_id:                str
+    evaluated_at:                 str
+
+def compute_action_decision(trust_score, shadow_detected, eu_risk_class, risk_level, action_type, context):
+    article_14_required = eu_risk_class == "HIGH_RISK"
+    reason_parts = []
+    confidence   = 0.95
+    base_decision = None
+
+    if shadow_detected:
+        return {"decision": "BLOCK", "decision_confidence": 0.99,
+                "reason": "Shadow agent detected — identity cannot be verified",
+                "article_14_oversight_required": article_14_required,
+                "suggested_policy": "block_and_alert"}
+
+    if trust_score < 0.6:
+        return {"decision": "BLOCK", "decision_confidence": 0.97,
+                "reason": f"Trust score {trust_score:.2f} is below minimum threshold of 0.60",
+                "article_14_oversight_required": article_14_required,
+                "suggested_policy": "block_and_review"}
+
+    if trust_score <= 0.85:
+        reason_parts.append(f"Trust score {trust_score:.2f} in provisional range (0.60–0.85)")
+        base_decision = "REQUIRE_HUMAN_APPROVAL"
+        confidence    = 0.91
+    else:
+        if risk_level == "critical":
+            base_decision = "REQUIRE_HUMAN_APPROVAL"
+            reason_parts.append(f"Critical action in {context} context")
+            confidence = 0.94
+        elif risk_level == "medium":
+            base_decision = "ALLOW_WITH_LOG"
+            reason_parts.append("Medium-risk action — audit trail required")
+            confidence = 0.92
+        else:
+            base_decision = "AUTO_ALLOW"
+            reason_parts.append("Low-risk action with verified identity")
+            confidence = 0.96
+
+    escalation_map = {
+        "AUTO_ALLOW":             "ALLOW_WITH_LOG",
+        "ALLOW_WITH_LOG":         "REQUIRE_HUMAN_APPROVAL",
+        "REQUIRE_HUMAN_APPROVAL": "REQUIRE_HUMAN_APPROVAL",
+        "BLOCK":                  "BLOCK",
+    }
+
+    final_decision = base_decision
+    if eu_risk_class == "HIGH_RISK":
+        escalated = escalation_map[base_decision]
+        if escalated != base_decision:
+            reason_parts.append("EU AI Act HIGH_RISK classification — escalated one level")
+            confidence = max(0.88, confidence - 0.04)
+        final_decision = escalated
+
+    if article_14_required and final_decision == "AUTO_ALLOW":
+        final_decision = "ALLOW_WITH_LOG"
+
+    policy_map = {
+        "AUTO_ALLOW":             "auto_allow",
+        "ALLOW_WITH_LOG":         "allow_with_audit_log",
+        "REQUIRE_HUMAN_APPROVAL": "require_human_approval",
+        "BLOCK":                  "block_and_alert",
+    }
+
+    return {
+        "decision":                     final_decision,
+        "decision_confidence":          round(confidence, 2),
+        "reason":                       " | ".join(reason_parts) + f" | Action: {action_type}",
+        "article_14_oversight_required": article_14_required,
+        "suggested_policy":             policy_map[final_decision],
+    }
+
+
+@app.post("/v1/action/evaluate", tags=["Action Evaluation"])
+async def evaluate_action(req: ActionEvaluateRequest, x_api_key: Optional[str] = Header(None)):
+    """
+    Should this agent be allowed to do this action?
+    Returns: AUTO_ALLOW, ALLOW_WITH_LOG, REQUIRE_HUMAN_APPROVAL, or BLOCK.
+    Requires x-api-key header.
+    """
+    require_api_key(x_api_key)
+
+    p = await db_get("passports", "agent_id", req.agent_id)
+    if not p:
+        raise HTTPException(status_code=404, detail=f"Agent '{req.agent_id}' not found in VeriSigil registry.")
+
+    shadow_detected = p.get("status") == "REVOKED"
+    eu_risk_class   = p.get("eu_risk_class", "LIMITED_RISK")
+    trust_score     = float(p.get("trust_score", 0.97))
+
+    result = compute_action_decision(
+        trust_score     = trust_score,
+        shadow_detected = shadow_detected,
+        eu_risk_class   = eu_risk_class,
+        risk_level      = req.risk_level,
+        action_type     = req.action_type,
+        context         = req.context or "production",
+    )
+
+    await log_event(req.agent_id, "ACTION_EVALUATED", {
+        "action_type":  req.action_type,
+        "risk_level":   req.risk_level,
+        "context":      req.context,
+        "decision":     result["decision"],
+        "trust_score":  trust_score,
+        "eu_risk_class": eu_risk_class,
+    })
+
+    return ActionEvaluateResponse(
+        decision                     = result["decision"],
+        decision_confidence          = result["decision_confidence"],
+        reason                       = result["reason"],
+        trust_score                  = trust_score,
+        shadow_detected              = shadow_detected,
+        eu_risk_class                = eu_risk_class,
+        article_14_oversight_required = result["article_14_oversight_required"],
+        suggested_policy             = result["suggested_policy"],
+        evaluation_id                = f"eval_{uuid.uuid4().hex[:8]}",
+        evaluated_at                 = datetime.utcnow().isoformat() + "Z",
+    )
+    
