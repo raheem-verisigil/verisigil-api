@@ -1,6 +1,7 @@
 """
-VeriSigil AI — API Server v0.4.6
+VeriSigil AI — API Server v0.4.7
 New: POST /v1/verifier/register — Email capture for verifiers
+New: Geographic tracking via Cloudflare CF-IPCountry header
 """
 import base64, hashlib, math, os, uuid, json
 from time import time
@@ -49,7 +50,7 @@ def check_rate_limit(client_ip: str) -> bool:
 app = FastAPI(
     title="VeriSigil AI API",
     description="The cryptographic identity and security layer for autonomous AI agents.",
-    version="0.4.6",
+    version="0.4.7",
     docs_url="/docs",
 )
 
@@ -188,9 +189,38 @@ async def log_event(agent_id: str, event: str, event_data: dict = {}):
     except Exception as e:
         print(f"[AUDIT ERROR] agent={agent_id} event={event} error={e}")
 
+# ── Geography helper ──────────────────────────────────────
+def get_geo_from_request(req: Request) -> dict:
+    country = (
+        req.headers.get('cf-ipcountry') or 
+        req.headers.get('CF-IPCountry') or 
+        'Unknown'
+    )
+    REGION_MAP = {
+        'NL': 'EU', 'DE': 'EU', 'FR': 'EU', 'ES': 'EU', 'IT': 'EU',
+        'BE': 'EU', 'AT': 'EU', 'PL': 'EU', 'SE': 'EU', 'DK': 'EU',
+        'FI': 'EU', 'IE': 'EU', 'PT': 'EU', 'CZ': 'EU', 'HU': 'EU',
+        'GR': 'EU', 'SK': 'EU', 'SI': 'EU', 'LU': 'EU', 'LT': 'EU',
+        'LV': 'EU', 'EE': 'EU', 'CY': 'EU', 'MT': 'EU', 'BG': 'EU',
+        'HR': 'EU', 'RO': 'EU',
+        'IS': 'EU', 'LI': 'EU', 'NO': 'EU', 'CH': 'EU',
+        'US': 'NA', 'CA': 'NA', 'MX': 'NA',
+        'SG': 'APAC', 'JP': 'APAC', 'KR': 'APAC', 'IN': 'APAC', 
+        'AU': 'APAC', 'NZ': 'APAC', 'TH': 'APAC', 'VN': 'APAC',
+        'MY': 'APAC', 'ID': 'APAC', 'PH': 'APAC', 'TW': 'APAC',
+        'HK': 'APAC',
+        'NG': 'Africa', 'ZA': 'Africa', 'KE': 'Africa', 'GH': 'Africa',
+        'EG': 'Africa', 'MA': 'Africa', 'ET': 'Africa', 'UG': 'Africa',
+        'AE': 'ME', 'SA': 'ME', 'QA': 'ME', 'KW': 'ME', 'BH': 'ME',
+        'OM': 'ME', 'JO': 'ME', 'IL': 'ME',
+        'GB': 'UK', 'UK': 'UK'
+    }
+    region = REGION_MAP.get(country, 'Other')
+    return {"country": country, "region": region}
+
 # ── Passport generator ────────────────────────────────────
 def make_passport(agent_name, owner, framework, runtime, version, tags, expiry_days,
-                  display_name=None, issuer_org=None):
+                  display_name=None, issuer_org=None, country='Unknown', region='Unknown'):
     _id       = f"vsa_{uuid.uuid4().hex[:12]}"
     slug      = agent_name.lower().replace(" ", "-")
     did       = f"did:web:verisigilai.com:agents:{slug}-{_id[-6:]}"
@@ -239,6 +269,8 @@ def make_passport(agent_name, owner, framework, runtime, version, tags, expiry_d
         "certificate_id":  f"cert_{uuid.uuid4().hex[:16]}",
         "issued_by":       "VeriSigil AI",
         "audit_events":    [issued_event],
+        "country":         country,
+        "region":          region,
     }
 
 # ── Models ────────────────────────────────────────────────
@@ -293,7 +325,7 @@ class ComplianceReq(BaseModel):
 async def root():
     return {
         "name":           "VeriSigil AI API",
-        "version":        "0.4.6",
+        "version":        "0.4.7",
         "status":         "live",
         "description":    "Cryptographic identity and security for autonomous AI agents.",
         "website":        "https://www.verisigilai.com",
@@ -318,18 +350,23 @@ async def root():
 
 @app.get("/health")
 async def health():
-    return {"status": "healthy", "timestamp": datetime.utcnow().isoformat(), "version": "0.4.6"}
+    return {"status": "healthy", "timestamp": datetime.utcnow().isoformat(), "version": "0.4.7"}
 
 @app.get("/issue-test")
-async def issue_test():
-    p = make_passport("verisigil-test-agent", "raheem@verisigilai.com",
-                      "langchain", "python", "1.0.0", ["test"], 365)
+async def issue_test(req: Request):
+    geo = get_geo_from_request(req)
+    p = make_passport(
+        "verisigil-test-agent", "raheem@verisigilai.com",
+        "langchain", "python", "1.0.0", ["test"], 365,
+        country=geo["country"], region=geo["region"]
+    )
     db_record = {k: p[k] for k in [
         "agent_id","agent_name","did","public_key","signature",
         "signature_type","owner","issuer","status","trust_score",
         "eu_risk_class","compliant","framework","runtime","version",
         "tags","display_name","issuer_org","verification_tier",
-        "tier_label","issued_at","expires_at","eu_ai_act","gdpr","hipaa","soc2"
+        "tier_label","issued_at","expires_at","eu_ai_act","gdpr","hipaa","soc2",
+        "country","region"
     ] if k in p}
     db_record["is_protected_name"] = p.get("is_protected", False)
     try:
@@ -338,11 +375,16 @@ async def issue_test():
     except Exception as e:
         p["stored"] = False
         p["error"]  = str(e)
-    return {"success": True, "passport": p}
+    return {"success": True, "passport": p, "geography": geo}
 
 @app.post("/v1/passport/issue")
-async def issue(req: IssueReq, x_api_key: Optional[str] = Header(None)):
+async def issue(req: IssueReq, request: Request, x_api_key: Optional[str] = Header(None)):
     require_api_key(x_api_key)
+    
+    # Capture geography from Cloudflare
+    geo = get_geo_from_request(request)
+    print(f"[GEO] Passport issue from: {geo['country']} / {geo['region']} | IP: {request.client.host if request.client else 'unknown'}")
+    
     check_name = (req.display_name or req.agent_name).lower().strip()
     if check_name in PROTECTED_NAMES:
         raise HTTPException(
@@ -358,7 +400,9 @@ async def issue(req: IssueReq, x_api_key: Optional[str] = Header(None)):
         req.agent_name, req.owner, req.framework,
         req.runtime, req.version, req.tags, req.expiry_days,
         display_name=req.display_name,
-        issuer_org=req.issuer_org
+        issuer_org=req.issuer_org,
+        country=geo["country"],
+        region=geo["region"]
     )
     db_record = {
         "agent_id":          p["agent_id"],
@@ -388,6 +432,8 @@ async def issue(req: IssueReq, x_api_key: Optional[str] = Header(None)):
         "gdpr":              p["gdpr"],
         "hipaa":             p["hipaa"],
         "soc2":              p["soc2"],
+        "country":           p["country"],
+        "region":            p["region"],
     }
     try:
         result = await db_insert("passports", db_record)
@@ -399,7 +445,16 @@ async def issue(req: IssueReq, x_api_key: Optional[str] = Header(None)):
     except Exception as e:
         p["stored"]   = False
         p["db_error"] = str(e)
-    return {"success": True, "passport": p}
+    
+    return {
+        "success": True,
+        "passport": p,
+        "geography": {
+            "country": geo["country"],
+            "region": geo["region"],
+            "message": f"Agent registered from {geo['country']}" if geo['country'] != 'Unknown' else "Enable Cloudflare IP Geolocation for country tracking"
+        }
+    }
 
 @app.get("/v1/passport/{agent_id}/audit")
 async def get_audit(agent_id: str):
