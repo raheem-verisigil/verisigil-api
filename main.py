@@ -1,13 +1,15 @@
 # -*- coding: utf-8 -*-
 """
-VeriSigil AI - API Server v0.5.0
+VeriSigil AI - API Server v0.5.1
 Complete integrated main.py - all endpoints in one file.
+Fix: time import conflict in Runtime Guard resolved.
 """
 
-import base64, hashlib, math, os, uuid, json
+import base64, hashlib, math, os, uuid, json, re, time as time_module
 from time import time
 from datetime import datetime, timedelta
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
+from enum import Enum
 
 from fastapi import FastAPI, HTTPException, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -56,7 +58,7 @@ def check_rate_limit(client_ip: str) -> bool:
 app = FastAPI(
     title="VeriSigil AI API",
     description="The cryptographic identity and security layer for autonomous AI agents.",
-    version="0.5.0",
+    version="0.5.1",
     docs_url="/docs",
 )
 
@@ -168,7 +170,6 @@ def calculate_trust_score(issued_at: str, verification_count: int,
         days = max(0, (datetime.utcnow() - datetime.fromisoformat(issued_at)).days)
     except Exception:
         days = 0
-
     score  = 0.97
     score -= 0.001 * days
     score -= 0.15  * (high_threats or 0)
@@ -239,7 +240,7 @@ PROTECTED_NAMES = {
     "gemini","copilot","llama","perplexity","mistral"
 }
 
-TIER_LABELS      = {0:"Self-Declared",1:"Domain-Verified",2:"Org-Verified",3:"Certified"}
+TIER_LABELS       = {0:"Self-Declared",1:"Domain-Verified",2:"Org-Verified",3:"Certified"}
 TIER_BADGE_COLORS = {0:"#888888",1:"#4FC3F7",2:"#00D4F5",3:"#FFD700"}
 
 def make_passport(agent_name, owner, framework, runtime, version, tags, expiry_days,
@@ -350,8 +351,6 @@ class RegisterVerifierReq(BaseModel):
     website: Optional[str] = None
     type:    Optional[str] = "developer"
 
-# -- New v0.4.7 models ----------------------------------------
-
 class WaitlistSignup(BaseModel):
     email:    str
     name:     Optional[str] = None
@@ -361,10 +360,10 @@ class WaitlistSignup(BaseModel):
     source:   Optional[str] = "homepage"
 
 class SigilGuardEvent(BaseModel):
-    agent_id:       str                        # FIXED: Changed from int to str to match passport IDs
-    module:         str                        # driftguard | hallucination_shield | cross_modal_sync | edgeguard
-    severity:       Optional[str] = "medium"  # low | medium | high | critical
-    event_type:     str                        # drift_detected | hallucination_intercepted | modal_mismatch | edge_policy_violation
+    agent_id:       str
+    module:         str
+    severity:       Optional[str] = "medium"
+    event_type:     str
     description:    Optional[str] = None
     score_before:   Optional[float] = None
     score_after:    Optional[float] = None
@@ -375,44 +374,65 @@ class SigilGuardEvent(BaseModel):
 
 class PublicScanRequest(BaseModel):
     agent_config_raw: str
-    agent_id:         Optional[str] = None    # FIXED: Changed from int to str
+    agent_id:         Optional[str] = None
 
-# -- v0.5.0 Runtime Guard Models ------------------------------
-
-from enum import Enum
+# ── Runtime Guard Models ──────────────────────────────────────
 
 class Decision(str, Enum):
-    ALLOW = "ALLOW"
-    DENY = "DENY"
+    ALLOW                  = "ALLOW"
+    DENY                   = "DENY"
     REQUIRE_HUMAN_APPROVAL = "REQUIRE_HUMAN_APPROVAL"
 
 class ExecutionRequest(BaseModel):
-    agent_id: str
-    action_type: str  # "api_call", "payment", "data_access", "tool_use"
+    agent_id:       str
+    action_type:    str
     action_details: dict = {}
-    resource: str
-    context: str = "production"
+    resource:       str
+    context:        str = "production"
 
 class ExecutionResponse(BaseModel):
-    decision: Decision
-    confidence: float
-    reason: str
-    agent_id: str
-    trust_score: float
-    trust_level: str
+    decision:      Decision
+    confidence:    float
+    reason:        str
+    agent_id:      str
+    trust_score:   float
+    trust_level:   str
     policy_applied: str
-    execution_id: str
-    timestamp: str
-    audit_log_id: str
-    latency_ms: float
+    execution_id:  str
+    timestamp:     str
+    audit_log_id:  str
+    latency_ms:    float
+
+# ── Operational Gateway Models ────────────────────────────────
+
+class GateDecision(str, Enum):
+    ALLOW                  = "ALLOW"
+    DENY                   = "DENY"
+    REQUIRE_HUMAN_APPROVAL = "REQUIRE_HUMAN_APPROVAL"
+
+class VerifyRequest(BaseModel):
+    agent_id:     str
+    action_type:  str
+    action_detail: str
+    policy_mode:  str = "standard"
+    context:      Optional[Dict[str, Any]] = {}
+
+class VerifyResponse(BaseModel):
+    decision:         GateDecision
+    gates:            Dict[str, bool]
+    trust_score:      float
+    latency_ms:       float
+    audit_id:         str
+    eu_act_compliant: bool
+    reason:           Optional[str] = None
 
 # ============================================================
-# HELPERS - Action Evaluation
+# HELPERS — Action Evaluation
 # ============================================================
 def compute_action_decision(trust_score, shadow_detected, eu_risk_class, risk_level, action_type, context):
     article_14_required = eu_risk_class == "HIGH_RISK"
-    reason_parts = []
-    confidence   = 0.95
+    reason_parts  = []
+    confidence    = 0.95
     base_decision = None
 
     if shadow_detected:
@@ -479,17 +499,22 @@ def compute_action_decision(trust_score, shadow_detected, eu_risk_class, risk_le
     }
 
 # ============================================================
-# HELPERS - Runtime Guard
+# HELPERS — Runtime Guard
 # ============================================================
 
 POLICY_RULES = {
-    "payment": {"max_amount_usd": 1000, "require_human_if_high_risk": True},
+    "payment":     {"max_amount_usd": 1000, "require_human_if_high_risk": True},
     "data_access": {"require_audit": True, "block_pii_if_not_gdpr": True},
-    "tool_use": {"blocked_tools": ["exec", "eval", "shell", "file_delete"]},
+    "tool_use":    {"blocked_tools": ["exec", "eval", "shell", "file_delete"]},
+}
+
+POLICY_THRESHOLDS = {
+    "strict":     {"min_trust_score": 0.90, "max_amount_usd": 1000,   "require_human_for": ["transfer","delete","deploy"]},
+    "standard":   {"min_trust_score": 0.75, "max_amount_usd": 10000,  "require_human_for": ["transfer"]},
+    "permissive": {"min_trust_score": 0.60, "max_amount_usd": 100000, "require_human_for": []},
 }
 
 async def check_shadow_status(agent_id: str) -> bool:
-    """Check if this agent has known clones."""
     passport = await db_get("passports", "agent_id", agent_id)
     if not passport:
         return False
@@ -502,20 +527,31 @@ async def check_shadow_status(agent_id: str) -> bool:
         collisions = r.json() if r.status_code == 200 else []
     return len(collisions) > 0
 
-def _deny_response(agent_id: str, reason: str, start_time: float) -> ExecutionResponse:
+def _deny_exec_response(agent_id: str, reason: str, start_time: float) -> ExecutionResponse:
     return ExecutionResponse(
         decision=Decision.DENY, confidence=0.99, reason=reason,
         agent_id=agent_id, trust_score=0.0, trust_level="UNKNOWN",
         policy_applied="identity_verification",
         execution_id=f"exec_{uuid.uuid4().hex[:8]}",
         timestamp=datetime.utcnow().isoformat(),
-        audit_log_id="none", latency_ms=round((time.time() - start_time) * 1000, 2)
+        audit_log_id="none",
+        latency_ms=round((time_module.time() - start_time) * 1000, 2)
+    )
+
+def _deny_gate_response(agent_id: str, reason: str, gates: dict, start_time: float) -> VerifyResponse:
+    return VerifyResponse(
+        decision=GateDecision.DENY,
+        gates=gates,
+        trust_score=0.0,
+        latency_ms=round((time_module.time() - start_time) * 1000, 2),
+        audit_id=f"evt_{uuid.uuid4().hex[:8]}",
+        eu_act_compliant=True,
+        reason=reason
     )
 
 def _evaluate_decision(sig_valid, is_revoked, is_expired, shadow_detected,
                        trust_score, action_type, action_details, policy) -> tuple:
     reasons = []
-    
     if not sig_valid:
         return Decision.DENY, 0.99, ["Invalid cryptographic signature — possible forgery"]
     if is_revoked:
@@ -528,41 +564,35 @@ def _evaluate_decision(sig_valid, is_revoked, is_expired, shadow_detected,
         return Decision.DENY, 0.97, [f"Trust score {trust_score:.2f} below minimum threshold (0.60)"]
     if trust_score < 0.85:
         return Decision.REQUIRE_HUMAN_APPROVAL, 0.91, [f"Trust score {trust_score:.2f} in provisional range — human oversight required"]
-    
-    # Action-specific policies
+
     if action_type == "payment":
         amount = action_details.get("amount_usd", 0)
         if amount > policy.get("max_amount_usd", 1000):
             return Decision.REQUIRE_HUMAN_APPROVAL, 0.94, [f"Payment ${amount} exceeds auto-allow threshold"]
-    
+
     if action_type == "tool_use":
         tool = action_details.get("tool_name", "")
         if tool in policy.get("blocked_tools", []):
             return Decision.DENY, 0.96, [f"Tool '{tool}' is blocked for this agent"]
-    
+
     if action_type == "data_access":
         if action_details.get("contains_pii", False) and not policy.get("gdpr_allowed", False):
             return Decision.DENY, 0.95, ["PII access requires GDPR-certified agent"]
-    
+
     reasons.append(f"Trust score {trust_score:.2f} sufficient for {action_type}")
     if policy.get("require_audit", False):
         reasons.append("Audit trail required — logged")
-    
     return Decision.ALLOW, 0.95, reasons
 
 # ============================================================
-# -- ROUTES --------------------------------------------------
+# ROUTES
 # ============================================================
-
-# -------------------------------------------------------------
-# ROOT & HEALTH
-# -------------------------------------------------------------
 
 @app.get("/")
 async def root():
     return {
         "name":           "VeriSigil AI API",
-        "version":        "0.5.0",
+        "version":        "0.5.1",
         "status":         "live",
         "description":    "Cryptographic identity and security for autonomous AI agents.",
         "website":        "https://www.verisigilai.com",
@@ -571,37 +601,34 @@ async def root():
         "signature_type": "Ed25519",
         "auth":           "Pass your API key in the x-api-key header for protected endpoints.",
         "endpoints": {
-            "issue":             "POST /v1/passport/issue        [requires x-api-key]",
-            "get":               "GET  /v1/passport/{agent_id}   [public]",
+            "issue":             "POST /v1/passport/issue            [requires x-api-key]",
+            "get":               "GET  /v1/passport/{agent_id}       [public]",
             "profile":           "GET  /v1/passport/{agent_id}/profile [public]",
-            "audit":             "GET  /v1/passport/{agent_id}/audit   [public]",
-            "verify":            "GET  /verify/{agent_id}              [public]",
-            "did":               "GET  /did/{agent_id}                 [public]",
-            "revoke":            "POST /v1/passport/revoke             [requires x-api-key]",
-            "scan_secure":       "POST /v1/security/scan               [requires x-api-key]",
-            "scan_public":       "POST /v1/scan                        [public]",
-            "compliance":        "POST /v1/compliance/check            [requires x-api-key]",
-            "action_evaluate":   "POST /v1/action/evaluate             [requires x-api-key]",
-            "verifier_register": "POST /v1/verifier/register           [public]",
-            "verifier_list":     "GET  /v1/verifiers                   [requires x-api-key]",
-            "trust_graph":       "GET  /v1/trust/{agent_id}/graph      [public]",
-            "waitlist":          "POST /v1/waitlist                    [public]",
-            "sigilguard_event":  "POST /v1/sigilguard/event            [requires x-api-key]",
+            "audit":             "GET  /v1/passport/{agent_id}/audit  [public]",
+            "verify":            "GET  /verify/{agent_id}             [public]",
+            "did":               "GET  /did/{agent_id}                [public]",
+            "revoke":            "POST /v1/passport/revoke            [requires x-api-key]",
+            "scan_secure":       "POST /v1/security/scan              [requires x-api-key]",
+            "scan_public":       "POST /v1/scan                       [public]",
+            "compliance":        "POST /v1/compliance/check           [requires x-api-key]",
+            "action_evaluate":   "POST /v1/action/evaluate            [requires x-api-key]",
+            "verifier_register": "POST /v1/verifier/register          [public]",
+            "verifier_list":     "GET  /v1/verifiers                  [requires x-api-key]",
+            "trust_graph":       "GET  /v1/trust/{agent_id}/graph     [public]",
+            "waitlist":          "POST /v1/waitlist                   [public]",
+            "sigilguard_event":  "POST /v1/sigilguard/event           [requires x-api-key]",
             "sigilguard_stats":  "GET  /v1/sigilguard/stats/{agent_id} [public]",
             "guard_verify":      "POST /v1/guard/verify               [requires x-api-key]",
+            "gate_verify":       "POST /v1/verify                     [requires x-api-key]",
             "guard_sdk":         "GET  /v1/guard/sdk                  [requires x-api-key]",
         }
     }
 
 @app.get("/health")
 async def health():
-    # Simple, fast health check for Railway
-    return {"status": "healthy", "version": "0.5.0"}
+    return {"status": "healthy", "version": "0.5.1"}
 
-
-# -------------------------------------------------------------
-# PASSPORT - ISSUE
-# -------------------------------------------------------------
+# ── PASSPORT ISSUE ────────────────────────────────────────────
 
 @app.get("/issue-test")
 async def issue_test(req: Request):
@@ -627,22 +654,17 @@ async def issue_test(req: Request):
         p["error"]  = str(e)
     return {"success": True, "passport": p, "geography": geo}
 
-
 @app.post("/v1/passport/issue")
 async def issue(req: IssueReq, request: Request, x_api_key: Optional[str] = Header(None)):
     require_api_key(x_api_key)
     geo        = get_geo_from_request(request)
     check_name = (req.display_name or req.agent_name).lower().strip()
-    print(f"[GEO] Passport issue from: {geo['country']} / {geo['region']} | IP: {request.client.host if request.client else 'unknown'}")
-
     if check_name in PROTECTED_NAMES:
         raise HTTPException(status_code=403, detail={
             "error":           "PROTECTED_NAME",
-            "message":         f"'{req.display_name or req.agent_name}' is a reserved name. "
-                               "Contact verify@verisigilai.com for org-verified registration.",
+            "message":         f"'{req.display_name or req.agent_name}' is a reserved name.",
             "protected_names": "ChatGPT, Grok, Claude, Gemini, Copilot, Llama, Perplexity, Mistral"
         })
-
     p = make_passport(
         req.agent_name, req.owner, req.framework, req.runtime,
         req.version, req.tags, req.expiry_days,
@@ -650,62 +672,30 @@ async def issue(req: IssueReq, request: Request, x_api_key: Optional[str] = Head
         country=geo["country"], region=geo["region"]
     )
     db_record = {
-        "agent_id":          p["agent_id"],
-        "agent_name":        p["agent_name"],
-        "did":               p["did"],
-        "public_key":        p["public_key"],
-        "signature":         p["signature"],
-        "signature_type":    p["signature_type"],
-        "owner":             p["owner"],
-        "issuer":            p["issuer"],
-        "status":            p["status"],
-        "trust_score":       p["trust_score"],
-        "eu_risk_class":     p["eu_risk_class"],
-        "compliant":         p["compliant"],
-        "framework":         p["framework"],
-        "runtime":           p["runtime"],
-        "version":           p["version"],
-        "tags":              p["tags"],
-        "display_name":      p["display_name"],
-        "issuer_org":        p["issuer_org"],
-        "verification_tier": p["verification_tier"],
-        "tier_label":        p["tier_label"],
-        "is_protected_name": p["is_protected"],
-        "issued_at":         p["issued_at"],
-        "expires_at":        p["expires_at"],
-        "eu_ai_act":         p["eu_ai_act"],
-        "gdpr":              p["gdpr"],
-        "hipaa":             p["hipaa"],
-        "soc2":              p["soc2"],
-        "country":           p["country"],
-        "region":            p["region"],
+        "agent_id": p["agent_id"], "agent_name": p["agent_name"], "did": p["did"],
+        "public_key": p["public_key"], "signature": p["signature"],
+        "signature_type": p["signature_type"], "owner": p["owner"], "issuer": p["issuer"],
+        "status": p["status"], "trust_score": p["trust_score"],
+        "eu_risk_class": p["eu_risk_class"], "compliant": p["compliant"],
+        "framework": p["framework"], "runtime": p["runtime"], "version": p["version"],
+        "tags": p["tags"], "display_name": p["display_name"], "issuer_org": p["issuer_org"],
+        "verification_tier": p["verification_tier"], "tier_label": p["tier_label"],
+        "is_protected_name": p["is_protected"], "issued_at": p["issued_at"],
+        "expires_at": p["expires_at"], "eu_ai_act": p["eu_ai_act"],
+        "gdpr": p["gdpr"], "hipaa": p["hipaa"], "soc2": p["soc2"],
+        "country": p["country"], "region": p["region"],
     }
     try:
         result = await db_insert("passports", db_record)
-        if isinstance(result, dict) and result.get("code"):
-            p["stored"]   = False
+        p["stored"] = not (isinstance(result, dict) and result.get("code"))
+        if not p["stored"]:
             p["db_error"] = result.get("message", "DB insert rejected")
-        else:
-            p["stored"] = True
     except Exception as e:
         p["stored"]   = False
         p["db_error"] = str(e)
+    return {"success": True, "passport": p, "geography": geo}
 
-    return {
-        "success":  True,
-        "passport": p,
-        "geography": {
-            "country": geo["country"],
-            "region":  geo["region"],
-            "message": f"Agent registered from {geo['country']}" if geo['country'] != 'Unknown'
-                       else "Enable Cloudflare IP Geolocation for country tracking"
-        }
-    }
-
-
-# -------------------------------------------------------------
-# PASSPORT - GET / AUDIT / REVOKE
-# -------------------------------------------------------------
+# ── PASSPORT GET / AUDIT / REVOKE ─────────────────────────────
 
 @app.get("/v1/passport/{agent_id}/audit")
 async def get_audit(agent_id: str):
@@ -719,40 +709,17 @@ async def get_audit(agent_id: str):
             {"agent_id": agent_id, "event": e["event"], "timestamp": e["timestamp"]},
             e.get("signature", ""))
         verified.append({**e, "signature_valid": sig_valid})
-    return {
-        "agent_id":       agent_id,
-        "total_events":   len(verified),
-        "audit_log":      verified,
-        "public_key":     PUBLIC_KEY_B64,
-        "signature_type": "Ed25519",
-        "issued_by":      "VeriSigil AI",
-    }
-
+    return {"agent_id": agent_id, "total_events": len(verified), "audit_log": verified,
+            "public_key": PUBLIC_KEY_B64, "signature_type": "Ed25519", "issued_by": "VeriSigil AI"}
 
 @app.get("/v1/passport/{agent_id}/profile")
 async def get_passport_profile(agent_id: str):
-    """
-    Full public profile for /agent.html?id=... pages.
-    Includes trust history and recent SigilGuard events.
-    """
     p = await db_get("passports", "agent_id", agent_id)
     if not p:
         raise HTTPException(404, "Passport not found.")
-
     passport_db_id = p.get("id")
-
-    # Trust score history (last 10)
-    history = await db_get_many(
-        "trust_score_history", "agent_id", passport_db_id,
-        order_by="recorded_at.desc", limit=10
-    )
-
-    # SigilGuard events (last 5)
-    sg_events = await db_get_many(
-        "sigilguard_events", "agent_id", passport_db_id,
-        order_by="detected_at.desc", limit=5
-    )
-
+    history   = await db_get_many("trust_score_history", "agent_id", passport_db_id, order_by="recorded_at.desc", limit=10)
+    sg_events = await db_get_many("sigilguard_events",   "agent_id", passport_db_id, order_by="detected_at.desc",  limit=5)
     return {
         "agent_id":          p.get("agent_id"),
         "agent_name":        p.get("display_name") or p.get("agent_name"),
@@ -775,14 +742,12 @@ async def get_passport_profile(agent_id: str):
         "audit_events":      (p.get("audit_events") or [])[-5:],
     }
 
-
 @app.get("/v1/passport/{agent_id}")
 async def get_p(agent_id: str):
     p = await db_get("passports", "agent_id", agent_id)
     if not p:
         raise HTTPException(404, "Passport not found.")
     return {"success": True, "passport": p}
-
 
 @app.post("/v1/passport/revoke")
 async def revoke(req: RevokeReq, x_api_key: Optional[str] = Header(None)):
@@ -791,115 +756,76 @@ async def revoke(req: RevokeReq, x_api_key: Optional[str] = Header(None)):
     if not p:
         raise HTTPException(404, "Passport not found.")
     await db_patch("passports", "agent_id", req.agent_id, {
-        "status":        "REVOKED",
-        "revoked_at":    datetime.utcnow().isoformat(),
-        "revoke_reason": req.reason,
-    })
+        "status": "REVOKED", "revoked_at": datetime.utcnow().isoformat(), "revoke_reason": req.reason})
     await log_event(req.agent_id, "REVOKED", {"reason": req.reason})
     return {"revoked": True, "agent_id": req.agent_id, "reason": req.reason}
 
-
-# -------------------------------------------------------------
-# VERIFY & DID
-# -------------------------------------------------------------
+# ── VERIFY & DID ──────────────────────────────────────────────
 
 @app.get("/verify/{agent_id}")
-async def verify_get(agent_id: str, request: Request,
-                     x_api_key: Optional[str] = Header(None)):
+async def verify_get(agent_id: str, request: Request, x_api_key: Optional[str] = Header(None)):
     try:
         client_ip = request.client.host if request.client else "unknown"
         if not check_rate_limit(client_ip):
             raise HTTPException(429, "Too many requests - max 10/min per IP.")
-
         p = await db_get("passports", "agent_id", agent_id)
         if not p:
             return {"valid": False, "verified": False, "agent_id": agent_id,
                     "reason": "Passport not found.", "issuer": "verisigilai.com"}
-
         sig_valid   = verify_payload(
             {"agent_id": p["agent_id"], "did": p["did"], "issued_at": p["issued_at"],
              "owner": p["owner"], "issuer": "https://verisigilai.com"},
             p.get("signature", ""))
         is_active   = p.get("status") == "ACTIVE"
         not_expired = datetime.utcnow() < datetime.fromisoformat(p["expires_at"])
-
         try:
             verifier = await get_verifier(x_api_key)
         except Exception:
             verifier = {"id": "ver_public", "type": "public", "reputation": 0.3}
-
         verifier_id  = verifier.get("id", "ver_public")
         verifier_rep = float(verifier.get("reputation", 0.3))
-
         existing_events    = p.get("audit_events") or []
-        all_verifier_ids   = [
-            e.get("event_data", {}).get("verifier_id")
-            for e in existing_events if e.get("event") == "VERIFIED"
-        ] + [verifier_id]
+        all_verifier_ids   = [e.get("event_data", {}).get("verifier_id")
+                               for e in existing_events if e.get("event") == "VERIFIED"] + [verifier_id]
         unique_verifier_count = len(set(v for v in all_verifier_ids if v))
-        recent_ids = [
-            e.get("event_data", {}).get("verifier_id")
-            for e in existing_events[-5:] if e.get("event") == "VERIFIED"
-        ]
+        recent_ids   = [e.get("event_data", {}).get("verifier_id")
+                        for e in existing_events[-5:] if e.get("event") == "VERIFIED"]
         is_duplicate = verifier_id in recent_ids
         new_count    = (p.get("verification_count") or 0) + 1
         new_score    = calculate_trust_score(
             p["issued_at"], new_count,
             p.get("high_threats") or 0, p.get("medium_threats") or 0,
-            unique_verifiers=unique_verifier_count,
-            avg_verifier_reputation=verifier_rep,
-        )
-
+            unique_verifiers=unique_verifier_count, avg_verifier_reputation=verifier_rep)
         if not is_duplicate:
             try:
-                await db_patch("passports", "agent_id", agent_id, {
-                    "verification_count": new_count,
-                    "trust_score":        new_score,
-                })
+                await db_patch("passports", "agent_id", agent_id,
+                               {"verification_count": new_count, "trust_score": new_score})
             except Exception as e:
                 print(f"[VERIFY PATCH ERROR] {e}")
-
         try:
             await log_event(agent_id, "VERIFIED", {
-                "method":              "GET /verify",
-                "verifier_id":         verifier_id,
-                "verifier_type":       verifier.get("type", "public"),
-                "verifier_reputation": verifier_rep,
-                "verification_count":  new_count,
-                "unique_verifiers":    unique_verifier_count,
-                "trust_score":         new_score,
-                "trust_level":         trust_level(new_score),
-                "duplicate":           is_duplicate,
-            })
+                "method": "GET /verify", "verifier_id": verifier_id,
+                "verifier_type": verifier.get("type", "public"),
+                "verifier_reputation": verifier_rep, "verification_count": new_count,
+                "unique_verifiers": unique_verifier_count, "trust_score": new_score,
+                "trust_level": trust_level(new_score), "duplicate": is_duplicate})
         except Exception as e:
             print(f"[VERIFY LOG ERROR] {e}")
-
         return {
-            "valid":              sig_valid and is_active and not_expired,
-            "verified":           sig_valid,
-            "agent_id":           agent_id,
-            "did":                p.get("did"),
-            "status":             p.get("status"),
-            "trust_score":        new_score,
-            "trust_level":        trust_level(new_score),
-            "verification_count": new_count,
-            "unique_verifiers":   unique_verifier_count,
-            "signature_valid":    sig_valid,
-            "signature_type":     "Ed25519",
-            "public_key":         PUBLIC_KEY_B64,
-            "issuer":             "verisigilai.com",
-            "issued_at":          p.get("issued_at"),
-            "expires_at":         p.get("expires_at"),
-            "compliant":          p.get("compliant"),
-            "eu_ai_act":          p.get("eu_ai_act"),
+            "valid": sig_valid and is_active and not_expired, "verified": sig_valid,
+            "agent_id": agent_id, "did": p.get("did"), "status": p.get("status"),
+            "trust_score": new_score, "trust_level": trust_level(new_score),
+            "verification_count": new_count, "unique_verifiers": unique_verifier_count,
+            "signature_valid": sig_valid, "signature_type": "Ed25519",
+            "public_key": PUBLIC_KEY_B64, "issuer": "verisigilai.com",
+            "issued_at": p.get("issued_at"), "expires_at": p.get("expires_at"),
+            "compliant": p.get("compliant"), "eu_ai_act": p.get("eu_ai_act"),
         }
-
     except HTTPException:
         raise
     except Exception as e:
         print(f"[VERIFY ERROR] agent={agent_id} error={e}")
         raise HTTPException(500, f"Verification error: {str(e)}")
-
 
 @app.get("/did/{agent_id}")
 async def did_resolution(agent_id: str):
@@ -909,40 +835,21 @@ async def did_resolution(agent_id: str):
     did     = p.get("did")
     pub_key = p.get("public_key", PUBLIC_KEY_B64)
     return {
-        "@context": ["https://www.w3.org/ns/did/v1",
-                     "https://w3id.org/security/suites/ed25519-2020/v1"],
-        "id":         did,
-        "controller": "did:web:verisigilai.com",
-        "verificationMethod": [{
-            "id":                 f"{did}#key-1",
-            "type":               "Ed25519VerificationKey2020",
-            "controller":         did,
-            "publicKeyMultibase": "z" + base64.b64encode(base64.b64decode(pub_key)).decode()
-        }],
-        "authentication":  [f"{did}#key-1"],
-        "assertionMethod": [f"{did}#key-1"],
-        "service": [{
-            "id":              f"{did}#verisigil",
-            "type":            "VeriSigilPassportService",
-            "serviceEndpoint": f"https://verisigil-api-production.up.railway.app/verify/{agent_id}"
-        }],
-        "metadata": {
-            "agent_id":    agent_id,
-            "agent_name":  p.get("agent_name"),
-            "status":      p.get("status"),
-            "trust_score": p.get("trust_score"),
-            "issued_at":   p.get("issued_at"),
-            "expires_at":  p.get("expires_at"),
-            "issuer":      "VeriSigil AI",
-            "eu_ai_act":   p.get("eu_ai_act"),
-            "compliant":   p.get("compliant"),
-        }
+        "@context": ["https://www.w3.org/ns/did/v1","https://w3id.org/security/suites/ed25519-2020/v1"],
+        "id": did, "controller": "did:web:verisigilai.com",
+        "verificationMethod": [{"id": f"{did}#key-1", "type": "Ed25519VerificationKey2020",
+                                  "controller": did,
+                                  "publicKeyMultibase": "z" + base64.b64encode(base64.b64decode(pub_key)).decode()}],
+        "authentication": [f"{did}#key-1"], "assertionMethod": [f"{did}#key-1"],
+        "service": [{"id": f"{did}#verisigil", "type": "VeriSigilPassportService",
+                     "serviceEndpoint": f"https://verisigil-api-production.up.railway.app/verify/{agent_id}"}],
+        "metadata": {"agent_id": agent_id, "agent_name": p.get("agent_name"),
+                     "status": p.get("status"), "trust_score": p.get("trust_score"),
+                     "issued_at": p.get("issued_at"), "expires_at": p.get("expires_at"),
+                     "issuer": "VeriSigil AI", "eu_ai_act": p.get("eu_ai_act"), "compliant": p.get("compliant")}
     }
 
-
-# -------------------------------------------------------------
-# SECURITY SCAN (authenticated)
-# -------------------------------------------------------------
+# ── SECURITY SCAN ─────────────────────────────────────────────
 
 @app.post("/v1/security/scan")
 async def scan(req: ScanReq, x_api_key: Optional[str] = Header(None)):
@@ -965,7 +872,6 @@ async def scan(req: ScanReq, x_api_key: Optional[str] = Header(None)):
             if pat.lower() in line.lower() and k not in seen:
                 seen.add(k)
                 threats.append({"line": i, "severity": sev, "description": desc, "code": line.strip()})
-
     new_score = None
     if req.agent_id:
         high_count   = sum(1 for t in threats if t["severity"] == "HIGH")
@@ -974,113 +880,75 @@ async def scan(req: ScanReq, x_api_key: Optional[str] = Header(None)):
         if passport:
             new_high   = (passport.get("high_threats")   or 0) + high_count
             new_medium = (passport.get("medium_threats") or 0) + medium_count
-            new_score  = calculate_trust_score(
-                passport["issued_at"], passport.get("verification_count", 0),
-                new_high, new_medium, unique_verifiers=0, avg_verifier_reputation=0.5)
-            await db_patch("passports", "agent_id", req.agent_id, {
-                "high_threats":   new_high,
-                "medium_threats": new_medium,
-                "trust_score":    new_score,
-            })
+            new_score  = calculate_trust_score(passport["issued_at"], passport.get("verification_count", 0),
+                                               new_high, new_medium)
+            await db_patch("passports", "agent_id", req.agent_id,
+                           {"high_threats": new_high, "medium_threats": new_medium, "trust_score": new_score})
         await log_event(req.agent_id, "SCANNED", {
-            "lines_scanned":   len(lines),
-            "threats_found":   len(threats),
-            "high_threats":    high_count,
-            "medium_threats":  medium_count,
-            "new_trust_score": new_score,
-        })
-
+            "lines_scanned": len(lines), "threats_found": len(threats),
+            "high_threats": high_count, "medium_threats": medium_count, "new_trust_score": new_score})
     return {
-        "scan_id":       f"scan_{uuid.uuid4().hex[:12]}",
-        "agent_id":      req.agent_id,
-        "lines_scanned": len(lines),
-        "threats":       threats,
-        "threat_count":  len(threats),
+        "scan_id": f"scan_{uuid.uuid4().hex[:12]}", "agent_id": req.agent_id,
+        "lines_scanned": len(lines), "threats": threats, "threat_count": len(threats),
         "severity_summary": {
             "HIGH":   sum(1 for t in threats if t["severity"] == "HIGH"),
             "MEDIUM": sum(1 for t in threats if t["severity"] == "MEDIUM"),
-            "LOW":    0,
-        },
-        "passed":     len(threats) == 0,
-        "scanned_at": datetime.utcnow().isoformat(),
-    }
+            "LOW":    0},
+        "passed": len(threats) == 0, "scanned_at": datetime.utcnow().isoformat()}
 
-
-# -------------------------------------------------------------
-# COMPLIANCE & ACTION EVALUATION
-# -------------------------------------------------------------
+# ── COMPLIANCE ────────────────────────────────────────────────
 
 @app.post("/v1/compliance/check")
 async def compliance(req: ComplianceReq, x_api_key: Optional[str] = Header(None)):
     require_api_key(x_api_key)
     result = {}
     if "eu_ai_act" in req.regulations:
-        result["eu_ai_act"] = {"compliant": True, "risk_class": "LIMITED_RISK",
-                                "deadline": "2026-08-01",
+        result["eu_ai_act"] = {"compliant": True, "risk_class": "LIMITED_RISK", "deadline": "2026-08-01",
                                 "note": "Designed for EU AI Act alignment - certification in progress"}
-    if "gdpr"  in req.regulations:
-        result["gdpr"]  = {"compliant": True, "lawful_basis": "legitimate_interest"}
-    if "hipaa" in req.regulations:
-        result["hipaa"] = {"compliant": False, "reason": "BAA required - contact info@verisigilai.com"}
-    if "soc2"  in req.regulations:
-        result["soc2"]  = {"compliant": False, "reason": "SOC 2 audit in progress - Q4 2026"}
+    if "gdpr"  in req.regulations: result["gdpr"]  = {"compliant": True, "lawful_basis": "legitimate_interest"}
+    if "hipaa" in req.regulations: result["hipaa"] = {"compliant": False, "reason": "BAA required - contact info@verisigilai.com"}
+    if "soc2"  in req.regulations: result["soc2"]  = {"compliant": False, "reason": "SOC 2 audit in progress - Q4 2026"}
     await log_event(req.agent_id, "COMPLIANCE_CHECKED", {"regulations": req.regulations})
     return {"agent_id": req.agent_id, "checked_at": datetime.utcnow().isoformat(), "regulations": result}
 
+# ── ACTION EVALUATE ───────────────────────────────────────────
 
 @app.post("/v1/action/evaluate", tags=["Action Evaluation"])
 async def evaluate_action(req: ActionEvaluateRequest, x_api_key: Optional[str] = Header(None)):
-    """Should this agent be allowed to do this action? Returns: AUTO_ALLOW, ALLOW_WITH_LOG, REQUIRE_HUMAN_APPROVAL, or BLOCK."""
     require_api_key(x_api_key)
     p = await db_get("passports", "agent_id", req.agent_id)
     if not p:
         raise HTTPException(404, f"Agent '{req.agent_id}' not found in VeriSigil registry.")
-
     shadow_detected = p.get("status") == "REVOKED"
     eu_risk_class   = p.get("eu_risk_class", "LIMITED_RISK")
     trust_score     = float(p.get("trust_score", 0.97))
-
     result = compute_action_decision(
         trust_score=trust_score, shadow_detected=shadow_detected,
         eu_risk_class=eu_risk_class, risk_level=req.risk_level,
-        action_type=req.action_type, context=req.context or "production",
-    )
-
+        action_type=req.action_type, context=req.context or "production")
     await log_event(req.agent_id, "ACTION_EVALUATED", {
-        "action_type":  req.action_type, "risk_level": req.risk_level,
-        "context":      req.context,     "decision":   result["decision"],
-        "trust_score":  trust_score,     "eu_risk_class": eu_risk_class,
-    })
-
+        "action_type": req.action_type, "risk_level": req.risk_level,
+        "context": req.context, "decision": result["decision"],
+        "trust_score": trust_score, "eu_risk_class": eu_risk_class})
     return ActionEvaluateResponse(
-        decision=result["decision"],
-        decision_confidence=result["decision_confidence"],
-        reason=result["reason"],
-        trust_score=trust_score,
-        shadow_detected=shadow_detected,
+        decision=result["decision"], decision_confidence=result["decision_confidence"],
+        reason=result["reason"], trust_score=trust_score, shadow_detected=shadow_detected,
         eu_risk_class=eu_risk_class,
         article_14_oversight_required=result["article_14_oversight_required"],
         suggested_policy=result["suggested_policy"],
         evaluation_id=f"eval_{uuid.uuid4().hex[:8]}",
-        evaluated_at=datetime.utcnow().isoformat() + "Z",
-    )
+        evaluated_at=datetime.utcnow().isoformat() + "Z")
 
-
-# -------------------------------------------------------------
-# TRUST GRAPH
-# -------------------------------------------------------------
+# ── TRUST GRAPH ───────────────────────────────────────────────
 
 @app.get("/v1/trust/{agent_id}/graph")
 async def trust_graph(agent_id: str):
     p = await db_get("passports", "agent_id", agent_id)
     if not p:
         raise HTTPException(404, "Passport not found.")
-    events         = p.get("audit_events") or []
-    nodes, edges   = [], []
-    seen_verifiers = set()
+    events, nodes, edges, seen_verifiers = p.get("audit_events") or [], [], [], set()
     for e in events:
-        if e.get("event") != "VERIFIED":
-            continue
+        if e.get("event") != "VERIFIED": continue
         v_id   = e.get("event_data", {}).get("verifier_id", "ver_public")
         v_rep  = e.get("event_data", {}).get("verifier_reputation", 0.3)
         v_type = e.get("event_data", {}).get("verifier_type", "public")
@@ -1090,300 +958,174 @@ async def trust_graph(agent_id: str):
                            "reputation": v_rep, "label": v_id})
             seen_verifiers.add(v_id)
         edges.append({"from": v_id, "to": agent_id, "type": "verified", "timestamp": ts})
-    nodes.append({"id": agent_id, "type": "agent",
-                   "trust_score": p.get("trust_score", 0.97),
-                   "trust_level": trust_level(p.get("trust_score", 0.97)),
-                   "label": agent_id})
-    return {
-        "agent_id":            agent_id,
-        "trust_score":         p.get("trust_score", 0.97),
-        "trust_level":         trust_level(p.get("trust_score", 0.97)),
-        "unique_verifiers":    len(seen_verifiers),
-        "total_verifications": len(edges),
-        "nodes":               nodes,
-        "edges":               edges,
-    }
+    nodes.append({"id": agent_id, "type": "agent", "trust_score": p.get("trust_score", 0.97),
+                   "trust_level": trust_level(p.get("trust_score", 0.97)), "label": agent_id})
+    return {"agent_id": agent_id, "trust_score": p.get("trust_score", 0.97),
+            "trust_level": trust_level(p.get("trust_score", 0.97)),
+            "unique_verifiers": len(seen_verifiers), "total_verifications": len(edges),
+            "nodes": nodes, "edges": edges}
 
-
-# -------------------------------------------------------------
-# VERIFIER REGISTRATION
-# -------------------------------------------------------------
+# ── VERIFIER REGISTRATION ─────────────────────────────────────
 
 @app.post("/v1/verifier/register", tags=["Verifiers"])
 async def register_verifier(req: RegisterVerifierReq):
     existing = await db_get("verifiers", "email", req.email)
     if existing:
-        return {
-            "success":    True,
-            "message":    "You are already registered as a verifier.",
-            "verifier_id": existing.get("id"),
-            "api_key":    existing.get("api_key"),
-        }
+        return {"success": True, "message": "You are already registered as a verifier.",
+                "verifier_id": existing.get("id"), "api_key": existing.get("api_key")}
     verifier_id = f"ver_{uuid.uuid4().hex[:8]}"
     api_key     = f"vvk_{uuid.uuid4().hex[:24]}"
     now         = datetime.utcnow().isoformat()
-    record      = {
-        "id":            verifier_id,
-        "name":          req.name,
-        "email":         req.email,
-        "company":       req.company or "",
-        "website":       req.website or "",
-        "type":          req.type or "developer",
-        "api_key":       api_key,
-        "reputation":    0.5,
-        "verifications": 0,
-        "active":        True,
-        "created_at":    now,
-    }
+    record      = {"id": verifier_id, "name": req.name, "email": req.email,
+                   "company": req.company or "", "website": req.website or "",
+                   "type": req.type or "developer", "api_key": api_key,
+                   "reputation": 0.5, "verifications": 0, "active": True, "created_at": now}
     try:
         await db_insert("verifiers", record)
         stored = True
     except Exception as e:
         stored = False
         print(f"[VERIFIER REGISTER ERROR] {e}")
-
-    return {
-        "success":       stored,
-        "verifier_id":   verifier_id,
-        "api_key":       api_key,
-        "name":          req.name,
-        "email":         req.email,
-        "company":       req.company,
-        "registered_at": now,
-        "message":       "Welcome to VeriSigil! Use your api_key in the x-api-key header when calling /verify endpoints. Keep it safe.",
-    }
-
+    return {"success": stored, "verifier_id": verifier_id, "api_key": api_key,
+            "name": req.name, "email": req.email, "company": req.company,
+            "registered_at": now,
+            "message": "Welcome to VeriSigil! Use your api_key in the x-api-key header when calling /verify endpoints."}
 
 @app.get("/v1/verifiers", tags=["Verifiers"])
 async def list_verifiers(x_api_key: Optional[str] = Header(None)):
     require_api_key(x_api_key)
     async with httpx.AsyncClient() as c:
-        r = await c.get(
-            f"{SUPABASE_URL}/rest/v1/verifiers?order=created_at.desc",
-            headers=get_headers(write=False), timeout=10
-        )
+        r = await c.get(f"{SUPABASE_URL}/rest/v1/verifiers?order=created_at.desc",
+                        headers=get_headers(write=False), timeout=10)
         verifiers = r.json() if r.status_code == 200 else []
     return {"total": len(verifiers), "verifiers": verifiers}
 
-
-# ============================================================
-# -- NEW v0.4.7 ENDPOINTS -------------------------------------
-# ============================================================
-
-# -------------------------------------------------------------
-# 1. WAITLIST - POST /v1/waitlist
-#    Called by homepage "Join Waitlist" / "Get Early Access" buttons
-# -------------------------------------------------------------
+# ── WAITLIST ──────────────────────────────────────────────────
 
 @app.post("/v1/waitlist", tags=["Waitlist"])
 async def join_waitlist(data: WaitlistSignup):
     try:
         await db_insert("waitlist", {
-            "email":    data.email,
-            "name":     data.name,
-            "company":  data.company,
-            "use_case": data.use_case,
-            "tier":     data.tier,
-            "source":   data.source,
-            "status":   "pending",
-        })
-        return {
-            "success": True,
-            "message": "You're on the early access list!",
-            "email":   data.email,
-        }
+            "email": data.email, "name": data.name, "company": data.company,
+            "use_case": data.use_case, "tier": data.tier, "source": data.source, "status": "pending"})
+        return {"success": True, "message": "You're on the early access list!", "email": data.email}
     except Exception as e:
         if "duplicate" in str(e).lower() or "unique" in str(e).lower():
             return {"success": True, "message": "You're already on the list!", "email": data.email}
         raise HTTPException(status_code=500, detail=str(e))
 
-
-# -------------------------------------------------------------
-# 2. SIGILGUARD EVENT - POST /v1/sigilguard/event
-#    Logs a SigilGuard detection and auto-updates trust score
-# -------------------------------------------------------------
+# ── SIGILGUARD ────────────────────────────────────────────────
 
 @app.post("/v1/sigilguard/event", tags=["SigilGuard"])
 async def log_sigilguard_event(event: SigilGuardEvent, x_api_key: Optional[str] = Header(None)):
     require_api_key(x_api_key)
     try:
         result = await db_insert("sigilguard_events", {
-            "agent_id":       event.agent_id,
-            "module":         event.module,
-            "severity":       event.severity,
-            "event_type":     event.event_type,
-            "description":    event.description,
-            "score_before":   event.score_before,
-            "score_after":    event.score_after,
-            "remediation":    event.remediation,
-            "remediated":     event.remediated,
-            "remediation_ms": event.remediation_ms,
-            "eu_act_logged":  True,
-            "raw_payload":    event.raw_payload,
-            "detected_at":    datetime.utcnow().isoformat(),
-        })
-
-        # Auto-update trust score + history if score changed
+            "agent_id": event.agent_id, "module": event.module, "severity": event.severity,
+            "event_type": event.event_type, "description": event.description,
+            "score_before": event.score_before, "score_after": event.score_after,
+            "remediation": event.remediation, "remediated": event.remediated,
+            "remediation_ms": event.remediation_ms, "eu_act_logged": True,
+            "raw_payload": event.raw_payload, "detected_at": datetime.utcnow().isoformat()})
         if event.score_after is not None:
             delta = round(event.score_after - event.score_before, 2) if event.score_before is not None else None
             await db_insert("trust_score_history", {
-                "agent_id":    event.agent_id,
-                "score":       event.score_after,
-                "score_delta": delta,
-                "reason":      f"{event.module} - {event.event_type}",
-                "recorded_at": datetime.utcnow().isoformat(),
-            })
-            # FIXED: Use agent_id (string) not id (int) for lookup
+                "agent_id": event.agent_id, "score": event.score_after, "score_delta": delta,
+                "reason": f"{event.module} - {event.event_type}", "recorded_at": datetime.utcnow().isoformat()})
             await db_patch("passports", "agent_id", event.agent_id, {"trust_score": event.score_after})
-
-        return {
-            "success":    True,
-            "event_id":   result.get("id") if isinstance(result, dict) else None,
-            "module":     event.module,
-            "remediated": event.remediated,
-            "logged_at":  datetime.utcnow().isoformat(),
-        }
+        return {"success": True, "event_id": result.get("id") if isinstance(result, dict) else None,
+                "module": event.module, "remediated": event.remediated, "logged_at": datetime.utcnow().isoformat()}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-
-# -------------------------------------------------------------
-# 3. SIGILGUARD STATS - GET /v1/sigilguard/stats/{agent_id}
-#    Powers live stats on homepage SigilGuard demo
-# -------------------------------------------------------------
 
 @app.get("/v1/sigilguard/stats/{agent_id}", tags=["SigilGuard"])
 async def get_sigilguard_stats(agent_id: str):
     p = await db_get("passports", "agent_id", agent_id)
     if not p:
         raise HTTPException(404, "Agent not found.")
-
     passport_db_id = p.get("id")
-    events         = await db_get_many("sigilguard_events", "agent_id", passport_db_id)
-    total          = len(events)
-    remediated     = sum(1 for e in events if e.get("remediated"))
-    ms_list        = [e["remediation_ms"] for e in events if e.get("remediation_ms")]
-    avg_ms         = round(sum(ms_list) / len(ms_list), 1) if ms_list else 0
-
+    events     = await db_get_many("sigilguard_events", "agent_id", passport_db_id)
+    total      = len(events)
+    remediated = sum(1 for e in events if e.get("remediated"))
+    ms_list    = [e["remediation_ms"] for e in events if e.get("remediation_ms")]
+    avg_ms     = round(sum(ms_list) / len(ms_list), 1) if ms_list else 0
     return {
-        "agent_id":              agent_id,
-        "trust_score":           p.get("trust_score"),
-        "total_events":          total,
-        "remediated":            remediated,
-        "avg_remediation_ms":    avg_ms,
+        "agent_id": agent_id, "trust_score": p.get("trust_score"),
+        "total_events": total, "remediated": remediated, "avg_remediation_ms": avg_ms,
         "by_module": {
-            "driftguard":            sum(1 for e in events if e.get("module") == "driftguard"),
-            "hallucination_shield":  sum(1 for e in events if e.get("module") == "hallucination_shield"),
-            "cross_modal_sync":      sum(1 for e in events if e.get("module") == "cross_modal_sync"),
-            "edgeguard":             sum(1 for e in events if e.get("module") == "edgeguard"),
-        }
-    }
+            "driftguard":           sum(1 for e in events if e.get("module") == "driftguard"),
+            "hallucination_shield": sum(1 for e in events if e.get("module") == "hallucination_shield"),
+            "cross_modal_sync":     sum(1 for e in events if e.get("module") == "cross_modal_sync"),
+            "edgeguard":            sum(1 for e in events if e.get("module") == "edgeguard")}}
 
-
-# -------------------------------------------------------------
-# 4. PUBLIC SCANNER - POST /v1/scan
-#    Powers /scanner.html - no API key required
-#    Saves to scan_reports table with shareable URL
-# -------------------------------------------------------------
+# ── PUBLIC SCANNER ────────────────────────────────────────────
 
 @app.post("/v1/scan", tags=["Scanner"])
 async def public_scan(req: PublicScanRequest):
-    config       = req.agent_config_raw.lower()
-    findings     = []
-    risk_score   = 0
-
+    config = req.agent_config_raw.lower()
     checks = [
-        {"label": "Unsafe eval() usage",              "severity": "high",   "score": 25,
+        {"label": "Unsafe eval() usage",             "severity": "high",   "score": 25,
          "detail": "eval() allows arbitrary code execution",
          "fix":    "Replace with safe_eval() or ast.literal_eval()",
          "trigger": "eval(" in config},
-        {"label": "Hardcoded secrets detected",        "severity": "high",   "score": 25,
+        {"label": "Hardcoded secrets detected",       "severity": "high",   "score": 25,
          "detail": "API keys or passwords hardcoded in config",
          "fix":    "Move secrets to environment variables",
          "trigger": any(k in config for k in ["api_key =", "password =", "secret =", "token ="])},
-        {"label": "No authentication defined",         "severity": "medium", "score": 15,
+        {"label": "No authentication defined",        "severity": "medium", "score": 15,
          "detail": "Agent has no identity or auth mechanism",
          "fix":    "Add VeriSigil passport authentication",
          "trigger": "auth" not in config and "passport" not in config},
-        {"label": "Unsafe subprocess execution",       "severity": "medium", "score": 20,
+        {"label": "Unsafe subprocess execution",      "severity": "medium", "score": 20,
          "detail": "Uncontrolled subprocess calls can execute system commands",
          "fix":    "Sandbox subprocess calls with strict allowlists",
          "trigger": "subprocess" in config or "os.system" in config},
-        {"label": "No audit logging configured",       "severity": "medium", "score": 15,
+        {"label": "No audit logging configured",      "severity": "medium", "score": 15,
          "detail": "EU AI Act requires immutable audit trails",
          "fix":    "Enable VeriSigil audit logging",
          "trigger": "audit" not in config and "log" not in config},
-        {"label": "No rate limiting",                  "severity": "low",    "score": 10,
+        {"label": "No rate limiting",                 "severity": "low",    "score": 10,
          "detail": "Agent has no rate limiting - vulnerable to abuse",
          "fix":    "Add rate limiting to all agent endpoints",
          "trigger": "rate_limit" not in config and "throttle" not in config},
-        {"label": "No EU AI Act risk classification",  "severity": "medium", "score": 15,
+        {"label": "No EU AI Act risk classification", "severity": "medium", "score": 15,
          "detail": "Agent has no EU risk level declared",
          "fix":    "Add eu_risk_level to your passport config",
          "trigger": "eu_risk" not in config and "risk_level" not in config},
-        {"label": "No execution timeout defined",      "severity": "low",    "score": 10,
+        {"label": "No execution timeout defined",     "severity": "low",    "score": 10,
          "detail": "Agents without timeouts can run indefinitely",
          "fix":    "Set max_execution_time in agent config",
          "trigger": "timeout" not in config and "max_execution" not in config},
     ]
-
-    checks_failed = 0
-    checks_passed = 0
+    findings, risk_score, checks_failed, checks_passed = [], 0, 0, 0
     for check in checks:
         if check["trigger"]:
-            findings.append({
-                "check":    check["label"],
-                "severity": check["severity"],
-                "detail":   check["detail"],
-                "fix":      check["fix"],
-            })
+            findings.append({"check": check["label"], "severity": check["severity"],
+                              "detail": check["detail"], "fix": check["fix"]})
             risk_score   += check["score"]
             checks_failed += 1
         else:
             checks_passed += 1
-
     risk_score = min(risk_score, 100)
-    risk_level = (
-        "critical" if risk_score >= 70 else
-        "high"     if risk_score >= 40 else
-        "medium"   if risk_score >= 20 else
-        "low"
-    )
-
+    risk_level_str = ("critical" if risk_score >= 70 else "high" if risk_score >= 40
+                      else "medium" if risk_score >= 20 else "low")
     scan_id   = f"scan_{uuid.uuid4().hex[:12]}"
     share_url = f"https://verisigilai.com/scan.html?id={scan_id}"
-
     try:
         await db_insert("scan_reports", {
-            "scan_id":          scan_id,
-            "agent_id":         req.agent_id,
+            "scan_id": scan_id, "agent_id": req.agent_id,
             "agent_config_raw": req.agent_config_raw[:2000],
-            "risk_score":       risk_score,
-            "risk_level":       risk_level,
-            "findings":         findings,
-            "checks_passed":    checks_passed,
-            "checks_failed":    checks_failed,
-            "checks_total":     8,
-            "share_url":        share_url,
-        })
+            "risk_score": risk_score, "risk_level": risk_level_str,
+            "findings": findings, "checks_passed": checks_passed,
+            "checks_failed": checks_failed, "checks_total": 8, "share_url": share_url})
     except Exception as e:
         print(f"[SCAN SAVE ERROR] {e}")
-
-    return {
-        "scan_id":       scan_id,
-        "risk_score":    risk_score,
-        "risk_level":    risk_level,
-        "checks_passed": checks_passed,
-        "checks_failed": checks_failed,
-        "checks_total":  8,
-        "findings":      findings,
-        "share_url":     share_url,
-        "scanned_at":    datetime.utcnow().isoformat(),
-    }
-
+    return {"scan_id": scan_id, "risk_score": risk_score, "risk_level": risk_level_str,
+            "checks_passed": checks_passed, "checks_failed": checks_failed, "checks_total": 8,
+            "findings": findings, "share_url": share_url, "scanned_at": datetime.utcnow().isoformat()}
 
 # ============================================================
-# v0.5.0 — RUNTIME GUARD
+# v0.5.1 — RUNTIME GUARD (time import fix applied)
 # ============================================================
 
 @app.post("/v1/guard/verify", tags=["Runtime Guard"])
@@ -1397,84 +1139,164 @@ async def verify_before_execution(
     Every AI agent action goes through this gate.
     Returns ALLOW / DENY / REQUIRE_HUMAN_APPROVAL in <50ms.
     """
-    start_time = time.time()
+    start_time = time_module.time()  # FIX: use time_module not time.time()
     require_api_key(x_api_key)
-    
-    # 1. Fetch agent passport
+
     passport = await db_get("passports", "agent_id", req.agent_id)
     if not passport:
-        return _deny_response(req.agent_id, "Agent not found in VeriSigil registry", start_time)
-    
-    # 2. Verify identity & state
+        return _deny_exec_response(req.agent_id, "Agent not found in VeriSigil registry", start_time)
+
     sig_valid = verify_payload(
         {"agent_id": passport["agent_id"], "did": passport["did"],
          "issued_at": passport["issued_at"], "owner": passport["owner"]},
-        passport.get("signature", "")
-    )
-    is_revoked = passport.get("status") == "REVOKED"
-    is_expired = datetime.utcnow() > datetime.fromisoformat(passport["expires_at"])
+        passport.get("signature", ""))
+    is_revoked      = passport.get("status") == "REVOKED"
+    is_expired      = datetime.utcnow() > datetime.fromisoformat(passport["expires_at"])
     shadow_detected = await check_shadow_status(req.agent_id)
-    trust_score = float(passport.get("trust_score", 0.5))
+    trust_score     = float(passport.get("trust_score", 0.5))
     trust_level_str = trust_level(trust_score)
-    
-    # 3. Evaluate policy
-    policy = POLICY_RULES.get(req.action_type, {})
+
+    policy   = POLICY_RULES.get(req.action_type, {})
     decision, confidence, reasons = _evaluate_decision(
         sig_valid, is_revoked, is_expired, shadow_detected,
-        trust_score, req.action_type, req.action_details, policy
-    )
-    
-    # 4. Log governance event
+        trust_score, req.action_type, req.action_details, policy)
+
     execution_id = f"exec_{uuid.uuid4().hex[:8]}"
-    timestamp = datetime.utcnow().isoformat()
+    timestamp    = datetime.utcnow().isoformat()
+    latency      = round((time_module.time() - start_time) * 1000, 2)  # FIX
+
     await log_event(req.agent_id, "EXECUTION_EVALUATED", {
         "execution_id": execution_id, "action_type": req.action_type,
         "decision": decision.value, "reason": " | ".join(reasons),
-        "trust_score": trust_score, "latency_ms": round((time.time() - start_time) * 1000, 2)
-    })
-    
-    latency = round((time.time() - start_time) * 1000, 2)
-    
+        "trust_score": trust_score, "latency_ms": latency})
+
     return ExecutionResponse(
         decision=decision, confidence=confidence, reason=" | ".join(reasons),
         agent_id=req.agent_id, trust_score=trust_score, trust_level=trust_level_str,
         policy_applied=req.action_type, execution_id=execution_id,
-        timestamp=timestamp, audit_log_id=execution_id, latency_ms=latency
-    )
+        timestamp=timestamp, audit_log_id=execution_id, latency_ms=latency)
+
+# ── OPERATIONAL GATEWAY (5-gate policy engine) ────────────────
+
+@app.post("/v1/verify", tags=["Operational Gateway"])
+async def gate_verify(
+    req: VerifyRequest,
+    request: Request,
+    x_api_key: Optional[str] = Header(None)
+):
+    """
+    OPERATIONAL GATEWAY — 5-gate policy engine.
+    Returns ALLOW / DENY / REQUIRE_HUMAN_APPROVAL with full gate breakdown.
+    """
+    start_time = time_module.time()  # FIX
+    require_api_key(x_api_key)
+
+    gates   = {"identity": False, "issuer": False, "trust_score": False,
+               "runtime_state": False, "policy": False}
+    reasons = []
+
+    passport = await db_get("passports", "agent_id", req.agent_id)
+    if not passport:
+        return _deny_gate_response(req.agent_id, "Agent not found in VeriSigil registry", gates, start_time)
+
+    # Gate 1 — Identity
+    sig_valid = verify_payload(
+        {"agent_id": passport["agent_id"], "did": passport["did"],
+         "issued_at": passport["issued_at"], "owner": passport["owner"]},
+        passport.get("signature", ""))
+    gates["identity"] = sig_valid
+    if not sig_valid:
+        reasons.append("Invalid cryptographic signature — possible forgery")
+
+    # Gate 2 — Issuer
+    issuer_org = passport.get("issuer_org") or passport.get("owner")
+    gates["issuer"] = bool(issuer_org and issuer_org != "unknown")
+    if not gates["issuer"]:
+        reasons.append("Issuer not verified or unknown")
+
+    # Gate 3 — Trust Score
+    trust_score = float(passport.get("trust_score", 0.0))
+    policy      = POLICY_THRESHOLDS.get(req.policy_mode, POLICY_THRESHOLDS["standard"])
+    min_trust   = policy["min_trust_score"]
+    gates["trust_score"] = trust_score >= min_trust
+    if not gates["trust_score"]:
+        reasons.append(f"Trust score {trust_score:.2f} below threshold {min_trust}")
+
+    # Gate 4 — Runtime State
+    is_revoked = passport.get("status") == "REVOKED"
+    is_expired = datetime.utcnow() > datetime.fromisoformat(passport["expires_at"])
+    gates["runtime_state"] = not (is_revoked or is_expired)
+    if is_revoked: reasons.append("Agent passport revoked")
+    if is_expired: reasons.append("Agent passport expired")
+
+    # Gate 5 — Policy
+    action_type    = req.action_type.lower()
+    requires_human = action_type in policy.get("require_human_for", [])
+    if action_type in ["transfer", "payment"] and "amount" in req.action_detail.lower():
+        amounts = re.findall(r'\$?(\d+(?:,\d+)*(?:\.\d+)?)', req.action_detail)
+        if amounts:
+            amount = float(amounts[0].replace(',', ''))
+            if amount > policy["max_amount_usd"]:
+                requires_human = True
+                reasons.append(f"Amount ${amount:,.2f} exceeds {req.policy_mode} threshold")
+    gates["policy"] = not requires_human
+    if requires_human:
+        reasons.append(f"Action '{action_type}' requires human approval")
+
+    # Final Decision
+    all_passed = all(gates.values())
+    if all_passed:
+        decision = GateDecision.ALLOW
+    elif requires_human:
+        decision = GateDecision.REQUIRE_HUMAN_APPROVAL
+    else:
+        decision = GateDecision.DENY
+
+    audit_id  = f"evt_{uuid.uuid4().hex[:8]}"
+    timestamp = datetime.utcnow().isoformat()
+    latency   = round((time_module.time() - start_time) * 1000, 2)  # FIX
+
+    await log_event(req.agent_id, "GATE_VERIFY", {
+        "audit_id": audit_id, "action_type": req.action_type,
+        "policy_mode": req.policy_mode, "decision": decision.value,
+        "gates": gates, "trust_score": trust_score, "latency_ms": latency,
+        "caller_ip": request.client.host if request.client else "unknown"})
+
+    return VerifyResponse(
+        decision=decision, gates=gates, trust_score=trust_score,
+        latency_ms=latency, audit_id=audit_id, eu_act_compliant=True,
+        reason=" | ".join(reasons) if reasons else None)
 
 @app.get("/v1/guard/sdk", tags=["Runtime Guard"])
 async def get_sdk_integration(x_api_key: Optional[str] = Header(None)):
-    """Returns copy-paste SDK code for LangChain, OpenAI, CrewAI."""
     require_api_key(x_api_key)
     return {
-        "sdk_snippet": """
+        "sdk_snippet": '''
 # VeriSigil Runtime Guard — 15-minute integration
 import requests, os
 
 class VeriSigilGuard:
     def __init__(self, agent_id: str, api_key: str):
         self.agent_id = agent_id
-        self.session = requests.Session()
+        self.session  = requests.Session()
         self.session.headers.update({"x-api-key": api_key, "Content-Type": "application/json"})
-    
+
     def verify_before_execution(self, action_type: str, action_details: dict, resource: str):
-        resp = self.session.post(
-            "https://api.verisigilai.com/v1/guard/verify",
+        resp   = self.session.post(
+            "https://verisigil-api-production.up.railway.app/v1/guard/verify",
             json={"agent_id": self.agent_id, "action_type": action_type,
-                  "action_details": action_details, "resource": resource}
-        )
+                  "action_details": action_details, "resource": resource})
         result = resp.json()
         if result["decision"] == "DENY":
             raise PermissionError(f"Blocked: {result['reason']}")
         return result["decision"] == "ALLOW"
-""",
+''',
         "integration_time": "15 minutes",
-        "docs": "https://api.verisigilai.com/docs#/Runtime%20Guard"
+        "docs": "https://verisigil-api-production.up.railway.app/docs#/Runtime%20Guard"
     }
 
-
 # ============================================================
-# MAIN ENTRY POINT (for local testing)
+# MAIN
 # ============================================================
 if __name__ == "__main__":
     import uvicorn
