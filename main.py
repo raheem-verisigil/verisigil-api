@@ -1,29 +1,7 @@
-veriSigil AI — API Server v0.4.7
-Complete integrated main.py — all endpoints in one file.
-
-Existing:
-  GET  /
-  GET  /health
-  GET  /issue-test
-  POST /v1/passport/issue
-  GET  /v1/passport/{agent_id}
-  GET  /v1/passport/{agent_id}/audit
-  GET  /verify/{agent_id}
-  GET  /did/{agent_id}
-  POST /v1/passport/revoke
-  POST /v1/security/scan
-  POST /v1/compliance/check
-  POST /v1/action/evaluate
-  POST /v1/verifier/register
-  GET  /v1/verifiers
-  GET  /v1/trust/{agent_id}/graph
-
-New (v0.4.7):
-  POST /v1/waitlist                        — homepage early access signups
-  POST /v1/sigilguard/event               — log SigilGuard detection + auto-update trust score
-  GET  /v1/sigilguard/stats/{agent_id}    — live SigilGuard stats for homepage demo
-  POST /v1/scan                           — free public scanner (no API key needed)
-  GET  /v1/passport/{agent_id}/profile    — full public agent profile for /agent.html pages
+# -*- coding: utf-8 -*-
+"""
+VeriSigil AI - API Server v0.4.7
+Complete integrated main.py - all endpoints in one file.
 """
 
 import base64, hashlib, math, os, uuid, json
@@ -37,9 +15,9 @@ from pydantic import BaseModel
 import httpx
 from nacl.signing import SigningKey
 
-# ══════════════════════════════════════════════════════════
+# ============================================================
 # ENVIRONMENT CONFIG
-# ══════════════════════════════════════════════════════════
+# ============================================================
 SUPABASE_URL         = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY         = os.environ.get("SUPABASE_KEY")
 SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", os.environ.get("SUPABASE_KEY"))
@@ -56,9 +34,9 @@ SIGNING_KEY    = SigningKey(_seed)
 VERIFY_KEY     = SIGNING_KEY.verify_key
 PUBLIC_KEY_B64 = base64.b64encode(bytes(VERIFY_KEY)).decode()
 
-# ══════════════════════════════════════════════════════════
+# ============================================================
 # RATE LIMITER
-# ══════════════════════════════════════════════════════════
+# ============================================================
 RATE_LIMIT_STORE: dict = {}
 MAX_REQUESTS_PER_MINUTE = 10
 
@@ -72,9 +50,9 @@ def check_rate_limit(client_ip: str) -> bool:
     RATE_LIMIT_STORE[client_ip] = window
     return True
 
-# ══════════════════════════════════════════════════════════
+# ============================================================
 # APP SETUP
-# ══════════════════════════════════════════════════════════
+# ============================================================
 app = FastAPI(
     title="VeriSigil AI API",
     description="The cryptographic identity and security layer for autonomous AI agents.",
@@ -86,16 +64,16 @@ app.add_middleware(
     CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"]
 )
 
-# ══════════════════════════════════════════════════════════
+# ============================================================
 # AUTH
-# ══════════════════════════════════════════════════════════
+# ============================================================
 def require_api_key(x_api_key: Optional[str]):
     if not x_api_key or x_api_key != API_KEY:
         raise HTTPException(401, "Invalid or missing API key. Pass your key in the x-api-key header.")
 
-# ══════════════════════════════════════════════════════════
+# ============================================================
 # DB HELPERS
-# ══════════════════════════════════════════════════════════
+# ============================================================
 def get_headers(write=False):
     key = SUPABASE_SERVICE_KEY if write else SUPABASE_KEY
     return {
@@ -148,9 +126,9 @@ async def db_patch(table, field, value, data):
         result = r.json()
         return result[0] if isinstance(result, list) and result else data
 
-# ══════════════════════════════════════════════════════════
+# ============================================================
 # CRYPTO
-# ══════════════════════════════════════════════════════════
+# ============================================================
 def sign_payload(data: dict) -> str:
     msg = json.dumps(data, sort_keys=True).encode()
     return base64.b64encode(SIGNING_KEY.sign(msg).signature).decode()
@@ -179,9 +157,9 @@ async def update_verifier_reputation(verifier_id: str, action: str = "verify"):
     count = (verifier.get("verifications") or 0) + 1
     await db_patch("verifiers", "id", verifier_id, {"reputation": rep, "verifications": count})
 
-# ══════════════════════════════════════════════════════════
+# ============================================================
 # TRUST SCORE
-# ══════════════════════════════════════════════════════════
+# ============================================================
 def calculate_trust_score(issued_at: str, verification_count: int,
                            high_threats: int, medium_threats: int,
                            unique_verifiers: int = 0,
@@ -206,9 +184,9 @@ def trust_level(score: float) -> str:
     if score >= 0.60: return "FLAGGED"
     return "BLOCKED"
 
-# ══════════════════════════════════════════════════════════
+# ============================================================
 # AUDIT LOG
-# ══════════════════════════════════════════════════════════
+# ============================================================
 async def log_event(agent_id: str, event: str, event_data: dict = {}):
     try:
         passport = await db_get("passports", "agent_id", agent_id)
@@ -228,9 +206,9 @@ async def log_event(agent_id: str, event: str, event_data: dict = {}):
     except Exception as e:
         print(f"[AUDIT ERROR] agent={agent_id} event={event} error={e}")
 
-# ══════════════════════════════════════════════════════════
+# ============================================================
 # GEOGRAPHY
-# ══════════════════════════════════════════════════════════
+# ============================================================
 def get_geo_from_request(req: Request) -> dict:
     country = (
         req.headers.get('cf-ipcountry') or
@@ -253,9 +231,9 @@ def get_geo_from_request(req: Request) -> dict:
     }
     return {"country": country, "region": REGION_MAP.get(country, 'Other')}
 
-# ══════════════════════════════════════════════════════════
+# ============================================================
 # PASSPORT GENERATOR
-# ══════════════════════════════════════════════════════════
+# ============================================================
 PROTECTED_NAMES = {
     "chatgpt","gpt-4","gpt-4o","gpt4","claude","grok",
     "gemini","copilot","llama","perplexity","mistral"
@@ -317,9 +295,9 @@ def make_passport(agent_name, owner, framework, runtime, version, tags, expiry_d
         "region":            region,
     }
 
-# ══════════════════════════════════════════════════════════
+# ============================================================
 # MODELS
-# ══════════════════════════════════════════════════════════
+# ============================================================
 
 class IssueReq(BaseModel):
     agent_name:   str
@@ -372,7 +350,7 @@ class RegisterVerifierReq(BaseModel):
     website: Optional[str] = None
     type:    Optional[str] = "developer"
 
-# ── New v0.4.7 models ─────────────────────────────────────
+# -- New v0.4.7 models ----------------------------------------
 
 class WaitlistSignup(BaseModel):
     email:    str
@@ -383,7 +361,7 @@ class WaitlistSignup(BaseModel):
     source:   Optional[str] = "homepage"
 
 class SigilGuardEvent(BaseModel):
-    agent_id:       int                        # bigint — matches passports.id
+    agent_id:       str                        # FIXED: Changed from int to str to match passport IDs
     module:         str                        # driftguard | hallucination_shield | cross_modal_sync | edgeguard
     severity:       Optional[str] = "medium"  # low | medium | high | critical
     event_type:     str                        # drift_detected | hallucination_intercepted | modal_mismatch | edge_policy_violation
@@ -397,12 +375,12 @@ class SigilGuardEvent(BaseModel):
 
 class PublicScanRequest(BaseModel):
     agent_config_raw: str
-    agent_id:         Optional[int] = None    # bigint — link to passport if known
+    agent_id:         Optional[str] = None    # FIXED: Changed from int to str
 
 
-# ══════════════════════════════════════════════════════════
-# HELPERS — Action Evaluation
-# ══════════════════════════════════════════════════════════
+# ============================================================
+# HELPERS - Action Evaluation
+# ============================================================
 def compute_action_decision(trust_score, shadow_detected, eu_risk_class, risk_level, action_type, context):
     article_14_required = eu_risk_class == "HIGH_RISK"
     reason_parts = []
@@ -411,7 +389,7 @@ def compute_action_decision(trust_score, shadow_detected, eu_risk_class, risk_le
 
     if shadow_detected:
         return {"decision": "BLOCK", "decision_confidence": 0.99,
-                "reason": "Shadow agent detected — identity cannot be verified",
+                "reason": "Shadow agent detected - identity cannot be verified",
                 "article_14_oversight_required": article_14_required,
                 "suggested_policy": "block_and_alert"}
 
@@ -422,7 +400,7 @@ def compute_action_decision(trust_score, shadow_detected, eu_risk_class, risk_le
                 "suggested_policy": "block_and_review"}
 
     if trust_score <= 0.85:
-        reason_parts.append(f"Trust score {trust_score:.2f} in provisional range (0.60–0.85)")
+        reason_parts.append(f"Trust score {trust_score:.2f} in provisional range (0.60-0.85)")
         base_decision = "REQUIRE_HUMAN_APPROVAL"
         confidence    = 0.91
     else:
@@ -432,7 +410,7 @@ def compute_action_decision(trust_score, shadow_detected, eu_risk_class, risk_le
             confidence = 0.94
         elif risk_level == "medium":
             base_decision = "ALLOW_WITH_LOG"
-            reason_parts.append("Medium-risk action — audit trail required")
+            reason_parts.append("Medium-risk action - audit trail required")
             confidence = 0.92
         else:
             base_decision = "AUTO_ALLOW"
@@ -450,7 +428,7 @@ def compute_action_decision(trust_score, shadow_detected, eu_risk_class, risk_le
     if eu_risk_class == "HIGH_RISK":
         escalated = escalation_map[base_decision]
         if escalated != base_decision:
-            reason_parts.append("EU AI Act HIGH_RISK — escalated one level")
+            reason_parts.append("EU AI Act HIGH_RISK - escalated one level")
             confidence = max(0.88, confidence - 0.04)
         final_decision = escalated
 
@@ -473,13 +451,13 @@ def compute_action_decision(trust_score, shadow_detected, eu_risk_class, risk_le
     }
 
 
-# ══════════════════════════════════════════════════════════
-# ── ROUTES ───────────────────────────────────────────────
-# ══════════════════════════════════════════════════════════
+# ============================================================
+# -- ROUTES --------------------------------------------------
+# ============================================================
 
-# ─────────────────────────────────────────────────────────
+# -------------------------------------------------------------
 # ROOT & HEALTH
-# ─────────────────────────────────────────────────────────
+# -------------------------------------------------------------
 
 @app.get("/")
 async def root():
@@ -516,12 +494,13 @@ async def root():
 
 @app.get("/health")
 async def health():
-    return {"status": "healthy", "timestamp": datetime.utcnow().isoformat(), "version": "0.4.7"}
+    # Simple, fast health check for Railway
+    return {"status": "healthy", "version": "0.4.7"}
 
 
-# ─────────────────────────────────────────────────────────
-# PASSPORT — ISSUE
-# ─────────────────────────────────────────────────────────
+# -------------------------------------------------------------
+# PASSPORT - ISSUE
+# -------------------------------------------------------------
 
 @app.get("/issue-test")
 async def issue_test(req: Request):
@@ -623,9 +602,9 @@ async def issue(req: IssueReq, request: Request, x_api_key: Optional[str] = Head
     }
 
 
-# ─────────────────────────────────────────────────────────
-# PASSPORT — GET / AUDIT / REVOKE
-# ─────────────────────────────────────────────────────────
+# -------------------------------------------------------------
+# PASSPORT - GET / AUDIT / REVOKE
+# -------------------------------------------------------------
 
 @app.get("/v1/passport/{agent_id}/audit")
 async def get_audit(agent_id: str):
@@ -719,9 +698,9 @@ async def revoke(req: RevokeReq, x_api_key: Optional[str] = Header(None)):
     return {"revoked": True, "agent_id": req.agent_id, "reason": req.reason}
 
 
-# ─────────────────────────────────────────────────────────
+# -------------------------------------------------------------
 # VERIFY & DID
-# ─────────────────────────────────────────────────────────
+# -------------------------------------------------------------
 
 @app.get("/verify/{agent_id}")
 async def verify_get(agent_id: str, request: Request,
@@ -729,7 +708,7 @@ async def verify_get(agent_id: str, request: Request,
     try:
         client_ip = request.client.host if request.client else "unknown"
         if not check_rate_limit(client_ip):
-            raise HTTPException(429, "Too many requests — max 10/min per IP.")
+            raise HTTPException(429, "Too many requests - max 10/min per IP.")
 
         p = await db_get("passports", "agent_id", agent_id)
         if not p:
@@ -860,9 +839,9 @@ async def did_resolution(agent_id: str):
     }
 
 
-# ─────────────────────────────────────────────────────────
+# -------------------------------------------------------------
 # SECURITY SCAN (authenticated)
-# ─────────────────────────────────────────────────────────
+# -------------------------------------------------------------
 
 @app.post("/v1/security/scan")
 async def scan(req: ScanReq, x_api_key: Optional[str] = Header(None)):
@@ -870,11 +849,11 @@ async def scan(req: ScanReq, x_api_key: Optional[str] = Header(None)):
     threats, seen = [], set()
     lines    = req.code.split("\n")
     patterns = [
-        ("eval(",       "HIGH",   "Unsafe eval() — arbitrary code execution risk"),
-        ("exec(",       "HIGH",   "Unsafe exec() — arbitrary code execution risk"),
-        ("subprocess",  "MEDIUM", "Subprocess call — verify inputs are sanitised"),
+        ("eval(",       "HIGH",   "Unsafe eval() - arbitrary code execution risk"),
+        ("exec(",       "HIGH",   "Unsafe exec() - arbitrary code execution risk"),
+        ("subprocess",  "MEDIUM", "Subprocess call - verify inputs are sanitised"),
         ("os.system",   "HIGH",   "Direct OS command execution"),
-        ("pickle.load", "HIGH",   "Unsafe deserialisation — use JSON"),
+        ("pickle.load", "HIGH",   "Unsafe deserialisation - use JSON"),
         ("password",    "HIGH",   "Possible hardcoded credential"),
         ("api_key",     "HIGH",   "Possible hardcoded API key"),
         ("secret",      "HIGH",   "Possible hardcoded secret"),
@@ -926,9 +905,9 @@ async def scan(req: ScanReq, x_api_key: Optional[str] = Header(None)):
     }
 
 
-# ─────────────────────────────────────────────────────────
+# -------------------------------------------------------------
 # COMPLIANCE & ACTION EVALUATION
-# ─────────────────────────────────────────────────────────
+# -------------------------------------------------------------
 
 @app.post("/v1/compliance/check")
 async def compliance(req: ComplianceReq, x_api_key: Optional[str] = Header(None)):
@@ -937,13 +916,13 @@ async def compliance(req: ComplianceReq, x_api_key: Optional[str] = Header(None)
     if "eu_ai_act" in req.regulations:
         result["eu_ai_act"] = {"compliant": True, "risk_class": "LIMITED_RISK",
                                 "deadline": "2026-08-01",
-                                "note": "Designed for EU AI Act alignment — certification in progress"}
+                                "note": "Designed for EU AI Act alignment - certification in progress"}
     if "gdpr"  in req.regulations:
         result["gdpr"]  = {"compliant": True, "lawful_basis": "legitimate_interest"}
     if "hipaa" in req.regulations:
-        result["hipaa"] = {"compliant": False, "reason": "BAA required — contact info@verisigilai.com"}
+        result["hipaa"] = {"compliant": False, "reason": "BAA required - contact info@verisigilai.com"}
     if "soc2"  in req.regulations:
-        result["soc2"]  = {"compliant": False, "reason": "SOC 2 audit in progress — Q4 2026"}
+        result["soc2"]  = {"compliant": False, "reason": "SOC 2 audit in progress - Q4 2026"}
     await log_event(req.agent_id, "COMPLIANCE_CHECKED", {"regulations": req.regulations})
     return {"agent_id": req.agent_id, "checked_at": datetime.utcnow().isoformat(), "regulations": result}
 
@@ -986,9 +965,9 @@ async def evaluate_action(req: ActionEvaluateRequest, x_api_key: Optional[str] =
     )
 
 
-# ─────────────────────────────────────────────────────────
+# -------------------------------------------------------------
 # TRUST GRAPH
-# ─────────────────────────────────────────────────────────
+# -------------------------------------------------------------
 
 @app.get("/v1/trust/{agent_id}/graph")
 async def trust_graph(agent_id: str):
@@ -1025,9 +1004,9 @@ async def trust_graph(agent_id: str):
     }
 
 
-# ─────────────────────────────────────────────────────────
+# -------------------------------------------------------------
 # VERIFIER REGISTRATION
-# ─────────────────────────────────────────────────────────
+# -------------------------------------------------------------
 
 @app.post("/v1/verifier/register", tags=["Verifiers"])
 async def register_verifier(req: RegisterVerifierReq):
@@ -1086,14 +1065,14 @@ async def list_verifiers(x_api_key: Optional[str] = Header(None)):
     return {"total": len(verifiers), "verifiers": verifiers}
 
 
-# ══════════════════════════════════════════════════════════
-# ── NEW v0.4.7 ENDPOINTS ──────────────────────────────────
-# ══════════════════════════════════════════════════════════
+# ============================================================
+# -- NEW v0.4.7 ENDPOINTS -------------------------------------
+# ============================================================
 
-# ─────────────────────────────────────────────────────────
-# 1. WAITLIST — POST /v1/waitlist
+# -------------------------------------------------------------
+# 1. WAITLIST - POST /v1/waitlist
 #    Called by homepage "Join Waitlist" / "Get Early Access" buttons
-# ─────────────────────────────────────────────────────────
+# -------------------------------------------------------------
 
 @app.post("/v1/waitlist", tags=["Waitlist"])
 async def join_waitlist(data: WaitlistSignup):
@@ -1118,10 +1097,10 @@ async def join_waitlist(data: WaitlistSignup):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# ─────────────────────────────────────────────────────────
-# 2. SIGILGUARD EVENT — POST /v1/sigilguard/event
+# -------------------------------------------------------------
+# 2. SIGILGUARD EVENT - POST /v1/sigilguard/event
 #    Logs a SigilGuard detection and auto-updates trust score
-# ─────────────────────────────────────────────────────────
+# -------------------------------------------------------------
 
 @app.post("/v1/sigilguard/event", tags=["SigilGuard"])
 async def log_sigilguard_event(event: SigilGuardEvent, x_api_key: Optional[str] = Header(None)):
@@ -1150,10 +1129,11 @@ async def log_sigilguard_event(event: SigilGuardEvent, x_api_key: Optional[str] 
                 "agent_id":    event.agent_id,
                 "score":       event.score_after,
                 "score_delta": delta,
-                "reason":      f"{event.module} — {event.event_type}",
+                "reason":      f"{event.module} - {event.event_type}",
                 "recorded_at": datetime.utcnow().isoformat(),
             })
-            await db_patch("passports", "id", event.agent_id, {"trust_score": event.score_after})
+            # FIXED: Use agent_id (string) not id (int) for lookup
+            await db_patch("passports", "agent_id", event.agent_id, {"trust_score": event.score_after})
 
         return {
             "success":    True,
@@ -1166,10 +1146,10 @@ async def log_sigilguard_event(event: SigilGuardEvent, x_api_key: Optional[str] 
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# ─────────────────────────────────────────────────────────
-# 3. SIGILGUARD STATS — GET /v1/sigilguard/stats/{agent_id}
+# -------------------------------------------------------------
+# 3. SIGILGUARD STATS - GET /v1/sigilguard/stats/{agent_id}
 #    Powers live stats on homepage SigilGuard demo
-# ─────────────────────────────────────────────────────────
+# -------------------------------------------------------------
 
 @app.get("/v1/sigilguard/stats/{agent_id}", tags=["SigilGuard"])
 async def get_sigilguard_stats(agent_id: str):
@@ -1199,11 +1179,11 @@ async def get_sigilguard_stats(agent_id: str):
     }
 
 
-# ─────────────────────────────────────────────────────────
-# 4. PUBLIC SCANNER — POST /v1/scan
-#    Powers /scanner.html — no API key required
+# -------------------------------------------------------------
+# 4. PUBLIC SCANNER - POST /v1/scan
+#    Powers /scanner.html - no API key required
 #    Saves to scan_reports table with shareable URL
-# ─────────────────────────────────────────────────────────
+# -------------------------------------------------------------
 
 @app.post("/v1/scan", tags=["Scanner"])
 async def public_scan(req: PublicScanRequest):
@@ -1233,7 +1213,7 @@ async def public_scan(req: PublicScanRequest):
          "fix":    "Enable VeriSigil audit logging",
          "trigger": "audit" not in config and "log" not in config},
         {"label": "No rate limiting",                  "severity": "low",    "score": 10,
-         "detail": "Agent has no rate limiting — vulnerable to abuse",
+         "detail": "Agent has no rate limiting - vulnerable to abuse",
          "fix":    "Add rate limiting to all agent endpoints",
          "trigger": "rate_limit" not in config and "throttle" not in config},
         {"label": "No EU AI Act risk classification",  "severity": "medium", "score": 15,
@@ -1299,3 +1279,11 @@ async def public_scan(req: PublicScanRequest):
         "share_url":     share_url,
         "scanned_at":    datetime.utcnow().isoformat(),
     }
+
+
+# ============================================================
+# MAIN ENTRY POINT (for local testing)
+# ============================================================
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("main:app", host="0.0.0.0", port=int(os.environ.get("PORT", 8000)), reload=False)
