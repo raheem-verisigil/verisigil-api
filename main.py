@@ -1148,7 +1148,8 @@ async def verify_before_execution(
 
     sig_valid = verify_payload(
         {"agent_id": passport["agent_id"], "did": passport["did"],
-         "issued_at": passport["issued_at"], "owner": passport["owner"]},
+         "issued_at": passport["issued_at"], "owner": passport["owner"],
+         "issuer": "https://verisigilai.com"},
         passport.get("signature", ""))
     is_revoked      = passport.get("status") == "REVOKED"
     is_expired      = datetime.utcnow() > datetime.fromisoformat(passport["expires_at"])
@@ -1202,7 +1203,8 @@ async def gate_verify(
     # Gate 1 — Identity
     sig_valid = verify_payload(
         {"agent_id": passport["agent_id"], "did": passport["did"],
-         "issued_at": passport["issued_at"], "owner": passport["owner"]},
+         "issued_at": passport["issued_at"], "owner": passport["owner"],
+         "issuer": "https://verisigilai.com"},
         passport.get("signature", ""))
     gates["identity"] = sig_valid
     if not sig_valid:
