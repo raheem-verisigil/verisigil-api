@@ -1,4 +1,4 @@
-VeriSigil AI — API Server v0.4.7
+veriSigil AI — API Server v0.4.7
 Complete integrated main.py — all endpoints in one file.
 
 Existing:
