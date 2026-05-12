@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-VeriSigil AI - API Server v0.4.7
+VeriSigil AI - API Server v0.5.0
 Complete integrated main.py - all endpoints in one file.
 """
 
@@ -56,7 +56,7 @@ def check_rate_limit(client_ip: str) -> bool:
 app = FastAPI(
     title="VeriSigil AI API",
     description="The cryptographic identity and security layer for autonomous AI agents.",
-    version="0.4.7",
+    version="0.5.0",
     docs_url="/docs",
 )
 
@@ -377,6 +377,34 @@ class PublicScanRequest(BaseModel):
     agent_config_raw: str
     agent_id:         Optional[str] = None    # FIXED: Changed from int to str
 
+# -- v0.5.0 Runtime Guard Models ------------------------------
+
+from enum import Enum
+
+class Decision(str, Enum):
+    ALLOW = "ALLOW"
+    DENY = "DENY"
+    REQUIRE_HUMAN_APPROVAL = "REQUIRE_HUMAN_APPROVAL"
+
+class ExecutionRequest(BaseModel):
+    agent_id: str
+    action_type: str  # "api_call", "payment", "data_access", "tool_use"
+    action_details: dict = {}
+    resource: str
+    context: str = "production"
+
+class ExecutionResponse(BaseModel):
+    decision: Decision
+    confidence: float
+    reason: str
+    agent_id: str
+    trust_score: float
+    trust_level: str
+    policy_applied: str
+    execution_id: str
+    timestamp: str
+    audit_log_id: str
+    latency_ms: float
 
 # ============================================================
 # HELPERS - Action Evaluation
@@ -450,6 +478,77 @@ def compute_action_decision(trust_score, shadow_detected, eu_risk_class, risk_le
         "suggested_policy":              policy_map[final_decision],
     }
 
+# ============================================================
+# HELPERS - Runtime Guard
+# ============================================================
+
+POLICY_RULES = {
+    "payment": {"max_amount_usd": 1000, "require_human_if_high_risk": True},
+    "data_access": {"require_audit": True, "block_pii_if_not_gdpr": True},
+    "tool_use": {"blocked_tools": ["exec", "eval", "shell", "file_delete"]},
+}
+
+async def check_shadow_status(agent_id: str) -> bool:
+    """Check if this agent has known clones."""
+    passport = await db_get("passports", "agent_id", agent_id)
+    if not passport:
+        return False
+    did = passport.get("did", "")
+    async with httpx.AsyncClient() as c:
+        r = await c.get(
+            f"{SUPABASE_URL}/rest/v1/passports?did=eq.{did}&agent_id=neq.{agent_id}",
+            headers=get_headers(write=False), timeout=5
+        )
+        collisions = r.json() if r.status_code == 200 else []
+    return len(collisions) > 0
+
+def _deny_response(agent_id: str, reason: str, start_time: float) -> ExecutionResponse:
+    return ExecutionResponse(
+        decision=Decision.DENY, confidence=0.99, reason=reason,
+        agent_id=agent_id, trust_score=0.0, trust_level="UNKNOWN",
+        policy_applied="identity_verification",
+        execution_id=f"exec_{uuid.uuid4().hex[:8]}",
+        timestamp=datetime.utcnow().isoformat(),
+        audit_log_id="none", latency_ms=round((time.time() - start_time) * 1000, 2)
+    )
+
+def _evaluate_decision(sig_valid, is_revoked, is_expired, shadow_detected,
+                       trust_score, action_type, action_details, policy) -> tuple:
+    reasons = []
+    
+    if not sig_valid:
+        return Decision.DENY, 0.99, ["Invalid cryptographic signature — possible forgery"]
+    if is_revoked:
+        return Decision.DENY, 0.99, ["Agent passport revoked"]
+    if is_expired:
+        return Decision.DENY, 0.98, ["Agent passport expired"]
+    if shadow_detected:
+        return Decision.DENY, 0.99, ["Shadow clone detected — identity conflict"]
+    if trust_score < 0.60:
+        return Decision.DENY, 0.97, [f"Trust score {trust_score:.2f} below minimum threshold (0.60)"]
+    if trust_score < 0.85:
+        return Decision.REQUIRE_HUMAN_APPROVAL, 0.91, [f"Trust score {trust_score:.2f} in provisional range — human oversight required"]
+    
+    # Action-specific policies
+    if action_type == "payment":
+        amount = action_details.get("amount_usd", 0)
+        if amount > policy.get("max_amount_usd", 1000):
+            return Decision.REQUIRE_HUMAN_APPROVAL, 0.94, [f"Payment ${amount} exceeds auto-allow threshold"]
+    
+    if action_type == "tool_use":
+        tool = action_details.get("tool_name", "")
+        if tool in policy.get("blocked_tools", []):
+            return Decision.DENY, 0.96, [f"Tool '{tool}' is blocked for this agent"]
+    
+    if action_type == "data_access":
+        if action_details.get("contains_pii", False) and not policy.get("gdpr_allowed", False):
+            return Decision.DENY, 0.95, ["PII access requires GDPR-certified agent"]
+    
+    reasons.append(f"Trust score {trust_score:.2f} sufficient for {action_type}")
+    if policy.get("require_audit", False):
+        reasons.append("Audit trail required — logged")
+    
+    return Decision.ALLOW, 0.95, reasons
 
 # ============================================================
 # -- ROUTES --------------------------------------------------
@@ -463,7 +562,7 @@ def compute_action_decision(trust_score, shadow_detected, eu_risk_class, risk_le
 async def root():
     return {
         "name":           "VeriSigil AI API",
-        "version":        "0.4.7",
+        "version":        "0.5.0",
         "status":         "live",
         "description":    "Cryptographic identity and security for autonomous AI agents.",
         "website":        "https://www.verisigilai.com",
@@ -489,13 +588,15 @@ async def root():
             "waitlist":          "POST /v1/waitlist                    [public]",
             "sigilguard_event":  "POST /v1/sigilguard/event            [requires x-api-key]",
             "sigilguard_stats":  "GET  /v1/sigilguard/stats/{agent_id} [public]",
+            "guard_verify":      "POST /v1/guard/verify               [requires x-api-key]",
+            "guard_sdk":         "GET  /v1/guard/sdk                  [requires x-api-key]",
         }
     }
 
 @app.get("/health")
 async def health():
     # Simple, fast health check for Railway
-    return {"status": "healthy", "version": "0.4.7"}
+    return {"status": "healthy", "version": "0.5.0"}
 
 
 # -------------------------------------------------------------
@@ -1278,6 +1379,97 @@ async def public_scan(req: PublicScanRequest):
         "findings":      findings,
         "share_url":     share_url,
         "scanned_at":    datetime.utcnow().isoformat(),
+    }
+
+
+# ============================================================
+# v0.5.0 — RUNTIME GUARD
+# ============================================================
+
+@app.post("/v1/guard/verify", tags=["Runtime Guard"])
+async def verify_before_execution(
+    req: ExecutionRequest,
+    request: Request,
+    x_api_key: Optional[str] = Header(None)
+):
+    """
+    OPERATIONAL RUNTIME GUARD
+    Every AI agent action goes through this gate.
+    Returns ALLOW / DENY / REQUIRE_HUMAN_APPROVAL in <50ms.
+    """
+    start_time = time.time()
+    require_api_key(x_api_key)
+    
+    # 1. Fetch agent passport
+    passport = await db_get("passports", "agent_id", req.agent_id)
+    if not passport:
+        return _deny_response(req.agent_id, "Agent not found in VeriSigil registry", start_time)
+    
+    # 2. Verify identity & state
+    sig_valid = verify_payload(
+        {"agent_id": passport["agent_id"], "did": passport["did"],
+         "issued_at": passport["issued_at"], "owner": passport["owner"]},
+        passport.get("signature", "")
+    )
+    is_revoked = passport.get("status") == "REVOKED"
+    is_expired = datetime.utcnow() > datetime.fromisoformat(passport["expires_at"])
+    shadow_detected = await check_shadow_status(req.agent_id)
+    trust_score = float(passport.get("trust_score", 0.5))
+    trust_level_str = trust_level(trust_score)
+    
+    # 3. Evaluate policy
+    policy = POLICY_RULES.get(req.action_type, {})
+    decision, confidence, reasons = _evaluate_decision(
+        sig_valid, is_revoked, is_expired, shadow_detected,
+        trust_score, req.action_type, req.action_details, policy
+    )
+    
+    # 4. Log governance event
+    execution_id = f"exec_{uuid.uuid4().hex[:8]}"
+    timestamp = datetime.utcnow().isoformat()
+    await log_event(req.agent_id, "EXECUTION_EVALUATED", {
+        "execution_id": execution_id, "action_type": req.action_type,
+        "decision": decision.value, "reason": " | ".join(reasons),
+        "trust_score": trust_score, "latency_ms": round((time.time() - start_time) * 1000, 2)
+    })
+    
+    latency = round((time.time() - start_time) * 1000, 2)
+    
+    return ExecutionResponse(
+        decision=decision, confidence=confidence, reason=" | ".join(reasons),
+        agent_id=req.agent_id, trust_score=trust_score, trust_level=trust_level_str,
+        policy_applied=req.action_type, execution_id=execution_id,
+        timestamp=timestamp, audit_log_id=execution_id, latency_ms=latency
+    )
+
+@app.get("/v1/guard/sdk", tags=["Runtime Guard"])
+async def get_sdk_integration(x_api_key: Optional[str] = Header(None)):
+    """Returns copy-paste SDK code for LangChain, OpenAI, CrewAI."""
+    require_api_key(x_api_key)
+    return {
+        "sdk_snippet": """
+# VeriSigil Runtime Guard — 15-minute integration
+import requests, os
+
+class VeriSigilGuard:
+    def __init__(self, agent_id: str, api_key: str):
+        self.agent_id = agent_id
+        self.session = requests.Session()
+        self.session.headers.update({"x-api-key": api_key, "Content-Type": "application/json"})
+    
+    def verify_before_execution(self, action_type: str, action_details: dict, resource: str):
+        resp = self.session.post(
+            "https://api.verisigilai.com/v1/guard/verify",
+            json={"agent_id": self.agent_id, "action_type": action_type,
+                  "action_details": action_details, "resource": resource}
+        )
+        result = resp.json()
+        if result["decision"] == "DENY":
+            raise PermissionError(f"Blocked: {result['reason']}")
+        return result["decision"] == "ALLOW"
+""",
+        "integration_time": "15 minutes",
+        "docs": "https://api.verisigilai.com/docs#/Runtime%20Guard"
     }
 
 
