@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-VeriSigil AI - API Server v0.5.4
+VeriSigil AI - API Server v0.5.4 — Security hardened
 Complete integrated main.py - all endpoints in one file.
 Fix: time import conflict in Runtime Guard resolved.
 """
@@ -26,7 +26,7 @@ from nacl.signing import SigningKey
 SUPABASE_URL         = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY         = os.environ.get("SUPABASE_KEY")
 SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", os.environ.get("SUPABASE_KEY"))
-SIGN_SECRET          = os.environ.get("SIGN_SECRET", "verisigil-secret-2026")
+SIGN_SECRET          = os.environ.get("SIGN_SECRET", "")
 API_KEY              = os.environ.get("VERISIGIL_API_KEY")
 
 if not SUPABASE_URL or not SUPABASE_KEY:
