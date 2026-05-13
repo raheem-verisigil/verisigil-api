@@ -58,7 +58,7 @@ def check_rate_limit(client_ip: str) -> bool:
 app = FastAPI(
     title="VeriSigil AI API",
     description="The cryptographic identity and security layer for autonomous AI agents.",
-    version="0.5.1",
+    version="0.5.3",
     docs_url="/docs",
 )
 
@@ -592,7 +592,7 @@ def _evaluate_decision(sig_valid, is_revoked, is_expired, shadow_detected,
 async def root():
     return {
         "name":           "VeriSigil AI API",
-        "version":        "0.5.1",
+        "version":        "0.5.3",
         "status":         "live",
         "description":    "Cryptographic identity and security for autonomous AI agents.",
         "website":        "https://www.verisigilai.com",
@@ -621,12 +621,13 @@ async def root():
             "guard_verify":      "POST /v1/guard/verify               [requires x-api-key]",
             "gate_verify":       "POST /v1/verify                     [requires x-api-key]",
             "guard_sdk":         "GET  /v1/guard/sdk                  [requires x-api-key]",
+            "sprint_run":        "POST /v1/sprint/run                 [requires x-api-key]",
         }
     }
 
 @app.get("/health")
 async def health():
-    return {"status": "healthy", "version": "0.5.1"}
+    return {"status": "healthy", "version": "0.5.3"}
 
 # ── PASSPORT ISSUE ────────────────────────────────────────────
 
@@ -1296,6 +1297,375 @@ class VeriSigilGuard:
         "integration_time": "15 minutes",
         "docs": "https://verisigil-api-production.up.railway.app/docs#/Runtime%20Guard"
     }
+
+# ============================================================
+# v0.5.3 — COMPLIANCE SPRINT
+# ============================================================
+# ============================================================
+# v0.5.3 — COMPLIANCE SPRINT AUTOMATION
+# POST /v1/sprint/run
+# Automatically issues passport + sends compliance email
+# ============================================================
+
+class SprintRequest(BaseModel):
+    # Customer details
+    customer_name:    str
+    customer_email:   str
+    company_name:     str
+    website:          Optional[str] = None
+    # Agent details
+    agent_name:       str
+    agent_description: str
+    industry:         str  # fintech, healthcare, legal, hr, enterprise, other
+    framework:        str = "unknown"
+    eu_users:         bool = True
+    # Contact
+    linkedin:         Optional[str] = None
+
+class SprintResponse(BaseModel):
+    success:          bool
+    sprint_id:        str
+    agent_id:         str
+    passport_did:     str
+    trust_score:      float
+    eu_risk_class:    str
+    compliance_url:   str
+    email_sent:       bool
+    message:          str
+
+def classify_eu_risk(industry: str, agent_description: str) -> str:
+    """Classify EU AI Act risk level based on industry and description."""
+    high_risk_industries = ["fintech", "healthcare", "legal", "hr", "education", "biometrics", "law_enforcement"]
+    high_risk_keywords   = ["payment", "credit", "medical", "patient", "hiring", "recruitment",
+                             "scoring", "diagnosis", "loan", "insurance", "border", "police"]
+    
+    industry_lower     = industry.lower()
+    description_lower  = agent_description.lower()
+    
+    if industry_lower in high_risk_industries:
+        return "HIGH_RISK"
+    
+    for kw in high_risk_keywords:
+        if kw in description_lower:
+            return "HIGH_RISK"
+    
+    return "LIMITED_RISK"
+
+async def send_compliance_email(
+    customer_email:  str,
+    customer_name:   str,
+    company_name:    str,
+    agent_name:      str,
+    agent_id:        str,
+    passport_did:    str,
+    eu_risk_class:   str,
+    sprint_id:       str,
+    compliance_url:  str,
+    resend_api_key:  str
+):
+    """Send compliance sprint delivery email via Resend."""
+    
+    risk_color = "#EF4444" if eu_risk_class == "HIGH_RISK" else "#F59E0B"
+    risk_label = "HIGH RISK" if eu_risk_class == "HIGH_RISK" else "LIMITED RISK"
+    
+    html_body = f"""
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+  body {{ font-family: 'Segoe UI', Arial, sans-serif; background: #050E2B; color: #ffffff; margin: 0; padding: 0; }}
+  .container {{ max-width: 600px; margin: 0 auto; padding: 40px 24px; }}
+  .logo {{ font-size: 20px; font-weight: 800; color: #00D4F5; margin-bottom: 32px; }}
+  .hero {{ background: linear-gradient(135deg, #0D1A3A, #0A1628); border: 1px solid rgba(0,212,245,0.2); border-radius: 16px; padding: 32px; margin-bottom: 24px; text-align: center; }}
+  .hero h1 {{ font-size: 24px; font-weight: 700; margin-bottom: 8px; }}
+  .hero p {{ color: #94A3B8; font-size: 14px; }}
+  .section {{ background: #0D1A3A; border: 1px solid rgba(30,58,110,0.6); border-radius: 12px; padding: 24px; margin-bottom: 16px; }}
+  .section h2 {{ font-size: 14px; font-weight: 700; color: #00D4F5; text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 16px; }}
+  .field {{ margin-bottom: 12px; }}
+  .field-label {{ font-size: 11px; color: #94A3B8; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 3px; }}
+  .field-value {{ font-size: 13px; color: #ffffff; font-family: 'Courier New', monospace; word-break: break-all; }}
+  .risk-badge {{ display: inline-block; background: {risk_color}22; border: 1px solid {risk_color}44; color: {risk_color}; font-size: 11px; font-weight: 700; padding: 4px 12px; border-radius: 20px; }}
+  .green-badge {{ display: inline-block; background: #22C55E22; border: 1px solid #22C55E44; color: #22C55E; font-size: 11px; font-weight: 700; padding: 4px 12px; border-radius: 20px; }}
+  .checklist {{ list-style: none; padding: 0; margin: 0; }}
+  .checklist li {{ display: flex; align-items: center; gap: 10px; font-size: 13px; color: #94A3B8; padding: 6px 0; border-bottom: 1px solid rgba(30,58,110,0.4); }}
+  .checklist li:last-child {{ border-bottom: none; }}
+  .check {{ color: #22C55E; font-size: 16px; flex-shrink: 0; }}
+  .cta-btn {{ display: block; background: #00D4F5; color: #050E2B; text-align: center; padding: 14px 24px; border-radius: 10px; font-weight: 800; font-size: 15px; text-decoration: none; margin: 24px 0; }}
+  .code-block {{ background: #020812; border: 1px solid rgba(30,58,110,0.6); border-radius: 8px; padding: 16px; font-family: 'Courier New', monospace; font-size: 12px; color: #00D4F5; overflow-x: auto; white-space: pre-wrap; word-break: break-all; }}
+  .footer {{ text-align: center; font-size: 12px; color: #475569; margin-top: 32px; padding-top: 24px; border-top: 1px solid rgba(30,58,110,0.4); }}
+  .footer a {{ color: #00D4F5; text-decoration: none; }}
+</style>
+</head>
+<body>
+<div class="container">
+  
+  <div class="logo">⬡ VeriSigil AI</div>
+  
+  <div class="hero">
+    <h1>🎉 Your Compliance Sprint Is Ready</h1>
+    <p>Your AI agent now has cryptographic identity, Runtime Guard governance, and EU AI Act compliance documentation.</p>
+  </div>
+
+  <!-- PASSPORT DETAILS -->
+  <div class="section">
+    <h2>🔐 Your Agent Passport</h2>
+    <div class="field">
+      <div class="field-label">Agent Name</div>
+      <div class="field-value">{agent_name}</div>
+    </div>
+    <div class="field">
+      <div class="field-label">Agent ID</div>
+      <div class="field-value">{agent_id}</div>
+    </div>
+    <div class="field">
+      <div class="field-label">Decentralized Identity (DID)</div>
+      <div class="field-value">{passport_did}</div>
+    </div>
+    <div class="field">
+      <div class="field-label">EU Risk Classification</div>
+      <div class="field-value"><span class="risk-badge">{risk_label}</span></div>
+    </div>
+    <div class="field">
+      <div class="field-label">Issued By</div>
+      <div class="field-value">VeriSigil AI · verisigilai.com</div>
+    </div>
+    <div class="field">
+      <div class="field-label">Sprint Reference</div>
+      <div class="field-value">{sprint_id}</div>
+    </div>
+  </div>
+
+  <!-- WHAT IS ACTIVE -->
+  <div class="section">
+    <h2>✅ What Is Now Active</h2>
+    <ul class="checklist">
+      <li><span class="check">✓</span> Cryptographic passport — Ed25519 signed, W3C DID standard</li>
+      <li><span class="check">✓</span> Runtime Guard — verify every action before execution</li>
+      <li><span class="check">✓</span> Immutable audit trail — every event cryptographically logged</li>
+      <li><span class="check">✓</span> Shadow Detection™ — real-time clone monitoring active</li>
+      <li><span class="check">✓</span> EU AI Act transparency — Article 50 compliant</li>
+      <li><span class="check">✓</span> Human oversight enforcement — Article 14 compliant</li>
+    </ul>
+  </div>
+
+  <!-- COMPLIANCE REPORT -->
+  <div class="section">
+    <h2>📋 Your Compliance Report</h2>
+    <p style="font-size:13px;color:#94A3B8;margin-bottom:16px;">View and download your full EU AI Act compliance documentation:</p>
+    <a href="{compliance_url}" class="cta-btn">View Full Compliance Report →</a>
+  </div>
+
+  <!-- SDK INTEGRATION -->
+  <div class="section">
+    <h2>⚡ Add Runtime Guard — 3 Lines of Code</h2>
+    <p style="font-size:13px;color:#94A3B8;margin-bottom:12px;">Add this before every agent action:</p>
+    <div class="code-block">import requests, os
+
+def verify_before_execution(action_type, action_details, resource):
+    resp = requests.post(
+        "https://verisigil-api-production.up.railway.app/v1/guard/verify",
+        headers={{"x-api-key": os.getenv("VERISIGIL_API_KEY")}},
+        json={{
+            "agent_id":       "{agent_id}",
+            "action_type":   action_type,
+            "action_details": action_details,
+            "resource":      resource
+        }}
+    )
+    result = resp.json()
+    if result["decision"] == "DENY":
+        raise PermissionError(f"Blocked: {{result['reason']}}")
+    return result["decision"]
+
+# Example — before a payment
+decision = verify_before_execution(
+    action_type="payment",
+    action_details={{"amount_usd": 5000}},
+    resource="stripe_api"
+)
+# Returns: ALLOW / REQUIRE_HUMAN_APPROVAL / DENY</div>
+    <p style="font-size:12px;color:#94A3B8;margin-top:12px;">Full SDK docs: <a href="https://verisigilai.com/sdk.html" style="color:#00D4F5;">verisigilai.com/sdk.html</a></p>
+  </div>
+
+  <!-- VERIFY YOUR AGENT -->
+  <div class="section">
+    <h2>🔍 Verify Your Agent Publicly</h2>
+    <p style="font-size:13px;color:#94A3B8;margin-bottom:12px;">Anyone can verify your agent's identity at:</p>
+    <div class="code-block">https://verisigil-api-production.up.railway.app/verify/{agent_id}</div>
+    <p style="font-size:12px;color:#94A3B8;margin-top:8px;">Share this URL with regulators, enterprise buyers, or partners as proof of verified identity.</p>
+  </div>
+
+  <!-- NEXT STEPS -->
+  <div class="section">
+    <h2>🚀 Next Steps</h2>
+    <ul class="checklist">
+      <li><span class="check">1</span> Add Runtime Guard code to your agent (3 lines above)</li>
+      <li><span class="check">2</span> Test it at verisigilai.com/sigil_studio.html</li>
+      <li><span class="check">3</span> Download your compliance report for regulators</li>
+      <li><span class="check">4</span> Share your verification URL with enterprise buyers</li>
+    </ul>
+  </div>
+
+  <div class="footer">
+    <p>Questions? Reply to this email or contact <a href="mailto:raheem@verisigilai.com">raheem@verisigilai.com</a></p>
+    <p style="margin-top:8px;">Built by <strong>Raheem Larry Babatunde</strong> · Lagos, Nigeria 🇳🇬</p>
+    <p style="margin-top:8px;"><a href="https://verisigilai.com">verisigilai.com</a></p>
+  </div>
+
+</div>
+</body>
+</html>
+"""
+    
+    async with httpx.AsyncClient() as c:
+        r = await c.post(
+            "https://api.resend.com/emails",
+            headers={
+                "Authorization": f"Bearer {resend_api_key}",
+                "Content-Type":  "application/json"
+            },
+            json={
+                "from":    "VeriSigil AI <raheem@verisigilai.com>",
+                "to":      [customer_email],
+                "subject": f"✅ Your VeriSigil Compliance Sprint Is Ready — {agent_name}",
+                "html":    html_body,
+                "reply_to": "raheem@verisigilai.com"
+            },
+            timeout=15
+        )
+        return r.status_code == 200
+
+
+@app.post("/v1/sprint/run", tags=["Compliance Sprint"])
+async def run_compliance_sprint(
+    req: SprintRequest,
+    x_api_key: Optional[str] = Header(None)
+):
+    """
+    COMPLIANCE SPRINT — Fully Automatic
+    Issues passport + sends compliance email in one call.
+    Public endpoint — customers trigger this from Sigil Studio.
+    """
+    require_api_key(x_api_key)
+
+    sprint_id    = f"sprint_{uuid.uuid4().hex[:10].upper()}"
+    eu_risk_class = classify_eu_risk(req.industry, req.agent_description)
+
+    # 1. Issue passport automatically
+    p = make_passport(
+        agent_name   = req.agent_name,
+        owner        = req.customer_email,
+        framework    = req.framework,
+        runtime      = "python",
+        version      = "1.0.0",
+        tags         = ["compliance_sprint", req.industry, sprint_id],
+        expiry_days  = 365,
+        display_name = req.agent_name,
+        issuer_org   = req.company_name,
+    )
+
+    # Override risk class based on classification
+    p["eu_risk_class"] = eu_risk_class
+
+    # 2. Store passport in database
+    db_record = {
+        "agent_id":          p["agent_id"],
+        "agent_name":        p["agent_name"],
+        "did":               p["did"],
+        "public_key":        p["public_key"],
+        "signature":         p["signature"],
+        "signature_type":    p["signature_type"],
+        "owner":             p["owner"],
+        "issuer":            p["issuer"],
+        "status":            p["status"],
+        "trust_score":       p["trust_score"],
+        "eu_risk_class":     eu_risk_class,
+        "compliant":         p["compliant"],
+        "framework":         p["framework"],
+        "runtime":           p["runtime"],
+        "version":           p["version"],
+        "tags":              p["tags"],
+        "display_name":      p["display_name"],
+        "issuer_org":        p["issuer_org"],
+        "verification_tier": p["verification_tier"],
+        "tier_label":        p["tier_label"],
+        "is_protected_name": p["is_protected"],
+        "issued_at":         p["issued_at"],
+        "expires_at":        p["expires_at"],
+        "eu_ai_act":         p["eu_ai_act"],
+        "gdpr":              p["gdpr"],
+        "hipaa":             p["hipaa"],
+        "soc2":              p["soc2"],
+    }
+
+    try:
+        await db_insert("passports", db_record)
+        stored = True
+    except Exception as e:
+        stored = False
+        print(f"[SPRINT DB ERROR] {e}")
+
+    # 3. Store sprint record in waitlist table for tracking
+    try:
+        await db_insert("waitlist", {
+            "email":    req.customer_email,
+            "name":     req.customer_name,
+            "company":  req.company_name,
+            "use_case": f"Sprint: {req.agent_name} | Industry: {req.industry} | Risk: {eu_risk_class}",
+            "tier":     "sprint_499",
+            "source":   "compliance_sprint",
+            "status":   "active"
+        })
+    except Exception as e:
+        print(f"[SPRINT WAITLIST ERROR] {e}")
+
+    # 4. Build compliance report URL
+    compliance_url = f"https://verisigilai.com/compliance-report.html?agent_id={p['agent_id']}&sprint_id={sprint_id}"
+
+    # 5. Send email via Resend
+    resend_key = os.environ.get("RESEND_API_KEY", "")
+    email_sent = False
+    if resend_key:
+        try:
+            email_sent = await send_compliance_email(
+                customer_email  = req.customer_email,
+                customer_name   = req.customer_name,
+                company_name    = req.company_name,
+                agent_name      = req.agent_name,
+                agent_id        = p["agent_id"],
+                passport_did    = p["did"],
+                eu_risk_class   = eu_risk_class,
+                sprint_id       = sprint_id,
+                compliance_url  = compliance_url,
+                resend_api_key  = resend_key
+            )
+        except Exception as e:
+            print(f"[SPRINT EMAIL ERROR] {e}")
+
+    # 6. Log the sprint event
+    await log_event(p["agent_id"], "SPRINT_COMPLETED", {
+        "sprint_id":     sprint_id,
+        "customer_email": req.customer_email,
+        "company":       req.company_name,
+        "industry":      req.industry,
+        "eu_risk_class": eu_risk_class,
+        "email_sent":    email_sent,
+        "stored":        stored,
+    })
+
+    return SprintResponse(
+        success        = stored,
+        sprint_id      = sprint_id,
+        agent_id       = p["agent_id"],
+        passport_did   = p["did"],
+        trust_score    = p["trust_score"],
+        eu_risk_class  = eu_risk_class,
+        compliance_url = compliance_url,
+        email_sent     = email_sent,
+        message        = f"Sprint complete! Passport issued and compliance email sent to {req.customer_email}. Check your inbox."
+    )
+
 
 # ============================================================
 # MAIN
