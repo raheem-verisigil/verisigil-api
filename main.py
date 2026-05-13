@@ -404,6 +404,8 @@ class ExecutionResponse(BaseModel):
     timestamp:     str
     audit_log_id:  str
     latency_ms:    float
+    approval_url:  Optional[str] = None
+    approval_id:   Optional[str] = None
 
 # ── Operational Gateway Models ────────────────────────────────
 
@@ -1202,7 +1204,9 @@ async def verify_before_execution(
         decision=decision, confidence=confidence, reason=" | ".join(reasons),
         agent_id=req.agent_id, trust_score=trust_score, trust_level=trust_level_str,
         policy_applied=req.action_type, execution_id=execution_id,
-        timestamp=timestamp, audit_log_id=execution_id, latency_ms=latency)
+        timestamp=timestamp, audit_log_id=execution_id, latency_ms=latency,
+        approval_url=approval_url if decision == Decision.REQUIRE_HUMAN_APPROVAL else None,
+        approval_id=approval_url.split("id=")[-1] if approval_url else None)
 
 # ── OPERATIONAL GATEWAY (5-gate policy engine) ────────────────
 
