@@ -5,6 +5,7 @@ Complete integrated main.py - all endpoints in one file.
 Fix: time import conflict in Runtime Guard resolved.
 """
 
+import asyncio
 import base64, hashlib, math, os, uuid, json, re, time as time_module, smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -1193,6 +1194,27 @@ async def verify_before_execution(
                 "created_at":     now.strftime("%Y-%m-%dT%H:%M:%S+00:00"),
             })
             print(f"[APPROVAL CREATED] {approval_id} | result: {insert_result}")
+
+            # Send email notification to approver if email provided
+            approver_notify = req.action_details.get("approver_email")
+            if not approver_notify:
+                approver_notify = os.environ.get("DEFAULT_APPROVER_EMAIL", "raheem@verisigilai.com")
+
+            passport = await db_get("passports", "agent_id", req.agent_id)
+            agent_display = passport.get("display_name", req.agent_id) if passport else req.agent_id
+
+            asyncio.create_task(send_approval_email(
+                approver_email  = approver_notify,
+                agent_name      = agent_display,
+                agent_id        = req.agent_id,
+                action_type     = req.action_type,
+                action_details  = req.action_details,
+                reason          = " | ".join(reasons),
+                trust_score     = trust_score,
+                approval_id     = approval_id,
+                approval_url    = approval_url,
+                execution_id    = execution_id
+            ))
         except Exception as e:
             print(f"[APPROVAL CREATE ERROR] {e}")
             approval_url = None
@@ -1649,6 +1671,108 @@ async def run_compliance_sprint(
         message        = f"Sprint complete! Passport issued and compliance email sent to {req.customer_email}. Check your inbox."
     )
 
+
+
+
+async def send_approval_email(
+    approver_email: str,
+    agent_name:     str,
+    agent_id:       str,
+    action_type:    str,
+    action_details: dict,
+    reason:         str,
+    trust_score:    float,
+    approval_id:    str,
+    approval_url:   str,
+    execution_id:   str
+) -> bool:
+    """Send approval notification email via Supabase Edge Function."""
+    supabase_url = os.environ.get("SUPABASE_URL", "")
+    supabase_key = os.environ.get("SUPABASE_SERVICE_KEY", os.environ.get("SUPABASE_KEY", ""))
+    edge_url     = f"{supabase_url}/functions/v1/resend-email"
+
+    amount = action_details.get("amount_usd")
+    amount_str = f"${float(amount):,.2f} USD" if amount else ""
+
+    html = f"""<!DOCTYPE html>
+<html><head><meta charset="UTF-8">
+<style>
+body{{font-family:'Segoe UI',Arial,sans-serif;background:#050E2B;color:#fff;margin:0;padding:0}}
+.wrap{{max-width:560px;margin:0 auto;padding:28px 20px}}
+.logo{{font-size:18px;font-weight:800;color:#00D4F5;margin-bottom:20px}}
+.hero{{background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.25);border-radius:12px;padding:24px;margin-bottom:18px;text-align:center}}
+.hero-icon{{font-size:36px;margin-bottom:10px}}
+.hero-title{{font-size:18px;font-weight:700;color:#F59E0B;margin-bottom:6px}}
+.hero-sub{{font-size:13px;color:#94A3B8}}
+.box{{background:#0D1A3A;border:1px solid rgba(30,58,110,0.6);border-radius:10px;padding:18px;margin-bottom:14px}}
+.box-title{{font-size:11px;font-weight:700;color:#00D4F5;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:12px}}
+.row{{display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid rgba(30,58,110,0.4);font-size:13px}}
+.row:last-child{{border-bottom:none}}
+.label{{color:#94A3B8}}.value{{color:#fff;font-family:monospace;font-size:12px;text-align:right;word-break:break-all;max-width:280px}}
+.amount{{color:#F59E0B;font-size:15px;font-weight:700}}
+.reason-box{{background:rgba(245,158,11,0.06);border:1px solid rgba(245,158,11,0.2);border-radius:8px;padding:12px 14px;margin-bottom:14px}}
+.reason-text{{color:#F59E0B;font-size:13px;font-weight:600}}
+.cta{{display:block;background:#00D4F5;color:#050E2B;text-align:center;padding:14px;border-radius:9px;font-weight:800;font-size:15px;text-decoration:none;margin:18px 0}}
+.note{{font-size:11px;color:#94A3B8;text-align:center;margin-bottom:14px}}
+.footer{{text-align:center;font-size:11px;color:#475569;margin-top:20px;padding-top:16px;border-top:1px solid rgba(30,58,110,0.4)}}
+.footer a{{color:#00D4F5;text-decoration:none}}
+</style></head><body><div class="wrap">
+<div class="logo">⬡ VeriSigil AI</div>
+<div class="hero">
+  <div class="hero-icon">⚠️</div>
+  <div class="hero-title">Action Requires Your Approval</div>
+  <div class="hero-sub">An AI agent is requesting to perform a high-risk action.<br>Your approval is required before it can proceed.</div>
+</div>
+<div class="box">
+  <div class="box-title">🤖 Agent Identity</div>
+  <div class="row"><span class="label">Agent Name</span><span class="value">{agent_name}</span></div>
+  <div class="row"><span class="label">Agent ID</span><span class="value">{agent_id}</span></div>
+  <div class="row"><span class="label">Trust Score</span><span class="value">{trust_score}</span></div>
+</div>
+<div class="box">
+  <div class="box-title">⚡ Requested Action</div>
+  <div class="row"><span class="label">Action Type</span><span class="value">{action_type}</span></div>
+  {f'<div class="row"><span class="label">Amount</span><span class="value amount">{amount_str}</span></div>' if amount_str else ''}
+  <div class="row"><span class="label">Execution ID</span><span class="value">{execution_id}</span></div>
+</div>
+<div class="reason-box">
+  <div style="font-size:11px;color:#94A3B8;margin-bottom:4px;text-transform:uppercase;letter-spacing:0.08em">Why This Needs Approval</div>
+  <div class="reason-text">⚡ {reason}</div>
+</div>
+<a href="{approval_url}" class="cta">Review and Approve or Reject →</a>
+<div class="note">This approval request expires in 24 hours.<br>Approval ID: {approval_id}</div>
+<div class="footer">
+  <p>Powered by <a href="https://verisigilai.com">VeriSigil AI</a> — Runtime Governance for Autonomous AI Agents</p>
+  <p style="margin-top:4px"><a href="mailto:raheem@verisigilai.com">raheem@verisigilai.com</a></p>
+</div>
+</div></body></html>"""
+
+    try:
+        async with httpx.AsyncClient() as c:
+            r = await c.post(
+                edge_url,
+                headers={
+                    "Authorization": f"Bearer {supabase_key}",
+                    "Content-Type":  "application/json",
+                },
+                json={
+                    "to":      approver_email,
+                    "subject": f"⚠️ Approval Required — {agent_name} is requesting a {action_type} action",
+                    "html":    html,
+                    "from":    "VeriSigil AI <raheem@verisigilai.com>",
+                },
+                timeout=15
+            )
+            result = r.json()
+            if r.status_code == 200 and result.get("id"):
+                print(f"[APPROVAL EMAIL] ✅ Sent to {approver_email}")
+                return True
+            else:
+                print(f"[APPROVAL EMAIL ERROR] {r.status_code}: {result}")
+                return False
+    except Exception as e:
+        print(f"[APPROVAL EMAIL ERROR] {e}")
+        return False
 
 
 # ============================================================
