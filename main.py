@@ -1177,22 +1177,25 @@ async def verify_before_execution(
         try:
             approval_id  = f"apr_{uuid.uuid4().hex[:8]}"
             approval_url = f"https://verisigilai.com/approve.html?id={approval_id}"
-            await db_insert("approval_requests", {
+            now        = datetime.utcnow()
+            expires    = now + timedelta(hours=24)
+            insert_result = await db_insert("approval_requests", {
                 "id":             approval_id,
                 "execution_id":   execution_id,
                 "agent_id":       req.agent_id,
                 "action_type":    req.action_type,
                 "action_details": req.action_details,
                 "resource":       req.resource,
-                "trust_score":    trust_score,
+                "trust_score":    float(trust_score),
                 "reason":         " | ".join(reasons),
                 "status":         "pending",
-                "expires_at":     (datetime.utcnow() + timedelta(hours=24)).isoformat(),
-                "created_at":     datetime.utcnow().isoformat(),
+                "expires_at":     expires.strftime("%Y-%m-%dT%H:%M:%S+00:00"),
+                "created_at":     now.strftime("%Y-%m-%dT%H:%M:%S+00:00"),
             })
-            print(f"[APPROVAL CREATED] {approval_id} for {req.agent_id}")
+            print(f"[APPROVAL CREATED] {approval_id} | result: {insert_result}")
         except Exception as e:
             print(f"[APPROVAL CREATE ERROR] {e}")
+            approval_url = None
 
     await log_event(req.agent_id, "EXECUTION_EVALUATED", {
         "execution_id": execution_id, "action_type": req.action_type,
