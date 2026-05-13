@@ -1734,7 +1734,14 @@ async def get_approval(approval_id: str):
     Public endpoint — approver loads this to see the request details.
     No API key required so the approver can view without credentials.
     """
-    approval = await db_get("approval_requests", "id", approval_id)
+    # Use service key to bypass RLS for approval lookup
+    async with httpx.AsyncClient() as _c:
+        _r = await _c.get(
+            f"{SUPABASE_URL}/rest/v1/approval_requests?id=eq.{approval_id}",
+            headers=get_headers(write=True), timeout=10
+        )
+        _rows = _r.json() if _r.status_code == 200 else []
+        approval = _rows[0] if isinstance(_rows, list) and _rows else None
     if not approval:
         raise HTTPException(404, "Approval request not found.")
 
