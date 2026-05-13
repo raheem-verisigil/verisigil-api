@@ -1576,25 +1576,24 @@ async def run_compliance_sprint(
     # 4. Build compliance report URL
     compliance_url = f"https://verisigilai.com/compliance-report.html?agent_id={p['agent_id']}&sprint_id={sprint_id}"
 
-    # 5. Send email via Resend
+    # 5. Send email via Supabase Edge Function
     resend_key = os.environ.get("RESEND_API_KEY", "")
     email_sent = False
-    if resend_key:
-        try:
-            email_sent = await send_compliance_email(
-                customer_email  = req.customer_email,
-                customer_name   = req.customer_name,
-                company_name    = req.company_name,
-                agent_name      = req.agent_name,
-                agent_id        = p["agent_id"],
-                passport_did    = p["did"],
-                eu_risk_class   = eu_risk_class,
-                sprint_id       = sprint_id,
-                compliance_url  = compliance_url,
-                resend_api_key  = resend_key
-            )
-        except Exception as e:
-            print(f"[SPRINT EMAIL ERROR] {e}")
+    try:
+        email_sent = await send_compliance_email(
+            customer_email  = req.customer_email,
+            customer_name   = req.customer_name,
+            company_name    = req.company_name,
+            agent_name      = req.agent_name,
+            agent_id        = p["agent_id"],
+            passport_did    = p["did"],
+            eu_risk_class   = eu_risk_class,
+            sprint_id       = sprint_id,
+            compliance_url  = compliance_url,
+            resend_api_key  = resend_key
+        )
+    except Exception as e:
+        print(f"[SPRINT EMAIL ERROR] {e}")
 
     # 6. Log the sprint event
     await log_event(p["agent_id"], "SPRINT_COMPLETED", {
