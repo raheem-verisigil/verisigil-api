@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-VeriSigil AI - API Server v0.5.1
+VeriSigil AI - API Server v0.5.4
 Complete integrated main.py - all endpoints in one file.
 Fix: time import conflict in Runtime Guard resolved.
 """
@@ -60,7 +60,7 @@ def check_rate_limit(client_ip: str) -> bool:
 app = FastAPI(
     title="VeriSigil AI API",
     description="The cryptographic identity and security layer for autonomous AI agents.",
-    version="0.5.3",
+    version="0.5.4",
     docs_url="/docs",
 )
 
@@ -594,7 +594,7 @@ def _evaluate_decision(sig_valid, is_revoked, is_expired, shadow_detected,
 async def root():
     return {
         "name":           "VeriSigil AI API",
-        "version":        "0.5.3",
+        "version":        "0.5.4",
         "status":         "live",
         "description":    "Cryptographic identity and security for autonomous AI agents.",
         "website":        "https://www.verisigilai.com",
@@ -629,7 +629,7 @@ async def root():
 
 @app.get("/health")
 async def health():
-    return {"status": "healthy", "version": "0.5.3"}
+    return {"status": "healthy", "version": "0.5.4"}
 
 # ── PASSPORT ISSUE ────────────────────────────────────────────
 
@@ -1169,10 +1169,34 @@ async def verify_before_execution(
     timestamp    = datetime.utcnow().isoformat()
     latency      = round((time_module.time() - start_time) * 1000, 2)  # FIX
 
+    # Auto-create approval request when human approval is needed
+    approval_url = None
+    if decision == Decision.REQUIRE_HUMAN_APPROVAL:
+        try:
+            approval_id  = f"apr_{uuid.uuid4().hex[:8]}"
+            approval_url = f"https://verisigilai.com/approve.html?id={approval_id}"
+            await db_insert("approval_requests", {
+                "id":             approval_id,
+                "execution_id":   execution_id,
+                "agent_id":       req.agent_id,
+                "action_type":    req.action_type,
+                "action_details": req.action_details,
+                "resource":       req.resource,
+                "trust_score":    trust_score,
+                "reason":         " | ".join(reasons),
+                "status":         "pending",
+                "expires_at":     (datetime.utcnow() + timedelta(hours=24)).isoformat(),
+                "created_at":     datetime.utcnow().isoformat(),
+            })
+            print(f"[APPROVAL CREATED] {approval_id} for {req.agent_id}")
+        except Exception as e:
+            print(f"[APPROVAL CREATE ERROR] {e}")
+
     await log_event(req.agent_id, "EXECUTION_EVALUATED", {
         "execution_id": execution_id, "action_type": req.action_type,
         "decision": decision.value, "reason": " | ".join(reasons),
-        "trust_score": trust_score, "latency_ms": latency})
+        "trust_score": trust_score, "latency_ms": latency,
+        "approval_url": approval_url})
 
     return ExecutionResponse(
         decision=decision, confidence=confidence, reason=" | ".join(reasons),
@@ -1617,6 +1641,219 @@ async def run_compliance_sprint(
         email_sent     = email_sent,
         message        = f"Sprint complete! Passport issued and compliance email sent to {req.customer_email}. Check your inbox."
     )
+
+
+
+# ============================================================
+# v0.5.4 — APPROVAL CONSOLE
+# Human-in-the-loop for Runtime Guard REQUIRE_HUMAN_APPROVAL
+# ============================================================
+
+class ApprovalCreate(BaseModel):
+    execution_id:   str
+    agent_id:       str
+    action_type:    str
+    action_details: dict = {}
+    resource:       str
+    trust_score:    float
+    reason:         str
+    approver_email: Optional[str] = None
+
+class ApprovalDecision(BaseModel):
+    decision:       str  # "approved" or "rejected"
+    approver_name:  str
+    approver_email: str
+    reason:         Optional[str] = None
+
+@app.post("/v1/approvals/create", tags=["Approval Console"])
+async def create_approval(
+    req: ApprovalCreate,
+    x_api_key: Optional[str] = Header(None)
+):
+    """
+    Create a human approval request.
+    Called automatically when Runtime Guard returns REQUIRE_HUMAN_APPROVAL.
+    """
+    require_api_key(x_api_key)
+
+    approval_id = f"apr_{uuid.uuid4().hex[:8]}"
+    expires_at  = (datetime.utcnow() + timedelta(hours=24)).isoformat()
+    created_at  = datetime.utcnow().isoformat()
+    review_url  = f"https://verisigilai.com/approve.html?id={approval_id}"
+
+    record = {
+        "id":             approval_id,
+        "execution_id":   req.execution_id,
+        "agent_id":       req.agent_id,
+        "action_type":    req.action_type,
+        "action_details": req.action_details,
+        "resource":       req.resource,
+        "trust_score":    req.trust_score,
+        "reason":         req.reason,
+        "status":         "pending",
+        "approver_email": req.approver_email,
+        "expires_at":     expires_at,
+        "created_at":     created_at,
+    }
+
+    try:
+        await db_insert("approval_requests", record)
+        stored = True
+    except Exception as e:
+        stored = False
+        print(f"[APPROVAL CREATE ERROR] {e}")
+
+    await log_event(req.agent_id, "APPROVAL_CREATED", {
+        "approval_id":  approval_id,
+        "execution_id": req.execution_id,
+        "action_type":  req.action_type,
+        "reason":       req.reason,
+        "review_url":   review_url,
+    })
+
+    return {
+        "success":     stored,
+        "approval_id": approval_id,
+        "status":      "pending",
+        "review_url":  review_url,
+        "expires_at":  expires_at,
+        "message":     f"Approval request created. Review at: {review_url}"
+    }
+
+
+@app.get("/v1/approvals/{approval_id}", tags=["Approval Console"])
+async def get_approval(approval_id: str):
+    """
+    Public endpoint — approver loads this to see the request details.
+    No API key required so the approver can view without credentials.
+    """
+    approval = await db_get("approval_requests", "id", approval_id)
+    if not approval:
+        raise HTTPException(404, "Approval request not found.")
+
+    # Get agent details
+    agent = await db_get("passports", "agent_id", approval["agent_id"])
+
+    # Check expiry
+    is_expired = False
+    try:
+        is_expired = datetime.utcnow() > datetime.fromisoformat(
+            approval["expires_at"].replace("Z", ""))
+    except Exception:
+        pass
+
+    if is_expired and approval["status"] == "pending":
+        await db_patch("approval_requests", "id", approval_id, {"status": "expired"})
+        approval["status"] = "expired"
+
+    return {
+        "approval_id": approval_id,
+        "status":      approval["status"],
+        "agent": {
+            "agent_id":     agent["agent_id"]      if agent else "unknown",
+            "display_name": agent.get("display_name","Unknown") if agent else "Unknown",
+            "issuer_org":   agent.get("issuer_org", "Unknown") if agent else "Unknown",
+            "trust_score":  agent.get("trust_score", 0)        if agent else 0,
+        },
+        "action": {
+            "type":    approval["action_type"],
+            "details": approval["action_details"],
+            "resource": approval["resource"],
+        },
+        "policy_trigger":         approval["reason"],
+        "trust_score_at_decision": approval["trust_score"],
+        "created_at":  approval["created_at"],
+        "expires_at":  approval["expires_at"],
+        "is_expired":  is_expired,
+        "decision_at": approval.get("approved_at"),
+        "decision_by": approval.get("approver_name") or approval.get("approver_email"),
+        "rejection_reason": approval.get("rejection_reason"),
+    }
+
+
+@app.post("/v1/approvals/{approval_id}/decide", tags=["Approval Console"])
+async def decide_approval(approval_id: str, req: ApprovalDecision):
+    """
+    Approver submits APPROVE or REJECT decision.
+    No API key required — approver uses the review URL directly.
+    """
+    if req.decision not in ["approved", "rejected"]:
+        raise HTTPException(400, "Decision must be 'approved' or 'rejected'.")
+
+    approval = await db_get("approval_requests", "id", approval_id)
+    if not approval:
+        raise HTTPException(404, "Approval request not found.")
+
+    if approval["status"] != "pending":
+        raise HTTPException(400, f"This request has already been {approval['status']}.")
+
+    # Check expiry
+    try:
+        is_expired = datetime.utcnow() > datetime.fromisoformat(
+            approval["expires_at"].replace("Z", ""))
+        if is_expired:
+            await db_patch("approval_requests", "id", approval_id, {"status": "expired"})
+            raise HTTPException(400, "This approval request has expired.")
+    except HTTPException:
+        raise
+    except Exception:
+        pass
+
+    if req.decision == "rejected" and not req.reason:
+        raise HTTPException(400, "A reason is required when rejecting an action.")
+
+    update = {
+        "status":         req.decision,
+        "approver_name":  req.approver_name,
+        "approver_email": req.approver_email,
+        "approved_at":    datetime.utcnow().isoformat(),
+    }
+    if req.decision == "rejected":
+        update["rejection_reason"] = req.reason
+
+    await db_patch("approval_requests", "id", approval_id, update)
+
+    await log_event(approval["agent_id"], "APPROVAL_DECIDED", {
+        "approval_id":  approval_id,
+        "execution_id": approval["execution_id"],
+        "decision":     req.decision,
+        "approver":     req.approver_name,
+        "reason":       req.reason,
+    })
+
+    return {
+        "approval_id": approval_id,
+        "status":      req.decision,
+        "agent_id":    approval["agent_id"],
+        "decided_by":  req.approver_name,
+        "message":     f"Action {req.decision} by {req.approver_name}. Decision cryptographically logged."
+    }
+
+
+@app.get("/v1/approvals", tags=["Approval Console"])
+async def list_approvals(
+    status: Optional[str] = None,
+    agent_id: Optional[str] = None,
+    x_api_key: Optional[str] = Header(None)
+):
+    """List approval requests. Filter by status or agent_id."""
+    require_api_key(x_api_key)
+
+    url = f"{SUPABASE_URL}/rest/v1/approval_requests?order=created_at.desc&limit=50"
+    if status:
+        url += f"&status=eq.{status}"
+    if agent_id:
+        url += f"&agent_id=eq.{agent_id}"
+
+    async with httpx.AsyncClient() as c:
+        r = await c.get(url, headers=get_headers(write=False), timeout=10)
+        approvals = r.json() if r.status_code == 200 else []
+
+    return {
+        "total":     len(approvals),
+        "approvals": approvals,
+        "filter":    {"status": status, "agent_id": agent_id}
+    }
 
 
 # ============================================================
