@@ -5,7 +5,9 @@ Complete integrated main.py - all endpoints in one file.
 Fix: time import conflict in Runtime Guard resolved.
 """
 
-import base64, hashlib, math, os, uuid, json, re, time as time_module
+import base64, hashlib, math, os, uuid, json, re, time as time_module, smtplib
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 from time import time
 from datetime import datetime, timedelta
 from typing import List, Optional, Dict, Any
@@ -1362,179 +1364,130 @@ async def send_compliance_email(
     sprint_id:       str,
     compliance_url:  str,
     resend_api_key:  str
-):
-    """Send compliance sprint delivery email via Resend."""
-    
+) -> bool:
+    """
+    Send compliance sprint email via Supabase Edge Function (resend-email).
+    Edge Functions call Resend HTTP API directly — no network restrictions.
+    """
+    supabase_url = os.environ.get("SUPABASE_URL", "")
+    supabase_key = os.environ.get("SUPABASE_SERVICE_KEY", os.environ.get("SUPABASE_KEY", ""))
+    edge_url     = f"{supabase_url}/functions/v1/resend-email"
+
     risk_color = "#EF4444" if eu_risk_class == "HIGH_RISK" else "#F59E0B"
     risk_label = "HIGH RISK" if eu_risk_class == "HIGH_RISK" else "LIMITED RISK"
-    
-    html_body = f"""
-<!DOCTYPE html>
-<html>
-<head>
-<meta charset="UTF-8">
+
+    html_body = f"""<!DOCTYPE html>
+<html><head><meta charset="UTF-8">
 <style>
-  body {{ font-family: 'Segoe UI', Arial, sans-serif; background: #050E2B; color: #ffffff; margin: 0; padding: 0; }}
-  .container {{ max-width: 600px; margin: 0 auto; padding: 40px 24px; }}
-  .logo {{ font-size: 20px; font-weight: 800; color: #00D4F5; margin-bottom: 32px; }}
-  .hero {{ background: linear-gradient(135deg, #0D1A3A, #0A1628); border: 1px solid rgba(0,212,245,0.2); border-radius: 16px; padding: 32px; margin-bottom: 24px; text-align: center; }}
-  .hero h1 {{ font-size: 24px; font-weight: 700; margin-bottom: 8px; }}
-  .hero p {{ color: #94A3B8; font-size: 14px; }}
-  .section {{ background: #0D1A3A; border: 1px solid rgba(30,58,110,0.6); border-radius: 12px; padding: 24px; margin-bottom: 16px; }}
-  .section h2 {{ font-size: 14px; font-weight: 700; color: #00D4F5; text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 16px; }}
-  .field {{ margin-bottom: 12px; }}
-  .field-label {{ font-size: 11px; color: #94A3B8; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 3px; }}
-  .field-value {{ font-size: 13px; color: #ffffff; font-family: 'Courier New', monospace; word-break: break-all; }}
-  .risk-badge {{ display: inline-block; background: {risk_color}22; border: 1px solid {risk_color}44; color: {risk_color}; font-size: 11px; font-weight: 700; padding: 4px 12px; border-radius: 20px; }}
-  .green-badge {{ display: inline-block; background: #22C55E22; border: 1px solid #22C55E44; color: #22C55E; font-size: 11px; font-weight: 700; padding: 4px 12px; border-radius: 20px; }}
-  .checklist {{ list-style: none; padding: 0; margin: 0; }}
-  .checklist li {{ display: flex; align-items: center; gap: 10px; font-size: 13px; color: #94A3B8; padding: 6px 0; border-bottom: 1px solid rgba(30,58,110,0.4); }}
-  .checklist li:last-child {{ border-bottom: none; }}
-  .check {{ color: #22C55E; font-size: 16px; flex-shrink: 0; }}
-  .cta-btn {{ display: block; background: #00D4F5; color: #050E2B; text-align: center; padding: 14px 24px; border-radius: 10px; font-weight: 800; font-size: 15px; text-decoration: none; margin: 24px 0; }}
-  .code-block {{ background: #020812; border: 1px solid rgba(30,58,110,0.6); border-radius: 8px; padding: 16px; font-family: 'Courier New', monospace; font-size: 12px; color: #00D4F5; overflow-x: auto; white-space: pre-wrap; word-break: break-all; }}
-  .footer {{ text-align: center; font-size: 12px; color: #475569; margin-top: 32px; padding-top: 24px; border-top: 1px solid rgba(30,58,110,0.4); }}
-  .footer a {{ color: #00D4F5; text-decoration: none; }}
-</style>
-</head>
-<body>
-<div class="container">
-  
-  <div class="logo">⬡ VeriSigil AI</div>
-  
-  <div class="hero">
-    <h1>🎉 Your Compliance Sprint Is Ready</h1>
-    <p>Your AI agent now has cryptographic identity, Runtime Guard governance, and EU AI Act compliance documentation.</p>
-  </div>
+body{{font-family:'Segoe UI',Arial,sans-serif;background:#050E2B;color:#fff;margin:0;padding:0}}
+.wrap{{max-width:600px;margin:0 auto;padding:32px 20px}}
+.logo{{font-size:20px;font-weight:800;color:#00D4F5;margin-bottom:24px}}
+.hero{{background:linear-gradient(135deg,#0D1A3A,#0A1628);border:1px solid rgba(0,212,245,0.2);border-radius:14px;padding:28px;margin-bottom:20px;text-align:center}}
+.hero h1{{font-size:22px;font-weight:700;margin-bottom:8px}}
+.hero p{{color:#94A3B8;font-size:14px;margin:0}}
+.box{{background:#0D1A3A;border:1px solid rgba(30,58,110,0.6);border-radius:12px;padding:20px;margin-bottom:14px}}
+.bt{{font-size:12px;font-weight:700;color:#00D4F5;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:14px}}
+.row{{padding:8px 0;border-bottom:1px solid rgba(30,58,110,0.4);font-size:13px}}
+.row:last-child{{border-bottom:none}}
+.rl{{color:#94A3B8;margin-bottom:3px;font-size:11px;text-transform:uppercase;letter-spacing:0.05em}}
+.rv{{color:#fff;font-family:monospace;word-break:break-all}}
+.badge{{display:inline-block;background:{risk_color}22;border:1px solid {risk_color}44;color:{risk_color};font-size:10px;font-weight:700;padding:3px 10px;border-radius:20px}}
+.cl{{list-style:none;padding:0;margin:0}}
+.cl li{{display:flex;align-items:center;gap:10px;font-size:13px;color:#94A3B8;padding:7px 0;border-bottom:1px solid rgba(30,58,110,0.3)}}
+.cl li:last-child{{border-bottom:none}}
+.chk{{color:#22C55E;font-size:16px;flex-shrink:0}}
+.cta{{display:block;background:#00D4F5;color:#050E2B;text-align:center;padding:14px;border-radius:9px;font-weight:800;font-size:15px;text-decoration:none;margin:16px 0}}
+.code{{background:#020812;border:1px solid rgba(30,58,110,0.6);border-radius:7px;padding:14px;font-family:monospace;font-size:11px;color:#00D4F5;word-break:break-all;line-height:1.6}}
+.footer{{text-align:center;font-size:11px;color:#475569;margin-top:28px;padding-top:20px;border-top:1px solid rgba(30,58,110,0.4)}}
+.footer a{{color:#00D4F5;text-decoration:none}}
+</style></head><body><div class="wrap">
+<div class="logo">⬡ VeriSigil AI</div>
+<div class="hero">
+  <h1>🎉 Your Compliance Sprint Is Ready</h1>
+  <p>Your AI agent now has cryptographic identity, Runtime Guard governance,<br>and EU AI Act compliance documentation — all live right now.</p>
+</div>
+<div class="box">
+  <div class="bt">🔐 Your Agent Passport</div>
+  <div class="row"><div class="rl">Agent Name</div><div class="rv">{agent_name}</div></div>
+  <div class="row"><div class="rl">Agent ID</div><div class="rv">{agent_id}</div></div>
+  <div class="row"><div class="rl">Decentralised Identity (DID)</div><div class="rv">{passport_did}</div></div>
+  <div class="row"><div class="rl">EU Risk Classification</div><div class="rv"><span class="badge">{risk_label}</span></div></div>
+  <div class="row"><div class="rl">Company</div><div class="rv">{company_name}</div></div>
+  <div class="row"><div class="rl">Sprint Reference</div><div class="rv">{sprint_id}</div></div>
+  <div class="row"><div class="rl">Issued By</div><div class="rv">VeriSigil AI · verisigilai.com</div></div>
+</div>
+<div class="box">
+  <div class="bt">✅ What Is Now Active</div>
+  <ul class="cl">
+    <li><span class="chk">✓</span> Cryptographic passport — Ed25519 signed, W3C DID standard</li>
+    <li><span class="chk">✓</span> Runtime Guard — every action verified before execution</li>
+    <li><span class="chk">✓</span> Immutable audit trail — every event cryptographically logged</li>
+    <li><span class="chk">✓</span> Shadow Detection™ — real-time clone monitoring active</li>
+    <li><span class="chk">✓</span> EU AI Act transparency — Article 50 compliant</li>
+    <li><span class="chk">✓</span> Human oversight enforcement — Article 14 compliant</li>
+  </ul>
+</div>
+<div class="box">
+  <div class="bt">📋 Your Compliance Report</div>
+  <p style="font-size:13px;color:#94A3B8;margin-bottom:12px">View, download as PDF, and share with regulators or enterprise buyers:</p>
+  <a href="{compliance_url}" class="cta">📋 View Full Compliance Report →</a>
+</div>
+<div class="box">
+  <div class="bt">⚡ Add Runtime Guard — 3 Lines</div>
+  <div class="code">import requests, os
 
-  <!-- PASSPORT DETAILS -->
-  <div class="section">
-    <h2>🔐 Your Agent Passport</h2>
-    <div class="field">
-      <div class="field-label">Agent Name</div>
-      <div class="field-value">{agent_name}</div>
-    </div>
-    <div class="field">
-      <div class="field-label">Agent ID</div>
-      <div class="field-value">{agent_id}</div>
-    </div>
-    <div class="field">
-      <div class="field-label">Decentralized Identity (DID)</div>
-      <div class="field-value">{passport_did}</div>
-    </div>
-    <div class="field">
-      <div class="field-label">EU Risk Classification</div>
-      <div class="field-value"><span class="risk-badge">{risk_label}</span></div>
-    </div>
-    <div class="field">
-      <div class="field-label">Issued By</div>
-      <div class="field-value">VeriSigil AI · verisigilai.com</div>
-    </div>
-    <div class="field">
-      <div class="field-label">Sprint Reference</div>
-      <div class="field-value">{sprint_id}</div>
-    </div>
-  </div>
-
-  <!-- WHAT IS ACTIVE -->
-  <div class="section">
-    <h2>✅ What Is Now Active</h2>
-    <ul class="checklist">
-      <li><span class="check">✓</span> Cryptographic passport — Ed25519 signed, W3C DID standard</li>
-      <li><span class="check">✓</span> Runtime Guard — verify every action before execution</li>
-      <li><span class="check">✓</span> Immutable audit trail — every event cryptographically logged</li>
-      <li><span class="check">✓</span> Shadow Detection™ — real-time clone monitoring active</li>
-      <li><span class="check">✓</span> EU AI Act transparency — Article 50 compliant</li>
-      <li><span class="check">✓</span> Human oversight enforcement — Article 14 compliant</li>
-    </ul>
-  </div>
-
-  <!-- COMPLIANCE REPORT -->
-  <div class="section">
-    <h2>📋 Your Compliance Report</h2>
-    <p style="font-size:13px;color:#94A3B8;margin-bottom:16px;">View and download your full EU AI Act compliance documentation:</p>
-    <a href="{compliance_url}" class="cta-btn">View Full Compliance Report →</a>
-  </div>
-
-  <!-- SDK INTEGRATION -->
-  <div class="section">
-    <h2>⚡ Add Runtime Guard — 3 Lines of Code</h2>
-    <p style="font-size:13px;color:#94A3B8;margin-bottom:12px;">Add this before every agent action:</p>
-    <div class="code-block">import requests, os
-
-def verify_before_execution(action_type, action_details, resource):
-    resp = requests.post(
+def verify_before_execution(action_type, details, resource):
+    r = requests.post(
         "https://verisigil-api-production.up.railway.app/v1/guard/verify",
         headers={{"x-api-key": os.getenv("VERISIGIL_API_KEY")}},
-        json={{
-            "agent_id":       "{agent_id}",
-            "action_type":   action_type,
-            "action_details": action_details,
-            "resource":      resource
-        }}
-    )
-    result = resp.json()
-    if result["decision"] == "DENY":
-        raise PermissionError(f"Blocked: {{result['reason']}}")
-    return result["decision"]
-
-# Example — before a payment
-decision = verify_before_execution(
-    action_type="payment",
-    action_details={{"amount_usd": 5000}},
-    resource="stripe_api"
-)
-# Returns: ALLOW / REQUIRE_HUMAN_APPROVAL / DENY</div>
-    <p style="font-size:12px;color:#94A3B8;margin-top:12px;">Full SDK docs: <a href="https://verisigilai.com/sdk.html" style="color:#00D4F5;">verisigilai.com/sdk.html</a></p>
-  </div>
-
-  <!-- VERIFY YOUR AGENT -->
-  <div class="section">
-    <h2>🔍 Verify Your Agent Publicly</h2>
-    <p style="font-size:13px;color:#94A3B8;margin-bottom:12px;">Anyone can verify your agent's identity at:</p>
-    <div class="code-block">https://verisigil-api-production.up.railway.app/verify/{agent_id}</div>
-    <p style="font-size:12px;color:#94A3B8;margin-top:8px;">Share this URL with regulators, enterprise buyers, or partners as proof of verified identity.</p>
-  </div>
-
-  <!-- NEXT STEPS -->
-  <div class="section">
-    <h2>🚀 Next Steps</h2>
-    <ul class="checklist">
-      <li><span class="check">1</span> Add Runtime Guard code to your agent (3 lines above)</li>
-      <li><span class="check">2</span> Test it at verisigilai.com/sigil_studio.html</li>
-      <li><span class="check">3</span> Download your compliance report for regulators</li>
-      <li><span class="check">4</span> Share your verification URL with enterprise buyers</li>
-    </ul>
-  </div>
-
-  <div class="footer">
-    <p>Questions? Reply to this email or contact <a href="mailto:raheem@verisigilai.com">raheem@verisigilai.com</a></p>
-    <p style="margin-top:8px;">Built by <strong>Raheem Larry Babatunde</strong> · Lagos, Nigeria 🇳🇬</p>
-    <p style="margin-top:8px;"><a href="https://verisigilai.com">verisigilai.com</a></p>
-  </div>
-
+        json={{"agent_id":"{agent_id}","action_type":action_type,
+              "action_details":details,"resource":resource}}
+    ).json()
+    if r["decision"]=="DENY": raise PermissionError(r["reason"])
+    return r["decision"]</div>
+  <p style="font-size:11px;color:#94A3B8;margin-top:10px">Full SDK: <a href="https://verisigilai.com/sdk.html" style="color:#00D4F5">verisigilai.com/sdk.html</a></p>
 </div>
-</body>
-</html>
-"""
-    
-    async with httpx.AsyncClient() as c:
-        r = await c.post(
-            "https://api.resend.com/emails",
-            headers={
-                "Authorization": f"Bearer {resend_api_key}",
-                "Content-Type":  "application/json"
-            },
-            json={
-                "from":    "VeriSigil AI <raheem@verisigilai.com>",
-                "to":      [customer_email],
-                "subject": f"✅ Your VeriSigil Compliance Sprint Is Ready — {agent_name}",
-                "html":    html_body,
-                "reply_to": "raheem@verisigilai.com"
-            },
-            timeout=15
-        )
-        return r.status_code == 200
+<div class="box">
+  <div class="bt">🔍 Public Verification URL</div>
+  <div class="code">https://verisigil-api-production.up.railway.app/verify/{agent_id}</div>
+  <p style="font-size:11px;color:#94A3B8;margin-top:8px">Share with regulators, enterprise buyers, or partners as cryptographic proof of your agent's identity.</p>
+</div>
+<div class="footer">
+  <p>Questions? Reply to this email — Raheem reads every message personally.</p>
+  <p style="margin-top:6px"><a href="mailto:raheem@verisigilai.com">raheem@verisigilai.com</a></p>
+  <p style="margin-top:6px">Built by <strong>Raheem Larry Babatunde</strong> · Lagos, Nigeria 🇳🇬</p>
+  <p style="margin-top:8px"><a href="https://verisigilai.com">verisigilai.com</a></p>
+</div>
+</div></body></html>"""
+
+    try:
+        async with httpx.AsyncClient() as c:
+            r = await c.post(
+                edge_url,
+                headers={
+                    "Authorization": f"Bearer {supabase_key}",
+                    "Content-Type":  "application/json",
+                },
+                json={
+                    "to":      customer_email,
+                    "subject": f"✅ Your VeriSigil Compliance Sprint Is Ready — {agent_name}",
+                    "html":    html_body,
+                    "from":    "VeriSigil AI <raheem@verisigilai.com>",
+                },
+                timeout=20
+            )
+            result = r.json()
+            if r.status_code == 200 and result.get("id"):
+                print(f"[SPRINT EMAIL] ✅ Sent to {customer_email} | ID: {result.get('id')}")
+                return True
+            else:
+                print(f"[SPRINT EMAIL ERROR] Edge Function returned {r.status_code}: {result}")
+                return False
+    except Exception as e:
+        print(f"[SPRINT EMAIL ERROR] {e}")
+        return False
+
+
 
 
 @app.post("/v1/sprint/run", tags=["Compliance Sprint"])
