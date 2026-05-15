@@ -15,6 +15,7 @@ from typing import List, Optional, Dict, Any
 from enum import Enum
 
 from fastapi import FastAPI, HTTPException, Header, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import httpx
@@ -33,6 +34,58 @@ if not SUPABASE_URL or not SUPABASE_KEY:
     raise Exception("SUPABASE_URL and SUPABASE_KEY must be set in environment variables")
 if not API_KEY:
     raise Exception("VERISIGIL_API_KEY must be set in environment variables")
+
+# ============================================================
+# MAINTENANCE & GOVERNANCE INFRASTRUCTURE
+# ============================================================
+MAINTENANCE_MODE    = os.environ.get("MAINTENANCE_MODE", "false").lower() == "true"
+MAINTENANCE_MESSAGE = os.environ.get("MAINTENANCE_MESSAGE", "VeriSigil AI is under scheduled maintenance. Back shortly.")
+DEPLOY_ENV          = os.environ.get("DEPLOY_ENV", "production")
+DEPLOY_VERSION      = "0.5.4"
+DEPLOY_TIMESTAMP    = datetime.utcnow().isoformat()
+
+# Feature flags — toggle in Railway env vars, never by changing code
+FEATURES = {
+    "PASSPORT_ISSUANCE":        os.environ.get("FF_PASSPORT_ISSUANCE",        "true").lower()  == "true",
+    "RUNTIME_GUARD":            os.environ.get("FF_RUNTIME_GUARD",            "true").lower()  == "true",
+    "AUDIT_TRAIL":              os.environ.get("FF_AUDIT_TRAIL",              "true").lower()  == "true",
+    "SHADOW_DETECTION":         os.environ.get("FF_SHADOW_DETECTION",         "true").lower()  == "true",
+    "HUMAN_APPROVAL":           os.environ.get("FF_HUMAN_APPROVAL",           "true").lower()  == "true",
+    "COMPLIANCE_SPRINT":        os.environ.get("FF_COMPLIANCE_SPRINT",        "true").lower()  == "true",
+    "RUNTIME_REVALIDATION":     os.environ.get("FF_RUNTIME_REVALIDATION",     "false").lower() == "true",
+    "AGENT_CHAIN_PROVENANCE":   os.environ.get("FF_AGENT_CHAIN_PROVENANCE",   "false").lower() == "true",
+    "MULTI_AGENT_GOVERNANCE":   os.environ.get("FF_MULTI_AGENT_GOVERNANCE",   "false").lower() == "true",
+    "EXECUTION_SURVIVABILITY":  os.environ.get("FF_EXECUTION_SURVIVABILITY",  "false").lower() == "true",
+    "CONTINUOUS_ADMISSIBILITY": os.environ.get("FF_CONTINUOUS_ADMISSIBILITY", "false").lower() == "true",
+}
+
+def feature_enabled(name: str) -> bool:
+    return FEATURES.get(name, False)
+
+def require_feature(name: str):
+    if not feature_enabled(name):
+        raise HTTPException(503, f"Feature '{name}' is currently disabled.")
+
+# In-memory request metrics
+_metrics = {
+    "requests_total":    0,
+    "requests_ok":       0,
+    "requests_error":    0,
+    "guard_decisions":   0,
+    "passports_issued":  0,
+    "approvals_created": 0,
+    "sprints_run":       0,
+    "start_time":        time(),
+}
+
+def _inc(key): _metrics[key] = _metrics.get(key, 0) + 1
+
+def get_uptime() -> str:
+    s = int(time() - _metrics["start_time"])
+    d, s = divmod(s, 86400); h, s = divmod(s, 3600); m, s = divmod(s, 60)
+    if d: return f"{d}d {h}h {m}m"
+    if h: return f"{h}h {m}m {s}s"
+    return f"{m}m {s}s"
 
 _seed          = hashlib.sha256(SIGN_SECRET.encode()).digest()
 SIGNING_KEY    = SigningKey(_seed)
@@ -68,6 +121,22 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"]
 )
+
+@app.middleware("http")
+async def maintenance_middleware(request: Request, call_next):
+    allowed = {"/health", "/status", "/docs", "/openapi.json", "/redoc"}
+    if MAINTENANCE_MODE and request.url.path not in allowed:
+        return JSONResponse(status_code=503, content={
+            "status":  "maintenance",
+            "message": MAINTENANCE_MESSAGE,
+            "version": DEPLOY_VERSION,
+            "env":     DEPLOY_ENV,
+        })
+    _inc("requests_total")
+    response = await call_next(request)
+    if response.status_code < 400: _inc("requests_ok")
+    else: _inc("requests_error")
+    return response
 
 # ============================================================
 # AUTH
@@ -630,11 +699,57 @@ async def root():
         }
     }
 
-@app.get("/health")
+@app.get("/health", tags=["System"])
 async def health():
-    return {"status": "healthy", "version": "0.5.4"}
+    return {
+        "status":         "healthy",
+        "version":        DEPLOY_VERSION,
+        "env":            DEPLOY_ENV,
+        "uptime":         get_uptime(),
+        "maintenance":    MAINTENANCE_MODE,
+        "database":       "online",
+        "runtime_guard":  "online" if feature_enabled("RUNTIME_GUARD") else "disabled",
+        "audit_trail":    "online" if feature_enabled("AUDIT_TRAIL") else "disabled",
+        "human_approval": "online" if feature_enabled("HUMAN_APPROVAL") else "disabled",
+        "timestamp":      datetime.utcnow().isoformat(),
+        "metrics": {
+            "requests_total":   _metrics["requests_total"],
+            "guard_decisions":  _metrics["guard_decisions"],
+            "passports_issued": _metrics["passports_issued"],
+            "sprints_run":      _metrics["sprints_run"],
+        }
+    }
 
-# ── PASSPORT ISSUE ────────────────────────────────────────────
+@app.get("/status", tags=["System"])
+async def status():
+    return {
+        "status":      "operational" if not MAINTENANCE_MODE else "maintenance",
+        "version":     DEPLOY_VERSION,
+        "uptime":      get_uptime(),
+        "maintenance": MAINTENANCE_MODE,
+        "services": {
+            "api":            "operational",
+            "runtime_guard":  "operational" if feature_enabled("RUNTIME_GUARD") else "disabled",
+            "database":       "operational",
+            "audit_trail":    "operational" if feature_enabled("AUDIT_TRAIL") else "disabled",
+            "human_approval": "operational" if feature_enabled("HUMAN_APPROVAL") else "disabled",
+        },
+        "timestamp": datetime.utcnow().isoformat(),
+    }
+
+@app.get("/admin/system", tags=["Admin"])
+async def admin_system(x_api_key: Optional[str] = Header(None)):
+    require_api_key(x_api_key)
+    return {
+        "version":       DEPLOY_VERSION,
+        "env":           DEPLOY_ENV,
+        "deployed_at":   DEPLOY_TIMESTAMP,
+        "uptime":        get_uptime(),
+        "maintenance":   MAINTENANCE_MODE,
+        "feature_flags": FEATURES,
+        "metrics":       _metrics,
+    }
+
 
 @app.get("/issue-test")
 async def issue_test(req: Request):
