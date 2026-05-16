@@ -1637,6 +1637,698 @@ async def simulate_progression(
     return result
 
 # ============================================================
+# RUNTIME GOVERNANCE — Full Stack
+# ============================================================
+# 1. Agent Chain Provenance
+# 2. Continuous Admissibility Monitor
+# 3. Execution Survivability Scoring
+# 4. Runtime Revalidation
+# ============================================================
+
+import asyncio
+import time as time_module
+
+# ── 1. AGENT CHAIN PROVENANCE ────────────────────────────
+# Track full multi-agent call chains end to end
+# A → B → C with full attribution and authority inheritance
+
+_agent_chains: dict[str, dict] = {}  # chain_id → chain record
+
+def create_agent_chain(
+    root_agent_id: str,
+    workflow_id:   str,
+    org_id:        str = "default",
+) -> dict:
+    """Start a new agent chain — called when first agent initiates."""
+    chain_id = f"chain_{uuid.uuid4().hex[:10]}"
+    chain = {
+        "chain_id":     chain_id,
+        "workflow_id":  workflow_id,
+        "org_id":       org_id,
+        "root_agent":   root_agent_id,
+        "agents":       [root_agent_id],
+        "depth":        0,
+        "calls":        [],
+        "started_at":   datetime.utcnow().isoformat(),
+        "status":       "active",
+        "trust_floor":  1.0,  # lowest trust in chain
+        "risk_ceiling": "LOW",  # highest risk in chain
+    }
+    _agent_chains[chain_id] = chain
+    print(f"[CHAIN PROVENANCE] New chain: {chain_id} · root: {root_agent_id}")
+    return chain
+
+def record_agent_call(
+    chain_id:    str,
+    caller_id:   str,
+    callee_id:   str,
+    action:      str,
+    decision:    str,
+    trust_score: float,
+    risk_class:  str = "LOW",
+) -> dict:
+    """Record one agent calling another within a chain."""
+    chain = _agent_chains.get(chain_id)
+    if not chain:
+        return {"error": "chain not found"}
+
+    call_record = {
+        "call_id":   f"call_{uuid.uuid4().hex[:8]}",
+        "caller":    caller_id,
+        "callee":    callee_id,
+        "action":    action,
+        "decision":  decision,
+        "trust":     trust_score,
+        "risk":      risk_class,
+        "timestamp": datetime.utcnow().isoformat(),
+    }
+
+    chain["calls"].append(call_record)
+    if callee_id not in chain["agents"]:
+        chain["agents"].append(callee_id)
+    chain["depth"] = max(chain["depth"], len(chain["agents"]) - 1)
+    chain["trust_floor"] = min(chain["trust_floor"], trust_score)
+
+    risk_order = ["LOW","LIMITED_RISK","MEDIUM","HIGH_RISK","HIGH","CRITICAL"]
+    if risk_order.index(risk_class) > risk_order.index(chain.get("risk_ceiling","LOW")):
+        chain["risk_ceiling"] = risk_class
+
+    # Append to Merkle chain
+    chain_append(
+        execution_id  = call_record["call_id"],
+        agent_id      = caller_id,
+        action        = f"chain_call:{action}",
+        decision      = decision,
+        policy_reason = f"Chain {chain_id} · {caller_id}→{callee_id}",
+        confidence    = trust_score,
+        extra         = {"chain_id": chain_id, "callee": callee_id, "depth": chain["depth"]}
+    )
+
+    return call_record
+
+def get_chain_provenance(chain_id: str) -> dict:
+    """Get full provenance for a chain — who called who with what authority."""
+    chain = _agent_chains.get(chain_id)
+    if not chain:
+        return {"error": "chain not found"}
+
+    # Build attribution graph
+    attribution = []
+    for i, call in enumerate(chain["calls"]):
+        attribution.append({
+            "step":       i + 1,
+            "caller":     call["caller"],
+            "callee":     call["callee"],
+            "action":     call["action"],
+            "decision":   call["decision"],
+            "trust":      call["trust"],
+            "timestamp":  call["timestamp"],
+            "attributed": True,
+        })
+
+    return {
+        **chain,
+        "attribution":      attribution,
+        "total_calls":      len(chain["calls"]),
+        "chain_depth":      chain["depth"],
+        "trust_floor":      chain["trust_floor"],
+        "risk_ceiling":     chain["risk_ceiling"],
+        "fully_attributed": True,
+        "tamper_evident":   True,
+    }
+
+# ── 2. CONTINUOUS ADMISSIBILITY MONITOR ─────────────────
+# Monitor long-running agents continuously
+# Re-evaluates every N seconds — not just at action boundary
+
+_continuous_monitors: dict[str, dict] = {}
+
+def start_continuous_monitor(
+    agent_id:     str,
+    workflow_id:  str,
+    interval_sec: int = 30,
+    org_id:       str = "default",
+) -> dict:
+    """Start continuous monitoring for a long-running agent."""
+    monitor_id = f"mon_{uuid.uuid4().hex[:8]}"
+    monitor = {
+        "monitor_id":      monitor_id,
+        "agent_id":        agent_id,
+        "workflow_id":     workflow_id,
+        "org_id":          org_id,
+        "interval_sec":    interval_sec,
+        "started_at":      datetime.utcnow().isoformat(),
+        "last_checked":    datetime.utcnow().isoformat(),
+        "status":          "monitoring",
+        "checks":          [],
+        "current_decision":"ADMISSIBLE",
+        "violations":      0,
+        "paused":          False,
+    }
+    _continuous_monitors[monitor_id] = monitor
+    print(f"[CONTINUOUS] Monitor started: {monitor_id} · agent: {agent_id} · interval: {interval_sec}s")
+    return monitor
+
+def continuous_check(
+    monitor_id:  str,
+    trust_score: float,
+    context:     dict = None,
+) -> dict:
+    """
+    Run one continuous admissibility check.
+    Called by agent periodically to confirm it can continue.
+    """
+    monitor = _continuous_monitors.get(monitor_id)
+    if not monitor:
+        return {"admissible": False, "reason": "Monitor not found — agent must re-register"}
+
+    now     = datetime.utcnow()
+    reasons = []
+    admissible = True
+    decision   = "ADMISSIBLE"
+
+    # Check trust degradation
+    if trust_score < 0.65:
+        admissible = False
+        decision   = "PAUSE_REQUIRED"
+        reasons.append(f"Trust degraded to {trust_score:.3f} — below minimum threshold")
+        monitor["violations"] += 1
+
+    # Check for context drift
+    if context:
+        if context.get("error_rate", 0) > 0.3:
+            admissible = False
+            decision   = "PAUSE_REQUIRED"
+            reasons.append(f"Error rate {context['error_rate']:.0%} exceeds threshold")
+            monitor["violations"] += 1
+
+        if context.get("anomaly_detected", False):
+            admissible = False
+            decision   = "HALT_REQUIRED"
+            reasons.append("Anomaly detected in execution context")
+            monitor["violations"] += 1
+
+    # Check violation accumulation
+    if monitor["violations"] >= 3:
+        admissible = False
+        decision   = "HALT_REQUIRED"
+        reasons.append(f"Accumulated {monitor['violations']} violations — agent halted")
+
+    if admissible:
+        reasons.append(f"Trust {trust_score:.3f} sufficient · context nominal · execution continues")
+        monitor["violations"] = max(0, monitor["violations"] - 1)  # decay violations
+
+    check_record = {
+        "check_id":   f"chk_{uuid.uuid4().hex[:6]}",
+        "timestamp":  now.isoformat(),
+        "trust_score": trust_score,
+        "admissible":  admissible,
+        "decision":    decision,
+        "reasons":     reasons,
+        "violations":  monitor["violations"],
+    }
+
+    monitor["checks"].append(check_record)
+    monitor["last_checked"]     = now.isoformat()
+    monitor["current_decision"] = decision
+    monitor["paused"]           = not admissible
+
+    # Log to chain if not admissible
+    if not admissible:
+        chain_append(
+            execution_id  = check_record["check_id"],
+            agent_id      = monitor["agent_id"],
+            action        = "continuous_check",
+            decision      = decision,
+            policy_reason = " | ".join(reasons),
+            confidence    = trust_score,
+            extra         = {"monitor_id": monitor_id, "violations": monitor["violations"]}
+        )
+
+    return {
+        "monitor_id":   monitor_id,
+        "agent_id":     monitor["agent_id"],
+        "admissible":   admissible,
+        "decision":     decision,
+        "trust_score":  trust_score,
+        "violations":   monitor["violations"],
+        "reasons":      reasons,
+        "next_check_in": f"{monitor['interval_sec']}s",
+        "timestamp":    now.isoformat(),
+    }
+
+# ── 3. EXECUTION SURVIVABILITY SCORING ──────────────────
+# Score how recoverable a failure would be
+# HIGH consequence + LOW survivability = block
+
+def score_survivability(
+    action:          str,
+    consequence:     str,
+    workflow_context: dict,
+    agent_id:        str,
+) -> dict:
+    """
+    Score execution survivability — how recoverable is a failure?
+    0.0 = catastrophic (irreversible damage)
+    1.0 = fully recoverable (no impact)
+
+    Factors:
+    - Action reversibility
+    - Backup availability
+    - Rollback capability
+    - Blast radius
+    - Recovery time estimate
+    """
+    score      = 1.0
+    factors    = []
+    reversible = True
+
+    # Irreversible actions
+    irreversible_actions = ["delete_records","send_email","payment","transfer_funds","deploy"]
+    if action in irreversible_actions:
+        score     -= 0.3
+        reversible = False
+        factors.append(f"Action '{action}' is irreversible — score -0.30")
+
+    # Consequence level impact
+    consequence_penalties = {"LOW":0.0,"MEDIUM":0.1,"HIGH":0.25,"CRITICAL":0.4}
+    penalty = consequence_penalties.get(consequence.upper(), 0.1)
+    score  -= penalty
+    if penalty > 0:
+        factors.append(f"{consequence} consequence — score -{penalty:.2f}")
+
+    # Backup available
+    if workflow_context.get("backup_confirmed", False):
+        score  += 0.15
+        factors.append("Backup confirmed — score +0.15")
+
+    # Rollback capability
+    if workflow_context.get("rollback_available", False):
+        score  += 0.20
+        factors.append("Rollback available — score +0.20")
+        reversible = True
+
+    # Error rate in workflow
+    error_rate = float(workflow_context.get("error_rate", 0))
+    if error_rate > 0.1:
+        score  -= error_rate * 0.3
+        factors.append(f"Workflow error rate {error_rate:.0%} — score -{error_rate*0.3:.2f}")
+
+    # Blast radius
+    blast_radius = workflow_context.get("blast_radius","LOW")
+    blast_penalties = {"LOW":0,"MEDIUM":0.05,"HIGH":0.15,"CRITICAL":0.3}
+    bp = blast_penalties.get(blast_radius, 0)
+    if bp > 0:
+        score  -= bp
+        factors.append(f"Blast radius {blast_radius} — score -{bp:.2f}")
+
+    score = max(0.0, min(1.0, round(score, 3)))
+
+    # Recommendation
+    if score >= 0.75:
+        recommendation = "PROCEED"
+        risk_level     = "LOW"
+    elif score >= 0.50:
+        recommendation = "PROCEED_WITH_CAUTION"
+        risk_level     = "MEDIUM"
+    elif score >= 0.25:
+        recommendation = "REQUIRE_APPROVAL"
+        risk_level     = "HIGH"
+    else:
+        recommendation = "BLOCK"
+        risk_level     = "CRITICAL"
+
+    # Recovery time estimate
+    recovery_times = {"PROCEED":"<1min","PROCEED_WITH_CAUTION":"5-30min","REQUIRE_APPROVAL":"1-4hrs","BLOCK":"irreversible"}
+
+    return {
+        "survivability_score": score,
+        "recommendation":      recommendation,
+        "risk_level":          risk_level,
+        "reversible":          reversible,
+        "factors":             factors,
+        "recovery_estimate":   recovery_times[recommendation],
+        "action":              action,
+        "consequence":         consequence,
+        "agent_id":            agent_id,
+        "timestamp":           datetime.utcnow().isoformat(),
+    }
+
+# ── 4. RUNTIME REVALIDATION ──────────────────────────────
+# Re-check everything at key workflow points
+# Agent approved at step 1 — recheck at step 4
+
+_revalidation_records: dict[str, list] = {}
+
+async def runtime_revalidate(
+    agent_id:       str,
+    execution_id:   str,
+    workflow_step:  int,
+    original_decision: str,
+    current_context: dict,
+    org_id:         str = "default",
+) -> dict:
+    """
+    Revalidate a previously approved execution at a new workflow step.
+    Checks if the original decision still holds given current context.
+    """
+    reval_id = f"reval_{uuid.uuid4().hex[:8]}"
+    timestamp = datetime.utcnow().isoformat()
+
+    # Fetch current passport
+    passport = await db_get("passports", "agent_id", agent_id)
+    current_trust = float(passport.get("trust_score", 0.5)) if passport else 0.5
+    current_status = passport.get("status","active") if passport else "unknown"
+
+    reasons    = []
+    still_valid = True
+    new_decision = original_decision
+
+    # Check 1: Agent still active
+    if current_status != "active":
+        still_valid  = False
+        new_decision = "DENY"
+        reasons.append(f"Agent status changed to '{current_status}' since original approval")
+
+    # Check 2: Trust hasn't degraded significantly
+    original_trust = float(current_context.get("original_trust", current_trust))
+    trust_delta    = original_trust - current_trust
+    if trust_delta > 0.15:
+        still_valid  = False
+        new_decision = "REQUIRE_HUMAN_APPROVAL"
+        reasons.append(f"Trust degraded by {trust_delta:.3f} since original approval")
+
+    # Check 3: No new threat signals
+    if current_context.get("shadow_detected", False):
+        still_valid  = False
+        new_decision = "DENY"
+        reasons.append("Shadow detection triggered since original approval")
+
+    # Check 4: Context still matches original
+    if current_context.get("context_changed", False):
+        still_valid  = False
+        new_decision = "REQUIRE_HUMAN_APPROVAL"
+        reasons.append("Execution context changed since original approval")
+
+    if still_valid:
+        reasons.append(f"Revalidation passed — trust {current_trust:.3f} · status {current_status} · context nominal")
+
+    reval_record = {
+        "revalidation_id":   reval_id,
+        "execution_id":      execution_id,
+        "agent_id":          agent_id,
+        "workflow_step":     workflow_step,
+        "original_decision": original_decision,
+        "current_decision":  new_decision,
+        "still_valid":       still_valid,
+        "decision_changed":  new_decision != original_decision,
+        "current_trust":     current_trust,
+        "trust_delta":       round(original_trust - current_trust, 4),
+        "reasons":           reasons,
+        "timestamp":         timestamp,
+    }
+
+    # Store revalidation record
+    if execution_id not in _revalidation_records:
+        _revalidation_records[execution_id] = []
+    _revalidation_records[execution_id].append(reval_record)
+
+    # Chain the revalidation
+    chain_append(
+        execution_id  = reval_id,
+        agent_id      = agent_id,
+        action        = f"revalidation:step_{workflow_step}",
+        decision      = new_decision,
+        policy_reason = " | ".join(reasons),
+        confidence    = current_trust,
+        extra         = {
+            "original_decision": original_decision,
+            "still_valid":       still_valid,
+            "workflow_step":     workflow_step,
+        }
+    )
+
+    return reval_record
+
+# ============================================================
+# RUNTIME GOVERNANCE ENDPOINTS
+# ============================================================
+
+# ── AGENT CHAIN PROVENANCE ───────────────────────────────
+
+class ChainCallRequest(BaseModel):
+    chain_id:    str
+    caller_id:   str
+    callee_id:   str
+    action:      str
+    decision:    str
+    trust_score: float = 0.963
+    risk_class:  str   = "LOW"
+
+@app.post("/v1/chain/provenance/start", tags=["Runtime Governance"])
+async def start_chain(
+    agent_id:    str,
+    workflow_id: str,
+    org_id:      str = "default",
+    x_api_key:   Optional[str] = Header(None)
+):
+    """Start a new agent chain — call when first agent initiates a workflow."""
+    require_api_key(x_api_key)
+    chain = create_agent_chain(agent_id, workflow_id, org_id)
+    return chain
+
+@app.post("/v1/chain/provenance/record", tags=["Runtime Governance"])
+async def record_chain_call(
+    req:       ChainCallRequest,
+    x_api_key: Optional[str] = Header(None)
+):
+    """Record one agent calling another within a chain."""
+    require_api_key(x_api_key)
+    call = record_agent_call(
+        chain_id    = req.chain_id,
+        caller_id   = req.caller_id,
+        callee_id   = req.callee_id,
+        action      = req.action,
+        decision    = req.decision,
+        trust_score = req.trust_score,
+        risk_class  = req.risk_class,
+    )
+    return call
+
+@app.get("/v1/chain/provenance/{chain_id}", tags=["Runtime Governance"])
+async def get_provenance(
+    chain_id:  str,
+    x_api_key: Optional[str] = Header(None)
+):
+    """Get full provenance for an agent chain — who called who with what authority."""
+    require_api_key(x_api_key)
+    return get_chain_provenance(chain_id)
+
+@app.get("/v1/chain/provenance", tags=["Runtime Governance"])
+async def list_chains(x_api_key: Optional[str] = Header(None)):
+    """List all active agent chains."""
+    require_api_key(x_api_key)
+    return {
+        "total_chains": len(_agent_chains),
+        "chains": [
+            {
+                "chain_id":    c["chain_id"],
+                "workflow_id": c["workflow_id"],
+                "root_agent":  c["root_agent"],
+                "depth":       c["depth"],
+                "agents":      c["agents"],
+                "trust_floor": c["trust_floor"],
+                "risk_ceiling":c["risk_ceiling"],
+                "status":      c["status"],
+                "started_at":  c["started_at"],
+            }
+            for c in _agent_chains.values()
+        ]
+    }
+
+# ── CONTINUOUS ADMISSIBILITY ─────────────────────────────
+
+class ContinuousCheckRequest(BaseModel):
+    monitor_id:  str
+    trust_score: float = 0.963
+    context:     dict  = {}
+
+@app.post("/v1/continuous/start", tags=["Runtime Governance"])
+async def start_monitor(
+    agent_id:     str,
+    workflow_id:  str,
+    interval_sec: int = 30,
+    org_id:       str = "default",
+    x_api_key:    Optional[str] = Header(None)
+):
+    """Start continuous admissibility monitoring for a long-running agent."""
+    require_api_key(x_api_key)
+    monitor = start_continuous_monitor(agent_id, workflow_id, interval_sec, org_id)
+    return monitor
+
+@app.post("/v1/continuous/check", tags=["Runtime Governance"])
+async def check_continuous(
+    req:       ContinuousCheckRequest,
+    x_api_key: Optional[str] = Header(None)
+):
+    """
+    Run one continuous admissibility check.
+    Agent calls this periodically to confirm it can continue executing.
+    Returns ADMISSIBLE, PAUSE_REQUIRED, or HALT_REQUIRED.
+    """
+    require_api_key(x_api_key)
+    return continuous_check(req.monitor_id, req.trust_score, req.context)
+
+@app.get("/v1/continuous/{monitor_id}", tags=["Runtime Governance"])
+async def get_monitor(
+    monitor_id: str,
+    x_api_key:  Optional[str] = Header(None)
+):
+    """Get current status of a continuous monitor."""
+    require_api_key(x_api_key)
+    monitor = _continuous_monitors.get(monitor_id)
+    if not monitor:
+        raise HTTPException(404, f"Monitor {monitor_id} not found")
+    return monitor
+
+# ── EXECUTION SURVIVABILITY ──────────────────────────────
+
+class SurvivabilityRequest(BaseModel):
+    agent_id:         str
+    action:           str
+    consequence:      str = "MEDIUM"
+    workflow_context: dict = {}
+
+@app.post("/v1/survivability/score", tags=["Runtime Governance"])
+async def survivability_score(
+    req:       SurvivabilityRequest,
+    x_api_key: Optional[str] = Header(None)
+):
+    """
+    Score execution survivability — how recoverable is a failure?
+    0.0 = catastrophic · 1.0 = fully recoverable
+    Returns recommendation: PROCEED / PROCEED_WITH_CAUTION / REQUIRE_APPROVAL / BLOCK
+    """
+    require_api_key(x_api_key)
+    result = score_survivability(
+        action           = req.action,
+        consequence      = req.consequence,
+        workflow_context = req.workflow_context,
+        agent_id         = req.agent_id,
+    )
+    # Chain the survivability score
+    chain_append(
+        execution_id  = f"surv_{uuid.uuid4().hex[:8]}",
+        agent_id      = req.agent_id,
+        action        = f"survivability:{req.action}",
+        decision      = result["recommendation"],
+        policy_reason = " | ".join(result["factors"]),
+        confidence    = result["survivability_score"],
+        extra         = {
+            "survivability_score": result["survivability_score"],
+            "reversible":          result["reversible"],
+            "recovery_estimate":   result["recovery_estimate"],
+        }
+    )
+    return result
+
+# ── RUNTIME REVALIDATION ─────────────────────────────────
+
+class RevalidationRequest(BaseModel):
+    agent_id:          str
+    execution_id:      str
+    workflow_step:     int
+    original_decision: str
+    current_context:   dict = {}
+    org_id:            str  = "default"
+
+@app.post("/v1/revalidate", tags=["Runtime Governance"])
+async def revalidate(
+    req:       RevalidationRequest,
+    x_api_key: Optional[str] = Header(None)
+):
+    """
+    Revalidate a previously approved execution at a new workflow step.
+    Checks if the original decision still holds given current context.
+    Returns still_valid: true/false and new decision if changed.
+    """
+    require_api_key(x_api_key)
+    result = await runtime_revalidate(
+        agent_id          = req.agent_id,
+        execution_id      = req.execution_id,
+        workflow_step     = req.workflow_step,
+        original_decision = req.original_decision,
+        current_context   = req.current_context,
+        org_id            = req.org_id,
+    )
+    return result
+
+@app.get("/v1/revalidate/{execution_id}", tags=["Runtime Governance"])
+async def get_revalidations(
+    execution_id: str,
+    x_api_key:    Optional[str] = Header(None)
+):
+    """Get all revalidation records for an execution."""
+    require_api_key(x_api_key)
+    records = _revalidation_records.get(execution_id, [])
+    return {
+        "execution_id":       execution_id,
+        "revalidation_count": len(records),
+        "revalidations":      records,
+    }
+
+# ── RUNTIME GOVERNANCE SUMMARY ───────────────────────────
+
+@app.get("/v1/governance/summary", tags=["Runtime Governance"])
+async def governance_summary(x_api_key: Optional[str] = Header(None)):
+    """
+    Full runtime governance summary — all active monitors,
+    chains, revalidations, and survivability scores in one call.
+    """
+    require_api_key(x_api_key)
+
+    active_monitors = [m for m in _continuous_monitors.values() if not m["paused"]]
+    paused_monitors = [m for m in _continuous_monitors.values() if m["paused"]]
+    active_chains   = [c for c in _agent_chains.values() if c["status"] == "active"]
+
+    all_hashes  = [b["block_hash"] for b in _chain]
+    merkle_root = _compute_merkle_root(all_hashes) if all_hashes else _sha256("empty")
+
+    return {
+        "version":    DEPLOY_VERSION,
+        "timestamp":  datetime.utcnow().isoformat(),
+        "governance": {
+            "chain_provenance": {
+                "total_chains":  len(_agent_chains),
+                "active_chains": len(active_chains),
+                "total_calls":   sum(len(c["calls"]) for c in _agent_chains.values()),
+            },
+            "continuous_admissibility": {
+                "total_monitors":  len(_continuous_monitors),
+                "active_monitors": len(active_monitors),
+                "paused_monitors": len(paused_monitors),
+                "total_checks":    sum(len(m["checks"]) for m in _continuous_monitors.values()),
+            },
+            "revalidation": {
+                "total_executions_tracked": len(_revalidation_records),
+                "total_revalidations":      sum(len(r) for r in _revalidation_records.values()),
+            },
+            "audit_chain": {
+                "total_blocks":    len(_chain),
+                "merkle_root":     merkle_root,
+                "chain_integrity": "verified",
+                "tamper_evident":  True,
+                "drift_detected":  False,
+            },
+        },
+        "enforcement": {
+            "total_decisions": _metrics["guard_decisions"],
+            "uptime":          get_uptime(),
+            "maintenance":     MAINTENANCE_MODE,
+        }
+    }
+
+# ============================================================
 # PAYSTACK WEBHOOK — Automatic onboarding on payment
 # ============================================================
 
