@@ -41,7 +41,7 @@ if not API_KEY:
 MAINTENANCE_MODE    = os.environ.get("MAINTENANCE_MODE", "false").lower() == "true"
 MAINTENANCE_MESSAGE = os.environ.get("MAINTENANCE_MESSAGE", "VeriSigil AI is under scheduled maintenance. Back shortly.")
 DEPLOY_ENV          = os.environ.get("DEPLOY_ENV", "production")
-DEPLOY_VERSION      = "0.6.0"
+DEPLOY_VERSION      = "0.6.1"
 DEPLOY_TIMESTAMP    = datetime.utcnow().isoformat()
 
 # Feature flags — toggle in Railway env vars, never by changing code
@@ -2326,6 +2326,597 @@ async def governance_summary(x_api_key: Optional[str] = Header(None)):
             "uptime":          get_uptime(),
             "maintenance":     MAINTENANCE_MODE,
         }
+    }
+
+
+# ============================================================
+# OPERATIONAL STATE GOVERNANCE
+# ============================================================
+# The layer beyond progression admissibility.
+# Not just evaluating a proposed transition —
+# but mapping the full space of permissible transitions
+# given current operational state.
+#
+# Answers Brian Hodak's question:
+# "What state transitions remain permissible under
+#  current conditions before consequence binds?"
+# ============================================================
+
+# ── TRANSITION CONSEQUENCE TAXONOMY ─────────────────────────
+# Maps action types to their reversibility and binding risk
+
+TRANSITION_TAXONOMY = {
+    "web_search":      {"reversible": True,  "binding_risk": 0.0,  "consequence": "LOW",      "binding_point": None},
+    "read_data":       {"reversible": True,  "binding_risk": 0.05, "consequence": "LOW",      "binding_point": None},
+    "api_call":        {"reversible": True,  "binding_risk": 0.10, "consequence": "LOW",      "binding_point": "external_state_changed"},
+    "send_email":      {"reversible": False, "binding_risk": 0.40, "consequence": "MEDIUM",   "binding_point": "message_delivered"},
+    "database_write":  {"reversible": True,  "binding_risk": 0.30, "consequence": "MEDIUM",   "binding_point": "transaction_committed"},
+    "file_write":      {"reversible": True,  "binding_risk": 0.20, "consequence": "MEDIUM",   "binding_point": "file_saved"},
+    "payment":         {"reversible": False, "binding_risk": 0.85, "consequence": "HIGH",     "binding_point": "payment_settled"},
+    "transfer_funds":  {"reversible": False, "binding_risk": 0.90, "consequence": "HIGH",     "binding_point": "transfer_confirmed"},
+    "delete_records":  {"reversible": False, "binding_risk": 0.95, "consequence": "HIGH",     "binding_point": "records_purged"},
+    "deploy":          {"reversible": True,  "binding_risk": 0.70, "consequence": "HIGH",     "binding_point": "deployment_live"},
+    "database_delete": {"reversible": False, "binding_risk": 0.95, "consequence": "CRITICAL", "binding_point": "data_purged"},
+    "revoke_access":   {"reversible": False, "binding_risk": 0.75, "consequence": "HIGH",     "binding_point": "access_revoked"},
+    "publish_content": {"reversible": False, "binding_risk": 0.60, "consequence": "HIGH",     "binding_point": "content_indexed"},
+    "contract_sign":   {"reversible": False, "binding_risk": 1.0,  "consequence": "CRITICAL", "binding_point": "signature_recorded"},
+    "data_export":     {"reversible": False, "binding_risk": 0.80, "consequence": "HIGH",     "binding_point": "data_transmitted"},
+}
+
+# ── OPERATIONAL CONDITIONS ────────────────────────────────────
+# Conditions tracked per agent/workflow
+_operational_conditions: dict[str, dict] = {}
+
+def get_operational_conditions(agent_id: str, workflow_id: str) -> dict:
+    """Get current operational conditions for an agent/workflow."""
+    key = f"{agent_id}:{workflow_id}"
+    return _operational_conditions.get(key, {
+        "trust_score":         0.963,
+        "risk_level":          "LOW",
+        "active_alerts":       [],
+        "regulation_changes":  [],
+        "context_flags":       [],
+        "environment":         "production",
+        "last_checked":        datetime.utcnow().isoformat(),
+        "conditions_stable":   True,
+    })
+
+def set_operational_conditions(
+    agent_id:    str,
+    workflow_id: str,
+    conditions:  dict,
+) -> dict:
+    """Update operational conditions — triggers permission re-evaluation."""
+    key = f"{agent_id}:{workflow_id}"
+    existing = _operational_conditions.get(key, {})
+    updated  = {**existing, **conditions, "last_checked": datetime.utcnow().isoformat()}
+    _operational_conditions[key] = updated
+    return updated
+
+# ── 1. PERMISSIBLE TRANSITION SPACE MAPPING ──────────────────
+
+def map_permissible_transitions(
+    agent_id:    str,
+    workflow_id: str,
+    trust_score: float,
+    current_step: int,
+    workflow_context: dict = None,
+) -> dict:
+    """
+    Map the full space of permissible transitions given
+    current operational state and conditions.
+
+    Returns:
+    - permissible: transitions currently allowed
+    - restricted: transitions blocked under current conditions
+    - requires_approval: transitions needing human gate
+    - consequence_binding: transitions that bind consequence irreversibly
+    - recommendation: what the agent should do next
+    """
+    conditions = get_operational_conditions(agent_id, workflow_id)
+    trust      = min(trust_score, float(conditions.get("trust_score", trust_score)))
+    ctx        = workflow_context or {}
+
+    permissible        = []
+    restricted         = []
+    requires_approval  = []
+    consequence_binding = []
+
+    authority = get_authority_level(trust)
+
+    for action, taxonomy in TRANSITION_TAXONOMY.items():
+        consequence  = taxonomy["consequence"]
+        binding_risk = taxonomy["binding_risk"]
+        reversible   = taxonomy["reversible"]
+        binding_pt   = taxonomy["binding_point"]
+
+        # Check authority sufficiency
+        required_auth = CONSEQUENCE_AUTHORITY_MAP.get(
+            ConsequenceLevel(consequence) if consequence in [e.value for e in ConsequenceLevel] else ConsequenceLevel.MEDIUM,
+            AuthorityLevel.BASIC
+        )
+        has_authority = authority_sufficient(authority, required_auth)
+
+        # Check active alerts
+        has_alerts = len(conditions.get("active_alerts", [])) > 0
+        has_regulation_change = len(conditions.get("regulation_changes", [])) > 0
+
+        transition = {
+            "action":          action,
+            "consequence":     consequence,
+            "binding_risk":    binding_risk,
+            "reversible":      reversible,
+            "binding_point":   binding_pt,
+            "authority_needed":required_auth.value,
+            "current_authority":authority.value,
+        }
+
+        # RESTRICTED — cannot proceed under current conditions
+        if not has_authority:
+            restricted.append({**transition,
+                "reason": f"Insufficient authority — {authority.value} cannot perform {consequence} consequence actions"})
+        elif has_alerts and binding_risk > 0.5:
+            restricted.append({**transition,
+                "reason": f"Active alerts block high-binding-risk transitions (binding_risk: {binding_risk})"})
+        elif has_regulation_change and consequence in ("HIGH", "CRITICAL"):
+            restricted.append({**transition,
+                "reason": "Regulatory change detected — HIGH/CRITICAL transitions suspended pending review"})
+        # REQUIRES APPROVAL — can proceed with human gate
+        elif binding_risk >= 0.6 or consequence in ("HIGH", "CRITICAL"):
+            requires_approval.append({**transition,
+                "reason": f"Binding risk {binding_risk} requires human approval before consequence binds"})
+            if not reversible:
+                consequence_binding.append({**transition,
+                    "binding_point": binding_pt,
+                    "warning": "This transition is IRREVERSIBLE once consequence binds"})
+        # PERMISSIBLE — can proceed autonomously
+        else:
+            permissible.append(transition)
+
+    # Recommendation
+    if len(restricted) == len(TRANSITION_TAXONOMY):
+        recommendation = "ALL_TRANSITIONS_BLOCKED — operational conditions prevent any transition"
+    elif len(permissible) == 0:
+        recommendation = "HUMAN_GATE_REQUIRED — no autonomous transitions available under current conditions"
+    elif len(consequence_binding) > 0:
+        recommendation = f"PROCEED_WITH_CAUTION — {len(consequence_binding)} irreversible transitions available, require approval"
+    else:
+        recommendation = f"PROCEED — {len(permissible)} autonomous transitions permissible"
+
+    return {
+        "agent_id":           agent_id,
+        "workflow_id":        workflow_id,
+        "current_step":       current_step,
+        "trust_score":        trust,
+        "authority_level":    authority.value,
+        "conditions_stable":  conditions.get("conditions_stable", True),
+        "operational_state": {
+            "active_alerts":      conditions.get("active_alerts", []),
+            "regulation_changes": conditions.get("regulation_changes", []),
+            "environment":        conditions.get("environment", "production"),
+        },
+        "transition_space": {
+            "total_possible":          len(TRANSITION_TAXONOMY),
+            "permissible_count":       len(permissible),
+            "restricted_count":        len(restricted),
+            "requires_approval_count": len(requires_approval),
+            "consequence_binding_count":len(consequence_binding),
+        },
+        "permissible":          permissible,
+        "requires_approval":    requires_approval,
+        "restricted":           restricted,
+        "consequence_binding":  consequence_binding,
+        "recommendation":       recommendation,
+        "timestamp":            datetime.utcnow().isoformat(),
+    }
+
+# ── 2. CONSEQUENCE BINDING POINT DETECTION ───────────────────
+
+def detect_binding_point(
+    agent_id:        str,
+    workflow_id:     str,
+    action:          str,
+    workflow_steps:  list[dict],
+    current_step:    int,
+) -> dict:
+    """
+    Detect the exact moment in a workflow where a decision
+    becomes irreversible — where consequence binds.
+
+    Before binding point: governance can intervene.
+    After binding point: consequence has propagated.
+
+    Returns the binding point, pre-binding window, and
+    last intervention opportunity.
+    """
+    taxonomy     = TRANSITION_TAXONOMY.get(action, {
+        "reversible": True, "binding_risk": 0.5,
+        "consequence": "MEDIUM", "binding_point": "action_completed"
+    })
+
+    binding_pt    = taxonomy["binding_point"]
+    reversible    = taxonomy["reversible"]
+    binding_risk  = taxonomy["binding_risk"]
+    consequence   = taxonomy["consequence"]
+
+    # Analyze workflow steps to find where binding occurs
+    pre_binding_steps   = []
+    post_binding_steps  = []
+    binding_step        = None
+    binding_detected    = False
+
+    for i, step in enumerate(workflow_steps):
+        step_action = step.get("action", "")
+        step_status = step.get("status", "pending")
+
+        if step_action == action and not binding_detected:
+            binding_step     = i
+            binding_detected = True
+
+        if not binding_detected:
+            pre_binding_steps.append(step)
+        else:
+            post_binding_steps.append(step)
+
+    # Calculate intervention window
+    steps_before_binding    = len(pre_binding_steps)
+    last_intervention_step  = max(0, (binding_step or current_step) - 1)
+    intervention_window_open = current_step <= last_intervention_step
+
+    # Consequence propagation analysis
+    propagation_risk = "NONE"
+    if binding_risk >= 0.9:
+        propagation_risk = "CATASTROPHIC — consequence propagates immediately and irreversibly"
+    elif binding_risk >= 0.7:
+        propagation_risk = "HIGH — consequence binds within seconds of transition"
+    elif binding_risk >= 0.5:
+        propagation_risk = "MEDIUM — consequence can be partially reversed within time window"
+    else:
+        propagation_risk = "LOW — consequence reversible with rollback"
+
+    result = {
+        "agent_id":           agent_id,
+        "workflow_id":        workflow_id,
+        "action":             action,
+        "binding_point":      binding_pt,
+        "binding_risk":       binding_risk,
+        "consequence":        consequence,
+        "reversible":         reversible,
+        "binding_step":       binding_step,
+        "current_step":       current_step,
+        "steps_before_binding": steps_before_binding,
+        "last_intervention_step": last_intervention_step,
+        "intervention_window_open": intervention_window_open,
+        "propagation_risk":   propagation_risk,
+        "pre_binding_steps":  pre_binding_steps,
+        "post_binding_steps": post_binding_steps,
+        "governance_recommendation": (
+            "INTERVENE_NOW — last opportunity before consequence binds"
+            if not intervention_window_open and not reversible
+            else "INTERVENTION_WINDOW_OPEN — governance can still prevent consequence binding"
+            if intervention_window_open
+            else "POST_BINDING — consequence has propagated, focus on recovery"
+        ),
+        "timestamp": datetime.utcnow().isoformat(),
+    }
+
+    # Chain the binding point detection
+    chain_append(
+        execution_id  = f"bind_{uuid.uuid4().hex[:8]}",
+        agent_id      = agent_id,
+        action        = f"binding_detection:{action}",
+        decision      = "BINDING_POINT_DETECTED" if not reversible else "REVERSIBLE_TRANSITION",
+        policy_reason = f"Binding point: {binding_pt} · risk: {binding_risk} · {propagation_risk[:30]}",
+        confidence    = 1.0 - binding_risk,
+        extra         = {
+            "binding_point":           binding_pt,
+            "intervention_window_open": intervention_window_open,
+            "propagation_risk":        propagation_risk[:50],
+        }
+    )
+
+    return result
+
+# ── 3. OPERATIONAL CONDITION MONITOR ─────────────────────────
+
+def evaluate_condition_change(
+    agent_id:      str,
+    workflow_id:   str,
+    old_conditions: dict,
+    new_conditions: dict,
+    active_permissions: list[str],
+) -> dict:
+    """
+    When operational conditions change — automatically
+    re-evaluate which permissions remain valid.
+
+    Conditions change → permissions automatically re-evaluated.
+    No manual intervention required.
+    """
+    revoked     = []
+    maintained  = []
+    restricted  = []
+    changes     = []
+
+    # Detect what changed
+    if new_conditions.get("trust_score", 1.0) < old_conditions.get("trust_score", 1.0):
+        delta = old_conditions["trust_score"] - new_conditions["trust_score"]
+        changes.append(f"Trust degraded by {delta:.3f}")
+
+    if new_conditions.get("active_alerts") and not old_conditions.get("active_alerts"):
+        changes.append(f"New alerts: {new_conditions['active_alerts']}")
+
+    if new_conditions.get("regulation_changes"):
+        changes.append(f"Regulation change: {new_conditions['regulation_changes']}")
+
+    if new_conditions.get("environment") != old_conditions.get("environment"):
+        changes.append(f"Environment changed: {old_conditions.get('environment')} → {new_conditions.get('environment')}")
+
+    # Re-evaluate each active permission
+    new_trust     = float(new_conditions.get("trust_score", 0.963))
+    new_authority = get_authority_level(new_trust)
+    has_alerts    = bool(new_conditions.get("active_alerts"))
+    has_reg_change= bool(new_conditions.get("regulation_changes"))
+
+    for permission in active_permissions:
+        taxonomy = TRANSITION_TAXONOMY.get(permission, {})
+        consequence  = taxonomy.get("consequence", "MEDIUM")
+        binding_risk = taxonomy.get("binding_risk", 0.5)
+
+        required_auth = CONSEQUENCE_AUTHORITY_MAP.get(
+            ConsequenceLevel(consequence) if consequence in [e.value for e in ConsequenceLevel] else ConsequenceLevel.MEDIUM,
+            AuthorityLevel.BASIC
+        )
+
+        # Check if permission still valid
+        if not authority_sufficient(new_authority, required_auth):
+            revoked.append({
+                "permission": permission,
+                "reason": f"Authority reduced to {new_authority.value} — insufficient for {consequence} actions",
+                "revoked_at": datetime.utcnow().isoformat(),
+            })
+        elif has_alerts and binding_risk > 0.5:
+            restricted.append({
+                "permission": permission,
+                "reason": "Active alerts restrict high-binding-risk transitions",
+                "until": "alerts_resolved",
+            })
+        elif has_reg_change and consequence in ("HIGH", "CRITICAL"):
+            restricted.append({
+                "permission": permission,
+                "reason": "Regulatory change suspends HIGH/CRITICAL transitions",
+                "until": "compliance_review_complete",
+            })
+        else:
+            maintained.append(permission)
+
+    # Update stored conditions
+    set_operational_conditions(agent_id, workflow_id, {
+        **new_conditions,
+        "conditions_stable": len(revoked) == 0 and len(restricted) == 0,
+    })
+
+    # Chain the condition change
+    chain_append(
+        execution_id  = f"cond_{uuid.uuid4().hex[:8]}",
+        agent_id      = agent_id,
+        action        = "condition_change",
+        decision      = "PERMISSIONS_UPDATED" if (revoked or restricted) else "CONDITIONS_STABLE",
+        policy_reason = " | ".join(changes) if changes else "No significant changes detected",
+        confidence    = new_trust,
+        extra         = {
+            "revoked_count":    len(revoked),
+            "restricted_count": len(restricted),
+            "maintained_count": len(maintained),
+            "changes":          changes,
+        }
+    )
+
+    return {
+        "agent_id":          agent_id,
+        "workflow_id":       workflow_id,
+        "conditions_changed": len(changes) > 0,
+        "changes_detected":  changes,
+        "authority_level":   new_authority.value,
+        "trust_score":       new_trust,
+        "permissions_evaluated": len(active_permissions),
+        "revoked":           revoked,
+        "restricted":        restricted,
+        "maintained":        maintained,
+        "conditions_stable": len(revoked) == 0 and len(restricted) == 0,
+        "auto_revoked":      len(revoked) > 0,
+        "recommendation": (
+            f"IMMEDIATE_ACTION — {len(revoked)} permissions auto-revoked due to condition change"
+            if revoked else
+            f"RESTRICTED — {len(restricted)} permissions suspended until conditions resolve"
+            if restricted else
+            "CONDITIONS_STABLE — all permissions maintained"
+        ),
+        "timestamp": datetime.utcnow().isoformat(),
+    }
+
+# ============================================================
+# OPERATIONAL STATE GOVERNANCE ENDPOINTS
+# ============================================================
+
+class ConditionChangeRequest(BaseModel):
+    agent_id:           str
+    workflow_id:        str
+    old_conditions:     dict = {}
+    new_conditions:     dict = {}
+    active_permissions: list[str] = []
+
+class BindingPointRequest(BaseModel):
+    agent_id:       str
+    workflow_id:    str
+    action:         str
+    workflow_steps: list[dict] = []
+    current_step:   int = 1
+
+@app.post("/v1/transitions/map", tags=["Operational State Governance"])
+async def map_transitions(
+    agent_id:         str,
+    workflow_id:      str,
+    current_step:     int   = 1,
+    x_api_key:        Optional[str] = Header(None)
+):
+    """
+    PERMISSIBLE TRANSITION SPACE MAPPING
+
+    Given current operational state and conditions —
+    map the full space of transitions that remain permissible.
+
+    Returns:
+    - permissible: transitions agent can take autonomously
+    - requires_approval: transitions needing human gate
+    - restricted: transitions blocked under current conditions
+    - consequence_binding: irreversible transitions with binding points
+    - recommendation: what the agent should do next
+
+    This answers: 'What state transitions remain permissible
+    under current conditions before consequence binds?'
+    """
+    require_api_key(x_api_key)
+
+    passport    = await db_get("passports", "agent_id", agent_id)
+    trust_score = float(passport.get("trust_score", 0.963)) if passport else 0.963
+
+    result = map_permissible_transitions(
+        agent_id         = agent_id,
+        workflow_id      = workflow_id,
+        trust_score      = trust_score,
+        current_step     = current_step,
+        workflow_context = {},
+    )
+
+    await log_event(agent_id, "TRANSITION_MAP_GENERATED", {
+        "workflow_id":       workflow_id,
+        "permissible_count": result["transition_space"]["permissible_count"],
+        "restricted_count":  result["transition_space"]["restricted_count"],
+        "recommendation":    result["recommendation"],
+    })
+
+    return result
+
+@app.post("/v1/transitions/binding-point", tags=["Operational State Governance"])
+async def detect_binding(
+    req:       BindingPointRequest,
+    x_api_key: Optional[str] = Header(None)
+):
+    """
+    CONSEQUENCE BINDING POINT DETECTION
+
+    Identify the exact moment in a workflow where a decision
+    becomes irreversible — where consequence binds.
+
+    Before binding point: governance can intervene.
+    After binding point: consequence has propagated.
+
+    Returns:
+    - binding_point: the exact event that binds consequence
+    - intervention_window_open: whether governance can still act
+    - propagation_risk: CATASTROPHIC / HIGH / MEDIUM / LOW
+    - last_intervention_step: last opportunity to prevent binding
+    - governance_recommendation: what to do right now
+    """
+    require_api_key(x_api_key)
+
+    result = detect_binding_point(
+        agent_id       = req.agent_id,
+        workflow_id    = req.workflow_id,
+        action         = req.action,
+        workflow_steps = req.workflow_steps,
+        current_step   = req.current_step,
+    )
+
+    await log_event(req.agent_id, "BINDING_POINT_DETECTED", {
+        "workflow_id":              req.workflow_id,
+        "action":                   req.action,
+        "binding_point":            result["binding_point"],
+        "intervention_window_open": result["intervention_window_open"],
+        "propagation_risk":         result["propagation_risk"][:50],
+    })
+
+    return result
+
+@app.post("/v1/conditions/update", tags=["Operational State Governance"])
+async def update_conditions(
+    req:       ConditionChangeRequest,
+    x_api_key: Optional[str] = Header(None)
+):
+    """
+    OPERATIONAL CONDITION MONITOR
+
+    When operational conditions change — automatically
+    re-evaluate all active permissions.
+
+    Conditions change → permissions automatically re-evaluated.
+    Revoked permissions logged to immutable chain.
+    No manual intervention required.
+
+    Triggers on:
+    - Trust score degradation
+    - New active alerts
+    - Regulatory changes
+    - Environment changes
+
+    Returns:
+    - revoked: permissions automatically revoked
+    - restricted: permissions suspended until conditions resolve
+    - maintained: permissions still valid
+    - auto_revoked: true if any permissions were revoked
+    """
+    require_api_key(x_api_key)
+
+    result = evaluate_condition_change(
+        agent_id           = req.agent_id,
+        workflow_id        = req.workflow_id,
+        old_conditions     = req.old_conditions,
+        new_conditions     = req.new_conditions,
+        active_permissions = req.active_permissions,
+    )
+
+    await log_event(req.agent_id, "CONDITIONS_EVALUATED", {
+        "workflow_id":    req.workflow_id,
+        "revoked":        len(result["revoked"]),
+        "restricted":     len(result["restricted"]),
+        "auto_revoked":   result["auto_revoked"],
+        "recommendation": result["recommendation"],
+    })
+
+    return result
+
+@app.get("/v1/conditions/{agent_id}/{workflow_id}", tags=["Operational State Governance"])
+async def get_conditions(
+    agent_id:   str,
+    workflow_id: str,
+    x_api_key:  Optional[str] = Header(None)
+):
+    """Get current operational conditions for an agent/workflow."""
+    require_api_key(x_api_key)
+    conditions = get_operational_conditions(agent_id, workflow_id)
+    return {
+        "agent_id":    agent_id,
+        "workflow_id": workflow_id,
+        "conditions":  conditions,
+        "timestamp":   datetime.utcnow().isoformat(),
+    }
+
+@app.get("/v1/transitions/taxonomy", tags=["Operational State Governance"])
+async def get_taxonomy(x_api_key: Optional[str] = Header(None)):
+    """
+    Get the full transition consequence taxonomy.
+    Shows binding risk, reversibility, and consequence level
+    for every supported action type.
+    """
+    require_api_key(x_api_key)
+    return {
+        "total_actions":  len(TRANSITION_TAXONOMY),
+        "taxonomy":       TRANSITION_TAXONOMY,
+        "irreversible":   [k for k,v in TRANSITION_TAXONOMY.items() if not v["reversible"]],
+        "high_binding":   [k for k,v in TRANSITION_TAXONOMY.items() if v["binding_risk"] >= 0.7],
+        "critical":       [k for k,v in TRANSITION_TAXONOMY.items() if v["consequence"] == "CRITICAL"],
+        "timestamp":      datetime.utcnow().isoformat(),
     }
 
 # ============================================================
