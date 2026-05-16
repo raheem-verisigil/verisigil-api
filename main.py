@@ -41,7 +41,7 @@ if not API_KEY:
 MAINTENANCE_MODE    = os.environ.get("MAINTENANCE_MODE", "false").lower() == "true"
 MAINTENANCE_MESSAGE = os.environ.get("MAINTENANCE_MESSAGE", "VeriSigil AI is under scheduled maintenance. Back shortly.")
 DEPLOY_ENV          = os.environ.get("DEPLOY_ENV", "production")
-DEPLOY_VERSION      = "0.5.4"
+DEPLOY_VERSION      = "0.6.0"
 DEPLOY_TIMESTAMP    = datetime.utcnow().isoformat()
 
 # Feature flags — toggle in Railway env vars, never by changing code
