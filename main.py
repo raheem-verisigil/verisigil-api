@@ -41,7 +41,7 @@ if not API_KEY:
 MAINTENANCE_MODE    = os.environ.get("MAINTENANCE_MODE", "false").lower() == "true"
 MAINTENANCE_MESSAGE = os.environ.get("MAINTENANCE_MESSAGE", "VeriSigil AI is under scheduled maintenance. Back shortly.")
 DEPLOY_ENV          = os.environ.get("DEPLOY_ENV", "production")
-DEPLOY_VERSION      = "0.6.1"
+DEPLOY_VERSION      = "0.6.2"
 DEPLOY_TIMESTAMP    = datetime.utcnow().isoformat()
 
 # Feature flags — toggle in Railway env vars, never by changing code
@@ -2919,6 +2919,665 @@ async def get_taxonomy(x_api_key: Optional[str] = Header(None)):
         "timestamp":      datetime.utcnow().isoformat(),
     }
 
+
+# ============================================================
+# COGNITIVE GOVERNANCE INTERFACE LAYER
+# ============================================================
+# The interface layer is not cosmetic — it is governance.
+# If ambiguity is presented as confidence, human oversight
+# becomes theatre. (Adrian Bertino-Clarke, FIA Labs)
+#
+# 7 features:
+# 1. Confidence Integrity Scoring
+# 2. Uncertainty Exposure Enforcement
+# 3. Ambiguity Disclosure Requirements
+# 4. Evidence Completeness Indicators
+# 5. Adversarial Explanation Detection
+# 6. Human Comprehension Verification
+# 7. Decision Friction Controls
+# ============================================================
+
+# ── 1. CONFIDENCE INTEGRITY SCORING ─────────────────────────
+
+def score_confidence_integrity(
+    confidence:   float,
+    trust_score:  float,
+    evidence:     dict,
+    decision:     str,
+    action_type:  str,
+) -> dict:
+    """
+    Score the integrity of a governance decision's confidence.
+    Not just 'what is the confidence' but 'how reliable is that confidence.'
+
+    A confidence of 0.94 based on strong evidence is different from
+    a confidence of 0.94 based on minimal signals.
+    """
+    integrity_score = 1.0
+    flags           = []
+    warnings        = []
+
+    # Check confidence vs trust alignment
+    confidence_trust_delta = abs(confidence - trust_score)
+    if confidence_trust_delta > 0.2:
+        integrity_score -= 0.2
+        flags.append(f"Confidence ({confidence:.2f}) diverges from trust score ({trust_score:.2f}) by {confidence_trust_delta:.2f}")
+
+    # Check evidence completeness
+    evidence_count = len([v for v in evidence.values() if v])
+    if evidence_count == 0:
+        integrity_score -= 0.3
+        flags.append("No evidence provided — confidence is based on trust score alone")
+        warnings.append("UNSUPPORTED_CONFIDENCE")
+    elif evidence_count < 2:
+        integrity_score -= 0.1
+        flags.append("Minimal evidence — confidence may be overstated")
+
+    # Check for high-confidence low-trust misalignment
+    if confidence > 0.9 and trust_score < 0.75:
+        integrity_score -= 0.25
+        flags.append("HIGH confidence despite LOW trust — potential misalignment")
+        warnings.append("CONFIDENCE_TRUST_MISMATCH")
+
+    # Check decision-confidence alignment
+    if decision == "ALLOW" and confidence < 0.7:
+        integrity_score -= 0.15
+        flags.append("ALLOW decision with low confidence — borderline approval")
+        warnings.append("LOW_CONFIDENCE_ALLOW")
+
+    integrity_score = max(0.0, min(1.0, round(integrity_score, 3)))
+
+    # Integrity level
+    if integrity_score >= 0.85:
+        integrity_level = "HIGH"
+        integrity_label = "Confidence is well-supported by evidence and trust alignment"
+    elif integrity_score >= 0.65:
+        integrity_level = "MODERATE"
+        integrity_label = "Confidence has some support but notable gaps exist"
+    elif integrity_score >= 0.40:
+        integrity_level = "LOW"
+        integrity_label = "Confidence is weakly supported — human should scrutinize carefully"
+    else:
+        integrity_level = "UNRELIABLE"
+        integrity_label = "Confidence cannot be relied upon — decision requires careful human review"
+
+    return {
+        "confidence":        confidence,
+        "trust_score":       trust_score,
+        "integrity_score":   integrity_score,
+        "integrity_level":   integrity_level,
+        "integrity_label":   integrity_label,
+        "flags":             flags,
+        "warnings":          warnings,
+        "evidence_count":    evidence_count,
+        "reliable":          integrity_score >= 0.65,
+    }
+
+# ── 2. UNCERTAINTY EXPOSURE ENFORCEMENT ──────────────────────
+
+def enforce_uncertainty_exposure(
+    confidence:      float,
+    decision:        str,
+    consequence:     str,
+    integrity_score: float,
+) -> dict:
+    """
+    Enforce honest uncertainty presentation.
+    The interface MUST present uncertainty proportionally.
+    High uncertainty decisions must feel uncertain to the approver.
+    """
+    uncertainty = 1.0 - confidence
+    exposure_required = False
+    exposure_level    = "NONE"
+    presentation_mode = "STANDARD"
+    friction_required = False
+    friction_reason   = ""
+
+    # Determine exposure requirements
+    if uncertainty >= 0.4 or integrity_score < 0.5:
+        exposure_required = True
+        exposure_level    = "CRITICAL"
+        presentation_mode = "UNCERTAINTY_PROMINENT"
+        friction_required = True
+        friction_reason   = "High uncertainty requires deliberate human consideration"
+
+    elif uncertainty >= 0.25 or integrity_score < 0.7:
+        exposure_required = True
+        exposure_level    = "HIGH"
+        presentation_mode = "UNCERTAINTY_VISIBLE"
+        friction_required = consequence in ("HIGH", "CRITICAL")
+
+    elif uncertainty >= 0.15:
+        exposure_required = True
+        exposure_level    = "MODERATE"
+        presentation_mode = "UNCERTAINTY_NOTED"
+
+    # Generate human-readable uncertainty statement
+    if uncertainty >= 0.4:
+        uncertainty_statement = f"This decision is highly uncertain ({uncertainty:.0%} uncertainty). The system cannot reliably predict the correct outcome. Human judgment is essential."
+    elif uncertainty >= 0.25:
+        uncertainty_statement = f"This decision has notable uncertainty ({uncertainty:.0%}). Review all available evidence before approving."
+    elif uncertainty >= 0.15:
+        uncertainty_statement = f"This decision has moderate confidence ({confidence:.0%}). Some uncertainty remains."
+    else:
+        uncertainty_statement = f"This decision has high confidence ({confidence:.0%}). Uncertainty is low."
+
+    return {
+        "uncertainty":          round(uncertainty, 3),
+        "confidence":           confidence,
+        "exposure_required":    exposure_required,
+        "exposure_level":       exposure_level,
+        "presentation_mode":    presentation_mode,
+        "friction_required":    friction_required,
+        "friction_reason":      friction_reason,
+        "uncertainty_statement":uncertainty_statement,
+        "integrity_score":      integrity_score,
+    }
+
+# ── 3. AMBIGUITY DISCLOSURE REQUIREMENTS ────────────────────
+
+def check_ambiguity_disclosure(
+    reasons:      list[str],
+    evidence:     dict,
+    decision:     str,
+    action_type:  str,
+) -> dict:
+    """
+    Detect ambiguity in governance decisions and enforce disclosure.
+    Ambiguity must be disclosed — not hidden behind confident language.
+    """
+    ambiguities       = []
+    disclosure_items  = []
+    disclosure_required = False
+
+    # Check for ambiguous reason language
+    ambiguous_phrases = [
+        "may", "might", "could", "possibly", "potentially",
+        "unclear", "uncertain", "borderline", "threshold",
+        "approximate", "estimated"
+    ]
+    for reason in reasons:
+        for phrase in ambiguous_phrases:
+            if phrase in reason.lower():
+                ambiguities.append(f"Ambiguous language in reason: '{phrase}' detected")
+                break
+
+    # Check for missing evidence that creates ambiguity
+    if action_type == "payment" and not evidence.get("recipient_verified"):
+        ambiguities.append("Recipient identity not verified — payment destination uncertain")
+        disclosure_items.append("RECIPIENT_UNVERIFIED")
+
+    if action_type == "delete_records" and not evidence.get("backup_confirmed"):
+        ambiguities.append("No backup confirmation — deletion consequence uncertain")
+        disclosure_items.append("NO_BACKUP_CONFIRMATION")
+
+    if not evidence.get("requestor_id"):
+        ambiguities.append("Requestor identity not established — accountability chain incomplete")
+        disclosure_items.append("REQUESTOR_UNKNOWN")
+
+    # Determine if disclosure is required
+    if ambiguities:
+        disclosure_required = True
+
+    return {
+        "ambiguity_detected":   len(ambiguities) > 0,
+        "ambiguity_count":      len(ambiguities),
+        "ambiguities":          ambiguities,
+        "disclosure_items":     disclosure_items,
+        "disclosure_required":  disclosure_required,
+        "disclosure_statement": (
+            f"This decision contains {len(ambiguities)} ambiguity factor(s) that require human attention before approval."
+            if ambiguities else
+            "No significant ambiguities detected in this decision."
+        ),
+    }
+
+# ── 4. EVIDENCE COMPLETENESS INDICATORS ──────────────────────
+
+def assess_evidence_completeness(
+    action_type:     str,
+    consequence:     str,
+    evidence:        dict,
+) -> dict:
+    """
+    Assess how complete the evidence is for this decision.
+    Show the human exactly what evidence exists and what is missing.
+    """
+    # Required evidence by action type and consequence
+    evidence_requirements = {
+        ("payment", "HIGH"):        ["amount_usd", "recipient_verified", "business_justification", "requestor_id", "approval_chain"],
+        ("payment", "MEDIUM"):      ["amount_usd", "requestor_id", "business_justification"],
+        ("delete_records", "HIGH"): ["backup_confirmed", "record_count", "requestor_id", "approval_chain", "business_justification"],
+        ("deploy", "HIGH"):         ["environment", "requestor_id", "approval_chain", "rollback_available"],
+        ("deploy", "CRITICAL"):     ["environment", "requestor_id", "approval_chain", "rollback_available", "dual_authorization", "risk_acknowledgment"],
+        ("data_access", "HIGH"):    ["data_type", "requestor_id", "business_justification", "gdpr_basis"],
+    }
+
+    key = (action_type, consequence)
+    required = evidence_requirements.get(key,
+               evidence_requirements.get((action_type, "MEDIUM"),
+               ["requestor_id", "business_justification"]))
+
+    present = [r for r in required if evidence.get(r)]
+    missing = [r for r in required if not evidence.get(r)]
+
+    completeness = len(present) / len(required) if required else 1.0
+
+    if completeness >= 0.9:
+        completeness_level = "COMPLETE"
+        completeness_color = "green"
+    elif completeness >= 0.7:
+        completeness_level = "MOSTLY_COMPLETE"
+        completeness_color = "amber"
+    elif completeness >= 0.5:
+        completeness_level = "INCOMPLETE"
+        completeness_color = "red"
+    else:
+        completeness_level = "CRITICALLY_INCOMPLETE"
+        completeness_color = "red"
+
+    return {
+        "completeness_score":  round(completeness, 3),
+        "completeness_level":  completeness_level,
+        "completeness_color":  completeness_color,
+        "required_evidence":   required,
+        "present_evidence":    present,
+        "missing_evidence":    missing,
+        "missing_count":       len(missing),
+        "evidence_statement":  (
+            f"Evidence {completeness_level}: {len(present)}/{len(required)} required items present."
+            + (f" Missing: {', '.join(missing)}" if missing else "")
+        ),
+    }
+
+# ── 5. ADVERSARIAL EXPLANATION DETECTION ─────────────────────
+
+def detect_adversarial_explanation(
+    reasons:    list[str],
+    confidence: float,
+    decision:   str,
+    evidence:   dict,
+) -> dict:
+    """
+    Detect potentially misleading or adversarial explanations.
+    Explanations that make a bad decision look acceptable.
+    """
+    flags             = []
+    adversarial_risk  = 0.0
+    patterns_detected = []
+
+    # Pattern 1: Circular reasoning
+    for reason in reasons:
+        if "sufficient" in reason and "threshold" in reason and confidence < 0.75:
+            flags.append("Circular reasoning detected: 'sufficient' language with low confidence")
+            adversarial_risk += 0.2
+            patterns_detected.append("CIRCULAR_REASONING")
+
+    # Pattern 2: Overconfident language with weak evidence
+    evidence_count = len([v for v in evidence.values() if v])
+    if confidence > 0.9 and evidence_count == 0:
+        flags.append("High confidence claim with zero evidence — unsupported assertion")
+        adversarial_risk += 0.4
+        patterns_detected.append("UNSUPPORTED_HIGH_CONFIDENCE")
+
+    # Pattern 3: Missing context for high-consequence decisions
+    if decision == "ALLOW" and not evidence.get("business_justification"):
+        flags.append("ALLOW decision without business justification — missing context")
+        adversarial_risk += 0.15
+        patterns_detected.append("MISSING_JUSTIFICATION")
+
+    # Pattern 4: Vague reasons for specific decisions
+    vague_count = sum(1 for r in reasons if len(r.split()) < 5)
+    if vague_count > 0 and confidence > 0.8:
+        flags.append(f"{vague_count} reason(s) too vague for stated confidence level")
+        adversarial_risk += 0.1 * vague_count
+        patterns_detected.append("VAGUE_REASONING")
+
+    adversarial_risk = min(1.0, round(adversarial_risk, 3))
+
+    return {
+        "adversarial_risk":     adversarial_risk,
+        "adversarial_detected": adversarial_risk > 0.3,
+        "flags":                flags,
+        "patterns_detected":    patterns_detected,
+        "risk_level": (
+            "HIGH"   if adversarial_risk > 0.5 else
+            "MEDIUM" if adversarial_risk > 0.25 else
+            "LOW"
+        ),
+        "recommendation": (
+            "BLOCK_EXPLANATION — adversarial explanation patterns detected, human must independently verify"
+            if adversarial_risk > 0.5 else
+            "SCRUTINIZE — explanation quality concerns, review carefully"
+            if adversarial_risk > 0.25 else
+            "EXPLANATION_ACCEPTABLE"
+        ),
+    }
+
+# ── 6. HUMAN COMPREHENSION VERIFICATION ──────────────────────
+
+def verify_human_comprehension_readiness(
+    confidence:           float,
+    integrity_score:      float,
+    completeness_score:   float,
+    adversarial_risk:     float,
+    consequence:          str,
+    uncertainty_exposure: dict,
+) -> dict:
+    """
+    Verify that sufficient conditions exist for a human to
+    make a genuinely informed governance decision.
+
+    If conditions are not met — the interface must not
+    present the decision as ready for simple approval.
+    """
+    readiness_score  = 1.0
+    blockers         = []
+    warnings         = []
+    ready            = True
+
+    # Hard blockers — human cannot meaningfully decide
+    if adversarial_risk > 0.5:
+        ready = False
+        readiness_score -= 0.4
+        blockers.append("Adversarial explanation patterns detected — independent verification required")
+
+    if completeness_score < 0.5 and consequence in ("HIGH", "CRITICAL"):
+        ready = False
+        readiness_score -= 0.3
+        blockers.append(f"Evidence critically incomplete ({completeness_score:.0%}) for {consequence} consequence")
+
+    if integrity_score < 0.4:
+        ready = False
+        readiness_score -= 0.3
+        blockers.append(f"Confidence integrity unreliable (score: {integrity_score:.2f}) — decision basis is questionable")
+
+    # Soft warnings — human should proceed with extra care
+    if uncertainty_exposure.get("friction_required"):
+        warnings.append(uncertainty_exposure.get("friction_reason", "Additional deliberation required"))
+
+    if confidence < 0.65 and consequence in ("HIGH", "CRITICAL"):
+        warnings.append(f"Low confidence ({confidence:.0%}) for {consequence} consequence — extra scrutiny required")
+
+    if completeness_score < 0.7:
+        warnings.append(f"Evidence {completeness_score:.0%} complete — some context missing")
+
+    readiness_score = max(0.0, min(1.0, round(readiness_score, 3)))
+
+    return {
+        "comprehension_ready":  ready,
+        "readiness_score":      readiness_score,
+        "blockers":             blockers,
+        "warnings":             warnings,
+        "blocker_count":        len(blockers),
+        "presentation_guidance": (
+            "BLOCK — conditions for informed human judgment not met. Resolve blockers before presenting for approval."
+            if not ready else
+            "PRESENT_WITH_WARNINGS — human can decide but must be shown all warnings prominently."
+            if warnings else
+            "PRESENT_STANDARD — conditions for informed human judgment are met."
+        ),
+    }
+
+# ── 7. DECISION FRICTION CONTROLS ────────────────────────────
+
+def apply_decision_friction(
+    consequence:          str,
+    confidence:           float,
+    integrity_score:      float,
+    completeness_score:   float,
+    adversarial_risk:     float,
+    comprehension_ready:  bool,
+) -> dict:
+    """
+    Decision friction controls — when uncertainty is high,
+    the interface must not make approval feel easy.
+
+    Friction is a governance feature, not a UX bug.
+    It forces deliberate human consideration of uncertain decisions.
+    """
+    friction_level    = "NONE"
+    friction_controls = []
+    delay_seconds     = 0
+    confirmation_required = False
+    explicit_acknowledgment = []
+
+    # CRITICAL consequence always has friction
+    if consequence == "CRITICAL":
+        friction_level = "MAXIMUM"
+        delay_seconds  = 10
+        confirmation_required = True
+        explicit_acknowledgment = [
+            "I understand this action is IRREVERSIBLE",
+            "I have reviewed all evidence independently",
+            "I accept personal accountability for this decision",
+        ]
+        friction_controls.append("10-second mandatory review period")
+        friction_controls.append("Three explicit acknowledgments required")
+        friction_controls.append("Decision logged with approver identity and timestamp")
+
+    elif not comprehension_ready:
+        friction_level = "HIGH"
+        delay_seconds  = 5
+        confirmation_required = True
+        explicit_acknowledgment = [
+            "I understand there are unresolved concerns with this decision",
+            "I am proceeding with full awareness of the identified risks",
+        ]
+        friction_controls.append("5-second mandatory review period")
+        friction_controls.append("Two explicit acknowledgments required")
+
+    elif adversarial_risk > 0.25 or integrity_score < 0.65:
+        friction_level = "MEDIUM"
+        delay_seconds  = 3
+        confirmation_required = True
+        explicit_acknowledgment = ["I have independently verified this decision"]
+        friction_controls.append("3-second mandatory review period")
+        friction_controls.append("Independent verification acknowledgment required")
+
+    elif confidence < 0.75 or completeness_score < 0.7:
+        friction_level = "LOW"
+        delay_seconds  = 0
+        confirmation_required = False
+        friction_controls.append("Uncertainty warning displayed prominently")
+        friction_controls.append("Evidence gaps highlighted before approval button")
+
+    return {
+        "friction_level":          friction_level,
+        "friction_controls":       friction_controls,
+        "delay_seconds":           delay_seconds,
+        "confirmation_required":   confirmation_required,
+        "explicit_acknowledgment": explicit_acknowledgment,
+        "friction_justified":      friction_level != "NONE",
+        "friction_statement": (
+            f"MAXIMUM friction applied — {consequence} consequence requires deliberate review."
+            if friction_level == "MAXIMUM" else
+            f"HIGH friction applied — comprehension conditions not fully met."
+            if friction_level == "HIGH" else
+            f"MEDIUM friction applied — explanation quality concerns detected."
+            if friction_level == "MEDIUM" else
+            f"LOW friction applied — uncertainty noted."
+            if friction_level == "LOW" else
+            "Standard approval — no additional friction required."
+        ),
+    }
+
+# ── FULL COGNITIVE GOVERNANCE EVALUATION ─────────────────────
+
+def evaluate_cognitive_governance(
+    decision:     str,
+    confidence:   float,
+    trust_score:  float,
+    reasons:      list[str],
+    evidence:     dict,
+    action_type:  str,
+    consequence:  str,
+) -> dict:
+    """
+    Full Cognitive Governance Interface evaluation.
+    Run before presenting any governance decision to a human.
+
+    Returns complete interface guidance:
+    - How confident is the confidence?
+    - How uncertain should this feel?
+    - What ambiguities must be disclosed?
+    - How complete is the evidence?
+    - Are there adversarial explanation patterns?
+    - Is the human ready to make a genuine decision?
+    - How much friction should the interface apply?
+    """
+    # 1. Confidence integrity
+    integrity = score_confidence_integrity(
+        confidence, trust_score, evidence, decision, action_type)
+
+    # 2. Uncertainty exposure
+    uncertainty = enforce_uncertainty_exposure(
+        confidence, decision, consequence, integrity["integrity_score"])
+
+    # 3. Ambiguity disclosure
+    ambiguity = check_ambiguity_disclosure(
+        reasons, evidence, decision, action_type)
+
+    # 4. Evidence completeness
+    completeness = assess_evidence_completeness(
+        action_type, consequence, evidence)
+
+    # 5. Adversarial detection
+    adversarial = detect_adversarial_explanation(
+        reasons, confidence, decision, evidence)
+
+    # 6. Comprehension verification
+    comprehension = verify_human_comprehension_readiness(
+        confidence              = confidence,
+        integrity_score         = integrity["integrity_score"],
+        completeness_score      = completeness["completeness_score"],
+        adversarial_risk        = adversarial["adversarial_risk"],
+        consequence             = consequence,
+        uncertainty_exposure    = uncertainty,
+    )
+
+    # 7. Decision friction
+    friction = apply_decision_friction(
+        consequence           = consequence,
+        confidence            = confidence,
+        integrity_score       = integrity["integrity_score"],
+        completeness_score    = completeness["completeness_score"],
+        adversarial_risk      = adversarial["adversarial_risk"],
+        comprehension_ready   = comprehension["comprehension_ready"],
+    )
+
+    # Overall cognitive governance score
+    cg_score = round((
+        integrity["integrity_score"] * 0.25 +
+        completeness["completeness_score"] * 0.25 +
+        (1.0 - adversarial["adversarial_risk"]) * 0.25 +
+        comprehension["readiness_score"] * 0.25
+    ), 3)
+
+    return {
+        "cognitive_governance_score": cg_score,
+        "decision_ready_for_human":   comprehension["comprehension_ready"],
+        "presentation_guidance":      comprehension["presentation_guidance"],
+        "confidence_integrity":       integrity,
+        "uncertainty_exposure":       uncertainty,
+        "ambiguity_disclosure":       ambiguity,
+        "evidence_completeness":      completeness,
+        "adversarial_detection":      adversarial,
+        "comprehension_verification": comprehension,
+        "decision_friction":          friction,
+        "timestamp":                  datetime.utcnow().isoformat(),
+    }
+
+# ============================================================
+# COGNITIVE GOVERNANCE INTERFACE ENDPOINTS
+# ============================================================
+
+class CognitiveGovernanceRequest(BaseModel):
+    decision:    str
+    confidence:  float
+    trust_score: float = 0.963
+    reasons:     list[str] = []
+    evidence:    dict = {}
+    action_type: str = "payment"
+    consequence: str = "MEDIUM"
+
+@app.post("/v1/cognitive/evaluate", tags=["Cognitive Governance"])
+async def cognitive_evaluate(
+    req:       CognitiveGovernanceRequest,
+    x_api_key: Optional[str] = Header(None)
+):
+    """
+    COGNITIVE GOVERNANCE INTERFACE LAYER
+
+    Evaluates the quality of a governance decision before
+    presenting it to a human approver.
+
+    7 dimensions:
+    1. Confidence Integrity Scoring — how reliable is the confidence?
+    2. Uncertainty Exposure Enforcement — how uncertain should this feel?
+    3. Ambiguity Disclosure Requirements — what must be disclosed?
+    4. Evidence Completeness Indicators — what evidence exists vs missing?
+    5. Adversarial Explanation Detection — is the explanation misleading?
+    6. Human Comprehension Verification — can a human genuinely decide?
+    7. Decision Friction Controls — how much friction should the interface apply?
+
+    Returns complete interface guidance for the approval console.
+    Governance is not just the decision — it is how that decision
+    is presented to the human who must own it.
+    """
+    require_api_key(x_api_key)
+
+    result = evaluate_cognitive_governance(
+        decision    = req.decision,
+        confidence  = req.confidence,
+        trust_score = req.trust_score,
+        reasons     = req.reasons,
+        evidence    = req.evidence,
+        action_type = req.action_type,
+        consequence = req.consequence,
+    )
+
+    # Chain the cognitive evaluation
+    chain_append(
+        execution_id  = f"cog_{uuid.uuid4().hex[:8]}",
+        agent_id      = f"cognitive_evaluator",
+        action        = f"cognitive_evaluation:{req.action_type}",
+        decision      = "COMPREHENSION_READY" if result["decision_ready_for_human"] else "COMPREHENSION_BLOCKED",
+        policy_reason = result["presentation_guidance"],
+        confidence    = result["cognitive_governance_score"],
+        extra         = {
+            "cognitive_score":    result["cognitive_governance_score"],
+            "friction_level":     result["decision_friction"]["friction_level"],
+            "adversarial_risk":   result["adversarial_detection"]["adversarial_risk"],
+        }
+    )
+
+    return result
+
+@app.post("/v1/cognitive/friction", tags=["Cognitive Governance"])
+async def get_friction_controls(
+    consequence:         str = "HIGH",
+    confidence:          float = 0.75,
+    integrity_score:     float = 0.8,
+    completeness_score:  float = 0.8,
+    adversarial_risk:    float = 0.1,
+    comprehension_ready: bool = True,
+    x_api_key:           Optional[str] = Header(None)
+):
+    """
+    Get decision friction controls for a given governance scenario.
+    Returns exact friction level, delay, and acknowledgment requirements.
+    """
+    require_api_key(x_api_key)
+    return apply_decision_friction(
+        consequence          = consequence,
+        confidence           = confidence,
+        integrity_score      = integrity_score,
+        completeness_score   = completeness_score,
+        adversarial_risk     = adversarial_risk,
+        comprehension_ready  = comprehension_ready,
+    )
+
 # ============================================================
 # PAYSTACK WEBHOOK — Automatic onboarding on payment
 # ============================================================
@@ -3936,6 +4595,19 @@ async def verify_before_execution(
         except Exception as e:
             print(f"[APPROVAL CREATE ERROR] {e}")
             approval_url = None
+
+    # ── COGNITIVE GOVERNANCE — evaluate before human approval
+    cog_result = None
+    if decision == Decision.REQUIRE_HUMAN_APPROVAL:
+        cog_result = evaluate_cognitive_governance(
+            decision    = decision.value,
+            confidence  = confidence,
+            trust_score = trust_score,
+            reasons     = reasons,
+            evidence    = req.action_details or {},
+            action_type = req.action_type,
+            consequence = "HIGH" if trust_score < 0.8 else "MEDIUM",
+        )
 
     await log_event(req.agent_id, "EXECUTION_EVALUATED", {
         "execution_id": execution_id, "action_type": req.action_type,
