@@ -772,17 +772,181 @@ def compute_action_decision(trust_score, shadow_detected, eu_risk_class, risk_le
 # HELPERS — Runtime Guard
 # ============================================================
 
+# ============================================================
+# POLICY ENGINE — Customer-configurable enforcement rules
+# ============================================================
+# Default platform policies — customers override via /v1/policy API
+# Every rule evaluated in order — first match wins
+
 POLICY_RULES = {
-    "payment":     {"max_amount_usd": 1000, "require_human_if_high_risk": True},
-    "data_access": {"require_audit": True, "block_pii_if_not_gdpr": True},
-    "tool_use":    {"blocked_tools": ["exec", "eval", "shell", "file_delete"]},
+    "payment": {
+        "max_amount_usd":            1000,
+        "require_human_if_high_risk": True,
+        "auto_deny_above":           500000,
+        "require_human_above":       1000,
+        "require_audit":             True,
+        "blocked_currencies":        [],
+        "blocked_recipients":        [],
+    },
+    "data_access": {
+        "require_audit":          True,
+        "block_pii_if_not_gdpr":  True,
+        "gdpr_allowed":           False,
+        "require_human_for_pii":  True,
+        "blocked_data_types":     ["ssn", "passport", "biometric"],
+    },
+    "tool_use": {
+        "blocked_tools":   ["exec", "eval", "shell", "file_delete", "subprocess", "os.system"],
+        "require_audit":   True,
+        "require_human_for": ["file_write", "network_call", "database_write"],
+    },
+    "delete_records": {
+        "always_require_human": True,
+        "require_audit":        True,
+        "auto_deny_bulk":       True,
+        "bulk_threshold":       100,
+    },
+    "send_email": {
+        "max_recipients":        50,
+        "require_human_above":   100,
+        "blocked_domains":       [],
+        "require_audit":         True,
+    },
+    "api_call": {
+        "blocked_domains":       ["competitor.com"],
+        "require_audit":         True,
+        "require_human_for_external": False,
+    },
+    "deploy": {
+        "always_require_human": True,
+        "require_audit":        True,
+        "blocked_environments": ["production"],
+    },
+    "database_write": {
+        "require_audit":        True,
+        "require_human_bulk":   True,
+        "bulk_threshold":       1000,
+    },
+    "file_write": {
+        "blocked_paths":        ["/etc", "/sys", "/root"],
+        "require_audit":        True,
+        "max_file_size_mb":     100,
+    },
+    "web_search": {
+        "require_audit":        False,
+        "auto_allow":           True,
+    },
 }
 
 POLICY_THRESHOLDS = {
-    "strict":     {"min_trust_score": 0.90, "max_amount_usd": 1000,   "require_human_for": ["transfer","delete","deploy"]},
-    "standard":   {"min_trust_score": 0.75, "max_amount_usd": 10000,  "require_human_for": ["transfer"]},
-    "permissive": {"min_trust_score": 0.60, "max_amount_usd": 100000, "require_human_for": []},
+    "strict":     {"min_trust_score": 0.90, "max_amount_usd": 500,   "require_human_for": ["payment","transfer","delete_records","deploy","database_write"]},
+    "standard":   {"min_trust_score": 0.75, "max_amount_usd": 10000, "require_human_for": ["payment","delete_records","deploy"]},
+    "permissive": {"min_trust_score": 0.60, "max_amount_usd": 100000,"require_human_for": ["deploy"]},
 }
+
+# Customer-defined policy overrides stored in memory
+# In production these are loaded from Supabase per org_id
+_customer_policies: dict[str, dict] = {}
+
+def get_effective_policy(org_id: str, action_type: str) -> dict:
+    """Get effective policy — customer override takes precedence over platform default."""
+    platform_policy  = POLICY_RULES.get(action_type, {})
+    customer_policy  = _customer_policies.get(org_id, {}).get(action_type, {})
+    # Merge — customer policy overrides platform defaults
+    return {**platform_policy, **customer_policy}
+
+def evaluate_policy_rules(
+    action_type:    str,
+    action_details: dict,
+    policy:         dict,
+    trust_score:    float,
+    org_id:         str = "default",
+) -> tuple[str, float, list[str]]:
+    """
+    Full policy evaluation engine.
+    Returns (decision, confidence, reasons)
+    decision: ALLOW | DENY | REQUIRE_HUMAN_APPROVAL
+    """
+    reasons = []
+
+    # ── AUTO-ALLOW for safe actions ──────────────────────────
+    if policy.get("auto_allow", False):
+        return "ALLOW", 0.99, [f"{action_type} auto-allowed by policy"]
+
+    # ── PAYMENT rules ────────────────────────────────────────
+    if action_type == "payment":
+        amount = float(action_details.get("amount_usd", 0))
+        auto_deny = float(policy.get("auto_deny_above", 500000))
+        human_threshold = float(policy.get("require_human_above", 1000))
+        if amount > auto_deny:
+            return "DENY", 0.99, [f"Payment ${amount:,.0f} exceeds maximum limit (${auto_deny:,.0f})"]
+        if amount > human_threshold:
+            return "REQUIRE_HUMAN_APPROVAL", 0.94, [f"Payment ${amount:,.0f} exceeds auto-allow threshold (${human_threshold:,.0f})"]
+        recipient = action_details.get("recipient", "")
+        if recipient in policy.get("blocked_recipients", []):
+            return "DENY", 0.99, [f"Recipient '{recipient}' is blocked by policy"]
+
+    # ── DELETE rules ─────────────────────────────────────────
+    if action_type == "delete_records":
+        if policy.get("always_require_human", False):
+            return "REQUIRE_HUMAN_APPROVAL", 0.97, ["Delete operations always require human approval"]
+        count = int(action_details.get("record_count", 1))
+        if count > policy.get("bulk_threshold", 100):
+            return "DENY", 0.98, [f"Bulk delete of {count} records exceeds threshold"]
+
+    # ── DEPLOY rules ─────────────────────────────────────────
+    if action_type == "deploy":
+        if policy.get("always_require_human", False):
+            return "REQUIRE_HUMAN_APPROVAL", 0.97, ["Deployments always require human approval"]
+        env = action_details.get("environment", "")
+        if env in policy.get("blocked_environments", []):
+            return "DENY", 0.99, [f"Deployment to '{env}' is blocked by policy"]
+
+    # ── TOOL USE rules ───────────────────────────────────────
+    if action_type == "tool_use":
+        tool = action_details.get("tool_name", "")
+        if tool in policy.get("blocked_tools", []):
+            return "DENY", 0.99, [f"Tool '{tool}' is blocked — dangerous execution capability"]
+        if tool in policy.get("require_human_for", []):
+            return "REQUIRE_HUMAN_APPROVAL", 0.93, [f"Tool '{tool}' requires human approval"]
+
+    # ── DATA ACCESS rules ────────────────────────────────────
+    if action_type == "data_access":
+        if action_details.get("contains_pii", False):
+            if not policy.get("gdpr_allowed", False):
+                return "DENY", 0.97, ["PII access requires GDPR compliance certification"]
+            if policy.get("require_human_for_pii", False):
+                return "REQUIRE_HUMAN_APPROVAL", 0.93, ["PII access requires human oversight"]
+        data_type = action_details.get("data_type", "")
+        if data_type in policy.get("blocked_data_types", []):
+            return "DENY", 0.99, [f"Data type '{data_type}' is blocked by policy"]
+
+    # ── EMAIL rules ──────────────────────────────────────────
+    if action_type == "send_email":
+        recipients = int(action_details.get("recipient_count", 1))
+        max_r = int(policy.get("max_recipients", 50))
+        human_r = int(policy.get("require_human_above", 100))
+        if recipients > human_r:
+            return "REQUIRE_HUMAN_APPROVAL", 0.93, [f"Bulk email to {recipients} recipients requires approval"]
+        if recipients > max_r:
+            return "DENY", 0.96, [f"Email to {recipients} recipients exceeds maximum ({max_r})"]
+
+    # ── DATABASE WRITE rules ─────────────────────────────────
+    if action_type == "database_write":
+        count = int(action_details.get("record_count", 1))
+        if count > policy.get("bulk_threshold", 1000):
+            return "REQUIRE_HUMAN_APPROVAL", 0.94, [f"Bulk database write of {count} records requires approval"]
+
+    # ── TRUST-BASED threshold check ──────────────────────────
+    if action_type in POLICY_THRESHOLDS.get("strict", {}).get("require_human_for", []):
+        if trust_score < POLICY_THRESHOLDS["strict"]["min_trust_score"]:
+            return "REQUIRE_HUMAN_APPROVAL", 0.92, [f"Trust score {trust_score:.3f} below strict threshold for {action_type}"]
+
+    # ── ALLOW ────────────────────────────────────────────────
+    reasons.append(f"Trust score {trust_score:.3f} sufficient · {action_type} within policy bounds")
+    if policy.get("require_audit", False):
+        reasons.append("Audit trail required — decision logged to immutable chain")
+    return "ALLOW", 0.96, reasons
 
 async def check_shadow_status(agent_id: str) -> bool:
     passport = await db_get("passports", "agent_id", agent_id)
@@ -820,39 +984,54 @@ def _deny_gate_response(agent_id: str, reason: str, gates: dict, start_time: flo
     )
 
 def _evaluate_decision(sig_valid, is_revoked, is_expired, shadow_detected,
-                       trust_score, action_type, action_details, policy) -> tuple:
-    reasons = []
+                       trust_score, action_type, action_details, policy,
+                       org_id: str = "default") -> tuple:
+    """
+    Full enforcement decision engine.
+    Priority order:
+    1. Identity checks (signature, revocation, expiry, shadow)
+    2. Trust score gates
+    3. Customer policy rules
+    4. Platform policy rules
+    """
+    # ── 1. IDENTITY GATES ────────────────────────────────────
     if not sig_valid:
         return Decision.DENY, 0.99, ["Invalid cryptographic signature — possible forgery"]
     if is_revoked:
-        return Decision.DENY, 0.99, ["Agent passport revoked"]
+        return Decision.DENY, 0.99, ["Agent passport revoked — access terminated"]
     if is_expired:
-        return Decision.DENY, 0.98, ["Agent passport expired"]
+        return Decision.DENY, 0.98, ["Agent passport expired — renew to continue"]
     if shadow_detected:
-        return Decision.DENY, 0.99, ["Shadow clone detected — identity conflict"]
-    if trust_score < 0.60:
-        return Decision.DENY, 0.97, [f"Trust score {trust_score:.2f} below minimum threshold (0.60)"]
-    if trust_score < 0.85:
-        return Decision.REQUIRE_HUMAN_APPROVAL, 0.91, [f"Trust score {trust_score:.2f} in provisional range — human oversight required"]
+        return Decision.DENY, 0.99, ["Shadow clone detected — identity conflict · possible replay attack"]
 
-    if action_type == "payment":
-        amount = action_details.get("amount_usd", 0)
-        if amount > policy.get("max_amount_usd", 1000):
-            return Decision.REQUIRE_HUMAN_APPROVAL, 0.94, [f"Payment ${amount} exceeds auto-allow threshold"]
+    # ── 2. TRUST SCORE GATES ─────────────────────────────────
+    if trust_score < 0.50:
+        return Decision.DENY, 0.99, [f"Trust score {trust_score:.3f} critically low — agent blocked"]
+    if trust_score < 0.65:
+        return Decision.DENY, 0.97, [f"Trust score {trust_score:.3f} below minimum enforcement threshold (0.65)"]
+    if trust_score < 0.80:
+        return Decision.REQUIRE_HUMAN_APPROVAL, 0.93, [
+            f"Trust score {trust_score:.3f} in provisional range (0.65-0.80) — human oversight required"
+        ]
 
-    if action_type == "tool_use":
-        tool = action_details.get("tool_name", "")
-        if tool in policy.get("blocked_tools", []):
-            return Decision.DENY, 0.96, [f"Tool '{tool}' is blocked for this agent"]
+    # ── 3. POLICY ENGINE EVALUATION ──────────────────────────
+    effective_policy = get_effective_policy(org_id, action_type)
+    policy_decision, policy_confidence, policy_reasons = evaluate_policy_rules(
+        action_type    = action_type,
+        action_details = action_details,
+        policy         = effective_policy,
+        trust_score    = trust_score,
+        org_id         = org_id,
+    )
 
-    if action_type == "data_access":
-        if action_details.get("contains_pii", False) and not policy.get("gdpr_allowed", False):
-            return Decision.DENY, 0.95, ["PII access requires GDPR-certified agent"]
+    # Map string decision to Decision enum
+    if policy_decision == "DENY":
+        return Decision.DENY, policy_confidence, policy_reasons
+    if policy_decision == "REQUIRE_HUMAN_APPROVAL":
+        return Decision.REQUIRE_HUMAN_APPROVAL, policy_confidence, policy_reasons
 
-    reasons.append(f"Trust score {trust_score:.2f} sufficient for {action_type}")
-    if policy.get("require_audit", False):
-        reasons.append("Audit trail required — logged")
-    return Decision.ALLOW, 0.95, reasons
+    # ALLOW
+    return Decision.ALLOW, policy_confidence, policy_reasons
 
 # ============================================================
 # ROUTES
@@ -1030,6 +1209,171 @@ async def chain_stats(x_api_key: Optional[str] = Header(None)):
         "allow_count":    decisions.get("ALLOW", 0),
         "deny_count":     decisions.get("DENY", 0),
         "escalated_count":decisions.get("REQUIRE_HUMAN_APPROVAL", 0),
+    }
+
+# ============================================================
+# POLICY MANAGEMENT ENDPOINTS
+# ============================================================
+
+@app.get("/v1/policy", tags=["Policy Engine"])
+async def get_policy(
+    org_id: str = "default",
+    x_api_key: Optional[str] = Header(None)
+):
+    """
+    Get effective policy for an organization.
+    Returns platform defaults merged with any customer overrides.
+    """
+    require_api_key(x_api_key)
+    effective = {}
+    for action_type in POLICY_RULES:
+        effective[action_type] = get_effective_policy(org_id, action_type)
+    return {
+        "org_id":           org_id,
+        "policy_version":   DEPLOY_VERSION,
+        "effective_policy": effective,
+        "customer_overrides": _customer_policies.get(org_id, {}),
+        "platform_defaults": POLICY_RULES,
+        "thresholds":        POLICY_THRESHOLDS,
+    }
+
+@app.post("/v1/policy", tags=["Policy Engine"])
+async def set_policy(
+    org_id:      str,
+    action_type: str,
+    rules:       dict,
+    x_api_key:   Optional[str] = Header(None)
+):
+    """
+    Set customer policy override for a specific action type.
+    Customer rules take precedence over platform defaults.
+
+    Example:
+    POST /v1/policy?org_id=acme&action_type=payment
+    Body: {"max_amount_usd": 5000, "require_human_above": 2000}
+    """
+    require_api_key(x_api_key)
+    if org_id not in _customer_policies:
+        _customer_policies[org_id] = {}
+    _customer_policies[org_id][action_type] = rules
+    effective = get_effective_policy(org_id, action_type)
+    return {
+        "status":           "policy_updated",
+        "org_id":           org_id,
+        "action_type":      action_type,
+        "rules_set":        rules,
+        "effective_policy": effective,
+        "message":          f"Policy for '{action_type}' updated for org '{org_id}'"
+    }
+
+@app.post("/v1/policy/test", tags=["Policy Engine"])
+async def test_policy(
+    org_id:         str = "default",
+    action_type:    str = "payment",
+    trust_score:    float = 0.963,
+    action_details: dict = None,
+    x_api_key:      Optional[str] = Header(None)
+):
+    """
+    Test a policy rule without executing anything.
+    Shows exactly what decision would be returned for given inputs.
+    """
+    require_api_key(x_api_key)
+    if action_details is None:
+        action_details = {}
+    effective = get_effective_policy(org_id, action_type)
+    decision, confidence, reasons = evaluate_policy_rules(
+        action_type    = action_type,
+        action_details = action_details,
+        policy         = effective,
+        trust_score    = trust_score,
+        org_id         = org_id,
+    )
+    return {
+        "simulation":       True,
+        "org_id":           org_id,
+        "action_type":      action_type,
+        "trust_score":      trust_score,
+        "action_details":   action_details,
+        "decision":         decision,
+        "confidence":       confidence,
+        "reasons":          reasons,
+        "effective_policy": effective,
+        "note":             "This is a simulation — no action was executed or logged",
+    }
+
+@app.delete("/v1/policy", tags=["Policy Engine"])
+async def reset_policy(
+    org_id:      str,
+    action_type: Optional[str] = None,
+    x_api_key:   Optional[str] = Header(None)
+):
+    """Reset policy to platform defaults."""
+    require_api_key(x_api_key)
+    if org_id in _customer_policies:
+        if action_type:
+            _customer_policies[org_id].pop(action_type, None)
+            msg = f"Policy for '{action_type}' reset to platform defaults"
+        else:
+            _customer_policies.pop(org_id, None)
+            msg = f"All policies for org '{org_id}' reset to platform defaults"
+    else:
+        msg = "No custom policies found — already using platform defaults"
+    return {"status": "policy_reset", "org_id": org_id, "message": msg}
+
+# ============================================================
+# ENFORCEMENT DASHBOARD ENDPOINT
+# ============================================================
+
+@app.get("/v1/enforcement/summary", tags=["Enforcement"])
+async def enforcement_summary(
+    org_id:    str = "default",
+    x_api_key: Optional[str] = Header(None)
+):
+    """
+    Full enforcement summary for an organization.
+    Shows decisions, chain stats, policy overview, and trust metrics.
+    """
+    require_api_key(x_api_key)
+
+    # Chain stats
+    org_blocks = [b for b in _chain if b.get("agent_id","").startswith("vsa_")]
+    decisions  = {}
+    for b in _chain:
+        d = b["decision"]
+        decisions[d] = decisions.get(d, 0) + 1
+
+    all_hashes  = [b["block_hash"] for b in _chain]
+    merkle_root = _compute_merkle_root(all_hashes) if all_hashes else _sha256("empty")
+
+    return {
+        "org_id":  org_id,
+        "version": DEPLOY_VERSION,
+        "enforcement": {
+            "total_decisions":     len(_chain),
+            "allowed":             decisions.get("ALLOW", 0),
+            "denied":              decisions.get("DENY", 0),
+            "escalated":           decisions.get("REQUIRE_HUMAN_APPROVAL", 0),
+            "block_rate":          round(decisions.get("DENY", 0) / max(len(_chain), 1) * 100, 1),
+            "escalation_rate":     round(decisions.get("REQUIRE_HUMAN_APPROVAL", 0) / max(len(_chain), 1) * 100, 1),
+        },
+        "chain": {
+            "total_blocks":    len(_chain),
+            "merkle_root":     merkle_root,
+            "chain_integrity": "verified",
+            "tamper_evident":  True,
+            "drift_detected":  False,
+        },
+        "policy": {
+            "active_overrides": len(_customer_policies.get(org_id, {})),
+            "action_types_covered": list(POLICY_RULES.keys()),
+        },
+        "runtime": {
+            "uptime":          get_uptime(),
+            "maintenance":     MAINTENANCE_MODE,
+            "requests_total":  _metrics["requests_total"],
+            "guard_decisions": _metrics["guard_decisions"],
+        }
     }
 
 
