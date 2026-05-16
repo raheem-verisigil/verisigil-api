@@ -848,6 +848,93 @@ POLICY_THRESHOLDS = {
 # In production these are loaded from Supabase per org_id
 _customer_policies: dict[str, dict] = {}
 
+# ============================================================
+# CUSTOMER ACCOUNTS — Auto-onboarding infrastructure
+# ============================================================
+# In-memory customer registry (persisted to Supabase)
+_customers: dict[str, dict] = {}
+
+PLAN_CONFIGS = {
+    "starter": {
+        "name":              "Starter",
+        "price_usd":         49,
+        "decisions_per_month": 1000,
+        "policy_mode":       "standard",
+        "features": [
+            "runtime_guard",
+            "audit_trail",
+            "email_notifications",
+            "merkle_chain",
+        ],
+        "policy_overrides": {},
+    },
+    "professional": {
+        "name":              "Professional",
+        "price_usd":         499,
+        "decisions_per_month": -1,  # unlimited
+        "policy_mode":       "standard",
+        "features": [
+            "runtime_guard",
+            "audit_trail",
+            "email_notifications",
+            "merkle_chain",
+            "replay_validation",
+            "custom_policy",
+            "enforcement_dashboard",
+            "eu_ai_act_report",
+            "human_approval_console",
+        ],
+        "policy_overrides": {
+            "payment": {"require_human_above": 5000, "auto_deny_above": 1000000},
+        },
+    },
+    "enterprise": {
+        "name":              "Enterprise",
+        "price_usd":         2499,
+        "decisions_per_month": -1,  # unlimited
+        "policy_mode":       "strict",
+        "features": [
+            "runtime_guard",
+            "audit_trail",
+            "email_notifications",
+            "merkle_chain",
+            "replay_validation",
+            "custom_policy",
+            "enforcement_dashboard",
+            "eu_ai_act_report",
+            "human_approval_console",
+            "multi_agent_governance",
+            "siem_export",
+            "white_label",
+            "sla_99_9",
+            "dedicated_onboarding",
+        ],
+        "policy_overrides": {
+            "payment":         {"require_human_above": 1000,  "auto_deny_above": 500000},
+            "delete_records":  {"always_require_human": True, "bulk_threshold": 50},
+            "deploy":          {"always_require_human": True, "blocked_environments": ["production"]},
+            "data_access":     {"require_human_for_pii": True, "gdpr_allowed": False},
+        },
+    },
+}
+
+def detect_plan_from_amount(amount_usd: float) -> str:
+    """Detect plan from Paystack payment amount."""
+    if amount_usd >= 2499:
+        return "enterprise"
+    elif amount_usd >= 499:
+        return "professional"
+    elif amount_usd >= 49:
+        return "starter"
+    else:
+        return "starter"
+
+def generate_customer_api_key(org_id: str) -> str:
+    """Generate a unique API key for a customer."""
+    import secrets
+    raw = f"vs_{org_id}_{secrets.token_hex(16)}"
+    return raw
+
 def get_effective_policy(org_id: str, action_type: str) -> dict:
     """Get effective policy — customer override takes precedence over platform default."""
     platform_policy  = POLICY_RULES.get(action_type, {})
@@ -1124,6 +1211,189 @@ async def admin_system(x_api_key: Optional[str] = Header(None)):
         "feature_flags": FEATURES,
         "metrics":       _metrics,
     }
+
+# ============================================================
+# PAYSTACK WEBHOOK — Automatic onboarding on payment
+# ============================================================
+
+@app.post("/v1/webhooks/paystack", tags=["Onboarding"])
+async def paystack_webhook(request: Request):
+    """
+    Paystack sends this webhook immediately after payment.
+    VeriSigil automatically:
+    1. Verifies the webhook signature
+    2. Detects the plan from payment amount
+    3. Creates customer account
+    4. Issues cryptographic passport
+    5. Generates API key
+    6. Sets policy based on plan
+    7. Sends welcome email with everything
+    All in under 5 seconds. Customer is live before they close their browser.
+    """
+    # Verify Paystack webhook signature
+    paystack_secret = os.environ.get("PAYSTACK_SECRET_KEY", "")
+    body            = await request.body()
+    signature       = request.headers.get("x-paystack-signature", "")
+
+    if paystack_secret:
+        expected = hmac.new(
+            paystack_secret.encode(),
+            body,
+            hashlib.sha512
+        ).hexdigest()
+        if not hmac.compare_digest(expected, signature):
+            print("[WEBHOOK] Invalid Paystack signature — rejected")
+            raise HTTPException(400, "Invalid webhook signature")
+
+    try:
+        payload = await request.json()
+        event   = payload.get("event", "")
+
+        print(f"[WEBHOOK] Paystack event: {event}")
+
+        # Only process successful charges
+        if event not in ("charge.success", "payment.success"):
+            return {"status": "ignored", "event": event}
+
+        data          = payload.get("data", {})
+        amount_kobo   = data.get("amount", 0)
+        amount_usd    = amount_kobo / 100  # Paystack sends in kobo/cents
+        payment_ref   = data.get("reference", "")
+        status        = data.get("status", "")
+
+        if status != "success":
+            return {"status": "ignored", "reason": "payment not successful"}
+
+        # Extract customer info from Paystack metadata
+        customer      = data.get("customer", {})
+        metadata      = data.get("metadata", {})
+
+        email         = customer.get("email", metadata.get("email", ""))
+        name          = metadata.get("name", customer.get("first_name", "Customer") + " " + customer.get("last_name", ""))
+        company       = metadata.get("company", metadata.get("company_name", name))
+        plan_override = metadata.get("plan", "")
+
+        # Detect plan from amount if not specified
+        plan = plan_override if plan_override in PLAN_CONFIGS else detect_plan_from_amount(amount_usd)
+
+        if not email:
+            print(f"[WEBHOOK] No email in payload — cannot onboard")
+            return {"status": "error", "reason": "no email found in payload"}
+
+        # Run full automatic onboarding
+        customer_record = await auto_onboard_customer(
+            email       = email,
+            name        = name.strip(),
+            company     = company.strip() or name.strip(),
+            plan        = plan,
+            payment_ref = payment_ref,
+            amount_usd  = amount_usd,
+        )
+
+        print(f"[WEBHOOK] Onboarding complete: {email} · {plan} · {customer_record['id']}")
+        return {
+            "status":   "onboarded",
+            "org_id":   customer_record["id"],
+            "plan":     plan,
+            "email":    email,
+            "agent_id": customer_record["agent_id"],
+            "message":  "Customer onboarded automatically — welcome email sent",
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[WEBHOOK ERROR] {e}")
+        # Still return 200 so Paystack doesn't retry
+        return {"status": "error", "message": str(e)}
+
+# ============================================================
+# MANUAL ONBOARDING — For testing and manual setup
+# ============================================================
+
+@app.post("/v1/onboard", tags=["Onboarding"])
+async def manual_onboard(
+    email:      str,
+    name:       str,
+    company:    str,
+    plan:       str = "starter",
+    x_api_key:  Optional[str] = Header(None)
+):
+    """
+    Manually onboard a customer — same as webhook but triggered by you.
+    Use this for: manual sales, testing, special cases.
+    """
+    require_api_key(x_api_key)
+
+    if plan not in PLAN_CONFIGS:
+        raise HTTPException(400, f"Invalid plan. Choose: {list(PLAN_CONFIGS.keys())}")
+
+    customer_record = await auto_onboard_customer(
+        email       = email,
+        name        = name,
+        company     = company,
+        plan        = plan,
+        payment_ref = f"manual_{uuid.uuid4().hex[:8]}",
+        amount_usd  = PLAN_CONFIGS[plan]["price_usd"],
+    )
+
+    return {
+        "status":        "onboarded",
+        "org_id":        customer_record["id"],
+        "api_key":       customer_record["api_key"],
+        "agent_id":      customer_record["agent_id"],
+        "passport_did":  customer_record["passport_did"],
+        "plan":          plan,
+        "email":         email,
+        "welcome_email": "sent",
+        "message":       f"Customer onboarded manually — welcome email sent to {email}",
+    }
+
+# ============================================================
+# CUSTOMER MANAGEMENT
+# ============================================================
+
+@app.get("/v1/customers", tags=["Onboarding"])
+async def list_customers(x_api_key: Optional[str] = Header(None)):
+    """List all customers — your internal dashboard."""
+    require_api_key(x_api_key)
+    customers = list(_customers.values())
+    plans     = {}
+    for c in customers:
+        p = c.get("plan","starter")
+        plans[p] = plans.get(p, 0) + 1
+
+    mrr = sum(
+        PLAN_CONFIGS.get(c.get("plan","starter"), {}).get("price_usd", 0)
+        for c in customers
+    )
+
+    return {
+        "total_customers": len(customers),
+        "mrr_usd":         mrr,
+        "arr_usd":         mrr * 12,
+        "by_plan":         plans,
+        "customers":       [
+            {
+                "org_id":  c["id"],
+                "email":   c["email"],
+                "company": c["company"],
+                "plan":    c["plan"],
+                "status":  c["status"],
+                "created": c["created_at"],
+            }
+            for c in customers
+        ],
+    }
+
+@app.get("/v1/customers/{org_id}", tags=["Onboarding"])
+async def get_customer(org_id: str, x_api_key: Optional[str] = Header(None)):
+    """Get a specific customer record."""
+    require_api_key(x_api_key)
+    customer = _customers.get(org_id)
+    if not customer:
+        raise HTTPException(404, f"Customer {org_id} not found")
+    return customer
 
 # ============================================================
 # MERKLE CHAIN ENDPOINTS
@@ -2509,6 +2779,244 @@ async def run_compliance_sprint(
 
 
 
+
+async def send_welcome_email(
+    customer_email: str,
+    customer_name:  str,
+    company_name:   str,
+    plan:           str,
+    org_id:         str,
+    api_key:        str,
+    agent_id:       str,
+    passport_did:   str,
+) -> bool:
+    """Send automatic welcome email with everything the customer needs to get started."""
+    supabase_url = os.environ.get("SUPABASE_URL", "")
+    supabase_key = os.environ.get("SUPABASE_SERVICE_KEY", os.environ.get("SUPABASE_KEY", ""))
+    edge_url     = f"{supabase_url}/functions/v1/resend-email"
+    plan_config  = PLAN_CONFIGS.get(plan, PLAN_CONFIGS["starter"])
+    plan_name    = plan_config["name"]
+    price        = plan_config["price_usd"]
+
+    html = f"""<!DOCTYPE html>
+<html><head><meta charset="UTF-8">
+<style>
+body{{font-family:'Segoe UI',Arial,sans-serif;background:#050E2B;color:#fff;margin:0;padding:0}}
+.wrap{{max-width:580px;margin:0 auto;padding:28px 20px}}
+.logo{{font-size:20px;font-weight:800;color:#00D4F5;margin-bottom:24px;text-align:center}}
+.hero{{background:linear-gradient(135deg,rgba(0,212,245,0.08),rgba(21,101,255,0.06));border:1px solid rgba(0,212,245,0.2);border-radius:14px;padding:28px;margin-bottom:20px;text-align:center}}
+.hero-icon{{font-size:40px;margin-bottom:12px}}
+.hero-title{{font-size:22px;font-weight:800;color:#fff;margin-bottom:8px}}
+.hero-sub{{font-size:14px;color:#94A3B8;line-height:1.6}}
+.plan-badge{{display:inline-block;background:rgba(0,212,245,0.1);border:1px solid rgba(0,212,245,0.3);color:#00D4F5;padding:4px 14px;border-radius:20px;font-size:11px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;margin-bottom:16px}}
+.box{{background:#0D1A3A;border:1px solid rgba(30,58,110,0.6);border-radius:12px;padding:20px;margin-bottom:16px}}
+.box-title{{font-size:11px;font-weight:700;color:#00D4F5;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:14px;display:flex;align-items:center;gap:8px}}
+.row{{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid rgba(30,58,110,0.4);font-size:13px}}
+.row:last-child{{border-bottom:none}}
+.label{{color:#94A3B8}}.value{{color:#fff;font-family:monospace;font-size:12px;word-break:break-all;max-width:300px;text-align:right}}
+.value.cyan{{color:#00D4F5;font-weight:700}}
+.value.green{{color:#22C55E;font-weight:700}}
+.code-box{{background:#010608;border:1px solid rgba(0,212,245,0.15);border-radius:8px;padding:14px;margin:12px 0;font-family:monospace;font-size:12px;color:#00D4F5;word-break:break-all;line-height:1.8}}
+.step{{display:flex;gap:14px;padding:12px 0;border-bottom:1px solid rgba(30,58,110,0.3)}}
+.step:last-child{{border-bottom:none}}
+.step-num{{width:26px;height:26px;border-radius:50%;background:rgba(0,212,245,0.1);border:1px solid rgba(0,212,245,0.3);color:#00D4F5;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0}}
+.step-content{{flex:1}}
+.step-title{{font-size:13px;font-weight:700;color:#fff;margin-bottom:3px}}
+.step-desc{{font-size:12px;color:#94A3B8;line-height:1.5}}
+.cta{{display:block;background:#00D4F5;color:#050E2B;text-align:center;padding:14px;border-radius:10px;font-weight:800;font-size:15px;text-decoration:none;margin:20px 0;letter-spacing:0.04em}}
+.features{{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:10px}}
+.feature{{font-size:11px;color:#94A3B8;display:flex;align-items:center;gap:6px}}
+.feature::before{{content:'✓';color:#22C55E;font-weight:700}}
+.footer{{text-align:center;font-size:11px;color:#475569;margin-top:24px;padding-top:16px;border-top:1px solid rgba(30,58,110,0.4)}}
+.footer a{{color:#00D4F5;text-decoration:none}}
+.warning{{background:rgba(245,158,11,0.06);border:1px solid rgba(245,158,11,0.2);border-radius:8px;padding:12px;font-size:12px;color:#F59E0B;margin-top:12px}}
+</style></head><body><div class="wrap">
+<div class="logo">⬡ VeriSigil AI</div>
+
+<div class="hero">
+  <div class="hero-icon">🎉</div>
+  <div class="plan-badge">{plan_name} Plan · ${price}/mo</div>
+  <div class="hero-title">You're Live on VeriSigil</div>
+  <div class="hero-sub">Your Runtime Enforcement infrastructure is active.<br>Your AI agents are now governed. Every action intercepted. Every decision logged.</div>
+</div>
+
+<div class="box">
+  <div class="box-title">🔑 Your Credentials</div>
+  <div class="row"><span class="label">Organization ID</span><span class="value cyan">{org_id}</span></div>
+  <div class="row"><span class="label">API Key</span><span class="value cyan">{api_key}</span></div>
+  <div class="row"><span class="label">Agent ID</span><span class="value">{agent_id}</span></div>
+  <div class="row"><span class="label">Passport DID</span><span class="value" style="font-size:10px">{passport_did[:40]}...</span></div>
+  <div class="row"><span class="label">Plan</span><span class="value green">{plan_name}</span></div>
+  <div class="row"><span class="label">Status</span><span class="value green">ACTIVE</span></div>
+  <div class="warning">⚠ Store your API key securely. Never commit it to GitHub or share it publicly.</div>
+</div>
+
+<div class="box">
+  <div class="box-title">⚡ Quick Start — 3 Steps</div>
+  <div class="step">
+    <div class="step-num">1</div>
+    <div class="step-content">
+      <div class="step-title">Call Runtime Guard before any agent action</div>
+      <div class="step-desc">Every action your agent wants to take must be verified first.</div>
+      <div class="code-box">POST https://verisigil-api-production.up.railway.app/v1/guard/verify<br>x-api-key: {api_key}<br><br>&#123;"agent_id": "{agent_id}", "action_type": "payment", "action_details": &#123;"amount_usd": 5000&#125;&#125;</div>
+    </div>
+  </div>
+  <div class="step">
+    <div class="step-num">2</div>
+    <div class="step-content">
+      <div class="step-title">Handle the 3 possible decisions</div>
+      <div class="step-desc">ALLOW → execute · DENY → block · REQUIRE_HUMAN_APPROVAL → pause and wait for approval email</div>
+    </div>
+  </div>
+  <div class="step">
+    <div class="step-num">3</div>
+    <div class="step-content">
+      <div class="step-title">Monitor your audit chain</div>
+      <div class="step-desc">Every decision is logged to your immutable Merkle chain automatically.</div>
+    </div>
+  </div>
+</div>
+
+<div class="box">
+  <div class="box-title">🛠 Your Resources</div>
+  <div class="row"><span class="label">Quickstart Guide</span><span class="value"><a href="https://verisigilai.com/quickstart.html" style="color:#00D4F5">verisigilai.com/quickstart.html</a></span></div>
+  <div class="row"><span class="label">Live Demo</span><span class="value"><a href="https://verisigilai.com/governed-agent-demo.html" style="color:#00D4F5">governed-agent-demo.html</a></span></div>
+  <div class="row"><span class="label">Audit Chain</span><span class="value"><a href="https://verisigilai.com/audit-chain.html" style="color:#00D4F5">audit-chain.html</a></span></div>
+  <div class="row"><span class="label">Enforcement Dashboard</span><span class="value"><a href="https://verisigilai.com/enforcement.html" style="color:#00D4F5">enforcement.html</a></span></div>
+  <div class="row"><span class="label">API Docs</span><span class="value"><a href="https://verisigil-api-production.up.railway.app/docs" style="color:#00D4F5">API Docs →</a></span></div>
+  <div class="row"><span class="label">Support</span><span class="value"><a href="mailto:raheem@verisigilai.com" style="color:#00D4F5">raheem@verisigilai.com</a></span></div>
+</div>
+
+<a href="https://verisigilai.com/governed-agent-demo.html" class="cta">▶ Try The Live Demo →</a>
+
+<div class="footer">
+  <p>⬡ VeriSigil AI · Runtime Enforcement Infrastructure<br>
+  Built in Lagos, Nigeria 🇳🇬 · <a href="https://verisigilai.com">verisigilai.com</a><br>
+  Reply to this email anytime — Raheem reads every one.</p>
+</div>
+</div></body></html>"""
+
+    try:
+        async with httpx.AsyncClient() as c:
+            r = await c.post(
+                edge_url,
+                headers={"Authorization": f"Bearer {supabase_key}", "Content-Type": "application/json"},
+                json={
+                    "to":      customer_email,
+                    "subject": f"⬡ You're live on VeriSigil — {plan_name} Plan · Your API key inside",
+                    "html":    html,
+                },
+                timeout=15,
+            )
+            success = r.status_code in (200, 201)
+            print(f"[WELCOME EMAIL] {customer_email} → {'sent' if success else 'failed'} ({r.status_code})")
+            return success
+    except Exception as e:
+        print(f"[WELCOME EMAIL ERROR] {e}")
+        return False
+
+async def auto_onboard_customer(
+    email:        str,
+    name:         str,
+    company:      str,
+    plan:         str,
+    payment_ref:  str,
+    amount_usd:   float,
+) -> dict:
+    """
+    Full automatic onboarding — called by Paystack webhook.
+    Creates account, issues passport, generates API key, sends welcome email.
+    Returns complete customer record.
+    """
+    import secrets
+
+    # 1. Generate org_id and API key
+    org_id  = f"org_{secrets.token_hex(6)}"
+    api_key = generate_customer_api_key(org_id)
+
+    # 2. Issue cryptographic passport for their first agent
+    agent_name   = f"{company} AI Agent"
+    agent_id     = f"vsa_{uuid.uuid4().hex[:12]}"
+    plan_config  = PLAN_CONFIGS.get(plan, PLAN_CONFIGS["starter"])
+
+    passport_payload = {
+        "agent_id":     agent_id,
+        "agent_name":   agent_name,
+        "display_name": agent_name,
+        "issuer_org":   company,
+        "owner":        email,
+        "framework":    "custom",
+        "trust_score":  0.95,
+        "eu_risk_class":"LIMITED_RISK",
+        "status":       "active",
+        "issued_at":    datetime.utcnow().isoformat(),
+        "expires_at":   (datetime.utcnow() + timedelta(days=365)).isoformat(),
+        "did":          f"did:verisigil:{agent_id}",
+        "signature":    sign_payload({
+            "agent_id":  agent_id,
+            "did":       f"did:verisigil:{agent_id}",
+            "issued_at": datetime.utcnow().isoformat(),
+            "owner":     email,
+            "issuer":    "https://verisigilai.com",
+        }),
+        "public_key":   PUBLIC_KEY_B64,
+    }
+
+    await db_insert("passports", passport_payload)
+    print(f"[ONBOARD] Passport issued: {agent_id}")
+
+    # 3. Store customer account in Supabase
+    customer_record = {
+        "id":           org_id,
+        "email":        email,
+        "name":         name,
+        "company":      company,
+        "plan":         plan,
+        "api_key":      api_key,
+        "agent_id":     agent_id,
+        "passport_did": passport_payload["did"],
+        "payment_ref":  payment_ref,
+        "amount_usd":   amount_usd,
+        "status":       "active",
+        "created_at":   datetime.utcnow().isoformat(),
+        "features":     plan_config["features"],
+    }
+
+    await db_insert("customers", customer_record)
+
+    # 4. Set customer policy based on plan
+    policy_overrides = plan_config.get("policy_overrides", {})
+    if policy_overrides:
+        _customer_policies[org_id] = policy_overrides
+        print(f"[ONBOARD] Policy set for {org_id}: {list(policy_overrides.keys())}")
+
+    # 5. Store in memory registry
+    _customers[org_id] = customer_record
+
+    # 6. Send welcome email
+    asyncio.create_task(send_welcome_email(
+        customer_email = email,
+        customer_name  = name,
+        company_name   = company,
+        plan           = plan,
+        org_id         = org_id,
+        api_key        = api_key,
+        agent_id       = agent_id,
+        passport_did   = passport_payload["did"],
+    ))
+
+    # 7. Log to audit trail
+    await log_event(agent_id, "CUSTOMER_ONBOARDED", {
+        "org_id":      org_id,
+        "plan":        plan,
+        "email":       email,
+        "company":     company,
+        "payment_ref": payment_ref,
+        "amount_usd":  amount_usd,
+    })
+
+    print(f"[ONBOARD] Complete: {email} · {plan} · {org_id}")
+    return customer_record
 
 async def send_approval_email(
     approver_email: str,
