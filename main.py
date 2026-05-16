@@ -1521,17 +1521,95 @@ def classify_eu_risk(industry: str, agent_description: str) -> str:
     
     return "LIMITED_RISK"
 
+async def generate_compliance_analysis(
+    agent_name:       str,
+    agent_description:str,
+    industry:         str,
+    eu_risk_class:    str,
+    company_name:     str,
+) -> str:
+    """
+    Use Claude API to generate a personalized EU AI Act compliance analysis.
+    Falls back to a template if Claude API is unavailable.
+    """
+    claude_key = os.environ.get("CLAUDE_API_KEY", "")
+    if not claude_key:
+        return _compliance_template(agent_name, industry, eu_risk_class)
+
+    prompt = f"""You are an EU AI Act compliance expert. Write a personalized compliance analysis for this AI agent.
+
+Agent Name: {agent_name}
+Company: {company_name}
+Industry: {industry}
+Description: {agent_description}
+EU Risk Classification: {eu_risk_class}
+
+Write 3 short paragraphs (max 80 words each):
+1. Why this agent is classified {eu_risk_class} under EU AI Act
+2. The 2-3 most important specific obligations (cite Articles 6, 13, 14, 50 as relevant)
+3. What VeriSigil Runtime Guard now enforces for this agent
+
+Be specific to their industry and description. Use plain English. No bullet points."""
+
+    try:
+        async with httpx.AsyncClient() as c:
+            r = await c.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={
+                    "x-api-key":          claude_key,
+                    "anthropic-version":  "2023-06-01",
+                    "Content-Type":       "application/json",
+                },
+                json={
+                    "model":      "claude-haiku-4-5-20251001",
+                    "max_tokens": 400,
+                    "messages":   [{"role": "user", "content": prompt}]
+                },
+                timeout=15
+            )
+            data = r.json()
+            return data["content"][0]["text"]
+    except Exception as e:
+        print(f"[CLAUDE COMPLIANCE] Error: {e}")
+        return _compliance_template(agent_name, industry, eu_risk_class)
+
+def _compliance_template(agent_name: str, industry: str, eu_risk_class: str) -> str:
+    """Fallback template if Claude API is unavailable."""
+    if eu_risk_class == "HIGH_RISK":
+        return (
+            f"{agent_name} is classified HIGH_RISK under EU AI Act Annex III due to its deployment "
+            f"in the {industry} sector where AI decisions directly impact individuals' access to services, "
+            f"financial outcomes, or safety-critical processes.\n\n"
+            f"Your key obligations include: Article 13 (transparency — users must know they are interacting with AI), "
+            f"Article 14 (human oversight — a qualified person must be able to review and override decisions), "
+            f"and Article 50 (transparency obligations for AI-generated content). "
+            f"You must also maintain technical documentation under Article 11.\n\n"
+            f"VeriSigil Runtime Guard now enforces Article 14 automatically — every high-risk action "
+            f"is intercepted before execution and escalated for human approval where required. "
+            f"Every decision is cryptographically logged to your immutable audit trail."
+        )
+    else:
+        return (
+            f"{agent_name} is classified LIMITED_RISK under EU AI Act, meaning you face transparency "
+            f"obligations under Article 50 but are not subject to the full HIGH_RISK requirements.\n\n"
+            f"Your primary obligation is ensuring users know they are interacting with an AI system. "
+            f"You should also maintain basic documentation of the system's purpose and capabilities.\n\n"
+            f"VeriSigil Runtime Guard provides cryptographic identity verification and an immutable audit trail, "
+            f"giving you evidence of responsible deployment if regulators request it."
+        )
+
 async def send_compliance_email(
-    customer_email:  str,
-    customer_name:   str,
-    company_name:    str,
-    agent_name:      str,
-    agent_id:        str,
-    passport_did:    str,
-    eu_risk_class:   str,
-    sprint_id:       str,
-    compliance_url:  str,
-    resend_api_key:  str
+    customer_email:      str,
+    customer_name:       str,
+    company_name:        str,
+    agent_name:          str,
+    agent_id:            str,
+    passport_did:        str,
+    eu_risk_class:       str,
+    sprint_id:           str,
+    compliance_url:      str,
+    resend_api_key:      str,
+    compliance_analysis: str = "",
 ) -> bool:
     """
     Send compliance sprint email via Supabase Edge Function (resend-email).
