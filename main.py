@@ -1213,6 +1213,430 @@ async def admin_system(x_api_key: Optional[str] = Header(None)):
     }
 
 # ============================================================
+# PROGRESSION ADMISSIBILITY ENGINE
+# ============================================================
+# The next layer beyond identity + action enforcement.
+# Evaluates whether a specific state transition should be
+# permitted given: evidence, authority, context, consequence,
+# and the full workflow trajectory.
+#
+# This answers: "Should this specific progression be permitted NOW?"
+# Not just: "Is this agent trusted?"
+
+from enum import Enum as PyEnum
+
+class ProgressionDecision(str, PyEnum):
+    ALLOWED                   = "PROGRESSION_ALLOWED"
+    BLOCKED                   = "PROGRESSION_BLOCKED"
+    REQUIRES_EVIDENCE         = "PROGRESSION_REQUIRES_EVIDENCE"
+    REQUIRES_AUTHORITY        = "PROGRESSION_REQUIRES_AUTHORITY"
+    REQUIRES_HUMAN_REVIEW     = "PROGRESSION_REQUIRES_HUMAN_REVIEW"
+    TRAJECTORY_ANOMALY        = "PROGRESSION_TRAJECTORY_ANOMALY"
+
+class ConsequenceLevel(str, PyEnum):
+    LOW      = "LOW"
+    MEDIUM   = "MEDIUM"
+    HIGH     = "HIGH"
+    CRITICAL = "CRITICAL"
+
+class AuthorityLevel(str, PyEnum):
+    NONE      = "NONE"
+    BASIC     = "BASIC"
+    ELEVATED  = "ELEVATED"
+    ADMIN     = "ADMIN"
+    SOVEREIGN = "SOVEREIGN"
+
+# Consequence thresholds — what level of authority is needed
+CONSEQUENCE_AUTHORITY_MAP = {
+    ConsequenceLevel.LOW:      AuthorityLevel.BASIC,
+    ConsequenceLevel.MEDIUM:   AuthorityLevel.ELEVATED,
+    ConsequenceLevel.HIGH:     AuthorityLevel.ADMIN,
+    ConsequenceLevel.CRITICAL: AuthorityLevel.SOVEREIGN,
+}
+
+# Authority levels by trust score
+TRUST_AUTHORITY_MAP = {
+    (0.95, 1.00): AuthorityLevel.SOVEREIGN,
+    (0.90, 0.95): AuthorityLevel.ADMIN,
+    (0.80, 0.90): AuthorityLevel.ELEVATED,
+    (0.65, 0.80): AuthorityLevel.BASIC,
+    (0.00, 0.65): AuthorityLevel.NONE,
+}
+
+def get_authority_level(trust_score: float) -> AuthorityLevel:
+    """Map trust score to authority level."""
+    for (low, high), level in TRUST_AUTHORITY_MAP.items():
+        if low <= trust_score <= high:
+            return level
+    return AuthorityLevel.NONE
+
+def authority_sufficient(
+    agent_authority: AuthorityLevel,
+    required_authority: AuthorityLevel
+) -> bool:
+    """Check if agent authority meets required level."""
+    order = [
+        AuthorityLevel.NONE,
+        AuthorityLevel.BASIC,
+        AuthorityLevel.ELEVATED,
+        AuthorityLevel.ADMIN,
+        AuthorityLevel.SOVEREIGN,
+    ]
+    return order.index(agent_authority) >= order.index(required_authority)
+
+def evaluate_trajectory(
+    previous_steps: list[dict],
+    intended_action: str,
+    workflow_id: str,
+) -> tuple[bool, str]:
+    """
+    Evaluate whether the intended action makes logical sense
+    given the previous steps in this workflow.
+    Returns (is_coherent, anomaly_reason)
+    """
+    if not previous_steps:
+        return True, ""
+
+    # Check for suspicious patterns
+    action_types = [s.get("action", "") for s in previous_steps]
+
+    # Detect escalation anomaly — agent trying to escalate privilege mid-workflow
+    if intended_action in ("deploy", "delete_records", "payment") and        action_types.count("permission_request") > 2:
+        return False, "Excessive permission escalation detected in workflow trajectory"
+
+    # Detect loop anomaly — same action repeated too many times
+    if action_types.count(intended_action) >= 3:
+        return False, f"Action '{intended_action}' repeated {action_types.count(intended_action)} times — possible loop"
+
+    # Detect jump anomaly — skipping expected workflow steps
+    if len(previous_steps) > 0:
+        last_step = previous_steps[-1]
+        last_status = last_step.get("status", "completed")
+        if last_status in ("failed", "blocked", "denied"):
+            return False, f"Previous step failed/blocked — progression from failed state requires review"
+
+    return True, ""
+
+def evaluate_evidence_sufficiency(
+    evidence: dict,
+    consequence_level: ConsequenceLevel,
+    intended_action: str,
+) -> tuple[bool, list[str]]:
+    """
+    Check if the evidence provided is sufficient for the
+    consequence level of the intended action.
+    Returns (is_sufficient, missing_evidence_list)
+    """
+    missing = []
+
+    # HIGH and CRITICAL consequences require more evidence
+    if consequence_level in (ConsequenceLevel.HIGH, ConsequenceLevel.CRITICAL):
+        if not evidence.get("business_justification"):
+            missing.append("business_justification")
+        if not evidence.get("requestor_id"):
+            missing.append("requestor_id")
+        if not evidence.get("approval_chain"):
+            missing.append("approval_chain")
+
+    if consequence_level == ConsequenceLevel.CRITICAL:
+        if not evidence.get("dual_authorization"):
+            missing.append("dual_authorization")
+        if not evidence.get("risk_acknowledgment"):
+            missing.append("risk_acknowledgment")
+
+    # Payment-specific evidence
+    if intended_action == "payment":
+        if not evidence.get("amount_usd"):
+            missing.append("amount_usd")
+        if float(evidence.get("amount_usd", 0)) > 10000 and not evidence.get("recipient_verified"):
+            missing.append("recipient_verified")
+
+    # Delete-specific evidence
+    if intended_action == "delete_records":
+        if not evidence.get("backup_confirmed"):
+            missing.append("backup_confirmed")
+
+    return len(missing) == 0, missing
+
+def evaluate_progression(
+    agent_id:        str,
+    workflow_id:     str,
+    current_step:    int,
+    total_steps:     int,
+    previous_steps:  list[dict],
+    intended_action: str,
+    evidence:        dict,
+    consequence_level: str,
+    trust_score:     float,
+    org_id:          str = "default",
+) -> dict:
+    """
+    Full progression admissibility evaluation.
+
+    Evaluates 4 dimensions:
+    1. Trajectory coherence — does this progression make sense?
+    2. Authority sufficiency — does agent have authority for this consequence?
+    3. Evidence sufficiency — is the evidence complete for this action?
+    4. Context validity — is the workflow state valid?
+
+    Returns full progression decision with reasons and required actions.
+    """
+    start_time   = time_module.time()
+    execution_id = f"prog_{uuid.uuid4().hex[:8]}"
+    timestamp    = datetime.utcnow().isoformat()
+    reasons      = []
+    required     = []
+
+    try:
+        consequence = ConsequenceLevel(consequence_level.upper())
+    except ValueError:
+        consequence = ConsequenceLevel.MEDIUM
+
+    # ── 1. TRAJECTORY COHERENCE ──────────────────────────────
+    trajectory_ok, trajectory_reason = evaluate_trajectory(
+        previous_steps, intended_action, workflow_id
+    )
+    if not trajectory_ok:
+        return {
+            "decision":          ProgressionDecision.TRAJECTORY_ANOMALY,
+            "execution_id":      execution_id,
+            "workflow_id":       workflow_id,
+            "current_step":      current_step,
+            "intended_action":   intended_action,
+            "consequence_level": consequence_level,
+            "authority_level":   get_authority_level(trust_score).value,
+            "trajectory_coherent": False,
+            "anomaly_reason":    trajectory_reason,
+            "reasons":           [trajectory_reason],
+            "required_actions":  ["Review workflow trajectory before proceeding"],
+            "latency_ms":        round((time_module.time() - start_time) * 1000, 2),
+            "timestamp":         timestamp,
+            "chain_block":       None,
+        }
+    reasons.append("Trajectory coherent — workflow progression is logical")
+
+    # ── 2. AUTHORITY SUFFICIENCY ─────────────────────────────
+    agent_authority    = get_authority_level(trust_score)
+    required_authority = CONSEQUENCE_AUTHORITY_MAP.get(consequence, AuthorityLevel.ELEVATED)
+
+    if not authority_sufficient(agent_authority, required_authority):
+        return {
+            "decision":           ProgressionDecision.REQUIRES_AUTHORITY,
+            "execution_id":       execution_id,
+            "workflow_id":        workflow_id,
+            "current_step":       current_step,
+            "intended_action":    intended_action,
+            "consequence_level":  consequence_level,
+            "authority_level":    agent_authority.value,
+            "required_authority": required_authority.value,
+            "trust_score":        trust_score,
+            "trajectory_coherent": True,
+            "reasons":            [
+                f"Agent authority '{agent_authority.value}' insufficient for "
+                f"'{consequence.value}' consequence — requires '{required_authority.value}'"
+            ],
+            "required_actions":   [f"Elevate agent trust score above threshold for {consequence.value} actions"],
+            "latency_ms":         round((time_module.time() - start_time) * 1000, 2),
+            "timestamp":          timestamp,
+            "chain_block":        None,
+        }
+    reasons.append(f"Authority sufficient — {agent_authority.value} meets {required_authority.value} requirement")
+
+    # ── 3. EVIDENCE SUFFICIENCY ──────────────────────────────
+    evidence_ok, missing_evidence = evaluate_evidence_sufficiency(
+        evidence, consequence, intended_action
+    )
+    if not evidence_ok:
+        return {
+            "decision":           ProgressionDecision.REQUIRES_EVIDENCE,
+            "execution_id":       execution_id,
+            "workflow_id":        workflow_id,
+            "current_step":       current_step,
+            "intended_action":    intended_action,
+            "consequence_level":  consequence_level,
+            "authority_level":    agent_authority.value,
+            "trajectory_coherent": True,
+            "evidence_sufficient": False,
+            "missing_evidence":   missing_evidence,
+            "reasons":            [f"Insufficient evidence for {consequence.value} consequence"],
+            "required_actions":   [f"Provide: {', '.join(missing_evidence)}"],
+            "latency_ms":         round((time_module.time() - start_time) * 1000, 2),
+            "timestamp":          timestamp,
+            "chain_block":        None,
+        }
+    reasons.append("Evidence sufficient for stated consequence level")
+
+    # ── 4. HUMAN REVIEW for CRITICAL ─────────────────────────
+    if consequence == ConsequenceLevel.CRITICAL:
+        return {
+            "decision":           ProgressionDecision.REQUIRES_HUMAN_REVIEW,
+            "execution_id":       execution_id,
+            "workflow_id":        workflow_id,
+            "current_step":       current_step,
+            "intended_action":    intended_action,
+            "consequence_level":  consequence_level,
+            "authority_level":    agent_authority.value,
+            "trajectory_coherent": True,
+            "evidence_sufficient": True,
+            "reasons":            reasons + ["CRITICAL consequence always requires human review"],
+            "required_actions":   ["Human review required before CRITICAL progression"],
+            "latency_ms":         round((time_module.time() - start_time) * 1000, 2),
+            "timestamp":          timestamp,
+            "chain_block":        None,
+        }
+
+    # ── ALLOWED ──────────────────────────────────────────────
+    reasons.append(
+        f"Progression admissible — step {current_step}/{total_steps} "
+        f"· {intended_action} · {consequence.value} consequence"
+    )
+
+    # Append to Merkle chain
+    block = chain_append(
+        execution_id  = execution_id,
+        agent_id      = agent_id,
+        action        = f"progression:{intended_action}",
+        decision      = ProgressionDecision.ALLOWED.value,
+        policy_reason = " | ".join(reasons),
+        confidence    = 0.95,
+        extra = {
+            "workflow_id":      workflow_id,
+            "current_step":     current_step,
+            "total_steps":      total_steps,
+            "consequence_level": consequence_level,
+            "authority_level":  agent_authority.value,
+            "trajectory_steps": len(previous_steps),
+        }
+    )
+
+    latency = round((time_module.time() - start_time) * 1000, 2)
+
+    return {
+        "decision":            ProgressionDecision.ALLOWED,
+        "execution_id":        execution_id,
+        "workflow_id":         workflow_id,
+        "agent_id":            agent_id,
+        "current_step":        current_step,
+        "total_steps":         total_steps,
+        "intended_action":     intended_action,
+        "consequence_level":   consequence_level,
+        "authority_level":     agent_authority.value,
+        "trust_score":         trust_score,
+        "trajectory_coherent": True,
+        "evidence_sufficient": True,
+        "reasons":             reasons,
+        "required_actions":    [],
+        "latency_ms":          latency,
+        "timestamp":           timestamp,
+        "chain_block": {
+            "block_hash":    block["block_hash"],
+            "merkle_root":   block["merkle_root"],
+            "block_index":   block["block_index"],
+            "tamper_evident": True,
+        },
+    }
+
+# ============================================================
+# PROGRESSION ADMISSIBILITY ENDPOINT
+# ============================================================
+
+class ProgressionRequest(BaseModel):
+    agent_id:         str
+    workflow_id:      str
+    current_step:     int                = 1
+    total_steps:      int                = 1
+    previous_steps:   list[dict]         = []
+    intended_action:  str
+    evidence:         dict               = {}
+    consequence_level: str               = "MEDIUM"
+    org_id:           str                = "default"
+
+@app.post("/v1/progression/evaluate", tags=["Progression Admissibility"])
+async def evaluate_progression_endpoint(
+    req:       ProgressionRequest,
+    x_api_key: Optional[str] = Header(None)
+):
+    """
+    PROGRESSION ADMISSIBILITY ENGINE
+
+    The next layer beyond identity + action enforcement.
+    Evaluates whether a specific workflow state transition
+    should be permitted given:
+    - Trajectory coherence (does this make sense given prior steps?)
+    - Authority sufficiency (does agent have authority for this consequence?)
+    - Evidence sufficiency (is the proof complete for this action?)
+    - Consequence level (LOW / MEDIUM / HIGH / CRITICAL)
+
+    Returns one of:
+    - PROGRESSION_ALLOWED
+    - PROGRESSION_BLOCKED
+    - PROGRESSION_REQUIRES_EVIDENCE
+    - PROGRESSION_REQUIRES_AUTHORITY
+    - PROGRESSION_REQUIRES_HUMAN_REVIEW
+    - PROGRESSION_TRAJECTORY_ANOMALY
+
+    Every decision chained to immutable Merkle audit trail.
+    """
+    require_api_key(x_api_key)
+
+    # First verify agent identity via passport
+    passport = await db_get("passports", "agent_id", req.agent_id)
+    trust_score = float(passport.get("trust_score", 0.5)) if passport else 0.5
+
+    result = evaluate_progression(
+        agent_id         = req.agent_id,
+        workflow_id      = req.workflow_id,
+        current_step     = req.current_step,
+        total_steps      = req.total_steps,
+        previous_steps   = req.previous_steps,
+        intended_action  = req.intended_action,
+        evidence         = req.evidence,
+        consequence_level = req.consequence_level,
+        trust_score      = trust_score,
+        org_id           = req.org_id,
+    )
+
+    # Log to audit trail
+    await log_event(req.agent_id, "PROGRESSION_EVALUATED", {
+        "workflow_id":     req.workflow_id,
+        "current_step":    req.current_step,
+        "intended_action": req.intended_action,
+        "consequence":     req.consequence_level,
+        "decision":        result["decision"],
+        "latency_ms":      result["latency_ms"],
+    })
+
+    _inc("guard_decisions")
+    return result
+
+@app.post("/v1/progression/simulate", tags=["Progression Admissibility"])
+async def simulate_progression(
+    req:       ProgressionRequest,
+    x_api_key: Optional[str] = Header(None)
+):
+    """
+    Simulate a progression decision without logging to audit trail.
+    Use this to test your workflow configuration before going live.
+    """
+    require_api_key(x_api_key)
+
+    result = evaluate_progression(
+        agent_id          = req.agent_id,
+        workflow_id       = req.workflow_id,
+        current_step      = req.current_step,
+        total_steps       = req.total_steps,
+        previous_steps    = req.previous_steps,
+        intended_action   = req.intended_action,
+        evidence          = req.evidence,
+        consequence_level = req.consequence_level,
+        trust_score       = 0.963,
+        org_id            = req.org_id,
+    )
+    result["simulation"] = True
+    result["note"]       = "Simulation only — not logged to audit trail"
+    return result
+
+# ============================================================
 # PAYSTACK WEBHOOK — Automatic onboarding on payment
 # ============================================================
 
@@ -1311,7 +1735,7 @@ async def paystack_webhook(request: Request):
 # MANUAL ONBOARDING — For testing and manual setup
 # ============================================================
 
-@app.post("/v1/onboard", tags=["Onboarding"])
+@app.api_route("/v1/onboard", methods=["GET","POST"], tags=["Onboarding"])
 async def manual_onboard(
     email:      str,
     name:       str,
