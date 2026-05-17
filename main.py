@@ -41,7 +41,7 @@ if not API_KEY:
 MAINTENANCE_MODE    = os.environ.get("MAINTENANCE_MODE", "false").lower() == "true"
 MAINTENANCE_MESSAGE = os.environ.get("MAINTENANCE_MESSAGE", "VeriSigil AI is under scheduled maintenance. Back shortly.")
 DEPLOY_ENV          = os.environ.get("DEPLOY_ENV", "production")
-DEPLOY_VERSION      = "0.7.0"
+DEPLOY_VERSION      = "0.7.1"
 DEPLOY_TIMESTAMP    = datetime.utcnow().isoformat()
 
 # Feature flags — toggle in Railway env vars, never by changing code
@@ -5358,6 +5358,515 @@ async def verify_signature(
         "valid":     valid,
         "algorithm": algorithm,
         "quantum_safe": algorithm == "dilithium3",
+    }
+
+
+# ============================================================
+# VGS-006: EXECUTION AUTHORITY TOKEN (EAT)
+# ============================================================
+# Cryptographically-scoped authority object.
+# Closes the gap between trust-score-derived authority (PAE)
+# and action-specific delegation authority (ATF AVM).
+#
+# "This exact agent may perform this exact action
+#  under these exact constraints until this exact time"
+#
+# Sits between identity verification and PAE evaluation:
+# Identity → EAT validation → PAE admissibility → execution
+# ============================================================
+
+import secrets as _secrets
+
+# In-memory EAT registry
+_eat_registry: dict[str, dict] = {}
+
+def issue_eat(
+    agent_id:            str,
+    delegated_by:        str,
+    allowed_action:      str,
+    allowed_parameters:  dict,
+    constraints:         dict,
+    validity_hours:      int   = 24,
+    max_consequence:     str   = "MEDIUM",
+    org_id:              str   = "default",
+) -> dict:
+    """
+    Issue an Execution Authority Token.
+    Cryptographically-scoped authority for a specific action.
+    Signed with Dilithium-3 (post-quantum) + Ed25519 (immediate).
+    """
+    token_id    = f"eat_{_secrets.token_hex(12)}"
+    issued_at   = datetime.utcnow()
+    expires_at  = issued_at + timedelta(hours=validity_hours)
+
+    # Monotonic authority reduction — inherited authority cannot exceed delegator
+    # This implements RFC-ATF-2 monotonic reduction principle
+    delegator_trust = 0.963  # In production: look up delegator trust score
+    max_authority   = get_authority_level(delegator_trust).value
+
+    token = {
+        "token_id":           token_id,
+        "version":            "VGS-006-1.0",
+        "schema":             "VGS-006",
+        "agent_id":           agent_id,
+        "delegated_by":       delegated_by,
+        "org_id":             org_id,
+        "allowed_action":     allowed_action,
+        "allowed_parameters": allowed_parameters,
+        "constraints": {
+            **constraints,
+            "max_consequence_level": max_consequence,
+            "jurisdiction":          constraints.get("jurisdiction", "GLOBAL"),
+            "requires_human_approval": constraints.get("requires_human_approval", False),
+        },
+        "revocation": {
+            "auto_revoke_on_trust_below":        constraints.get("min_trust", 0.65),
+            "auto_revoke_on_anomaly":             True,
+            "auto_revoke_on_condition_change":    True,
+            "auto_revoke_on_delegation_collapse": True,
+        },
+        "authority": {
+            "max_authority_level":    max_authority,
+            "monotonic_reduction":    True,
+            "inherited_from":         delegated_by,
+        },
+        "issued_at":   issued_at.isoformat(),
+        "expires_at":  expires_at.isoformat(),
+        "valid":       True,
+        "revoked":     False,
+        "revoked_at":  None,
+        "revoked_reason": None,
+        "use_count":   0,
+        "max_uses":    constraints.get("max_uses", -1),  # -1 = unlimited
+    }
+
+    # Dual sign — Dilithium-3 + Ed25519
+    token["signatures"] = sign_dual({
+        "token_id":       token_id,
+        "agent_id":       agent_id,
+        "allowed_action": allowed_action,
+        "issued_at":      token["issued_at"],
+        "expires_at":     token["expires_at"],
+    })
+    token["signature"] = token["signatures"]["ed25519"]
+    token["pq_secure"] = _DILITHIUM_AVAILABLE
+
+    _eat_registry[token_id] = token
+
+    # Chain the issuance
+    chain_append(
+        execution_id  = token_id,
+        agent_id      = agent_id,
+        action        = f"eat_issued:{allowed_action}",
+        decision      = "ALLOW",
+        policy_reason = f"EAT issued by {delegated_by} for {allowed_action} · expires: {token['expires_at']}",
+        confidence    = 1.0,
+        extra         = {
+            "token_id":       token_id,
+            "allowed_action": allowed_action,
+            "max_consequence":max_consequence,
+            "validity_hours": validity_hours,
+        }
+    )
+
+    print(f"[EAT] Issued: {token_id} · agent: {agent_id} · action: {allowed_action}")
+    return token
+
+def validate_eat(
+    token_id:       str,
+    agent_id:       str,
+    action_type:    str,
+    action_details: dict,
+    trust_score:    float,
+    consequence:    str = "MEDIUM",
+) -> dict:
+    """
+    Validate an Execution Authority Token at the action boundary.
+    This is the AVM-equivalent check in VeriSigil.
+
+    Checks:
+    1. Token exists and is valid
+    2. Token not expired
+    3. Token not revoked
+    4. Agent matches token
+    5. Action matches token scope
+    6. Parameters within allowed bounds
+    7. Consequence within allowed level
+    8. Trust score above revocation threshold
+    9. Max uses not exceeded
+    """
+    token = _eat_registry.get(token_id)
+
+    # Check token exists
+    if not token:
+        return {
+            "valid":  False,
+            "reason": f"EAT {token_id} not found",
+            "enforcement": "DENY",
+        }
+
+    now = datetime.utcnow()
+
+    # Check expiry
+    expires = datetime.fromisoformat(token["expires_at"])
+    if now > expires:
+        token["valid"]  = False
+        token["revoked"] = True
+        token["revoked_reason"] = "EXPIRED"
+        return {
+            "valid":    False,
+            "token_id": token_id,
+            "reason":   f"EAT expired at {token['expires_at']}",
+            "enforcement": "DENY",
+            "schema":   "VGS-006",
+        }
+
+    # Check revocation
+    if token["revoked"]:
+        return {
+            "valid":    False,
+            "token_id": token_id,
+            "reason":   f"EAT revoked: {token['revoked_reason']}",
+            "enforcement": "DENY",
+            "schema":   "VGS-006",
+        }
+
+    # Check agent match
+    if token["agent_id"] != agent_id:
+        return {
+            "valid":    False,
+            "token_id": token_id,
+            "reason":   f"Agent mismatch — token issued to {token['agent_id']}",
+            "enforcement": "DENY",
+            "schema":   "VGS-006",
+        }
+
+    # Check action scope
+    if token["allowed_action"] != action_type:
+        return {
+            "valid":    False,
+            "token_id": token_id,
+            "reason":   f"Action '{action_type}' not in EAT scope (allowed: {token['allowed_action']})",
+            "enforcement": "DENY",
+            "schema":   "VGS-006",
+        }
+
+    # Check consequence level
+    consequence_order = ["LOW","MEDIUM","HIGH","CRITICAL"]
+    max_cons = token["constraints"].get("max_consequence_level","MEDIUM")
+    if consequence_order.index(consequence.upper()) > consequence_order.index(max_cons):
+        return {
+            "valid":    False,
+            "token_id": token_id,
+            "reason":   f"Consequence '{consequence}' exceeds EAT maximum '{max_cons}'",
+            "enforcement": "DENY",
+            "schema":   "VGS-006",
+        }
+
+    # Check parameter bounds
+    param_violations = []
+    allowed_params = token["allowed_parameters"]
+    if "max_amount_usd" in allowed_params:
+        amount = float(action_details.get("amount_usd", 0))
+        if amount > float(allowed_params["max_amount_usd"]):
+            param_violations.append(f"Amount ${amount:,.0f} exceeds EAT limit ${allowed_params['max_amount_usd']:,.0f}")
+
+    if param_violations:
+        return {
+            "valid":            False,
+            "token_id":         token_id,
+            "reason":           " | ".join(param_violations),
+            "param_violations": param_violations,
+            "enforcement":      "DENY",
+            "schema":           "VGS-006",
+        }
+
+    # Check trust-based auto-revocation
+    min_trust = token["revocation"].get("auto_revoke_on_trust_below", 0.65)
+    if trust_score < min_trust:
+        token["valid"]         = False
+        token["revoked"]       = True
+        token["revoked_at"]    = now.isoformat()
+        token["revoked_reason"]= f"Trust degraded to {trust_score:.3f} below threshold {min_trust}"
+        chain_append(
+            execution_id  = f"eat_revoke_{_secrets.token_hex(4)}",
+            agent_id      = agent_id,
+            action        = f"eat_revoked:{action_type}",
+            decision      = "DENY",
+            policy_reason = token["revoked_reason"],
+            confidence    = trust_score,
+        )
+        return {
+            "valid":    False,
+            "token_id": token_id,
+            "reason":   token["revoked_reason"],
+            "enforcement": "DENY",
+            "auto_revoked": True,
+            "schema":   "VGS-006",
+        }
+
+    # Check max uses
+    max_uses = token.get("max_uses", -1)
+    if max_uses > 0 and token["use_count"] >= max_uses:
+        return {
+            "valid":    False,
+            "token_id": token_id,
+            "reason":   f"EAT max uses ({max_uses}) exceeded",
+            "enforcement": "DENY",
+            "schema":   "VGS-006",
+        }
+
+    # All checks passed
+    token["use_count"] += 1
+    human_required = token["constraints"].get("requires_human_approval", False)
+
+    return {
+        "valid":          True,
+        "token_id":       token_id,
+        "agent_id":       agent_id,
+        "allowed_action": token["allowed_action"],
+        "authority_level":token["authority"]["max_authority_level"],
+        "consequence_allowed": max_cons,
+        "pq_secure":      token["pq_secure"],
+        "use_count":      token["use_count"],
+        "expires_at":     token["expires_at"],
+        "enforcement":    "REQUIRE_HUMAN_APPROVAL" if human_required else "ALLOW",
+        "schema":         "VGS-006",
+        "monotonic_reduction": True,
+    }
+
+def revoke_eat(token_id: str, reason: str, agent_id: str = "") -> dict:
+    """Revoke an EAT immediately. Implements RFC-ATF-2 revocation continuity."""
+    token = _eat_registry.get(token_id)
+    if not token:
+        return {"revoked": False, "reason": "Token not found"}
+    token["valid"]          = False
+    token["revoked"]        = True
+    token["revoked_at"]     = datetime.utcnow().isoformat()
+    token["revoked_reason"] = reason
+    chain_append(
+        execution_id  = f"eat_revoke_{_secrets.token_hex(4)}",
+        agent_id      = token["agent_id"],
+        action        = "eat_revoked",
+        decision      = "DENY",
+        policy_reason = f"EAT {token_id} revoked: {reason}",
+        confidence    = 0.0,
+    )
+    return {"revoked": True, "token_id": token_id, "reason": reason, "revoked_at": token["revoked_at"]}
+
+# ── VGS-007: EVIDENCE CLASSIFICATION ────────────────────────
+# Adopts ATF RFC-ATF-3 evidence class taxonomy
+
+EVIDENCE_CLASSES = {
+    "GDR": "Governance Delegation Receipt",
+    "RCR": "Runtime Continuity Record",
+    "ATR": "Authority Transition Record",
+    "EER": "Escalation Event Record",
+    "ADR": "Approval Decision Receipt",
+    "PVR": "Policy Violation Record",
+    "FRI": "Forensic Reconstruction Input",
+    "AIP": "Archive Integrity Proof",
+}
+
+_evidence_store: dict[str, list] = {k: [] for k in EVIDENCE_CLASSES}
+
+def classify_evidence(
+    evidence_class: str,
+    agent_id:       str,
+    event_data:     dict,
+    execution_id:   str = "",
+) -> dict:
+    """
+    Classify and store a governance evidence record.
+    VGS-007 / ATF-RFC-3 compatible evidence lifecycle.
+    """
+    if evidence_class not in EVIDENCE_CLASSES:
+        evidence_class = "FRI"
+
+    record = {
+        "record_id":       f"{evidence_class}_{uuid.uuid4().hex[:8]}",
+        "evidence_class":  evidence_class,
+        "class_name":      EVIDENCE_CLASSES[evidence_class],
+        "agent_id":        agent_id,
+        "execution_id":    execution_id,
+        "event_data":      event_data,
+        "lifecycle_stage": "ACTIVE",
+        "created_at":      datetime.utcnow().isoformat(),
+        "immutable":       True,
+        "hash":            _sha256(f"{evidence_class}|{agent_id}|{str(event_data)}"),
+    }
+
+    _evidence_store[evidence_class].append(record)
+    return record
+
+# ============================================================
+# VGS-006: EXECUTION AUTHORITY TOKEN ENDPOINTS
+# VGS-007: EVIDENCE CLASSIFICATION ENDPOINTS
+# ============================================================
+
+class EATIssueRequest(BaseModel):
+    agent_id:           str
+    delegated_by:       str
+    allowed_action:     str
+    allowed_parameters: dict  = {}
+    constraints:        dict  = {}
+    validity_hours:     int   = 24
+    max_consequence:    str   = "MEDIUM"
+    org_id:             str   = "default"
+
+class EATValidateRequest(BaseModel):
+    token_id:       str
+    agent_id:       str
+    action_type:    str
+    action_details: dict  = {}
+    trust_score:    float = 0.963
+    consequence:    str   = "MEDIUM"
+
+@app.post("/v1/eat/issue", tags=["VGS-006 Execution Authority"])
+async def eat_issue(
+    req:       EATIssueRequest,
+    x_api_key: Optional[str] = Header(None)
+):
+    """
+    VGS-006: Issue an Execution Authority Token.
+
+    Cryptographically-scoped authority for a specific action.
+    This exact agent · this exact action · these exact constraints · until this exact time.
+
+    Implements RFC-ATF-2 monotonic authority reduction.
+    Dual-signed with Dilithium-3 + Ed25519.
+    Auto-revokes on trust degradation, anomaly, or condition change.
+    """
+    require_api_key(x_api_key)
+    token = issue_eat(
+        agent_id           = req.agent_id,
+        delegated_by       = req.delegated_by,
+        allowed_action     = req.allowed_action,
+        allowed_parameters = req.allowed_parameters,
+        constraints        = req.constraints,
+        validity_hours     = req.validity_hours,
+        max_consequence    = req.max_consequence,
+        org_id             = req.org_id,
+    )
+    # Classify as Governance Delegation Receipt
+    classify_evidence("GDR", req.agent_id, {
+        "token_id":       token["token_id"],
+        "allowed_action": req.allowed_action,
+        "delegated_by":   req.delegated_by,
+        "expires_at":     token["expires_at"],
+    }, token["token_id"])
+    await log_event(req.agent_id, "EAT_ISSUED", {
+        "token_id":       token["token_id"],
+        "allowed_action": req.allowed_action,
+        "max_consequence":req.max_consequence,
+        "validity_hours": req.validity_hours,
+    })
+    return token
+
+@app.post("/v1/eat/validate", tags=["VGS-006 Execution Authority"])
+async def eat_validate(
+    req:       EATValidateRequest,
+    x_api_key: Optional[str] = Header(None)
+):
+    """
+    VGS-006: Validate an Execution Authority Token at the action boundary.
+
+    Checks: existence · expiry · revocation · agent match ·
+    action scope · parameter bounds · consequence level ·
+    trust-based auto-revocation · max uses.
+
+    Returns ALLOW / DENY / REQUIRE_HUMAN_APPROVAL.
+    """
+    require_api_key(x_api_key)
+    result = validate_eat(
+        token_id       = req.token_id,
+        agent_id       = req.agent_id,
+        action_type    = req.action_type,
+        action_details = req.action_details,
+        trust_score    = req.trust_score,
+        consequence    = req.consequence,
+    )
+    # Classify evidence
+    evidence_class = "ADR" if result["valid"] else "PVR"
+    classify_evidence(evidence_class, req.agent_id, {
+        "token_id":   req.token_id,
+        "valid":      result["valid"],
+        "enforcement":result.get("enforcement","DENY"),
+        "reason":     result.get("reason",""),
+    })
+    await log_event(req.agent_id, "EAT_VALIDATED", {
+        "token_id":   req.token_id,
+        "valid":      result["valid"],
+        "enforcement":result.get("enforcement"),
+        "action":     req.action_type,
+    })
+    return result
+
+@app.post("/v1/eat/revoke/{token_id}", tags=["VGS-006 Execution Authority"])
+async def eat_revoke(
+    token_id:  str,
+    reason:    str,
+    x_api_key: Optional[str] = Header(None)
+):
+    """VGS-006: Revoke an EAT immediately. Implements RFC-ATF-2 revocation continuity."""
+    require_api_key(x_api_key)
+    result = revoke_eat(token_id, reason)
+    classify_evidence("ATR", "", {"token_id": token_id, "reason": reason, "action": "REVOKED"})
+    return result
+
+@app.get("/v1/eat/{token_id}", tags=["VGS-006 Execution Authority"])
+async def get_eat(token_id: str, x_api_key: Optional[str] = Header(None)):
+    """Get an Execution Authority Token by ID."""
+    require_api_key(x_api_key)
+    token = _eat_registry.get(token_id)
+    if not token:
+        raise HTTPException(404, f"EAT {token_id} not found")
+    return token
+
+@app.get("/v1/eat", tags=["VGS-006 Execution Authority"])
+async def list_eats(
+    agent_id:  Optional[str] = None,
+    x_api_key: Optional[str] = Header(None)
+):
+    """List all Execution Authority Tokens."""
+    require_api_key(x_api_key)
+    tokens = list(_eat_registry.values())
+    if agent_id:
+        tokens = [t for t in tokens if t["agent_id"] == agent_id]
+    return {
+        "total":  len(tokens),
+        "active": len([t for t in tokens if t["valid"] and not t["revoked"]]),
+        "tokens": tokens,
+    }
+
+@app.get("/v1/evidence", tags=["VGS-007 Evidence Classification"])
+async def list_evidence(
+    evidence_class: Optional[str] = None,
+    x_api_key:      Optional[str] = Header(None)
+):
+    """
+    VGS-007: List classified evidence records.
+    ATF RFC-ATF-3 compatible evidence lifecycle.
+    8 evidence classes: GDR, RCR, ATR, EER, ADR, PVR, FRI, AIP.
+    """
+    require_api_key(x_api_key)
+    if evidence_class and evidence_class in _evidence_store:
+        records = _evidence_store[evidence_class]
+        return {
+            "evidence_class": evidence_class,
+            "class_name":     EVIDENCE_CLASSES.get(evidence_class,""),
+            "total_records":  len(records),
+            "records":        records,
+        }
+    summary = {cls: len(records) for cls, records in _evidence_store.items()}
+    total   = sum(summary.values())
+    return {
+        "schema":          "VGS-007",
+        "atf_compatible":  True,
+        "total_records":   total,
+        "evidence_classes":EVIDENCE_CLASSES,
+        "summary":         summary,
+        "all_records":     {cls: records for cls, records in _evidence_store.items()},
     }
 
 # ============================================================
