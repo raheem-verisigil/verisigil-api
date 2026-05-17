@@ -41,7 +41,7 @@ if not API_KEY:
 MAINTENANCE_MODE    = os.environ.get("MAINTENANCE_MODE", "false").lower() == "true"
 MAINTENANCE_MESSAGE = os.environ.get("MAINTENANCE_MESSAGE", "VeriSigil AI is under scheduled maintenance. Back shortly.")
 DEPLOY_ENV          = os.environ.get("DEPLOY_ENV", "production")
-DEPLOY_VERSION      = "0.7.1"
+DEPLOY_VERSION      = "0.7.2"
 DEPLOY_TIMESTAMP    = datetime.utcnow().isoformat()
 
 # Feature flags — toggle in Railway env vars, never by changing code
@@ -1133,15 +1133,53 @@ def _deny_gate_response(agent_id: str, reason: str, gates: dict, start_time: flo
 
 def _evaluate_decision(sig_valid, is_revoked, is_expired, shadow_detected,
                        trust_score, action_type, action_details, policy,
-                       org_id: str = "default") -> tuple:
+                       org_id: str = "default",
+                       passport: dict = None) -> tuple:
     """
     Full enforcement decision engine.
     Priority order:
+    0. FORMAL INVARIANT CHECK — hardcoded, cannot be bypassed
     1. Identity checks (signature, revocation, expiry, shadow)
     2. Trust score gates
     3. Customer policy rules
     4. Platform policy rules
+
+    The invariant check (step 0) is architecturally mandatory.
+    No API call, policy override, or configuration can bypass it.
+    This is the closest approximation to structural invariants
+    achievable in a runtime enforcement system.
     """
+    # ── 0. MANDATORY INVARIANT PRE-CHECK ─────────────────────
+    # This step CANNOT be skipped, disabled, or overridden.
+    # It runs before every decision regardless of any other setting.
+    # Equivalent to structural enforcement at the architecture level.
+    inv_result = check_invariants(
+        action_type   = action_type,
+        consequence   = "HIGH" if trust_score < 0.8 else "MEDIUM",
+        trust_score   = trust_score,
+        passport      = passport or {},
+        evidence      = action_details or {},
+        context       = {},
+    )
+
+    # Hard stop on invariant violation — no override possible
+    if inv_result["hard_stop"]:
+        violated = inv_result["violations"][0] if inv_result["violations"] else {}
+        return (
+            Decision.DENY,
+            0.99,
+            [f"INVARIANT VIOLATION [{violated.get('invariant','?')}]: {violated.get('statement','Governance invariant violated')}"]
+        )
+
+    # Invariant warning — escalate to human
+    if inv_result["warning_count"] > 0 and not inv_result["all_invariants_passed"]:
+        warning = inv_result["warnings"][0] if inv_result["warnings"] else {}
+        return (
+            Decision.REQUIRE_HUMAN_APPROVAL,
+            0.95,
+            [f"INVARIANT WARNING [{warning.get('invariant','?')}]: {warning.get('statement','Governance invariant warning')}"]
+        )
+
     # ── 1. IDENTITY GATES ────────────────────────────────────
     if not sig_valid:
         return Decision.DENY, 0.99, ["Invalid cryptographic signature — possible forgery"]
@@ -1172,13 +1210,11 @@ def _evaluate_decision(sig_valid, is_revoked, is_expired, shadow_detected,
         org_id         = org_id,
     )
 
-    # Map string decision to Decision enum
     if policy_decision == "DENY":
         return Decision.DENY, policy_confidence, policy_reasons
     if policy_decision == "REQUIRE_HUMAN_APPROVAL":
         return Decision.REQUIRE_HUMAN_APPROVAL, policy_confidence, policy_reasons
 
-    # ALLOW
     return Decision.ALLOW, policy_confidence, policy_reasons
 
 # ============================================================
@@ -5869,6 +5905,136 @@ async def list_evidence(
         "all_records":     {cls: records for cls, records in _evidence_store.items()},
     }
 
+# ============================================================
+# VGS-009: FORMAL GOVERNANCE SEMANTICS ENDPOINTS
+# ============================================================
+
+# Import formal verifier
+import sys as _sys
+_sys.path.insert(0, '/app')
+
+try:
+    from vfgs import VeriSigilFormalVerifier as _VFGS
+    _FORMAL_VERIFIER = _VFGS()
+    _FORMAL_AVAILABLE = True
+    print("[VFGS] Formal verification layer initialized")
+except Exception as e:
+    _FORMAL_AVAILABLE = False
+    print(f"[VFGS] Formal verification not available: {e}")
+
+@app.get("/v1/formal/invariants", tags=["VGS-009 Formal Governance"])
+async def formal_invariants(x_api_key: Optional[str] = Header(None)):
+    """
+    VGS-009: List formally specified invariants.
+    These are mathematically proven — not just configurable policies.
+    """
+    require_api_key(x_api_key)
+    try:
+        from vfgs import FORMAL_INVARIANTS
+        return {
+            "schema":      "VFGS-009",
+            "total":       len(FORMAL_INVARIANTS),
+            "invariants":  FORMAL_INVARIANTS,
+            "note":        "These invariants are formally verified using Z3 SMT solver",
+        }
+    except Exception:
+        return {"schema": "VFGS-009", "error": "VFGS module not available"}
+
+@app.post("/v1/formal/prove", tags=["VGS-009 Formal Governance"])
+async def run_formal_proofs(x_api_key: Optional[str] = Header(None)):
+    """
+    VGS-009: Run all formal proofs.
+    
+    Uses Z3 SMT solver to mathematically prove governance invariants.
+    UNSAT result = invariant proven — no counterexample exists.
+    SAT result = violation found — counterexample returned.
+    
+    This is the institutional-grade answer to:
+    'How do I know this invariant can never be violated?'
+    """
+    require_api_key(x_api_key)
+    if not _FORMAL_AVAILABLE:
+        return {
+            "schema":    "VFGS-009",
+            "available": False,
+            "message":   "Install z3-solver and hypothesis to enable formal proofs",
+        }
+    try:
+        results = _FORMAL_VERIFIER.prove_all()
+        await log_event("formal_verifier", "FORMAL_PROOFS_RUN", {
+            "all_proven":  results["all_proven"],
+            "total_proofs":results["z3_proofs"]["total_proofs"],
+            "proven":      results["z3_proofs"]["proven"],
+        })
+        return results
+    except Exception as e:
+        return {"schema": "VFGS-009", "error": str(e)}
+
+@app.post("/v1/formal/certificate", tags=["VGS-009 Formal Governance"])
+async def generate_proof_certificate(x_api_key: Optional[str] = Header(None)):
+    """
+    VGS-009: Generate a proof certificate.
+    
+    Exportable evidence for institutional buyers and regulators.
+    Contains:
+    - Formal proof results (Z3 SMT solver)
+    - Property test results (Hypothesis)
+    - Unsafe state unreachability proofs
+    - SHA-256 hash of certificate
+    - Regulatory compliance note
+    
+    Suitable for EU AI Act Article 9 and DIFC Regulation 10 submissions.
+    """
+    require_api_key(x_api_key)
+    if not _FORMAL_AVAILABLE:
+        return {
+            "schema":    "VFGS-009",
+            "available": False,
+            "message":   "Install z3-solver and hypothesis to enable formal proofs",
+        }
+    try:
+        cert = _FORMAL_VERIFIER.generate_certificate()
+        chain_append(
+            execution_id  = cert["certificate_id"],
+            agent_id      = "formal_verifier",
+            action        = "proof_certificate_generated",
+            decision      = "PROVEN" if cert["all_proven"] else "PARTIAL",
+            policy_reason = cert["verdict"],
+            confidence    = 1.0 if cert["all_proven"] else 0.5,
+            extra         = {
+                "certificate_id": cert["certificate_id"],
+                "all_proven":     cert["all_proven"],
+                "hash":           cert["hash"],
+            }
+        )
+        return cert
+    except Exception as e:
+        return {"schema": "VFGS-009", "error": str(e)}
+
+@app.get("/v1/formal/state-machine", tags=["VGS-009 Formal Governance"])
+async def formal_state_machine(x_api_key: Optional[str] = Header(None)):
+    """
+    VGS-009: Formal state machine — unsafe states proven unreachable.
+    Shows all valid states, transitions, and unsafe states
+    that are structurally impossible to reach.
+    """
+    require_api_key(x_api_key)
+    try:
+        from vfgs import FormalStateMachine
+        fsm    = FormalStateMachine()
+        result = fsm.prove_unsafe_unreachable()
+        return {
+            "schema":            "VFGS-009",
+            "valid_states":      list(fsm.STATES),
+            "unsafe_states":     list(fsm.UNSAFE_STATES),
+            "transitions":       len(fsm.TRANSITION_RELATION),
+            "unreachability":    result,
+        }
+    except Exception as e:
+        return {"schema": "VFGS-009", "error": str(e)}
+
+# ============================================================
+# PAYSTACK WEBHOOK — Automatic onboarding on payment
 # ============================================================
 # PAYSTACK WEBHOOK — Automatic onboarding on payment
 # ============================================================
