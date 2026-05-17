@@ -114,7 +114,7 @@ try:
 
     def sign_dilithium3(payload: dict) -> str:
         """Sign a governance decision with Dilithium-3 post-quantum signature."""
-        message = json.dumps(payload, sort_keys=True, default=str).encode()
+        message = json.dumps(payload, sort_keys=True, ensure_ascii=False, default=str).encode()
         sig     = _Dilithium3.sign(_D3_SK, message)
         return f"dilithium3:{base64.b64encode(sig).decode()}"
 
@@ -124,7 +124,7 @@ try:
             if not signature.startswith("dilithium3:"):
                 return False
             sig     = base64.b64decode(signature[11:])
-            message = json.dumps(payload, sort_keys=True, default=str).encode()
+            message = json.dumps(payload, sort_keys=True, ensure_ascii=False, default=str).encode()
             return _Dilithium3.verify(_D3_PK, message, sig)
         except Exception:
             return False
@@ -461,12 +461,12 @@ async def db_patch(table, field, value, data):
 # CRYPTO
 # ============================================================
 def sign_payload(data: dict) -> str:
-    msg = json.dumps(data, sort_keys=True).encode()
+    msg = json.dumps(data, sort_keys=True, ensure_ascii=False).encode()
     return base64.b64encode(SIGNING_KEY.sign(msg).signature).decode()
 
 def verify_payload(data: dict, sig_b64: str) -> bool:
     try:
-        msg = json.dumps(data, sort_keys=True).encode()
+        msg = json.dumps(data, sort_keys=True, ensure_ascii=False).encode()
         VERIFY_KEY.verify(msg, base64.b64decode(sig_b64))
         return True
     except Exception:
@@ -5435,10 +5435,30 @@ def issue_eat(
     issued_at   = datetime.utcnow()
     expires_at  = issued_at + timedelta(hours=validity_hours)
 
-    # Monotonic authority reduction — inherited authority cannot exceed delegator
-    # This implements RFC-ATF-2 monotonic reduction principle
-    delegator_trust = 0.963  # In production: look up delegator trust score
-    max_authority   = get_authority_level(delegator_trust).value
+    # Monotonic authority reduction — enforced at ISSUANCE TIME
+    # Harold/ATF ATF-INV-005: max_authority_ratio validated before signing
+    # Cannot be inflated after the fact — this is the correct enforcement point
+    # In production: look up delegator's actual trust score from passport store
+    delegator_trust   = 0.963  # look up from passport store in production
+    delegator_authority = get_authority_level(delegator_trust)
+    max_authority     = delegator_authority.value
+
+    # Validate consequence level against delegator authority at issuance
+    # This is the ATF-INV-005 equivalent — enforced before token is signed
+    consequence_authority_map = {
+        "LOW":      "BASIC",
+        "MEDIUM":   "ELEVATED",
+        "HIGH":     "ADMIN",
+        "CRITICAL": "SOVEREIGN",
+    }
+    required_authority = consequence_authority_map.get(max_consequence, "ELEVATED")
+    authority_order    = ["NONE","BASIC","ELEVATED","ADMIN","SOVEREIGN"]
+    if authority_order.index(delegator_authority.value) < authority_order.index(required_authority):
+        raise ValueError(
+            f"ISSUANCE DENIED: Delegator authority '{delegator_authority.value}' "
+            f"insufficient for consequence level '{max_consequence}' "
+            f"(requires '{required_authority}'). ATF-INV-005 violation prevented."
+        )
 
     token = {
         "token_id":           token_id,
@@ -6032,6 +6052,335 @@ async def formal_state_machine(x_api_key: Optional[str] = Header(None)):
         }
     except Exception as e:
         return {"schema": "VFGS-009", "error": str(e)}
+
+
+# ============================================================
+# VGS-010: JURISDICTION-AWARE ADMISSIBILITY ENGINE
+# ============================================================
+
+JURISDICTION_RULES = {
+    "EU_AI_ACT": {
+        "name": "European Union AI Act",
+        "philosophy": "compliance-first",
+        "version": "2024/1689",
+        "precedence": "strict",
+        "triggers": {
+            "data_subject_regions": ["EU","EEA","DE","FR","NL","IE","ES","IT","PL","SE"],
+            "infrastructure_regions": ["EU","EEA"],
+        },
+        "risk_classes": {
+            "UNACCEPTABLE": {
+                "actions": ["social_scoring","real_time_biometric_public","subliminal_manipulation"],
+                "decision": "DENY",
+                "reason": "EU AI Act Article 5: Prohibited AI practice",
+                "controls": [],
+            },
+            "HIGH": {
+                "actions": ["credit_scoring","hiring","health_diagnosis","biometric_identification","critical_infrastructure","education_scoring","law_enforcement","payment"],
+                "decision": "REQUIRE_HUMAN_APPROVAL",
+                "reason": "EU AI Act Article 14: Human oversight mandatory for high-risk AI",
+                "controls": ["human_oversight","technical_documentation","conformity_assessment","bias_audit","explainability","audit_trail_6_years"],
+            },
+            "LIMITED": {
+                "actions": ["chatbot","content_recommendation","spam_filter"],
+                "decision": "ALLOW",
+                "reason": "EU AI Act: Limited risk — transparency obligations apply",
+                "controls": ["transparency_disclosure"],
+            },
+            "MINIMAL": {
+                "actions": ["web_search","data_analysis","scheduling"],
+                "decision": "ALLOW",
+                "reason": "EU AI Act: Minimal risk — no mandatory obligations",
+                "controls": [],
+            },
+        },
+        "retention_years": 6,
+        "human_oversight_threshold": 0.90,
+        "approver_role": "DPO",
+        "approval_sla_hours": 48,
+        "article_references": {
+            "human_oversight": "Article 14",
+            "audit_trail": "Article 12",
+            "retention": "Article 19",
+            "prohibited": "Article 5",
+        },
+    },
+    "US_NIST": {
+        "name": "United States NIST AI Risk Management Framework",
+        "philosophy": "innovation-first",
+        "version": "NIST-AI-RMF-1.0",
+        "precedence": "standard",
+        "triggers": {
+            "data_subject_regions": ["US","CA","NY","TX"],
+            "infrastructure_regions": ["US","US-GOV"],
+            "sectors": ["healthcare","finance","critical_infrastructure","federal_contractor","defense"],
+        },
+        "risk_classes": {
+            "HIGH": {
+                "actions": ["federal_use","critical_infrastructure","healthcare_decision","defense"],
+                "decision": "REQUIRE_HUMAN_APPROVAL",
+                "reason": "NIST AI RMF: High-risk sector requires risk management plan",
+                "controls": ["risk_assessment","bias_testing","incident_reporting"],
+            },
+            "MEDIUM": {
+                "actions": ["financial_decision","hiring","content_moderation","payment"],
+                "decision": "ALLOW",
+                "reason": "NIST AI RMF: Medium risk — document and monitor",
+                "controls": ["risk_documentation","monitoring"],
+            },
+            "LOW": {
+                "actions": ["web_search","scheduling","data_analysis"],
+                "decision": "ALLOW",
+                "reason": "NIST AI RMF: Low risk — standard controls apply",
+                "controls": [],
+            },
+        },
+        "retention_years": 3,
+        "human_oversight_threshold": 0.80,
+        "approver_role": "CISO",
+        "approval_sla_hours": 24,
+    },
+    "CN_AI_LAW": {
+        "name": "China Comprehensive AI Law (2025 Draft)",
+        "philosophy": "state-aligned",
+        "version": "CN-AI-2025-DRAFT",
+        "precedence": "strict",
+        "triggers": {
+            "data_subject_regions": ["CN","HK","MO"],
+            "infrastructure_regions": ["CN"],
+            "agent_owner_jurisdictions": ["CN"],
+        },
+        "risk_classes": {
+            "STATE_CRITICAL": {
+                "actions": ["political_content","news_generation","social_influence"],
+                "decision": "DENY",
+                "reason": "China AI Law: State-critical content requires prior approval",
+                "controls": ["algorithm_registry","security_assessment","core_values_review"],
+            },
+            "HIGH": {
+                "actions": ["content_generation","recommendation","deepfake","hiring","payment"],
+                "decision": "REQUIRE_HUMAN_APPROVAL",
+                "reason": "China AI Law: High-risk AI requires state authority sign-off",
+                "controls": ["algorithm_registry","legal_representative_approval"],
+            },
+            "STANDARD": {
+                "actions": ["data_analysis","scheduling","logistics"],
+                "decision": "ALLOW",
+                "reason": "China AI Law: Standard operations — data localization required",
+                "controls": ["data_localization"],
+            },
+        },
+        "retention_years": 5,
+        "human_oversight_threshold": 0.95,
+        "approver_role": "LEGAL_REPRESENTATIVE",
+        "approval_sla_hours": 168,
+        "data_localization_required": True,
+    },
+    "GCC_DIFC": {
+        "name": "GCC/DIFC AI Governance (Regulation 10 + VARA)",
+        "philosophy": "sovereign-innovation",
+        "version": "DIFC-REG10-2024",
+        "precedence": "strict",
+        "triggers": {
+            "data_subject_regions": ["AE","SA","QA","KW","BH","OM"],
+            "infrastructure_regions": ["AE","DIFC","ADGM"],
+            "sectors": ["financial","digital_assets","banking"],
+        },
+        "risk_classes": {
+            "HIGH": {
+                "actions": ["payment","transfer_funds","digital_asset","investment"],
+                "decision": "REQUIRE_HUMAN_APPROVAL",
+                "reason": "DIFC Regulation 10: Financial AI requires continuous oversight",
+                "controls": ["continuous_monitoring","human_oversight","audit_trail"],
+            },
+            "MEDIUM": {
+                "actions": ["customer_service","data_analysis","reporting"],
+                "decision": "ALLOW",
+                "reason": "DIFC: Medium risk — monitoring required",
+                "controls": ["monitoring","periodic_review"],
+            },
+        },
+        "retention_years": 7,
+        "human_oversight_threshold": 0.85,
+        "approver_role": "COMPLIANCE_OFFICER",
+        "approval_sla_hours": 24,
+    },
+}
+
+def resolve_jurisdiction(
+    action_type: str,
+    data_subject_region: str = "",
+    infrastructure_region: str = "",
+    agent_owner_jurisdiction: str = "",
+    amount_usd: float = 0,
+    sector: str = "",
+) -> dict:
+    applicable = []
+    all_decisions = []
+    all_controls = set()
+
+    for regime_id, regime in JURISDICTION_RULES.items():
+        triggers = regime["triggers"]
+        applicable_flag = False
+
+        if data_subject_region and any(
+            data_subject_region.upper().startswith(r)
+            for r in triggers.get("data_subject_regions", [])
+        ):
+            applicable_flag = True
+
+        if infrastructure_region and any(
+            infrastructure_region.upper().startswith(r)
+            for r in triggers.get("infrastructure_regions", [])
+        ):
+            applicable_flag = True
+
+        if agent_owner_jurisdiction and agent_owner_jurisdiction.upper() in            triggers.get("agent_owner_jurisdictions", []):
+            applicable_flag = True
+
+        if sector and sector.lower() in triggers.get("sectors", []):
+            applicable_flag = True
+
+        if not applicable_flag:
+            continue
+
+        regime_decision = "ALLOW"
+        regime_reason   = f"{regime['name']}: Standard operations"
+        regime_controls = []
+        risk_class_found = "MINIMAL"
+
+        for risk_class, rules in regime["risk_classes"].items():
+            if action_type in rules.get("actions", []):
+                regime_decision  = rules["decision"]
+                regime_reason    = rules["reason"]
+                regime_controls  = rules.get("controls", [])
+                risk_class_found = risk_class
+                break
+
+        applicable.append({
+            "regime_id":      regime_id,
+            "name":           regime["name"],
+            "philosophy":     regime["philosophy"],
+            "precedence":     regime["precedence"],
+            "decision":       regime_decision,
+            "reason":         regime_reason,
+            "risk_class":     risk_class_found,
+            "controls":       regime_controls,
+            "approver_role":  regime["approver_role"],
+            "approval_sla_hours": regime["approval_sla_hours"],
+            "retention_years":    regime["retention_years"],
+        })
+        all_decisions.append(regime_decision)
+        all_controls.update(regime_controls)
+
+    if not applicable:
+        return {
+            "applicable_regimes": [],
+            "primary_regime":     "NONE",
+            "decision":           "ALLOW",
+            "reason":             "No jurisdiction rules apply — standard governance",
+            "controls":           [],
+            "conflicts_detected": False,
+            "schema":             "VGS-010",
+            "timestamp":          datetime.utcnow().isoformat(),
+        }
+
+    decision_order = ["ALLOW","REQUIRE_HUMAN_APPROVAL","DENY"]
+    strictest      = max(all_decisions, key=lambda d: decision_order.index(d))
+    conflicts      = len(set(all_decisions)) > 1
+    strict_regimes = [r for r in applicable if r["precedence"] == "strict"]
+    primary        = strict_regimes[0] if strict_regimes else applicable[0]
+
+    return {
+        "applicable_regimes": applicable,
+        "primary_regime":     primary["regime_id"],
+        "regime_count":       len(applicable),
+        "decision":           strictest,
+        "reason":             primary["reason"],
+        "conflicts_detected": conflicts,
+        "resolution_strategy":"strictest_combination" if conflicts else "single_regime",
+        "required_controls":  list(all_controls),
+        "required_approvals": [
+            {
+                "regime":        r["regime_id"],
+                "approver_role": r["approver_role"],
+                "sla_hours":     r["approval_sla_hours"],
+            }
+            for r in applicable if r["decision"] == "REQUIRE_HUMAN_APPROVAL"
+        ],
+        "retention_years": max(r["retention_years"] for r in applicable),
+        "schema":          "VGS-010",
+        "timestamp":       datetime.utcnow().isoformat(),
+    }
+
+
+class JurisdictionRequest(BaseModel):
+    action_type:              str
+    data_subject_region:      str   = ""
+    infrastructure_region:    str   = ""
+    agent_owner_jurisdiction: str   = ""
+    amount_usd:               float = 0
+    sector:                   str   = ""
+    agent_id:                 str   = ""
+
+@app.post("/v1/jurisdiction/resolve", tags=["VGS-010 Jurisdiction"])
+async def jurisdiction_resolve(
+    req: JurisdictionRequest,
+    x_api_key: Optional[str] = Header(None)
+):
+    require_api_key(x_api_key)
+    result = resolve_jurisdiction(
+        action_type              = req.action_type,
+        data_subject_region      = req.data_subject_region,
+        infrastructure_region    = req.infrastructure_region,
+        agent_owner_jurisdiction = req.agent_owner_jurisdiction,
+        amount_usd               = req.amount_usd,
+        sector                   = req.sector,
+    )
+    chain_append(
+        execution_id  = f"jur_{uuid.uuid4().hex[:8]}",
+        agent_id      = req.agent_id or "jurisdiction_resolver",
+        action        = f"jurisdiction_resolve:{req.action_type}",
+        decision      = result["decision"],
+        policy_reason = f"{result['regime_count']} regimes · {result['primary_regime']}",
+        confidence    = 1.0,
+        extra         = {
+            "regime_count":       result["regime_count"],
+            "primary_regime":     result["primary_regime"],
+            "conflicts_detected": result["conflicts_detected"],
+        }
+    )
+    await log_event(
+        req.agent_id or "jurisdiction_resolver",
+        "JURISDICTION_RESOLVED",
+        {
+            "action_type":  req.action_type,
+            "regime_count": result["regime_count"],
+            "decision":     result["decision"],
+            "conflicts":    result["conflicts_detected"],
+        }
+    )
+    return result
+
+@app.get("/v1/jurisdiction/regimes", tags=["VGS-010 Jurisdiction"])
+async def list_regimes(x_api_key: Optional[str] = Header(None)):
+    require_api_key(x_api_key)
+    return {
+        "schema":        "VGS-010",
+        "total_regimes": len(JURISDICTION_RULES),
+        "regimes": {
+            k: {
+                "name":            v["name"],
+                "philosophy":      v["philosophy"],
+                "version":         v["version"],
+                "precedence":      v["precedence"],
+                "approver_role":   v["approver_role"],
+                "retention_years": v["retention_years"],
+            }
+            for k, v in JURISDICTION_RULES.items()
+        },
+    }
+
 
 # ============================================================
 # PAYSTACK WEBHOOK — Automatic onboarding on payment
