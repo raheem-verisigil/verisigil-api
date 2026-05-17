@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+pydantic
+httpx
+PyNaCl
+supabase
+dilithium-py
+z3-solver
+hypothesis
