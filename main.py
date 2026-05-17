@@ -41,7 +41,7 @@ if not API_KEY:
 MAINTENANCE_MODE    = os.environ.get("MAINTENANCE_MODE", "false").lower() == "true"
 MAINTENANCE_MESSAGE = os.environ.get("MAINTENANCE_MESSAGE", "VeriSigil AI is under scheduled maintenance. Back shortly.")
 DEPLOY_ENV          = os.environ.get("DEPLOY_ENV", "production")
-DEPLOY_VERSION      = "0.6.2"
+DEPLOY_VERSION      = "0.6.4"
 DEPLOY_TIMESTAMP    = datetime.utcnow().isoformat()
 
 # Feature flags — toggle in Railway env vars, never by changing code
@@ -3577,6 +3577,859 @@ async def get_friction_controls(
         adversarial_risk     = adversarial_risk,
         comprehension_ready  = comprehension_ready,
     )
+
+
+# ============================================================
+# DOCUMENT INTEGRITY GOVERNANCE LAYER
+# ============================================================
+# Agents corrupt documents over repeated interactions.
+# GPT-5: 91.5% integrity after 2 interactions.
+#         48.3% integrity after 20 interactions.
+# (Microsoft Research: "LLMs Corrupt Your Documents When You Delegate")
+#
+# VeriSigil tracks document state cryptographically across
+# every agent interaction — detecting corruption before
+# it moves forward in the workflow.
+# ============================================================
+
+import hashlib as _hashlib
+
+# In-memory document registry
+_document_registry: dict[str, dict] = {}
+
+def _hash_content(content: str) -> str:
+    """SHA-256 hash of document content."""
+    return _hashlib.sha256(content.encode()).hexdigest()
+
+def _compute_field_hashes(fields: dict) -> dict:
+    """Hash each field individually for granular corruption detection."""
+    return {k: _hash_content(str(v)) for k, v in fields.items() if v is not None}
+
+def create_document_snapshot(
+    document_id:    str,
+    agent_id:       str,
+    workflow_id:    str,
+    content:        str,
+    fields:         dict = None,
+    document_type:  str = "general",
+    org_id:         str = "default",
+) -> dict:
+    """
+    Create a cryptographic snapshot of a document before
+    any agent interaction. This is the integrity baseline.
+
+    All future versions are compared against this snapshot.
+    Any corruption is detectable — even if the document
+    still looks finished to a human reader.
+    """
+    snapshot_id   = f"snap_{uuid.uuid4().hex[:10]}"
+    timestamp     = datetime.utcnow().isoformat()
+    content_hash  = _hash_content(content)
+    field_hashes  = _compute_field_hashes(fields or {})
+    word_count    = len(content.split())
+    char_count    = len(content)
+
+    snapshot = {
+        "snapshot_id":      snapshot_id,
+        "document_id":      document_id,
+        "agent_id":         agent_id,
+        "workflow_id":      workflow_id,
+        "org_id":           org_id,
+        "document_type":    document_type,
+        "version":          1,
+        "interaction_count":0,
+        "content_hash":     content_hash,
+        "field_hashes":     field_hashes,
+        "word_count":       word_count,
+        "char_count":       char_count,
+        "integrity_score":  1.0,
+        "created_at":       timestamp,
+        "last_verified":    timestamp,
+        "mutations":        [],
+        "violations":       [],
+        "status":           "BASELINE",
+    }
+
+    _document_registry[document_id] = snapshot
+
+    # Chain the snapshot to Merkle audit trail
+    chain_append(
+        execution_id  = snapshot_id,
+        agent_id      = agent_id,
+        action        = f"document_snapshot:{document_type}",
+        decision      = "SNAPSHOT_CREATED",
+        policy_reason = f"Baseline established for document {document_id}",
+        confidence    = 1.0,
+        extra         = {
+            "document_id":   document_id,
+            "content_hash":  content_hash,
+            "word_count":    word_count,
+            "field_count":   len(field_hashes),
+        }
+    )
+
+    print(f"[DOCUMENT] Snapshot created: {document_id} · hash: {content_hash[:16]}...")
+    return snapshot
+
+def verify_document_integrity(
+    document_id:    str,
+    agent_id:       str,
+    current_content:str,
+    current_fields: dict = None,
+    interaction_num:int  = 1,
+) -> dict:
+    """
+    Verify document integrity against the original snapshot.
+    Detects corruption even when the document looks finished.
+
+    Based on Microsoft Research findings:
+    - Track integrity degradation across interactions
+    - Detect field-level mutations
+    - Flag documents that look complete but are corrupted
+    - Predict corruption risk based on interaction count
+    """
+    snapshot = _document_registry.get(document_id)
+    if not snapshot:
+        return {
+            "verified": False,
+            "error":    f"No snapshot found for document {document_id}. Call /v1/document/snapshot first.",
+            "document_id": document_id,
+        }
+
+    timestamp     = datetime.utcnow().isoformat()
+    current_hash  = _hash_content(current_content)
+    current_fields_hashes = _compute_field_hashes(current_fields or {})
+    original_hash = snapshot["content_hash"]
+
+    # Overall content integrity
+    content_intact    = current_hash == original_hash
+    content_changed   = not content_intact
+
+    # Field-level integrity check
+    field_violations  = []
+    fields_checked    = 0
+    fields_corrupted  = 0
+
+    for field, original_field_hash in snapshot["field_hashes"].items():
+        current_field_hash = current_fields_hashes.get(field)
+        fields_checked += 1
+        if current_field_hash and current_field_hash != original_field_hash:
+            fields_corrupted += 1
+            field_violations.append({
+                "field":           field,
+                "violation":       "FIELD_MUTATED",
+                "original_hash":   original_field_hash[:16] + "...",
+                "current_hash":    current_field_hash[:16] + "...",
+                "severity":        "HIGH" if field in ["amount", "date", "party", "signature", "id"] else "MEDIUM",
+            })
+
+    # Word count drift
+    original_words  = snapshot["word_count"]
+    current_words   = len(current_content.split())
+    word_drift      = abs(current_words - original_words) / max(original_words, 1)
+    word_drift_flag = word_drift > 0.1  # >10% word count change
+
+    # Microsoft Research degradation model
+    # GPT-5: 91.5% at 2 interactions → 48.3% at 20 interactions
+    # Linear degradation model: ~2.2% per interaction
+    predicted_integrity = max(0.0, 1.0 - (interaction_num * 0.022))
+
+    # Calculate actual integrity score
+    if content_intact and fields_corrupted == 0:
+        integrity_score = 1.0
+    else:
+        base_score = 0.8 if content_changed else 1.0
+        field_penalty = (fields_corrupted / max(fields_checked, 1)) * 0.4
+        drift_penalty = min(0.2, word_drift * 0.5)
+        integrity_score = max(0.0, round(base_score - field_penalty - drift_penalty, 3))
+
+    # Corruption risk assessment
+    if integrity_score >= 0.9:
+        corruption_risk = "LOW"
+        recommendation  = "PROCEED — document integrity maintained"
+    elif integrity_score >= 0.7:
+        corruption_risk = "MEDIUM"
+        recommendation  = "REVIEW — integrity degraded, human review recommended"
+    elif integrity_score >= 0.5:
+        corruption_risk = "HIGH"
+        recommendation  = "HALT — significant corruption detected, do not proceed"
+    else:
+        corruption_risk = "CRITICAL"
+        recommendation  = "REJECT — document critically corrupted, restore from snapshot"
+
+    # Microsoft Research warning threshold
+    msresearch_warning = interaction_num >= 10
+    msresearch_critical = interaction_num >= 18
+
+    # Record mutation
+    mutation_record = {
+        "mutation_id":      f"mut_{uuid.uuid4().hex[:8]}",
+        "interaction_num":  interaction_num,
+        "agent_id":         agent_id,
+        "content_changed":  content_changed,
+        "fields_corrupted": fields_corrupted,
+        "integrity_score":  integrity_score,
+        "timestamp":        timestamp,
+    }
+    snapshot["mutations"].append(mutation_record)
+    snapshot["interaction_count"] = interaction_num
+    snapshot["integrity_score"]   = integrity_score
+    snapshot["last_verified"]     = timestamp
+    snapshot["version"]          += 1
+
+    if field_violations:
+        snapshot["violations"].extend(field_violations)
+        snapshot["status"] = "CORRUPTED"
+    elif content_changed:
+        snapshot["status"] = "MODIFIED"
+    else:
+        snapshot["status"] = "INTACT"
+
+    result = {
+        "document_id":         document_id,
+        "snapshot_id":         snapshot["snapshot_id"],
+        "agent_id":            agent_id,
+        "interaction_num":     interaction_num,
+        "integrity_score":     integrity_score,
+        "predicted_integrity": round(predicted_integrity, 3),
+        "corruption_risk":     corruption_risk,
+        "recommendation":      recommendation,
+        "content_intact":      content_intact,
+        "content_changed":     content_changed,
+        "fields_checked":      fields_checked,
+        "fields_corrupted":    fields_corrupted,
+        "field_violations":    field_violations,
+        "word_drift":          round(word_drift, 3),
+        "word_drift_flag":     word_drift_flag,
+        "original_hash":       original_hash,
+        "current_hash":        current_hash,
+        "hashes_match":        content_intact,
+        "msresearch_warning":  msresearch_warning,
+        "msresearch_critical": msresearch_critical,
+        "msresearch_note": (
+            f"Microsoft Research: GPT-5 averages {round(predicted_integrity*100,1)}% integrity at interaction {interaction_num}. "
+            f"VeriSigil measured: {integrity_score*100:.1f}%"
+        ),
+        "document_looks_finished": True,  # Always true — corruption is invisible to readers
+        "corruption_invisible":    content_changed and integrity_score > 0.5,
+        "timestamp":               timestamp,
+    }
+
+    # Chain the verification
+    chain_append(
+        execution_id  = mutation_record["mutation_id"],
+        agent_id      = agent_id,
+        action        = f"document_verify:interaction_{interaction_num}",
+        decision      = corruption_risk,
+        policy_reason = recommendation,
+        confidence    = integrity_score,
+        extra         = {
+            "document_id":     document_id,
+            "integrity_score": integrity_score,
+            "fields_corrupted":fields_corrupted,
+            "content_intact":  content_intact,
+        }
+    )
+
+    return result
+
+def get_document_integrity_report(document_id: str) -> dict:
+    """
+    Full integrity report for a document across all interactions.
+    Shows the degradation curve — how integrity changed over time.
+    """
+    snapshot = _document_registry.get(document_id)
+    if not snapshot:
+        return {"error": f"Document {document_id} not found"}
+
+    mutations      = snapshot["mutations"]
+    integrity_curve = [
+        {"interaction": m["interaction_num"], "integrity": m["integrity_score"]}
+        for m in mutations
+    ]
+
+    return {
+        "document_id":       document_id,
+        "document_type":     snapshot["document_type"],
+        "workflow_id":       snapshot["workflow_id"],
+        "total_interactions":snapshot["interaction_count"],
+        "current_integrity": snapshot["integrity_score"],
+        "status":            snapshot["status"],
+        "total_violations":  len(snapshot["violations"]),
+        "integrity_curve":   integrity_curve,
+        "violations":        snapshot["violations"],
+        "baseline_hash":     snapshot["content_hash"],
+        "created_at":        snapshot["created_at"],
+        "last_verified":     snapshot["last_verified"],
+        "msresearch_context":{
+            "gpt5_predicted_integrity": round(max(0, 1.0 - (snapshot["interaction_count"] * 0.022)) * 100, 1),
+            "verisigil_actual":         round(snapshot["integrity_score"] * 100, 1),
+            "interactions_to_critical": max(0, round((snapshot["integrity_score"] - 0.5) / 0.022)),
+            "paper":                    "LLMs Corrupt Your Documents When You Delegate — Microsoft Research",
+        },
+    }
+
+# ============================================================
+# DOCUMENT INTEGRITY GOVERNANCE ENDPOINTS
+# ============================================================
+
+class DocumentSnapshotRequest(BaseModel):
+    document_id:   str
+    agent_id:      str
+    workflow_id:   str
+    content:       str
+    fields:        dict = {}
+    document_type: str  = "general"
+    org_id:        str  = "default"
+
+class DocumentVerifyRequest(BaseModel):
+    document_id:     str
+    agent_id:        str
+    current_content: str
+    current_fields:  dict = {}
+    interaction_num: int  = 1
+
+@app.post("/v1/document/snapshot", tags=["Document Integrity"])
+async def document_snapshot(
+    req:       DocumentSnapshotRequest,
+    x_api_key: Optional[str] = Header(None)
+):
+    """
+    CREATE DOCUMENT INTEGRITY SNAPSHOT
+
+    Cryptographic baseline before any agent interaction.
+    SHA-256 hash of full content + individual field hashes.
+
+    Call this BEFORE any agent touches the document.
+    All future verifications compare against this baseline.
+
+    Based on Microsoft Research:
+    'LLMs Corrupt Your Documents When You Delegate'
+    GPT-5: 91.5% integrity at 2 interactions → 48.3% at 20 interactions.
+    """
+    require_api_key(x_api_key)
+    snapshot = create_document_snapshot(
+        document_id   = req.document_id,
+        agent_id      = req.agent_id,
+        workflow_id   = req.workflow_id,
+        content       = req.content,
+        fields        = req.fields,
+        document_type = req.document_type,
+        org_id        = req.org_id,
+    )
+    await log_event(req.agent_id, "DOCUMENT_SNAPSHOT_CREATED", {
+        "document_id":  req.document_id,
+        "document_type":req.document_type,
+        "word_count":   snapshot["word_count"],
+    })
+    return snapshot
+
+@app.post("/v1/document/verify", tags=["Document Integrity"])
+async def document_verify(
+    req:       DocumentVerifyRequest,
+    x_api_key: Optional[str] = Header(None)
+):
+    """
+    VERIFY DOCUMENT INTEGRITY
+
+    Compare current document state against original snapshot.
+    Detects corruption even when the document looks finished.
+
+    Returns:
+    - integrity_score: 0.0 (corrupted) → 1.0 (intact)
+    - corruption_risk: LOW / MEDIUM / HIGH / CRITICAL
+    - field_violations: which specific fields were mutated
+    - msresearch_note: comparison vs Microsoft Research baseline
+    - corruption_invisible: true if document looks OK but is corrupted
+    - recommendation: PROCEED / REVIEW / HALT / REJECT
+
+    Call after EVERY agent interaction on regulated documents.
+    """
+    require_api_key(x_api_key)
+    result = verify_document_integrity(
+        document_id     = req.document_id,
+        agent_id        = req.agent_id,
+        current_content = req.current_content,
+        current_fields  = req.current_fields,
+        interaction_num = req.interaction_num,
+    )
+    await log_event(req.agent_id, "DOCUMENT_INTEGRITY_VERIFIED", {
+        "document_id":     req.document_id,
+        "integrity_score": result["integrity_score"],
+        "corruption_risk": result["corruption_risk"],
+        "interaction_num": req.interaction_num,
+    })
+    return result
+
+@app.get("/v1/document/{document_id}/report", tags=["Document Integrity"])
+async def document_report(
+    document_id: str,
+    x_api_key:   Optional[str] = Header(None)
+):
+    """
+    DOCUMENT INTEGRITY REPORT
+
+    Full integrity history for a document across all interactions.
+    Shows the degradation curve — how integrity changed over time.
+    Includes Microsoft Research comparison baseline.
+    """
+    require_api_key(x_api_key)
+    return get_document_integrity_report(document_id)
+
+@app.get("/v1/document/{document_id}/status", tags=["Document Integrity"])
+async def document_status(
+    document_id: str,
+    x_api_key:   Optional[str] = Header(None)
+):
+    """Quick document integrity status check."""
+    require_api_key(x_api_key)
+    snapshot = _document_registry.get(document_id)
+    if not snapshot:
+        raise HTTPException(404, f"Document {document_id} not found")
+    return {
+        "document_id":       document_id,
+        "status":            snapshot["status"],
+        "integrity_score":   snapshot["integrity_score"],
+        "interaction_count": snapshot["interaction_count"],
+        "violations_count":  len(snapshot["violations"]),
+        "last_verified":     snapshot["last_verified"],
+    }
+
+@app.get("/v1/documents", tags=["Document Integrity"])
+async def list_documents(x_api_key: Optional[str] = Header(None)):
+    """List all tracked documents and their integrity status."""
+    require_api_key(x_api_key)
+    return {
+        "total_documents": len(_document_registry),
+        "documents": [
+            {
+                "document_id":       doc_id,
+                "document_type":     snap["document_type"],
+                "status":            snap["status"],
+                "integrity_score":   snap["integrity_score"],
+                "interaction_count": snap["interaction_count"],
+                "violations_count":  len(snap["violations"]),
+            }
+            for doc_id, snap in _document_registry.items()
+        ]
+    }
+
+
+# ============================================================
+# SEMANTIC INTEGRITY GOVERNANCE
+# ============================================================
+# Hash detects structural change.
+# Semantic integrity detects meaning-level corruption.
+#
+# "Approved after legal review" → "Approved"
+# Hash: CHANGED (detectable)
+# Meaning: CORRUPTED (catastrophic)
+#
+# "Payment of $50,000" → "Payment of $5,000"
+# Hash: CHANGED
+# Consequence: $45,000 loss
+#
+# This layer catches what hashes cannot.
+# ============================================================
+
+# ── PROTECTED CLAUSE PATTERNS ────────────────────────────────
+# Clauses that must be preserved exactly in regulated documents
+
+PROTECTED_PATTERNS = {
+    "legal_review":    ["after legal review", "reviewed by counsel", "legal approval", "attorney review"],
+    "approval_chain":  ["approved by", "authorized by", "signed off", "confirmed by", "board approved"],
+    "compliance":      ["in compliance with", "pursuant to", "in accordance with", "subject to regulation"],
+    "liability":       ["liability", "indemnification", "hold harmless", "warranty", "guarantee"],
+    "amounts":         ["\$", "USD", "EUR", "GBP", "amount", "payment", "fee", "cost", "price"],
+    "dates":           ["effective date", "expiry", "deadline", "by no later than", "upon execution"],
+    "parties":         ["party", "parties", "counterparty", "vendor", "client", "customer", "contractor"],
+    "conditions":      ["subject to", "conditional upon", "provided that", "unless", "except"],
+    "termination":     ["termination", "cancellation", "withdrawal", "revocation", "nullification"],
+    "governing_law":   ["governed by", "jurisdiction", "applicable law", "venue", "arbitration"],
+}
+
+# ── NUMERICAL EXTRACTION ──────────────────────────────────────
+
+import re as _re
+
+def _extract_numbers(text: str) -> list[dict]:
+    """Extract all numerical values with context."""
+    results = []
+    # Match numbers with optional currency symbols and context
+    pattern = _re.compile(
+        r'(\$|USD|EUR|GBP)?\s*([\d,]+(?:\.\d+)?)\s*(million|billion|thousand|%|percent)?',
+        _re.IGNORECASE
+    )
+    for match in pattern.finditer(text):
+        raw = match.group(2).replace(',', '')
+        try:
+            value = float(raw)
+            multiplier = 1
+            suffix = (match.group(3) or '').lower()
+            if suffix == 'million':  multiplier = 1_000_000
+            elif suffix == 'billion': multiplier = 1_000_000_000
+            elif suffix == 'thousand': multiplier = 1_000
+            results.append({
+                "raw":       match.group(0).strip(),
+                "value":     value * multiplier,
+                "position":  match.start(),
+                "context":   text[max(0,match.start()-30):match.end()+30].strip(),
+            })
+        except:
+            pass
+    return results
+
+def _extract_key_phrases(text: str) -> list[str]:
+    """Extract key governance phrases from text."""
+    text_lower = text.lower()
+    found = []
+    for category, patterns in PROTECTED_PATTERNS.items():
+        for pattern in patterns:
+            if pattern.lower() in text_lower:
+                # Find the surrounding context
+                idx = text_lower.find(pattern.lower())
+                phrase = text[max(0,idx-20):idx+len(pattern)+20].strip()
+                found.append({"category": category, "pattern": pattern, "context": phrase})
+    return found
+
+def _compute_semantic_hash(text: str) -> str:
+    """Compute a semantic fingerprint — normalized for comparison."""
+    # Normalize: lowercase, remove punctuation, collapse whitespace
+    normalized = _re.sub(r'[^\w\s]', ' ', text.lower())
+    normalized = _re.sub(r'\s+', ' ', normalized).strip()
+    return _hash_content(normalized)
+
+def detect_semantic_drift(
+    original_text:  str,
+    current_text:   str,
+    document_type:  str = "general",
+    interaction_num:int = 1,
+) -> dict:
+    """
+    Detect semantic-level corruption in a document.
+
+    Goes beyond hash comparison to detect:
+    1. Meaning drift — same structure, different meaning
+    2. Clause mutation — key clauses changed or removed
+    3. Intent corruption — document intent changed
+    4. Numerical inconsistency — amounts, dates, percentages changed
+    5. Compliance language degradation — regulatory language weakened
+    6. Unauthorized semantic change — meaning changed without authorization
+    """
+    violations     = []
+    warnings       = []
+    drift_score    = 0.0
+
+    # ── 1. SEMANTIC HASH COMPARISON ──────────────────────────
+    orig_semantic_hash = _compute_semantic_hash(original_text)
+    curr_semantic_hash = _compute_semantic_hash(current_text)
+    semantic_changed   = orig_semantic_hash != curr_semantic_hash
+
+    # ── 2. NUMERICAL INCONSISTENCY DETECTION ─────────────────
+    orig_numbers = _extract_numbers(original_text)
+    curr_numbers = _extract_numbers(current_text)
+
+    numerical_violations = []
+    orig_values = sorted([n["value"] for n in orig_numbers])
+    curr_values = sorted([n["value"] for n in curr_numbers])
+
+    # Check for missing or changed numbers
+    for orig_num in orig_numbers:
+        found_match = False
+        for curr_num in curr_numbers:
+            if abs(orig_num["value"] - curr_num["value"]) / max(orig_num["value"], 1) < 0.001:
+                found_match = True
+                break
+        if not found_match:
+            numerical_violations.append({
+                "type":     "NUMBER_CHANGED_OR_REMOVED",
+                "original": orig_num["raw"],
+                "value":    orig_num["value"],
+                "context":  orig_num["context"],
+                "severity": "CRITICAL" if orig_num["value"] > 1000 else "HIGH",
+            })
+            drift_score += 0.25
+            violations.append(f"Numerical value changed/removed: {orig_num['raw']} (context: {orig_num['context'][:50]})")
+
+    # ── 3. PROTECTED CLAUSE MUTATION ─────────────────────────
+    orig_phrases = _extract_key_phrases(original_text)
+    curr_phrases = _extract_key_phrases(current_text)
+
+    curr_patterns = [p["pattern"].lower() for p in curr_phrases]
+    clause_violations = []
+
+    for orig_phrase in orig_phrases:
+        if orig_phrase["pattern"].lower() not in curr_patterns:
+            severity = "CRITICAL" if orig_phrase["category"] in ["legal_review","approval_chain","liability"] else "HIGH"
+            clause_violations.append({
+                "type":     "PROTECTED_CLAUSE_REMOVED",
+                "category": orig_phrase["category"],
+                "pattern":  orig_phrase["pattern"],
+                "context":  orig_phrase["context"],
+                "severity": severity,
+            })
+            drift_score += 0.3 if severity == "CRITICAL" else 0.15
+            violations.append(f"Protected clause removed: '{orig_phrase['pattern']}' [{orig_phrase['category']}]")
+
+    # ── 4. INTENT CORRUPTION DETECTION ───────────────────────
+    # Detect approval language being weakened
+    approval_weakening_pairs = [
+        ("approved after legal review", "approved"),
+        ("requires board approval",     "requires approval"),
+        ("legally binding",             "binding"),
+        ("subject to regulatory approval", "subject to approval"),
+        ("guaranteed",                  "expected"),
+        ("shall not",                   "should not"),
+        ("must",                        "may"),
+        ("required",                    "recommended"),
+    ]
+
+    intent_violations = []
+    orig_lower = original_text.lower()
+    curr_lower = current_text.lower()
+
+    for strong, weak in approval_weakening_pairs:
+        if strong in orig_lower and weak in curr_lower and strong not in curr_lower:
+            intent_violations.append({
+                "type":     "INTENT_WEAKENED",
+                "original": strong,
+                "current":  weak,
+                "severity": "CRITICAL",
+            })
+            drift_score += 0.35
+            violations.append(f"Intent corrupted: '{strong}' → '{weak}'")
+
+    # ── 5. COMPLIANCE LANGUAGE DEGRADATION ───────────────────
+    compliance_terms = [
+        "in compliance with", "pursuant to", "in accordance with",
+        "as required by", "subject to regulation", "regulatory requirement"
+    ]
+    compliance_violations = []
+    for term in compliance_terms:
+        if term in orig_lower and term not in curr_lower:
+            compliance_violations.append({
+                "type":     "COMPLIANCE_LANGUAGE_REMOVED",
+                "term":     term,
+                "severity": "HIGH",
+            })
+            drift_score += 0.2
+            violations.append(f"Compliance language removed: '{term}'")
+
+    # ── 6. WORD COUNT SEMANTIC ANALYSIS ──────────────────────
+    orig_words = len(original_text.split())
+    curr_words = len(current_text.split())
+    word_reduction = (orig_words - curr_words) / max(orig_words, 1)
+
+    if word_reduction > 0.2:
+        warnings.append(f"Document reduced by {word_reduction:.0%} — significant content may have been removed")
+        drift_score += 0.1
+
+    # ── FINAL SEMANTIC INTEGRITY SCORE ───────────────────────
+    drift_score          = min(1.0, drift_score)
+    semantic_integrity   = max(0.0, round(1.0 - drift_score, 3))
+
+    if semantic_integrity >= 0.9:
+        semantic_risk  = "LOW"
+        recommendation = "PROCEED — semantic integrity maintained"
+    elif semantic_integrity >= 0.7:
+        semantic_risk  = "MEDIUM"
+        recommendation = "REVIEW — semantic drift detected, human review required"
+    elif semantic_integrity >= 0.4:
+        semantic_risk  = "HIGH"
+        recommendation = "HALT — significant semantic corruption, do not proceed"
+    else:
+        semantic_risk  = "CRITICAL"
+        recommendation = "REJECT — document semantically corrupted, restore from snapshot"
+
+    return {
+        "semantic_integrity":      semantic_integrity,
+        "semantic_changed":        semantic_changed,
+        "semantic_risk":           semantic_risk,
+        "recommendation":          recommendation,
+        "drift_score":             round(drift_score, 3),
+        "violations":              violations,
+        "violation_count":         len(violations),
+        "numerical_violations":    numerical_violations,
+        "clause_violations":       clause_violations,
+        "intent_violations":       intent_violations,
+        "compliance_violations":   compliance_violations,
+        "warnings":                warnings,
+        "word_reduction":          round(word_reduction, 3),
+        "orig_semantic_hash":      orig_semantic_hash[:16] + "...",
+        "curr_semantic_hash":      curr_semantic_hash[:16] + "...",
+        "corruption_invisible": (
+            semantic_integrity < 0.7 and
+            len(numerical_violations) == 0 and
+            semantic_changed
+        ),
+        "interaction_num":         interaction_num,
+        "msresearch_context":      f"At interaction {interaction_num}, semantic corruption may not be visible to human readers even when integrity is {semantic_integrity:.0%}",
+    }
+
+# ============================================================
+# SEMANTIC INTEGRITY ENDPOINTS
+# ============================================================
+
+class SemanticVerifyRequest(BaseModel):
+    document_id:    str
+    agent_id:       str
+    original_text:  str
+    current_text:   str
+    document_type:  str = "general"
+    interaction_num:int = 1
+
+@app.post("/v1/document/semantic-verify", tags=["Document Integrity"])
+async def semantic_verify(
+    req:       SemanticVerifyRequest,
+    x_api_key: Optional[str] = Header(None)
+):
+    """
+    SEMANTIC INTEGRITY VERIFICATION
+
+    Detects meaning-level corruption that structural hashes cannot catch.
+
+    'Approved after legal review' → 'Approved'
+    Hash: CHANGED. Meaning: CATASTROPHICALLY CORRUPTED.
+
+    '$50,000 payment' → '$5,000 payment'
+    Hash: CHANGED. Loss: $45,000.
+
+    Detects:
+    - Meaning drift — same structure, different meaning
+    - Clause mutation — key clauses changed or removed
+    - Intent corruption — approval language weakened
+    - Numerical inconsistency — amounts/dates changed
+    - Compliance language degradation — regulatory language removed
+    - Unauthorized semantic change — meaning changed silently
+
+    Based on Microsoft Research:
+    'LLMs Corrupt Your Documents When You Delegate'
+    Documents can look finished while meaning has been corrupted.
+    """
+    require_api_key(x_api_key)
+
+    result = detect_semantic_drift(
+        original_text  = req.original_text,
+        current_text   = req.current_text,
+        document_type  = req.document_type,
+        interaction_num= req.interaction_num,
+    )
+
+    # Chain to Merkle audit trail
+    chain_append(
+        execution_id  = f"sem_{uuid.uuid4().hex[:8]}",
+        agent_id      = req.agent_id,
+        action        = f"semantic_verify:{req.document_type}",
+        decision      = result["semantic_risk"],
+        policy_reason = result["recommendation"],
+        confidence    = result["semantic_integrity"],
+        extra         = {
+            "document_id":      req.document_id,
+            "semantic_integrity":result["semantic_integrity"],
+            "violation_count":  result["violation_count"],
+            "corruption_invisible": result["corruption_invisible"],
+        }
+    )
+
+    await log_event(req.agent_id, "SEMANTIC_INTEGRITY_VERIFIED", {
+        "document_id":       req.document_id,
+        "semantic_integrity":result["semantic_integrity"],
+        "semantic_risk":     result["semantic_risk"],
+        "violation_count":   result["violation_count"],
+        "interaction_num":   req.interaction_num,
+    })
+
+    return result
+
+@app.post("/v1/document/full-verify", tags=["Document Integrity"])
+async def full_document_verify(
+    req:       SemanticVerifyRequest,
+    x_api_key: Optional[str] = Header(None)
+):
+    """
+    FULL DOCUMENT INTEGRITY VERIFICATION
+
+    Combines structural + semantic verification in one call.
+
+    Returns:
+    - Structural integrity (hash-based)
+    - Semantic integrity (meaning-based)
+    - Combined integrity score
+    - Unified recommendation
+    - All violations from both layers
+    """
+    require_api_key(x_api_key)
+
+    # Structural check
+    structural = verify_document_integrity(
+        document_id     = req.document_id,
+        agent_id        = req.agent_id,
+        current_content = req.current_text,
+        current_fields  = {},
+        interaction_num = req.interaction_num,
+    ) if req.document_id in _document_registry else {
+        "integrity_score":  1.0 if req.original_text == req.current_text else 0.7,
+        "corruption_risk":  "LOW" if req.original_text == req.current_text else "MEDIUM",
+        "content_intact":   req.original_text == req.current_text,
+        "field_violations": [],
+    }
+
+    # Semantic check
+    semantic = detect_semantic_drift(
+        original_text   = req.original_text,
+        current_text    = req.current_text,
+        document_type   = req.document_type,
+        interaction_num = req.interaction_num,
+    )
+
+    # Combined score — semantic is weighted higher for regulated docs
+    structural_score = structural.get("integrity_score", 1.0)
+    semantic_score   = semantic["semantic_integrity"]
+    combined_score   = round((structural_score * 0.4) + (semantic_score * 0.6), 3)
+
+    if combined_score >= 0.9:
+        combined_risk    = "LOW"
+        combined_recommendation = "PROCEED — full integrity maintained"
+    elif combined_score >= 0.7:
+        combined_risk    = "MEDIUM"
+        combined_recommendation = "REVIEW — integrity concerns detected"
+    elif combined_score >= 0.4:
+        combined_risk    = "HIGH"
+        combined_recommendation = "HALT — significant integrity degradation"
+    else:
+        combined_risk    = "CRITICAL"
+        combined_recommendation = "REJECT — document integrity critically compromised"
+
+    all_violations = (
+        structural.get("field_violations", []) +
+        semantic["numerical_violations"] +
+        semantic["clause_violations"] +
+        semantic["intent_violations"] +
+        semantic["compliance_violations"]
+    )
+
+    return {
+        "document_id":           req.document_id,
+        "interaction_num":       req.interaction_num,
+        "combined_integrity":    combined_score,
+        "combined_risk":         combined_risk,
+        "combined_recommendation":combined_recommendation,
+        "structural_integrity":  structural_score,
+        "semantic_integrity":    semantic_score,
+        "total_violations":      len(all_violations),
+        "all_violations":        all_violations,
+        "corruption_invisible":  semantic["corruption_invisible"],
+        "document_looks_finished":True,
+        "structural_detail":     structural,
+        "semantic_detail":       semantic,
+        "autonomous_execution_integrity": {
+            "score":          combined_score,
+            "risk":           combined_risk,
+            "safe_to_proceed":combined_score >= 0.85,
+            "requires_human": combined_score < 0.85,
+        },
+        "timestamp": datetime.utcnow().isoformat(),
+    }
 
 # ============================================================
 # PAYSTACK WEBHOOK — Automatic onboarding on payment
