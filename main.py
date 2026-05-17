@@ -6287,7 +6287,7 @@ def resolve_jurisdiction(
 
     decision_order = ["ALLOW","REQUIRE_HUMAN_APPROVAL","DENY"]
     strictest      = max(all_decisions, key=lambda d: decision_order.index(d))
-    conflicts      = len(set(all_decisions)) > 1
+    conflicts      = len(applicable) > 1  # Multiple regimes = jurisdictional conflict
     strict_regimes = [r for r in applicable if r["precedence"] == "strict"]
     primary        = strict_regimes[0] if strict_regimes else applicable[0]
 
@@ -6298,7 +6298,7 @@ def resolve_jurisdiction(
         "decision":           strictest,
         "reason":             primary["reason"],
         "conflicts_detected": conflicts,
-        "resolution_strategy":"strictest_combination" if conflicts else "single_regime",
+        "resolution_strategy":"multi_regime_strictest" if conflicts else "single_regime",
         "required_controls":  list(all_controls),
         "required_approvals": [
             {
