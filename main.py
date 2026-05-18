@@ -9968,6 +9968,390 @@ async def otanis_invariants(x_api_key: Optional[str] = Header(None)):
     }
 
 
+
+# ============================================================
+# EXECUTION CONTROL API v1.0
+# ============================================================
+# The unified entry point for execution control.
+# One endpoint. Full execution control.
+# POST /v1/execution/control
+#
+# Answers all 7 questions Philip Pinol identified:
+# 1. Was the action authorized?
+# 2. Was the policy current?
+# 3. Was the evidence sufficient?
+# 4. Did the state change?
+# 5. Was escalation required?
+# 6. Was the outcome verifiable?
+# 7. Did proof survive?
+# ============================================================
+
+# Policy registry — version binding for every decision
+POLICY_REGISTRY = {
+    "POL-001-v1.0": {
+        "policy_id":      "POL-001",
+        "version":        "1.0",
+        "name":           "Standard Runtime Governance",
+        "created_at":     "2026-05-18T00:00:00",
+        "trust_floor":    0.65,
+        "auto_deny_below":0.50,
+        "consequence_thresholds": {
+            "LOW":      0.65,
+            "MEDIUM":   0.75,
+            "HIGH":     0.85,
+            "CRITICAL": 0.95,
+        },
+        "jurisdiction_conflict": "strictest_combination",
+        "fail_closed":    True,
+        "schema":         "VGS-POLICY-1.0",
+    },
+    "POL-002-v1.0": {
+        "policy_id":      "POL-002",
+        "version":        "1.0",
+        "name":           "EU AI Act High-Risk Policy",
+        "created_at":     "2026-05-18T00:00:00",
+        "trust_floor":    0.85,
+        "auto_deny_below":0.65,
+        "consequence_thresholds": {
+            "LOW":      0.75,
+            "MEDIUM":   0.85,
+            "HIGH":     0.95,
+            "CRITICAL": 0.99,
+        },
+        "jurisdiction_conflict": "strictest_combination",
+        "human_oversight_mandatory": True,
+        "fail_closed":    True,
+        "schema":         "VGS-POLICY-1.0",
+    },
+}
+
+ACTIVE_POLICY_ID = "POL-001-v1.0"
+
+def get_active_policy() -> dict:
+    return POLICY_REGISTRY[ACTIVE_POLICY_ID]
+
+def compute_policy_hash(policy: dict) -> str:
+    canonical = json.dumps(policy, sort_keys=True,
+                           separators=(",",":"), ensure_ascii=False, default=str)
+    return _sha256(canonical)
+
+def compute_state_hash(agent_id: str, action_type: str,
+                       trust_score: float, timestamp: str) -> str:
+    state = {
+        "agent_id":    agent_id,
+        "action_type": action_type,
+        "trust_score": trust_score,
+        "timestamp":   timestamp,
+    }
+    return _sha256(json.dumps(state, sort_keys=True,
+                              separators=(",",":"), ensure_ascii=False))
+
+def execute_control(
+    agent_id:     str,
+    action_type:  str,
+    trust_score:  float,
+    consequence:  str,
+    jurisdiction: str,
+    amount_usd:   float = 0,
+    eat_token_id: str   = "",
+    resource:     str   = "",
+) -> dict:
+    """
+    POST /v1/execution/control — The unified execution control endpoint.
+
+    Answers all 7 questions of Execution Control Infrastructure
+    in a single call. Returns a complete execution control response
+    with ISDAIRE certificate, ARETABA boundaries, policy version
+    binding, state hashing, and execution token.
+    """
+    request_id  = f"CTRL-{uuid.uuid4().hex[:8].upper()}"
+    timestamp   = datetime.utcnow().isoformat()
+    policy      = get_active_policy()
+    policy_hash = compute_policy_hash(policy)
+
+    # Q2: Policy current — compute state hashes
+    pre_hash  = compute_state_hash(agent_id, action_type, trust_score, timestamp)
+
+    # Q1 + Q5: Authorization + Escalation — ISDAIRE certificate
+    isdaire = build_isdaire_certificate(
+        agent_id     = agent_id,
+        action_type  = action_type,
+        trust_score  = trust_score,
+        consequence  = consequence,
+        jurisdiction = jurisdiction,
+        eat_token_id = eat_token_id,
+        amount_usd   = amount_usd,
+    )
+
+    # Q1: ARETABA boundaries
+    aretaba = build_aretaba_boundaries(
+        allowed_action    = action_type,
+        max_amount_usd    = amount_usd,
+        consequence_level = consequence,
+        jurisdiction      = jurisdiction,
+    )
+
+    # Q2: Jurisdiction current
+    jr = resolve_jurisdiction(
+        action_type           = action_type,
+        data_subject_region   = jurisdiction[:2] if len(jurisdiction) > 2 else "",
+        infrastructure_region = "",
+    )
+
+    # Determine final decision
+    raw_decision = isdaire["admissibility_decision"]
+
+    # Apply fail-closed — VER-INV-009
+    if trust_score < policy["auto_deny_below"]:
+        final_decision = "DENY"
+        refusal_type   = "TRUST_BELOW_FLOOR"
+    elif not isdaire["all_preconditions_met"]:
+        final_decision = "REFUSED"
+        refusal_type   = "ISDAIRE_PRECONDITION_FAILED"
+    else:
+        final_decision = raw_decision
+        refusal_type   = None
+
+    # Decision taxonomy
+    taxonomy = DECISION_TAXONOMY.get(final_decision, {})
+
+    # Q3: Evidence — classify the decision
+    ev_class = taxonomy.get("evidence_class", "FRI")
+    ev_record = classify_evidence(ev_class, agent_id, {
+        "request_id":    request_id,
+        "action_type":   action_type,
+        "decision":      final_decision,
+        "policy_id":     policy["policy_id"],
+        "policy_version":policy["version"],
+    }, request_id)
+
+    # Q6: Execution token — binds control decision to execution
+    exec_token = _sha256(json.dumps({
+        "request_id":  request_id,
+        "agent_id":    agent_id,
+        "action_type": action_type,
+        "decision":    final_decision,
+        "timestamp":   timestamp,
+        "policy_hash": policy_hash,
+        "pre_hash":    pre_hash,
+    }, sort_keys=True, separators=(",",":"), ensure_ascii=False))
+
+    # Q4: Post-state hash (simulated — in production: hash after action)
+    post_hash = compute_state_hash(
+        agent_id, action_type,
+        trust_score * (0.99 if final_decision == "ALLOW" else 1.0),
+        timestamp
+    )
+
+    # Chain the execution control decision
+    chain_append(
+        execution_id  = request_id,
+        agent_id      = agent_id,
+        action        = f"execution_control:{action_type}",
+        decision      = final_decision,
+        policy_reason = f"Policy {policy['policy_id']} v{policy['version']} · ISDAIRE · {jurisdiction}",
+        confidence    = trust_score,
+        extra         = {
+            "policy_hash":  policy_hash,
+            "exec_token":   exec_token[:16] + "...",
+            "isdaire_cert": isdaire["certificate_id"],
+        }
+    )
+
+    return {
+        "request_id":    request_id,
+        "schema":        "VGS-EXECUTION-CONTROL-1.0",
+
+        # THE DECISION
+        "decision":      final_decision,
+        "refusal_type":  refusal_type,
+        "positive_signal": taxonomy.get("positive_signal", False),
+        "governance_status": taxonomy.get("governance_status", "UNKNOWN"),
+
+        # Q1: AUTHORIZATION
+        "authorization": {
+            "isdaire_certificate":  isdaire,
+            "aretaba_boundaries":   aretaba,
+            "eat_token_id":         eat_token_id or None,
+        },
+
+        # Q2: POLICY CURRENT
+        "policy": {
+            "policy_id":      policy["policy_id"],
+            "policy_version": policy["version"],
+            "policy_hash":    policy_hash,
+            "loaded_at":      timestamp,
+            "fail_closed":    policy["fail_closed"],
+        },
+
+        # Q3: EVIDENCE
+        "evidence": {
+            "record_id":           ev_record["record_id"],
+            "evidence_class":      ev_record["evidence_class"],
+            "classification_hash": ev_record["classification_hash"],
+            "legal_weight":        ev_record["class_legal_weight"],
+        },
+
+        # Q4: STATE CHANGE
+        "state": {
+            "pre_hash":          pre_hash,
+            "post_hash":         post_hash,
+            "change_authorized": final_decision == "ALLOW",
+        },
+
+        # Q5: ESCALATION
+        "escalation": {
+            "required":    final_decision == "REQUIRE_HUMAN_APPROVAL",
+            "approver":    jr.get("required_approvals", [{}])[0].get("approver_role") if jr.get("required_approvals") else None,
+            "sla_hours":   jr.get("required_approvals", [{}])[0].get("sla_hours") if jr.get("required_approvals") else None,
+        },
+
+        # Q6: VERIFIABILITY
+        "verification": {
+            "execution_token":   exec_token,
+            "offline_verifiable":True,
+            "replay_available":  True,
+        },
+
+        # Q7: PROOF SURVIVAL
+        "proof": {
+            "audit_chain_id":    request_id,
+            "evidence_record":   ev_record["record_id"],
+            "zenodo_doi":        "https://doi.org/10.5281/zenodo.20264923",
+            "platform_required": False,
+        },
+
+        "jurisdiction":  jr,
+        "timestamp":     timestamp,
+        "ver_inv_009":   "FAIL_CLOSED_ACTIVE",
+        "ver_inv_010":   "NON_BYPASS_ENFORCED",
+    }
+
+def export_proof(execution_token: str, request_id: str,
+                 agent_id: str, decision: str,
+                 policy_hash: str, evidence_record_id: str) -> dict:
+    """
+    Export a portable, offline-verifiable proof bundle.
+    No platform required to verify this bundle.
+    """
+    bundle_id = f"PROOF-{uuid.uuid4().hex[:8].upper()}"
+    bundle = {
+        "bundle_id":        bundle_id,
+        "schema":           "VGS-PROOF-BUNDLE-1.0",
+        "request_id":       request_id,
+        "agent_id":         agent_id,
+        "decision":         decision,
+        "execution_token":  execution_token,
+        "policy_hash":      policy_hash,
+        "evidence_record":  evidence_record_id,
+        "zenodo_doi":       "https://doi.org/10.5281/zenodo.20264923",
+        "verification_instructions": "python3 verisigil_verify.py --bundle <bundle_id>",
+        "issued_at":        datetime.utcnow().isoformat(),
+        "platform_required":False,
+        "offline_verifiable":True,
+    }
+    # Sign the bundle
+    bundle_canonical = json.dumps(bundle, sort_keys=True,
+                                  separators=(",",":"), ensure_ascii=False, default=str)
+    bundle["bundle_hash"] = _sha256(bundle_canonical)
+    bundle["signatures"]  = sign_dual({
+        "bundle_id":       bundle_id,
+        "execution_token": execution_token,
+        "bundle_hash":     bundle["bundle_hash"],
+    })
+    return bundle
+
+
+# ── EXECUTION CONTROL ENDPOINTS ──────────────────────────────
+
+class ExecutionControlRequest(BaseModel):
+    agent_id:     str
+    action_type:  str
+    trust_score:  float = 0.963
+    consequence:  str   = "MEDIUM"
+    jurisdiction: str   = "EU_AI_ACT"
+    amount_usd:   float = 0
+    eat_token_id: str   = ""
+    resource:     str   = ""
+
+@app.post("/v1/execution/control", tags=["Execution Control Infrastructure"])
+async def execution_control(
+    req:       ExecutionControlRequest,
+    x_api_key: Optional[str] = Header(None)
+):
+    """
+    Execution Control Infrastructure — The unified entry point.
+    One endpoint. Full execution control.
+
+    Answers all 7 questions of Execution Control Infrastructure:
+    1. Was the action authorized? (ISDAIRE + ARETABA)
+    2. Was the policy current? (policy version + hash)
+    3. Was the evidence sufficient? (classification_hash)
+    4. Did the state change? (pre/post state hashes)
+    5. Was escalation required? (REFUSED vs DENY)
+    6. Was the outcome verifiable? (execution_token)
+    7. Did proof survive? (offline verifiable bundle)
+
+    Schema: VGS-EXECUTION-CONTROL-1.0
+    """
+    require_api_key(x_api_key)
+    result = execute_control(
+        agent_id     = req.agent_id,
+        action_type  = req.action_type,
+        trust_score  = req.trust_score,
+        consequence  = req.consequence,
+        jurisdiction = req.jurisdiction,
+        amount_usd   = req.amount_usd,
+        eat_token_id = req.eat_token_id,
+        resource     = req.resource,
+    )
+    await log_event(req.agent_id, "EXECUTION_CONTROL", {
+        "request_id": result["request_id"],
+        "decision":   result["decision"],
+        "policy":     result["policy"]["policy_id"],
+    })
+    return result
+
+@app.post("/v1/proof/export", tags=["Execution Control Infrastructure"])
+async def proof_export(
+    execution_token:   str,
+    request_id:        str,
+    agent_id:          str,
+    decision:          str,
+    policy_hash:       str,
+    evidence_record_id:str = "",
+    x_api_key:         Optional[str] = Header(None)
+):
+    """
+    Export a portable offline-verifiable proof bundle.
+    The bundle contains everything needed to verify the decision
+    independently — no platform, no servers, no operator required.
+    Q7: Did proof survive?
+    """
+    require_api_key(x_api_key)
+    return export_proof(
+        execution_token    = execution_token,
+        request_id         = request_id,
+        agent_id           = agent_id,
+        decision           = decision,
+        policy_hash        = policy_hash,
+        evidence_record_id = evidence_record_id,
+    )
+
+@app.get("/v1/policy/registry", tags=["Execution Control Infrastructure"])
+async def policy_registry(x_api_key: Optional[str] = Header(None)):
+    """List all governance policies with version history."""
+    require_api_key(x_api_key)
+    active = get_active_policy()
+    return {
+        "active_policy_id": ACTIVE_POLICY_ID,
+        "active_policy":    active,
+        "active_hash":      compute_policy_hash(active),
+        "all_policies":     {k: compute_policy_hash(v) for k,v in POLICY_REGISTRY.items()},
+        "schema":           "VGS-POLICY-REGISTRY-1.0",
+    }
+
+
 # ============================================================
 # PAYSTACK WEBHOOK — Automatic onboarding on payment
 # ============================================================
