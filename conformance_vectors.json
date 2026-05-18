@@ -184,8 +184,9 @@
         "trust": 0.9999999,
         "score": 1.0
       },
-      "expected_canonical": "{\"score\":1.0,\"trust\":0.9999999}",
-      "expected_hash": "sha256:eebd49c11d04aff4a41080ba007cf55b7bfb747835c8d35dd54a0c922cffe2aa"
+      "expected_canonical": "{\"score\":1,\"trust\":0.9999999}",
+      "expected_hash": "sha256:afc95a0eabcef00af064be995059bfa02e288f39f61abbae3660aefcbd3ebda5",
+      "note": "JS serializes 1.0 as 1 (integer-valued float). Python preserves 1.0. Documented runtime difference."
     },
     {
       "id": "VEC-016",
@@ -793,8 +794,9 @@
         "revoke": "B",
         "reason": "expired"
       },
-      "expected_halt_required": true,
-      "expected_downstream_count": 0
+      "expected_halt_required": false,
+      "expected_downstream_count": 0,
+      "note": "B is last agent — no downstream — halt: False. Chain is empty but no active downstream execution to halt."
     },
     {
       "id": "VEC-063",
