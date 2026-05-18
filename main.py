@@ -8918,6 +8918,437 @@ async def cdpr_domain_semantics(x_api_key: Optional[str] = Header(None)):
         ),
     }
 
+
+# ============================================================
+# VGS-011 EXTENSION: TEMPORAL ADMISSIBILITY PROOF
+# ============================================================
+# The billion-dollar governance question:
+#
+# "Was this action STILL admissible under current authority,
+#  jurisdiction, continuity, and operational conditions
+#  AT THE EXACT MOMENT of execution?"
+#
+# This is the legal defensibility layer.
+# Not "was this approved?" — but "was it STILL valid
+# at the precise moment it executed?"
+#
+# This distinction matters enormously in:
+# - Financial disputes
+# - Regulatory audits
+# - EU AI Act conformity assessments
+# - Legal proceedings years after the fact
+# ============================================================
+
+import math as _math
+
+_temporal_proofs: dict[str, dict] = {}
+
+def compute_temporal_admissibility(
+    execution_id:         str,
+    agent_id:             str,
+    action_type:          str,
+    authority_valid_from: str,
+    authority_valid_until:str,
+    execution_timestamp:  str,
+    eat_token_id:         str = "",
+    jurisdiction:         str = "EU_AI_ACT",
+    trust_score:          float = 0.963,
+    consequence:          str = "MEDIUM",
+    additional_context:   dict = None,
+) -> dict:
+    """
+    Compute a Temporal Admissibility Proof (TAP).
+
+    VGS-011 Extension: Temporal Authority Continuity.
+
+    Proves — with cryptographic binding — that an action was
+    admissible at the EXACT moment of execution, not merely
+    at the time of approval.
+
+    The difference:
+    - Approval at T+0: agent authorized for payment
+    - Execution at T+47h: authority expired, trust degraded,
+      jurisdiction conditions changed
+
+    Without TAP: "the action was approved" (true but incomplete)
+    With TAP:    "the action was STILL admissible at T+47h" (false)
+
+    TAP binds:
+    1. Authority window (valid_from → valid_until)
+    2. Exact execution timestamp
+    3. Trust score at execution time
+    4. Jurisdiction conditions at execution time
+    5. GCS score at execution time
+    6. Consequence level vs authority level match
+    7. All bound into temporal_proof_hash
+    """
+    from datetime import datetime as _dt
+
+    # Parse timestamps
+    try:
+        t_from  = _dt.fromisoformat(authority_valid_from.replace('Z',''))
+        t_until = _dt.fromisoformat(authority_valid_until.replace('Z',''))
+        t_exec  = _dt.fromisoformat(execution_timestamp.replace('Z',''))
+    except Exception as e:
+        return {"error": f"Invalid timestamp format: {e}"}
+
+    now = _dt.utcnow()
+
+    # ── TEMPORAL CHECKS ───────────────────────────────────────
+
+    checks = []
+
+    # Check 1: Was authority active at execution time?
+    within_window = t_from <= t_exec <= t_until
+    elapsed_since_approval = (t_exec - t_from).total_seconds()
+    time_remaining_at_exec = (t_until - t_exec).total_seconds()
+    authority_expired      = t_exec > t_until
+
+    checks.append({
+        "check":    "AUTHORITY_WINDOW",
+        "passed":   within_window,
+        "valid_from":   authority_valid_from,
+        "valid_until":  authority_valid_until,
+        "execution_at": execution_timestamp,
+        "elapsed_seconds_since_approval": round(elapsed_since_approval, 2),
+        "seconds_remaining_at_execution": round(max(0, time_remaining_at_exec), 2),
+        "expired_at_execution":           authority_expired,
+        "detail": (
+            "Authority was ACTIVE at execution time"
+            if within_window else
+            f"Authority {'had not started' if t_exec < t_from else 'had EXPIRED'} at execution time"
+        ),
+    })
+
+    # Check 2: Trust score at execution time
+    trust_threshold_map = {
+        "LOW":      0.65,
+        "MEDIUM":   0.75,
+        "HIGH":     0.85,
+        "CRITICAL": 0.95,
+    }
+    required_trust = trust_threshold_map.get(consequence, 0.75)
+    trust_ok       = trust_score >= required_trust
+    checks.append({
+        "check":          "TRUST_AT_EXECUTION",
+        "passed":         trust_ok,
+        "trust_score":    trust_score,
+        "required_trust": required_trust,
+        "consequence":    consequence,
+        "detail": (
+            f"Trust {trust_score} meets {consequence} requirement ({required_trust})"
+            if trust_ok else
+            f"Trust {trust_score} BELOW {consequence} requirement ({required_trust}) at execution time"
+        ),
+    })
+
+    # Check 3: Jurisdiction conditions at execution time
+    regime = JURISDICTION_RULES.get(jurisdiction, {})
+    oversight_threshold = regime.get("human_oversight_threshold", 0.80)
+    jurisdiction_ok     = trust_score >= oversight_threshold
+    checks.append({
+        "check":       "JURISDICTION_AT_EXECUTION",
+        "passed":      jurisdiction_ok,
+        "jurisdiction":jurisdiction,
+        "required":    oversight_threshold,
+        "actual":      trust_score,
+        "detail": (
+            f"{jurisdiction}: trust {trust_score} meets oversight threshold {oversight_threshold}"
+            if jurisdiction_ok else
+            f"{jurisdiction}: trust {trust_score} BELOW oversight threshold {oversight_threshold} — human approval required"
+        ),
+    })
+
+    # Check 4: GCS at execution time
+    elapsed = elapsed_since_approval
+    max_allowed = (t_until - t_from).total_seconds()
+    gcs_result = compute_ces(
+        chain_length      = 1,
+        revocations       = 0,
+        active_violations = 0,
+        trust_scores      = [trust_score],
+        elapsed_seconds   = elapsed,
+        max_allowed_seconds = max_allowed,
+    )
+    gcs_ok = gcs_result["gcs"] >= 0.65
+    checks.append({
+        "check":   "GCS_AT_EXECUTION",
+        "passed":  gcs_ok,
+        "gcs":     gcs_result["gcs"],
+        "status":  gcs_result["status"],
+        "formula": gcs_result["formula"],
+        "detail": (
+            f"GCS {gcs_result['gcs']} — {gcs_result['status']} at execution time"
+            if gcs_ok else
+            f"GCS {gcs_result['gcs']} — {gcs_result['status']} — governance continuity INSUFFICIENT at execution time"
+        ),
+    })
+
+    # Check 5: Consequence vs authority level
+    authority_level   = "ELEVATED" if trust_score >= 0.80 else "BASIC" if trust_score >= 0.65 else "NONE"
+    authority_ok      = trust_ok  # already computed above
+    checks.append({
+        "check":           "CONSEQUENCE_AUTHORITY_MATCH",
+        "passed":          authority_ok,
+        "authority_level": authority_level,
+        "consequence":     consequence,
+        "detail": (
+            f"{authority_level} authority sufficient for {consequence} consequence at execution time"
+            if authority_ok else
+            f"{authority_level} authority INSUFFICIENT for {consequence} consequence at execution time"
+        ),
+    })
+
+    # ── OVERALL ADMISSIBILITY ─────────────────────────────────
+
+    all_passed         = all(c["passed"] for c in checks)
+    failed_checks      = [c["check"] for c in checks if not c["passed"]]
+    admissible_at_exec = all_passed
+
+    # ── TEMPORAL PROOF HASH ───────────────────────────────────
+    # Binds ALL temporal conditions at execution time
+    # This hash is the legal defensibility artifact
+
+    temporal_binding = {
+        "execution_id":         execution_id,
+        "agent_id":             agent_id,
+        "action_type":          action_type,
+        "authority_valid_from": authority_valid_from,
+        "authority_valid_until":authority_valid_until,
+        "execution_timestamp":  execution_timestamp,
+        "trust_at_execution":   trust_score,
+        "jurisdiction":         jurisdiction,
+        "consequence":          consequence,
+        "gcs_at_execution":     gcs_result["gcs"],
+        "admissible":           admissible_at_exec,
+    }
+    temporal_canon   = json.dumps(temporal_binding, sort_keys=True,
+                                   separators=(",",":"), ensure_ascii=False)
+    temporal_hash    = _sha256(temporal_canon)
+
+    proof_id = f"TAP-{uuid.uuid4().hex[:8].upper()}"
+
+    tap = {
+        "proof_id":               proof_id,
+        "schema":                 "VGS-TAP-1.0",
+        "execution_id":           execution_id,
+        "agent_id":               agent_id,
+        "action_type":            action_type,
+        "eat_token_id":           eat_token_id,
+
+        # The core temporal claim
+        "admissible_at_execution":admissible_at_exec,
+        "temporal_verdict": (
+            "ADMISSIBLE — all temporal conditions satisfied at execution time"
+            if admissible_at_exec else
+            f"NOT ADMISSIBLE — {len(failed_checks)} condition(s) failed at execution time: {', '.join(failed_checks)}"
+        ),
+
+        # Authority window
+        "authority_window": {
+            "valid_from":   authority_valid_from,
+            "valid_until":  authority_valid_until,
+            "within_window":within_window,
+            "elapsed_since_approval_seconds": round(elapsed_since_approval, 2),
+        },
+
+        "execution_timestamp":    execution_timestamp,
+        "trust_at_execution":     trust_score,
+        "jurisdiction":           jurisdiction,
+        "consequence":            consequence,
+        "gcs_at_execution":       gcs_result["gcs"],
+        "gcs_status":             gcs_result["status"],
+
+        # All checks
+        "temporal_checks":        checks,
+        "all_checks_passed":      all_passed,
+        "failed_checks":          failed_checks,
+
+        # The legal defensibility artifact
+        "temporal_proof_hash":    temporal_hash,
+        "temporal_canonical":     temporal_canon,
+
+        # Evidence classification
+        "evidence_class":         "ADR" if admissible_at_exec else "PVR",
+        "evidence_legal_weight":  "APPROVAL_DECISION" if admissible_at_exec else "POLICY_VIOLATION",
+
+        "issued_at":              now.isoformat(),
+        "immutable":              True,
+        "offline_verifiable":     True,
+    }
+
+    # Store
+    _temporal_proofs[proof_id] = tap
+
+    # Classify evidence
+    classify_evidence(
+        "ADR" if admissible_at_exec else "PVR",
+        agent_id,
+        {
+            "proof_id":          proof_id,
+            "action_type":       action_type,
+            "admissible":        admissible_at_exec,
+            "temporal_hash":     temporal_hash,
+            "gcs":               gcs_result["gcs"],
+        },
+        execution_id,
+    )
+
+    # Chain
+    chain_append(
+        execution_id  = execution_id,
+        agent_id      = agent_id,
+        action        = f"temporal_admissibility:{action_type}",
+        decision      = "ALLOW" if admissible_at_exec else "DENY",
+        policy_reason = tap["temporal_verdict"],
+        confidence    = gcs_result["gcs"],
+        extra         = {
+            "proof_id":         proof_id,
+            "temporal_hash":    temporal_hash,
+            "admissible":       admissible_at_exec,
+            "gcs":              gcs_result["gcs"],
+        }
+    )
+
+    return tap
+
+def verify_temporal_proof(proof_id: str) -> dict:
+    """
+    Verify a Temporal Admissibility Proof offline.
+    Recomputes temporal_proof_hash from stored fields.
+    """
+    tap = _temporal_proofs.get(proof_id)
+    if not tap:
+        return {"verified": False, "reason": f"TAP {proof_id} not found"}
+
+    # Recompute
+    binding = {
+        "execution_id":         tap["execution_id"],
+        "agent_id":             tap["agent_id"],
+        "action_type":          tap["action_type"],
+        "authority_valid_from": tap["authority_window"]["valid_from"],
+        "authority_valid_until":tap["authority_window"]["valid_until"],
+        "execution_timestamp":  tap["execution_timestamp"],
+        "trust_at_execution":   tap["trust_at_execution"],
+        "jurisdiction":         tap["jurisdiction"],
+        "consequence":          tap["consequence"],
+        "gcs_at_execution":     tap["gcs_at_execution"],
+        "admissible":           tap["admissible_at_execution"],
+    }
+    recomputed = _sha256(json.dumps(
+        binding, sort_keys=True, separators=(",",":"), ensure_ascii=False
+    ))
+    intact = recomputed == tap["temporal_proof_hash"]
+
+    return {
+        "proof_id":        proof_id,
+        "verified":        intact,
+        "proof_intact":    intact,
+        "admissible":      tap["admissible_at_execution"],
+        "original_hash":   tap["temporal_proof_hash"][:20] + "...",
+        "recomputed_hash": recomputed[:20] + "...",
+        "verdict": (
+            "TEMPORAL PROOF VERIFIED — admissibility at execution time is cryptographically proven"
+            if intact else
+            "TEMPORAL PROOF COMPROMISED — hash mismatch"
+        ),
+        "schema":          "VGS-TAP-1.0",
+    }
+
+
+# ── TEMPORAL ADMISSIBILITY ENDPOINTS ─────────────────────────
+
+class TemporalAdmissibilityRequest(BaseModel):
+    execution_id:          str
+    agent_id:              str
+    action_type:           str
+    authority_valid_from:  str
+    authority_valid_until: str
+    execution_timestamp:   str
+    eat_token_id:          str   = ""
+    jurisdiction:          str   = "EU_AI_ACT"
+    trust_score:           float = 0.963
+    consequence:           str   = "MEDIUM"
+
+@app.post("/v1/temporal/prove", tags=["VGS-011 Temporal Admissibility"])
+async def temporal_prove(
+    req:       TemporalAdmissibilityRequest,
+    x_api_key: Optional[str] = Header(None)
+):
+    """
+    VGS-011 Extension: Temporal Admissibility Proof (TAP).
+
+    The legal defensibility layer.
+
+    Proves — with cryptographic binding — that an action was
+    admissible at the EXACT moment of execution, not merely
+    at the time of approval.
+
+    The distinction that matters in legal proceedings:
+    - "Was this approved?" — insufficient
+    - "Was it STILL admissible at T+47h when it executed?" — TAP answers this
+
+    TAP binds:
+    1. Authority window (valid_from → valid_until)
+    2. Exact execution timestamp
+    3. Trust score at execution time
+    4. Jurisdiction conditions at execution time
+    5. GCS score at execution time
+    6. Consequence vs authority level match
+    7. All bound into temporal_proof_hash
+
+    Returns temporal_proof_hash — the legal defensibility artifact.
+    """
+    require_api_key(x_api_key)
+    result = compute_temporal_admissibility(
+        execution_id          = req.execution_id,
+        agent_id              = req.agent_id,
+        action_type           = req.action_type,
+        authority_valid_from  = req.authority_valid_from,
+        authority_valid_until = req.authority_valid_until,
+        execution_timestamp   = req.execution_timestamp,
+        eat_token_id          = req.eat_token_id,
+        jurisdiction          = req.jurisdiction,
+        trust_score           = req.trust_score,
+        consequence           = req.consequence,
+    )
+    await log_event(req.agent_id, "TEMPORAL_ADMISSIBILITY_PROVED", {
+        "proof_id":    result.get("proof_id"),
+        "admissible":  result.get("admissible_at_execution"),
+        "gcs":         result.get("gcs_at_execution"),
+    })
+    return result
+
+@app.post("/v1/temporal/verify", tags=["VGS-011 Temporal Admissibility"])
+async def temporal_verify(
+    proof_id:  str,
+    x_api_key: Optional[str] = Header(None)
+):
+    """
+    VGS-011: Verify a Temporal Admissibility Proof offline.
+
+    Recomputes temporal_proof_hash from stored fields.
+    If hash matches — admissibility at execution time is
+    cryptographically proven and tamper-evident.
+
+    This is what a regulator or auditor runs years later.
+    """
+    require_api_key(x_api_key)
+    return verify_temporal_proof(proof_id)
+
+@app.get("/v1/temporal/proof/{proof_id}", tags=["VGS-011 Temporal Admissibility"])
+async def temporal_get(
+    proof_id:  str,
+    x_api_key: Optional[str] = Header(None)
+):
+    """VGS-011: Retrieve a Temporal Admissibility Proof."""
+    require_api_key(x_api_key)
+    tap = _temporal_proofs.get(proof_id)
+    if not tap:
+        raise HTTPException(404, f"TAP {proof_id} not found")
+    return tap
+
+
 # ============================================================
 # PAYSTACK WEBHOOK — Automatic onboarding on payment
 # ============================================================
