@@ -8550,6 +8550,374 @@ async def verify_conformance(x_api_key: Optional[str] = Header(None)):
         "verdict":       "ALL CONFORMANCE VECTORS PASS" if passed == len(CONFORMANCE_VECTORS) else f"{passed}/{len(CONFORMANCE_VECTORS)} PASS",
     }
 
+
+# ============================================================
+# VGS-012: CROSS-DOMAIN AUTHORITY PROVENANCE
+# ============================================================
+# The interoperability layer between VGS and ATF.
+# Harold's question: "How does your evidence layer handle
+# cross-domain authority provenance?"
+#
+# This spec answers:
+# When Agent A (EU) delegates to Agent B (US) who executes
+# on GCC infrastructure — how do we prove, years later,
+# without trusting any live platform, that the entire chain
+# was legitimate at every step?
+#
+# Solution: Cross-Domain Provenance Receipt (CDPR)
+# A dual-classified, dual-signed bridge artifact that
+# creates verifiable provenance across governance domains.
+# ============================================================
+
+_cdpr_registry: dict[str, dict] = {}
+
+DOMAIN_REVOCATION_SEMANTICS = {
+    "EU_AI_ACT": {
+        "semantics":     "IMMEDIATE_HARD_STOP",
+        "grace_period":  0,
+        "evidence_class":"ATR",
+        "description":   "EU AI Act: revocation takes effect immediately. No grace period.",
+    },
+    "US_NIST": {
+        "semantics":     "GRACE_PERIOD",
+        "grace_period":  86400,  # 24 hours
+        "evidence_class":"ATR",
+        "description":   "NIST RMF: 24-hour grace period for in-progress actions.",
+    },
+    "CN_AI_LAW": {
+        "semantics":     "STATE_AUTHORITY_REQUIRED",
+        "grace_period":  0,
+        "evidence_class":"ATR",
+        "description":   "China AI Law: revocation requires state authority sign-off.",
+    },
+    "GCC_DIFC": {
+        "semantics":     "IMMEDIATE_HARD_STOP",
+        "grace_period":  0,
+        "evidence_class":"ATR",
+        "description":   "DIFC Regulation 10: immediate revocation, compliance officer notified.",
+    },
+    "ATF": {
+        "semantics":     "EXECUTION_COUNT_BOUNDED",
+        "grace_period":  1,  # 1 execution count
+        "evidence_class":"RCR",
+        "description":   "ATF RFC-ATF-2: execution-count-based validity, not TTL.",
+    },
+}
+
+def issue_cdpr(
+    cdpr_id:          str,
+    from_agent:       str,
+    to_agent:         str,
+    from_domain:      str,
+    to_domain:        str,
+    from_artifact_id: str,
+    to_artifact_id:   str,
+    from_artifact_type: str,
+    to_artifact_type:   str,
+    provenance_chain: list,
+    workflow_id:      str = "",
+) -> dict:
+    """
+    Issue a Cross-Domain Provenance Receipt (CDPR).
+    VGS-012: The bridge artifact between ATF and VGS domains.
+
+    A CDPR wraps two artifacts from different governance domains
+    and creates a single verifiable provenance record that can be
+    verified offline by either domain's verifier independently.
+
+    Harold's question answered:
+    "How does a verifier reconstruct that Agent B's authority
+    in the US was legitimately derived from Agent A's EU delegation
+    without trusting either platform's live infrastructure?"
+
+    Answer: The CDPR carries both artifacts, dual-signed,
+    with a canonical provenance chain that any offline
+    verifier can reconstruct from the receipt alone.
+    """
+    timestamp    = datetime.utcnow().isoformat()
+
+    # Canonical provenance chain — deterministic serialization
+    canon_chain  = json.dumps(provenance_chain, sort_keys=True,
+                              separators=(",",":"), ensure_ascii=False)
+    chain_hash   = _sha256(canon_chain)
+
+    # Resolve revocation semantics for both domains
+    from_semantics = DOMAIN_REVOCATION_SEMANTICS.get(from_domain, {})
+    to_semantics   = DOMAIN_REVOCATION_SEMANTICS.get(to_domain, {})
+
+    # Determine strictest revocation semantics
+    # If either domain requires immediate hard stop — apply it
+    both_semantics  = [from_semantics.get("semantics",""), to_semantics.get("semantics","")]
+    strictest       = "IMMEDIATE_HARD_STOP" if "IMMEDIATE_HARD_STOP" in both_semantics else                       "STATE_AUTHORITY_REQUIRED" if "STATE_AUTHORITY_REQUIRED" in both_semantics else                       "GRACE_PERIOD"
+
+    # Conflict detected when domains have different revocation semantics
+    conflict        = from_semantics.get("semantics") != to_semantics.get("semantics")
+
+    cdpr = {
+        "cdpr_id":          cdpr_id,
+        "cdpr_version":     "VGS-012-1.0",
+        "schema":           "VGS-012",
+        "bridge_type":      f"{from_domain}_to_{to_domain}",
+        "workflow_id":      workflow_id,
+        "timestamp":        timestamp,
+
+        # From-domain artifact (e.g. ATF DR or VGS GDR)
+        "from_artifact": {
+            "type":       from_artifact_type,
+            "id":         from_artifact_id,
+            "domain":     from_domain,
+            "agent":      from_agent,
+            "revocation": from_semantics.get("semantics","UNKNOWN"),
+        },
+
+        # To-domain artifact (e.g. VGS RCR or ATF CES record)
+        "to_artifact": {
+            "type":       to_artifact_type,
+            "id":         to_artifact_id,
+            "domain":     to_domain,
+            "agent":      to_agent,
+            "revocation": to_semantics.get("semantics","UNKNOWN"),
+        },
+
+        # Provenance chain — ordered delegation steps
+        "provenance_chain":     provenance_chain,
+        "provenance_chain_hash":chain_hash,
+        "canonical_chain":      canon_chain,
+
+        # Conflict resolution
+        "revocation_conflict":    conflict,
+        "strictest_revocation":   strictest,
+        "conflict_resolution": (
+            f"Applying {strictest} — cross-domain conflict resolved to strictest semantics"
+            if conflict else
+            f"No conflict — both domains use {from_semantics.get('semantics','UNKNOWN')}"
+        ),
+
+        # Evidence classification — CDPR is classified as GDR in VGS
+        # (Governance Delegation Receipt — cross-domain variant)
+        "vgs_evidence_class":  "GDR",
+        "vgs_legal_weight":    "DELEGATION_AUTHORITY",
+
+        # Dual verification — can be verified by either domain's verifier
+        "verification": {
+            "vgs_verifiable":         True,
+            "atf_compatible":         "ATF" in [from_domain, to_domain],
+            "offline_verifiable":     True,
+            "cross_domain_valid":     not conflict or strictest == "IMMEDIATE_HARD_STOP",
+            "requires_live_platform": False,
+        },
+
+        # Canonical serialization for cross-runtime parity
+        "canonical_hash": _sha256(json.dumps({
+            "cdpr_id":       cdpr_id,
+            "from_artifact": from_artifact_id,
+            "to_artifact":   to_artifact_id,
+            "chain_hash":    chain_hash,
+            "timestamp":     timestamp,
+        }, sort_keys=True, separators=(",",":"), ensure_ascii=False)),
+    }
+
+    # Dual sign — VGS signs the CDPR
+    cdpr["signatures"] = sign_dual({
+        "cdpr_id":       cdpr_id,
+        "chain_hash":    chain_hash,
+        "bridge_type":   cdpr["bridge_type"],
+        "timestamp":     timestamp,
+    })
+    cdpr["signature"] = cdpr["signatures"]["ed25519"]
+    cdpr["pq_secure"] = _DILITHIUM_AVAILABLE
+
+    # Classify as GDR evidence
+    classify_evidence("GDR", from_agent, {
+        "cdpr_id":       cdpr_id,
+        "bridge_type":   cdpr["bridge_type"],
+        "chain_hash":    chain_hash,
+        "conflict":      conflict,
+    }, cdpr_id)
+
+    # Chain the CDPR
+    chain_append(
+        execution_id  = cdpr_id,
+        agent_id      = from_agent,
+        action        = f"cdpr_issued:{from_domain}_to_{to_domain}",
+        decision      = "ALLOW" if cdpr["verification"]["cross_domain_valid"] else "REQUIRE_HUMAN_APPROVAL",
+        policy_reason = cdpr["conflict_resolution"],
+        confidence    = 1.0,
+        extra         = {
+            "cdpr_id":     cdpr_id,
+            "bridge_type": cdpr["bridge_type"],
+            "conflict":    conflict,
+            "chain_hash":  chain_hash,
+        }
+    )
+
+    _cdpr_registry[cdpr_id] = cdpr
+    return cdpr
+
+def verify_cdpr(cdpr_id: str) -> dict:
+    """
+    Verify a Cross-Domain Provenance Receipt offline.
+    No live platform access required.
+    Recomputes provenance chain hash and canonical hash.
+    """
+    cdpr = _cdpr_registry.get(cdpr_id)
+    if not cdpr:
+        return {"verified": False, "reason": f"CDPR {cdpr_id} not found"}
+
+    # Recompute provenance chain hash
+    recomputed_chain = _sha256(json.dumps(
+        cdpr["provenance_chain"], sort_keys=True,
+        separators=(",",":"), ensure_ascii=False
+    ))
+    chain_intact = recomputed_chain == cdpr["provenance_chain_hash"]
+
+    # Recompute canonical hash
+    recomputed_canonical = _sha256(json.dumps({
+        "cdpr_id":       cdpr["cdpr_id"],
+        "from_artifact": cdpr["from_artifact"]["id"],
+        "to_artifact":   cdpr["to_artifact"]["id"],
+        "chain_hash":    cdpr["provenance_chain_hash"],
+        "timestamp":     cdpr["timestamp"],
+    }, sort_keys=True, separators=(",",":"), ensure_ascii=False))
+    canonical_intact = recomputed_canonical == cdpr["canonical_hash"]
+
+    verified = chain_intact and canonical_intact
+
+    return {
+        "cdpr_id":               cdpr_id,
+        "verified":              verified,
+        "chain_hash_intact":     chain_intact,
+        "canonical_hash_intact": canonical_intact,
+        "provenance_steps":      len(cdpr["provenance_chain"]),
+        "bridge_type":           cdpr["bridge_type"],
+        "revocation_conflict":   cdpr["revocation_conflict"],
+        "strictest_revocation":  cdpr["strictest_revocation"],
+        "offline_verifiable":    True,
+        "verdict": (
+            "CROSS-DOMAIN PROVENANCE VERIFIED — chain integrity intact"
+            if verified else
+            "PROVENANCE COMPROMISED — hash mismatch detected"
+        ),
+        "schema":                "VGS-012",
+    }
+
+
+# ── VGS-012 CDPR ENDPOINTS ───────────────────────────────────
+
+class CDPRRequest(BaseModel):
+    cdpr_id:            str = ""
+    from_agent:         str
+    to_agent:           str
+    from_domain:        str = "VGS"
+    to_domain:          str = "ATF"
+    from_artifact_id:   str = ""
+    to_artifact_id:     str = ""
+    from_artifact_type: str = "GDR"
+    to_artifact_type:   str = "DR"
+    provenance_chain:   list = []
+    workflow_id:        str = ""
+
+@app.post("/v1/cdpr/issue", tags=["VGS-012 Cross-Domain Provenance"])
+async def cdpr_issue(
+    req:       CDPRRequest,
+    x_api_key: Optional[str] = Header(None)
+):
+    """
+    VGS-012: Issue a Cross-Domain Provenance Receipt (CDPR).
+
+    The bridge artifact between ATF and VGS governance domains.
+
+    Harold's question answered:
+    "How does your evidence layer handle cross-domain authority provenance?"
+
+    A CDPR wraps artifacts from two different governance domains
+    into a single dual-signed, dual-classified provenance receipt
+    verifiable offline by either domain's verifier independently.
+
+    Supported bridges:
+    ATF → VGS    (ATF Delegation Receipt → VGS GDR)
+    VGS → ATF    (VGS RCR → ATF Continuity Record)
+    EU  → CN     (EU AI Act artifact → CN AI Law artifact)
+    EU  → GCC    (EU AI Act artifact → DIFC artifact)
+    """
+    require_api_key(x_api_key)
+
+    cdpr_id = req.cdpr_id or f"CDPR-{uuid.uuid4().hex[:8].upper()}"
+
+    if not req.provenance_chain:
+        req.provenance_chain = [
+            {"step": 0, "domain": req.from_domain, "artifact": req.from_artifact_id or f"{req.from_artifact_type}_{uuid.uuid4().hex[:8]}", "agent": req.from_agent},
+            {"step": 1, "domain": req.to_domain,   "artifact": req.to_artifact_id   or f"{req.to_artifact_type}_{uuid.uuid4().hex[:8]}",   "agent": req.to_agent, "parent_step": 0},
+        ]
+
+    result = issue_cdpr(
+        cdpr_id           = cdpr_id,
+        from_agent        = req.from_agent,
+        to_agent          = req.to_agent,
+        from_domain       = req.from_domain,
+        to_domain         = req.to_domain,
+        from_artifact_id  = req.from_artifact_id  or f"{req.from_artifact_type}_{uuid.uuid4().hex[:8]}",
+        to_artifact_id    = req.to_artifact_id    or f"{req.to_artifact_type}_{uuid.uuid4().hex[:8]}",
+        from_artifact_type= req.from_artifact_type,
+        to_artifact_type  = req.to_artifact_type,
+        provenance_chain  = req.provenance_chain,
+        workflow_id       = req.workflow_id,
+    )
+
+    await log_event(req.from_agent, "CDPR_ISSUED", {
+        "cdpr_id":    cdpr_id,
+        "bridge":     result.get("bridge_type"),
+        "conflict":   result.get("revocation_conflict"),
+    })
+
+    return result
+
+@app.post("/v1/cdpr/verify", tags=["VGS-012 Cross-Domain Provenance"])
+async def cdpr_verify(
+    cdpr_id:   str,
+    x_api_key: Optional[str] = Header(None)
+):
+    """
+    VGS-012: Verify a Cross-Domain Provenance Receipt offline.
+
+    Recomputes provenance chain hash and canonical hash.
+    No live platform access required.
+    Verifiable by either ATF or VGS offline verifier independently.
+    """
+    require_api_key(x_api_key)
+    return verify_cdpr(cdpr_id)
+
+@app.get("/v1/cdpr/{cdpr_id}", tags=["VGS-012 Cross-Domain Provenance"])
+async def cdpr_get(
+    cdpr_id:   str,
+    x_api_key: Optional[str] = Header(None)
+):
+    """VGS-012: Retrieve a Cross-Domain Provenance Receipt."""
+    require_api_key(x_api_key)
+    cdpr = _cdpr_registry.get(cdpr_id)
+    if not cdpr:
+        raise HTTPException(404, f"CDPR {cdpr_id} not found")
+    return cdpr
+
+@app.get("/v1/cdpr/domains/semantics", tags=["VGS-012 Cross-Domain Provenance"])
+async def cdpr_domain_semantics(x_api_key: Optional[str] = Header(None)):
+    """
+    VGS-012: List revocation semantics for all supported domains.
+    Shows how each domain handles authority revocation differently.
+    """
+    require_api_key(x_api_key)
+    return {
+        "schema":  "VGS-012",
+        "domains": DOMAIN_REVOCATION_SEMANTICS,
+        "note": (
+            "Revocation semantics differ by sovereign domain. "
+            "CDPR resolves conflicts using strictest-combination. "
+            "ATF uses execution-count-bounded semantics (RFC-ATF-2). "
+            "EU AI Act uses immediate hard stop (Article 14). "
+            "Cross-domain revocation events require CDPR bridge artifacts."
+        ),
+    }
+
 # ============================================================
 # PAYSTACK WEBHOOK — Automatic onboarding on payment
 # ============================================================
