@@ -1,7 +1,7 @@
 {
   "verisigil_conformance_suite": "2.0",
   "schema": "VGS-CONFORMANCE",
-  "total_vectors": 80,
+  "total_vectors": 85,
   "invariants_covered": 7,
   "canonical_rules": {
     "sort_keys": true,
@@ -1060,6 +1060,73 @@
       "expected_pre_remediation_evidence_class": "FRI",
       "expected_captured_before_remediation": true,
       "expected_ver_inv_007_compliant": true
+    },
+    {
+      "id": "VEC-081",
+      "invariant": "VGS-012",
+      "description": "ATF DR maps to VGS GDR — canonical class mapping",
+      "input": {
+        "atf_class": "DR",
+        "artifact_id": "DR-test-001"
+      },
+      "expected_vgs_class": "GDR",
+      "expected_legal_weight": "DELEGATION_AUTHORITY",
+      "expected_parity": "semantic"
+    },
+    {
+      "id": "VEC-082",
+      "invariant": "VGS-012",
+      "description": "ATF RCR maps to VGS RCR — direct class parity",
+      "input": {
+        "atf_class": "RCR",
+        "artifact_id": "RCR-test-001"
+      },
+      "expected_vgs_class": "RCR",
+      "expected_legal_weight": "CONTINUITY_PROOF",
+      "expected_parity": "direct"
+    },
+    {
+      "id": "VEC-083",
+      "invariant": "VGS-012",
+      "description": "CDPR canonical hash — ATF to VGS bridge",
+      "input": {
+        "cdpr_id": "CDPR-test-001",
+        "from_artifact": "DR-atf-001",
+        "to_artifact": "GDR-vgs-001",
+        "chain_hash": "abc123",
+        "timestamp": "2026-05-18T00:00:00"
+      },
+      "expected_canonical": "{\"cdpr_id\":\"CDPR-test-001\",\"chain_hash\":\"abc123\",\"from_artifact\":\"DR-atf-001\",\"timestamp\":\"2026-05-18T00:00:00\",\"to_artifact\":\"GDR-vgs-001\"}",
+      "expected_hash": "sha256:a4cc51880c71a9e7404b975b54810e4102628aa59964906fa99b502b5ec49cad"
+    },
+    {
+      "id": "VEC-084",
+      "invariant": "VGS-012",
+      "description": "ATF revocation: EXECUTION_COUNT_BOUNDED vs VGS SYNCHRONOUS_PROPAGATION — conflict: False",
+      "input": {
+        "from_domain": "ATF",
+        "to_domain": "VGS",
+        "from_semantics": "EXECUTION_COUNT_BOUNDED",
+        "to_semantics": "SYNCHRONOUS_PROPAGATION"
+      },
+      "expected_conflict": false,
+      "expected_strictest": "EXECUTION_COUNT_BOUNDED",
+      "note": "Both ATF and VGS halt within 1 execution unit — no semantic conflict"
+    },
+    {
+      "id": "VEC-085",
+      "invariant": "VGS-012",
+      "description": "EU_AI_ACT + ATF revocation — conflict: True, strictest: IMMEDIATE_HARD_STOP",
+      "input": {
+        "from_domain": "EU_AI_ACT",
+        "to_domain": "ATF",
+        "from_semantics": "IMMEDIATE_HARD_STOP",
+        "to_semantics": "EXECUTION_COUNT_BOUNDED"
+      },
+      "expected_conflict": true,
+      "expected_strictest": "IMMEDIATE_HARD_STOP",
+      "note": "EU AI Act requires immediate stop — overrides ATF grace count"
     }
-  ]
+  ],
+  "cross_domain_vectors": 5
 }
