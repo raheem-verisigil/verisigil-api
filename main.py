@@ -8646,12 +8646,21 @@ def issue_cdpr(
     to_semantics   = DOMAIN_REVOCATION_SEMANTICS.get(to_domain, {})
 
     # Determine strictest revocation semantics
-    # If either domain requires immediate hard stop — apply it
-    both_semantics  = [from_semantics.get("semantics",""), to_semantics.get("semantics","")]
-    strictest       = "IMMEDIATE_HARD_STOP" if "IMMEDIATE_HARD_STOP" in both_semantics else                       "STATE_AUTHORITY_REQUIRED" if "STATE_AUTHORITY_REQUIRED" in both_semantics else                       "GRACE_PERIOD"
+    # Priority: IMMEDIATE_HARD_STOP > STATE_AUTHORITY_REQUIRED > EXECUTION_COUNT_BOUNDED > SYNCHRONOUS_PROPAGATION > GRACE_PERIOD
+    _severity = ["IMMEDIATE_HARD_STOP","STATE_AUTHORITY_REQUIRED","EXECUTION_COUNT_BOUNDED","SYNCHRONOUS_PROPAGATION","GRACE_PERIOD"]
+    from_sem  = from_semantics.get("semantics","GRACE_PERIOD")
+    to_sem    = to_semantics.get("semantics","GRACE_PERIOD")
+    from_idx  = _severity.index(from_sem) if from_sem in _severity else 4
+    to_idx    = _severity.index(to_sem)   if to_sem   in _severity else 4
+    strictest = from_sem if from_idx <= to_idx else to_sem
 
-    # Conflict detected when domains have different revocation semantics
-    conflict        = from_semantics.get("semantics") != to_semantics.get("semantics")
+    # Compatible pairs — no conflict
+    # ATF EXECUTION_COUNT_BOUNDED + VGS SYNCHRONOUS_PROPAGATION = compatible
+    _compat   = {("EXECUTION_COUNT_BOUNDED","SYNCHRONOUS_PROPAGATION"),
+                 ("SYNCHRONOUS_PROPAGATION","EXECUTION_COUNT_BOUNDED"),
+                 ("IMMEDIATE_HARD_STOP","IMMEDIATE_HARD_STOP"),
+                 ("GRACE_PERIOD","GRACE_PERIOD")}
+    conflict  = from_sem != to_sem and (from_sem, to_sem) not in _compat
 
     cdpr = {
         "cdpr_id":          cdpr_id,
