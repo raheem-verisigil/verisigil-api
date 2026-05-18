@@ -4137,7 +4137,7 @@ PROTECTED_PATTERNS = {
     "approval_chain":  ["approved by", "authorized by", "signed off", "confirmed by", "board approved"],
     "compliance":      ["in compliance with", "pursuant to", "in accordance with", "subject to regulation"],
     "liability":       ["liability", "indemnification", "hold harmless", "warranty", "guarantee"],
-    "amounts":         ["\$", "USD", "EUR", "GBP", "amount", "payment", "fee", "cost", "price"],
+    "amounts":         ["$", "USD", "EUR", "GBP", "amount", "payment", "fee", "cost", "price"],
     "dates":           ["effective date", "expiry", "deadline", "by no later than", "upon execution"],
     "parties":         ["party", "parties", "counterparty", "vendor", "client", "customer", "contractor"],
     "conditions":      ["subject to", "conditional upon", "provided that", "unless", "except"],
@@ -9678,7 +9678,7 @@ async def gate_verify(
     action_type    = req.action_type.lower()
     requires_human = action_type in policy.get("require_human_for", [])
     if action_type in ["transfer", "payment"] and "amount" in req.action_detail.lower():
-        amounts = re.findall(r'\$?(\d+(?:,\d+)*(?:\.\d+)?)', req.action_detail)
+        amounts = re.findall(r'[$]?(\d+(?:,\d+)*(?:\.\d+)?)', req.action_detail)
         if amounts:
             amount = float(amounts[0].replace(',', ''))
             if amount > policy["max_amount_usd"]:
