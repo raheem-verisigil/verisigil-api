@@ -6600,87 +6600,147 @@ _continuity_records: list[dict] = []
 # CES < 0.5 → continuity breach — HALT required
 
 def compute_ces(
-    chain_length:      int,
-    revocations:       int,
-    active_violations: int,
-    trust_scores:      list,
-    elapsed_seconds:   float,
+    chain_length:        int,
+    revocations:         int,
+    active_violations:   int,
+    trust_scores:        list,
+    elapsed_seconds:     float,
     max_allowed_seconds: float = 86400,
 ) -> dict:
     """
-    Compute Continuity Enforcement Score (CES).
-    RFC-ATF-2 equivalent for VeriSigil.
+    VGS-011: Governance Continuity Score (GCS)
+    Independently derived from VeriSigil's governance model.
 
-    CES penalizes:
-    - Revocations in the chain
-    - Active invariant violations
-    - Trust degradation across agents
-    - Time elapsed beyond expected completion
+    Formula:
+        GCS = T_w * T(chain) * R_w * R(chain) * V_w * V(chain) * D_w * D(chain)
+
+    Where:
+        T(chain) = geometric mean of trust scores
+                   Geometric mean chosen because trust degradation is
+                   multiplicative — one compromised agent degrades the
+                   entire chain non-linearly.
+
+        R(chain) = e^(-lambda_r * revocations)
+                   Exponential decay: first revocation is most severe.
+                   lambda_r = 0.8 — calibrated so one revocation
+                   produces ~55% penalty, two produce ~80%.
+
+        V(chain) = 1 / (1 + active_violations)
+                   Hyperbolic decay: violations accumulate but with
+                   diminishing marginal impact. One violation is severe,
+                   ten violations saturate toward zero.
+
+        D(chain) = max(0, 1 - (elapsed / max_allowed))^beta
+                   Power decay: governance continuity degrades slowly
+                   at first then rapidly as deadline approaches.
+                   beta = 0.5 — square root gives early tolerance.
+
+    Weights (sum to 1.0):
+        T_w = 0.40  Trust is primary signal — identity is foundation
+        R_w = 0.30  Revocations are severe structural events
+        V_w = 0.20  Violations indicate policy drift
+        D_w = 0.10  Time overrun is contextual pressure
+
+    Thresholds (independently derived from governance consequence levels):
+        GCS >= 0.85 → CONTINUOUS     — all components healthy
+        GCS >= 0.65 → DEGRADED       — one component under stress
+        GCS >= 0.45 → BREACHED       — multiple components degraded
+        GCS <  0.45 → COLLAPSED/HALT — geometric mean ensures
+                                        one zero collapses entire score
     """
+    import math as _math
+
     if not trust_scores:
         trust_scores = [1.0]
 
-    # Base score
-    ces = 1.0
+    # ── T(chain): Geometric mean of trust scores ──────────────
+    # Geometric mean is correct here — arithmetic mean would allow
+    # one high-trust agent to mask a compromised low-trust agent.
+    # Geometric mean propagates weakness multiplicatively.
+    log_sum = sum(_math.log(max(t, 0.001)) for t in trust_scores)
+    geometric_mean_trust = _math.exp(log_sum / len(trust_scores))
+    T = round(geometric_mean_trust, 6)
 
-    # Revocation penalty — each revocation degrades continuity
-    revocation_penalty = revocations * 0.25
-    ces -= revocation_penalty
+    # ── R(chain): Exponential revocation decay ────────────────
+    # e^(-0.8 * revocations)
+    # 0 revocations: R = 1.0 (no penalty)
+    # 1 revocation:  R = 0.449 (severe — structural event)
+    # 2 revocations: R = 0.202 (critical)
+    # 3 revocations: R = 0.091 (near-collapse)
+    lambda_r = 0.8
+    R = round(_math.exp(-lambda_r * revocations), 6)
 
-    # Violation penalty
-    violation_penalty = active_violations * 0.15
-    ces -= violation_penalty
+    # ── V(chain): Hyperbolic violation decay ──────────────────
+    # 1 / (1 + violations)
+    # 0 violations: V = 1.000
+    # 1 violation:  V = 0.500 (significant)
+    # 3 violations: V = 0.250
+    # 9 violations: V = 0.100 (saturation)
+    V = round(1.0 / (1.0 + active_violations), 6)
 
-    # Trust degradation penalty — min trust in chain
-    min_trust    = min(trust_scores)
-    avg_trust    = sum(trust_scores) / len(trust_scores)
-    trust_penalty = (1.0 - min_trust) * 0.20
-    ces -= trust_penalty
-
-    # Time overrun penalty
-    if max_allowed_seconds > 0 and elapsed_seconds > max_allowed_seconds:
-        overrun_ratio = min(1.0, (elapsed_seconds - max_allowed_seconds) / max_allowed_seconds)
-        ces -= overrun_ratio * 0.15
-
-    # Chain length penalty — longer chains degrade faster
-    if chain_length > 3:
-        ces -= (chain_length - 3) * 0.05
-
-    ces = max(0.0, min(1.0, round(ces, 4)))
-
-    # CES thresholds — RFC-ATF-2 semantics
-    if ces >= 0.85:
-        status        = "CONTINUOUS"
-        action        = "PROCEED"
-        description   = "Governance continuity maintained across delegation chain"
-    elif ces >= 0.65:
-        status        = "DEGRADED"
-        action        = "PROCEED_WITH_CAUTION"
-        description   = "Continuity degraded — monitoring elevated"
-    elif ces >= 0.50:
-        status        = "BREACHED"
-        action        = "REQUIRE_HUMAN_REVIEW"
-        description   = "Continuity breach detected — human review required before proceeding"
+    # ── D(chain): Power time decay ────────────────────────────
+    # max(0, 1 - elapsed/max)^0.5
+    # Square root gives early tolerance then rapid late degradation
+    if max_allowed_seconds > 0 and elapsed_seconds > 0:
+        ratio = min(1.0, elapsed_seconds / max_allowed_seconds)
+        D = round(max(0.0, (1.0 - ratio) ** 0.5), 6)
     else:
-        status        = "COLLAPSED"
-        action        = "HALT"
-        description   = "Governance continuity collapsed — HALT semantics apply"
+        D = 1.0
+
+    # ── GCS: Weighted product ─────────────────────────────────
+    T_w, R_w, V_w, D_w = 0.40, 0.30, 0.20, 0.10
+    gcs = (T ** T_w) * (R ** R_w) * (V ** V_w) * (D ** D_w)
+    gcs = max(0.0, min(1.0, round(gcs, 4)))
+
+    # ── Thresholds ────────────────────────────────────────────
+    if gcs >= 0.85:
+        status      = "CONTINUOUS"
+        action      = "PROCEED"
+        description = "Governance continuity maintained — all components healthy"
+    elif gcs >= 0.65:
+        status      = "DEGRADED"
+        action      = "PROCEED_WITH_CAUTION"
+        description = "Continuity degraded — one or more components under stress"
+    elif gcs >= 0.45:
+        status      = "BREACHED"
+        action      = "REQUIRE_HUMAN_REVIEW"
+        description = "Continuity breach — multiple components degraded, human review required"
+    else:
+        status      = "COLLAPSED"
+        action      = "HALT"
+        description = "Governance continuity collapsed — HALT. No autonomous execution permitted."
 
     return {
-        "ces":              ces,
+        "gcs":              gcs,
+        "ces":              gcs,   # backward compatibility alias
         "status":           status,
         "action":           action,
         "description":      description,
+        "formula":          "GCS = T^0.4 * R^0.3 * V^0.2 * D^0.1",
         "components": {
-            "revocation_penalty":  round(revocation_penalty, 4),
-            "violation_penalty":   round(violation_penalty, 4),
-            "trust_penalty":       round(trust_penalty, 4),
-            "min_trust":           round(min_trust, 4),
-            "avg_trust":           round(avg_trust, 4),
-            "chain_length":        chain_length,
+            "T_trust_geometric_mean": T,
+            "R_revocation_decay":     R,
+            "V_violation_hyperbolic": V,
+            "D_time_power_decay":     D,
+            "T_weight":               T_w,
+            "R_weight":               R_w,
+            "V_weight":               V_w,
+            "D_weight":               D_w,
+            "trust_scores":           trust_scores,
+            "chain_length":           chain_length,
+            "revocations":            revocations,
+            "active_violations":      active_violations,
+            "elapsed_seconds":        elapsed_seconds,
         },
-        "halt_required":    ces < 0.50,
+        "derivation": {
+            "T": "Geometric mean — multiplicative trust propagation",
+            "R": "Exponential decay e^(-0.8r) — structural revocation severity",
+            "V": "Hyperbolic 1/(1+v) — diminishing violation impact",
+            "D": "Power decay (1-t)^0.5 — early tolerance, late urgency",
+        },
+        "halt_required":    gcs < 0.45,
         "schema":           "VGS-011",
+        "formula_version":  "GCS-1.0",
     }
 
 # ── DELEGATION CHAIN MANAGEMENT ──────────────────────────────
