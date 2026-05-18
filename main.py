@@ -8598,9 +8598,21 @@ DOMAIN_REVOCATION_SEMANTICS = {
     },
     "ATF": {
         "semantics":     "EXECUTION_COUNT_BOUNDED",
-        "grace_period":  1,  # 1 execution count
+        "grace_period":  1,
         "evidence_class":"RCR",
         "description":   "ATF RFC-ATF-2: execution-count-based validity, not TTL.",
+    },
+    "VGS": {
+        "semantics":     "SYNCHRONOUS_PROPAGATION",
+        "grace_period":  0,
+        "evidence_class":"RCR",
+        "description":   "VGS-011: synchronous revocation — all downstream suspended within same invocation.",
+    },
+    "NONE": {
+        "semantics":     "GRACE_PERIOD",
+        "grace_period":  86400,
+        "evidence_class":"ATR",
+        "description":   "No specific domain — standard grace period applies.",
     },
 }
 
@@ -8712,7 +8724,7 @@ def issue_cdpr(
             "vgs_verifiable":         True,
             "atf_compatible":         "ATF" in [from_domain, to_domain],
             "offline_verifiable":     True,
-            "cross_domain_valid":     not conflict or strictest == "IMMEDIATE_HARD_STOP",
+            "cross_domain_valid":     not conflict,
             "requires_live_platform": False,
         },
 
