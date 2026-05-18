@@ -7289,88 +7289,1054 @@ def _compute_conformance_hash(obj: dict) -> str:
 
 # Pre-computed conformance vectors
 CONFORMANCE_VECTORS = [
-    {
-        "id":          "VEC-001",
-        "invariant":   "VER-INV-008",
-        "description": "Basic canonical serialization — ASCII only",
-        "input":       {"action": "payment", "amount": 50000, "agent": "vsa_001"},
-        "expected_canonical": '{"action":"payment","agent":"vsa_001","amount":50000}',
+  {
+    "id": "VEC-001",
+    "invariant": "VER-INV-008",
+    "description": "Canonical serialization — ASCII basic",
+    "input": {
+      "action": "payment",
+      "amount": 50000,
+      "agent": "vsa_001"
     },
-    {
-        "id":          "VEC-002",
-        "invariant":   "VER-INV-008",
-        "description": "Unicode canonical serialization — ensure_ascii=False",
-        "input":       {"user": "José", "action": "approve", "region": "EU"},
-        "expected_canonical": '{"action":"approve","region":"EU","user":"José"}',
+    "expected_canonical": "{\"action\":\"payment\",\"agent\":\"vsa_001\",\"amount\":50000}",
+    "expected_hash": "sha256:4c0ce89f23831373429bd94c2985fc86145dc203db1855b265b5341a8ba8001b"
+  },
+  {
+    "id": "VEC-002",
+    "invariant": "VER-INV-008",
+    "description": "Canonical serialization — Unicode José",
+    "input": {
+      "user": "José",
+      "action": "approve",
+      "region": "EU"
     },
-    {
-        "id":          "VEC-003",
-        "invariant":   "VER-INV-001",
-        "description": "GDR evidence hash — classification binding",
-        "input": {
-            "evidence_class":    "GDR",
-            "agent_id":          "vsa_1483d06a89c4",
-            "allowed_action":    "payment",
-            "delegated_by":      "org_verisigil",
-        },
-        "expected_class":  "GDR",
-        "expected_weight": "DELEGATION_AUTHORITY",
+    "expected_canonical": "{\"action\":\"approve\",\"region\":\"EU\",\"user\":\"José\"}",
+    "expected_hash": "sha256:96cfefd1a75e84f25f284c1b22523afb75944c11dbbb98470be9538bb7489da4"
+  },
+  {
+    "id": "VEC-003",
+    "invariant": "VER-INV-008",
+    "description": "Canonical serialization — Unicode Ünder",
+    "input": {
+      "user": "Ünder",
+      "action": "review",
+      "region": "DE"
     },
-    {
-        "id":          "VEC-004",
-        "invariant":   "VER-INV-004",
-        "description": "PVR cannot transition to ADR — terminal class",
-        "input":       {"from_class": "PVR", "to_class": "ADR"},
-        "expected_allowed": False,
-        "expected_reason":  "Policy violations are the most sensitive — immutable",
+    "expected_canonical": "{\"action\":\"review\",\"region\":\"DE\",\"user\":\"Ünder\"}",
+    "expected_hash": "sha256:df5b279b0d367dcefe3f3ab0fa719e8a94496437adbbae65efbf2286591000ef"
+  },
+  {
+    "id": "VEC-004",
+    "invariant": "VER-INV-008",
+    "description": "Canonical serialization — Unicode Chinese",
+    "input": {
+      "user": "中文",
+      "action": "approve"
     },
-    {
-        "id":          "VEC-005",
-        "invariant":   "VER-INV-005",
-        "description": "EU data + EU infra → EU_AI_ACT regime",
-        "input": {
-            "action_type":            "payment",
-            "data_subject_region":    "EU",
-            "infrastructure_region":  "EU",
-        },
-        "expected_primary_regime":    "EU_AI_ACT",
-        "expected_decision":          "REQUIRE_HUMAN_APPROVAL",
+    "expected_canonical": "{\"action\":\"approve\",\"user\":\"中文\"}",
+    "expected_hash": "sha256:549e1e56d07bc7ff90d03b8355a7486a711b4b5b296f8a420998c8bdbdb0e035"
+  },
+  {
+    "id": "VEC-005",
+    "invariant": "VER-INV-008",
+    "description": "Canonical serialization — Unicode Portuguese",
+    "input": {
+      "user": "Ação",
+      "action": "login"
     },
-    {
-        "id":          "VEC-006",
-        "invariant":   "VER-INV-005",
-        "description": "CN agent + EU data → multi-regime conflict",
-        "input": {
-            "action_type":             "payment",
-            "data_subject_region":     "EU",
-            "agent_owner_jurisdiction":"CN",
-        },
-        "expected_regime_count":   2,
-        "expected_conflicts":      True,
+    "expected_canonical": "{\"action\":\"login\",\"user\":\"Ação\"}",
+    "expected_hash": "sha256:125fdc7760cc4af65361874c6b9786d29938f3adb0ea9e6f6ea8677339793247"
+  },
+  {
+    "id": "VEC-006",
+    "invariant": "VER-INV-008",
+    "description": "Canonical serialization — Nested object",
+    "input": {
+      "nested": {
+        "key": "value",
+        "num": 42
+      },
+      "top": "level"
     },
-    {
-        "id":          "VEC-007",
-        "invariant":   "VER-INV-006",
-        "description": "B revoked → C suspended immediately",
-        "input": {
-            "chain":    ["agent_A","agent_B","agent_C"],
-            "revoke":   "agent_B",
-            "reason":   "trust_degraded",
-        },
-        "expected_downstream_suspended": ["agent_C"],
-        "expected_halt_required":        True,
+    "expected_canonical": "{\"nested\":{\"key\":\"value\",\"num\":42},\"top\":\"level\"}",
+    "expected_hash": "sha256:c26c03ac45028db537dceffd89774453a49cebeef454da4fc4e144c659284d08"
+  },
+  {
+    "id": "VEC-007",
+    "invariant": "VER-INV-008",
+    "description": "Canonical serialization — Key sort order",
+    "input": {
+      "b": "second",
+      "a": "first",
+      "c": "third"
     },
-    {
-        "id":          "VEC-008",
-        "invariant":   "VER-INV-007",
-        "description": "Pre-remediation FRI created before collapse resolved",
-        "input": {
-            "chain_id":    "chain_test",
-            "revoke":      "agent_B",
-            "pre_remediation_evidence_class": "FRI",
-        },
-        "expected_evidence_captured_before_remediation": True,
+    "expected_canonical": "{\"a\":\"first\",\"b\":\"second\",\"c\":\"third\"}",
+    "expected_hash": "sha256:6854aa11c8163a8617a8760ba9e089a4656002101d8e31112efb39bb70a042fa"
+  },
+  {
+    "id": "VEC-008",
+    "invariant": "VER-INV-008",
+    "description": "Canonical serialization — Float values",
+    "input": {
+      "amount": 0.001,
+      "trust": 0.963
     },
+    "expected_canonical": "{\"amount\":0.001,\"trust\":0.963}",
+    "expected_hash": "sha256:0f09f210b388a608dfe0b42cd167379630b4dcf84a47508ccd97ece13f6ae590"
+  },
+  {
+    "id": "VEC-009",
+    "invariant": "VER-INV-008",
+    "description": "Canonical serialization — Boolean values",
+    "input": {
+      "flag": true,
+      "other": false
+    },
+    "expected_canonical": "{\"flag\":true,\"other\":false}",
+    "expected_hash": "sha256:97071956dc58b0d752262d2f60f02ba9fedca2c615692eed751c30fb94023293"
+  },
+  {
+    "id": "VEC-010",
+    "invariant": "VER-INV-008",
+    "description": "Canonical serialization — Integer values",
+    "input": {
+      "count": 0,
+      "score": 100
+    },
+    "expected_canonical": "{\"count\":0,\"score\":100}",
+    "expected_hash": "sha256:8fd7bde8b7e0cbe1c249db3ba0f09e765d6c35228e43d0a41fa2343c48a1f97f"
+  },
+  {
+    "id": "VEC-011",
+    "invariant": "VER-INV-008",
+    "description": "Canonical serialization — Array value",
+    "input": {
+      "list_key": [
+        1,
+        2,
+        3
+      ],
+      "name": "test"
+    },
+    "expected_canonical": "{\"list_key\":[1,2,3],\"name\":\"test\"}",
+    "expected_hash": "sha256:53828b5a10cc9a0afdc5ee501040528b5c584145bf5413b0c89f0988df38b2fc"
+  },
+  {
+    "id": "VEC-012",
+    "invariant": "VER-INV-008",
+    "description": "Canonical serialization — Empty nested",
+    "input": {
+      "empty": {},
+      "name": "test"
+    },
+    "expected_canonical": "{\"empty\":{},\"name\":\"test\"}",
+    "expected_hash": "sha256:cc7272dc54978faacd8a3250b97981b7577fd9024b11a2a58148443b84b7db88"
+  },
+  {
+    "id": "VEC-013",
+    "invariant": "VER-INV-008",
+    "description": "Canonical serialization — Special chars",
+    "input": {
+      "special": "tab\there",
+      "name": "x"
+    },
+    "expected_canonical": "{\"name\":\"x\",\"special\":\"tab\\there\"}",
+    "expected_hash": "sha256:3346efb20fd0b2f734355b8c78699c0047aafd14c20583b1594961d88329f52e"
+  },
+  {
+    "id": "VEC-014",
+    "invariant": "VER-INV-008",
+    "description": "Canonical serialization — Large number",
+    "input": {
+      "amount": 1000000,
+      "currency": "USD"
+    },
+    "expected_canonical": "{\"amount\":1000000,\"currency\":\"USD\"}",
+    "expected_hash": "sha256:2a2bb9634e7109a3f2b3b75d0f8c2e04206683dabdf0e0098c2412d4100990eb"
+  },
+  {
+    "id": "VEC-015",
+    "invariant": "VER-INV-008",
+    "description": "Canonical serialization — High precision float",
+    "input": {
+      "trust": 0.9999999,
+      "score": 1.0
+    },
+    "expected_canonical": "{\"score\":1.0,\"trust\":0.9999999}",
+    "expected_hash": "sha256:eebd49c11d04aff4a41080ba007cf55b7bfb747835c8d35dd54a0c922cffe2aa"
+  },
+  {
+    "id": "VEC-016",
+    "invariant": "VER-INV-008",
+    "description": "Canonical serialization — Five keys sort",
+    "input": {
+      "a": 1,
+      "b": 2,
+      "c": 3,
+      "d": 4,
+      "e": 5
+    },
+    "expected_canonical": "{\"a\":1,\"b\":2,\"c\":3,\"d\":4,\"e\":5}",
+    "expected_hash": "sha256:4d7a957fa90c86fed223e3aa999009d2ff6e4b16ed7c4f8a76ad4520668236a7"
+  },
+  {
+    "id": "VEC-017",
+    "invariant": "VER-INV-008",
+    "description": "Canonical serialization — GCC context",
+    "input": {
+      "region": "AE",
+      "sector": "finance"
+    },
+    "expected_canonical": "{\"region\":\"AE\",\"sector\":\"finance\"}",
+    "expected_hash": "sha256:5bfdef5efefea4739dbfd2b7e51a7c48a123729c245cc0b7502f497e748e9908"
+  },
+  {
+    "id": "VEC-018",
+    "invariant": "VER-INV-008",
+    "description": "Canonical serialization — CN context",
+    "input": {
+      "jurisdiction": "CN",
+      "law": "AI_2025"
+    },
+    "expected_canonical": "{\"jurisdiction\":\"CN\",\"law\":\"AI_2025\"}",
+    "expected_hash": "sha256:d06f9ac9972962fb463d64efba478588d498a9515ae0557198a0f84247f3d2f7"
+  },
+  {
+    "id": "VEC-019",
+    "invariant": "VER-INV-008",
+    "description": "Canonical serialization — Version info",
+    "input": {
+      "version": "VGS-007",
+      "schema": "1.0"
+    },
+    "expected_canonical": "{\"schema\":\"1.0\",\"version\":\"VGS-007\"}",
+    "expected_hash": "sha256:fd65b1000eb208e1d4a788e6246f69b0630dab041272b54e23ad5ed898f50516"
+  },
+  {
+    "id": "VEC-020",
+    "invariant": "VER-INV-008",
+    "description": "Canonical serialization — Delete action",
+    "input": {
+      "action": "delete_records",
+      "count": 500
+    },
+    "expected_canonical": "{\"action\":\"delete_records\",\"count\":500}",
+    "expected_hash": "sha256:6733ed724b43dd167362b3d895e4d8d28bfc427fec75d72a76b89b3aad869c19"
+  },
+  {
+    "id": "VEC-021",
+    "invariant": "VER-INV-001",
+    "description": "GDR binding — payment delegated",
+    "input": {
+      "evidence_class": "GDR",
+      "agent_id": "vsa_test",
+      "action": "payment delegated"
+    },
+    "expected_class": "GDR",
+    "expected_weight": "DELEGATION_AUTHORITY",
+    "expected_terminal": true
+  },
+  {
+    "id": "VEC-022",
+    "invariant": "VER-INV-001",
+    "description": "RCR binding — continuity record",
+    "input": {
+      "evidence_class": "RCR",
+      "agent_id": "vsa_test",
+      "action": "continuity record"
+    },
+    "expected_class": "RCR",
+    "expected_weight": "CONTINUITY_PROOF",
+    "expected_terminal": true
+  },
+  {
+    "id": "VEC-023",
+    "invariant": "VER-INV-001",
+    "description": "ATR binding — authority changed",
+    "input": {
+      "evidence_class": "ATR",
+      "agent_id": "vsa_test",
+      "action": "authority changed"
+    },
+    "expected_class": "ATR",
+    "expected_weight": "AUTHORITY_TRANSITION",
+    "expected_terminal": true
+  },
+  {
+    "id": "VEC-024",
+    "invariant": "VER-INV-001",
+    "description": "EER binding — escalation fired",
+    "input": {
+      "evidence_class": "EER",
+      "agent_id": "vsa_test",
+      "action": "escalation fired"
+    },
+    "expected_class": "EER",
+    "expected_weight": "ESCALATION_EVIDENCE",
+    "expected_terminal": true
+  },
+  {
+    "id": "VEC-025",
+    "invariant": "VER-INV-001",
+    "description": "ADR binding — human approved",
+    "input": {
+      "evidence_class": "ADR",
+      "agent_id": "vsa_test",
+      "action": "human approved"
+    },
+    "expected_class": "ADR",
+    "expected_weight": "APPROVAL_DECISION",
+    "expected_terminal": true
+  },
+  {
+    "id": "VEC-026",
+    "invariant": "VER-INV-001",
+    "description": "PVR binding — policy violated",
+    "input": {
+      "evidence_class": "PVR",
+      "agent_id": "vsa_test",
+      "action": "policy violated"
+    },
+    "expected_class": "PVR",
+    "expected_weight": "POLICY_VIOLATION",
+    "expected_terminal": true
+  },
+  {
+    "id": "VEC-027",
+    "invariant": "VER-INV-001",
+    "description": "FRI binding — forensic input",
+    "input": {
+      "evidence_class": "FRI",
+      "agent_id": "vsa_test",
+      "action": "forensic input"
+    },
+    "expected_class": "FRI",
+    "expected_weight": "FORENSIC_INPUT",
+    "expected_terminal": true
+  },
+  {
+    "id": "VEC-028",
+    "invariant": "VER-INV-001",
+    "description": "AIP binding — archive proof",
+    "input": {
+      "evidence_class": "AIP",
+      "agent_id": "vsa_test",
+      "action": "archive proof"
+    },
+    "expected_class": "AIP",
+    "expected_weight": "ARCHIVE_INTEGRITY",
+    "expected_terminal": true
+  },
+  {
+    "id": "VEC-029",
+    "invariant": "VER-INV-001",
+    "description": "GDR binding — second GDR",
+    "input": {
+      "evidence_class": "GDR",
+      "agent_id": "vsa_test",
+      "action": "second GDR"
+    },
+    "expected_class": "GDR",
+    "expected_weight": "DELEGATION_AUTHORITY",
+    "expected_terminal": true
+  },
+  {
+    "id": "VEC-030",
+    "invariant": "VER-INV-001",
+    "description": "PVR binding — second PVR",
+    "input": {
+      "evidence_class": "PVR",
+      "agent_id": "vsa_test",
+      "action": "second PVR"
+    },
+    "expected_class": "PVR",
+    "expected_weight": "POLICY_VIOLATION",
+    "expected_terminal": true
+  },
+  {
+    "id": "VEC-031",
+    "invariant": "VER-INV-004",
+    "description": "GDR cannot transition to PVR — terminal",
+    "input": {
+      "from_class": "GDR",
+      "to_class": "PVR"
+    },
+    "expected_allowed": false,
+    "expected_terminal": true
+  },
+  {
+    "id": "VEC-032",
+    "invariant": "VER-INV-004",
+    "description": "PVR cannot transition to ADR — terminal",
+    "input": {
+      "from_class": "PVR",
+      "to_class": "ADR"
+    },
+    "expected_allowed": false,
+    "expected_terminal": true
+  },
+  {
+    "id": "VEC-033",
+    "invariant": "VER-INV-004",
+    "description": "ADR cannot transition to GDR — terminal",
+    "input": {
+      "from_class": "ADR",
+      "to_class": "GDR"
+    },
+    "expected_allowed": false,
+    "expected_terminal": true
+  },
+  {
+    "id": "VEC-034",
+    "invariant": "VER-INV-004",
+    "description": "FRI cannot transition to AIP — terminal",
+    "input": {
+      "from_class": "FRI",
+      "to_class": "AIP"
+    },
+    "expected_allowed": false,
+    "expected_terminal": true
+  },
+  {
+    "id": "VEC-035",
+    "invariant": "VER-INV-004",
+    "description": "RCR cannot transition to GDR — terminal",
+    "input": {
+      "from_class": "RCR",
+      "to_class": "GDR"
+    },
+    "expected_allowed": false,
+    "expected_terminal": true
+  },
+  {
+    "id": "VEC-036",
+    "invariant": "VER-INV-004",
+    "description": "EER cannot transition to ADR — terminal",
+    "input": {
+      "from_class": "EER",
+      "to_class": "ADR"
+    },
+    "expected_allowed": false,
+    "expected_terminal": true
+  },
+  {
+    "id": "VEC-037",
+    "invariant": "VER-INV-004",
+    "description": "ATR cannot transition to RCR — terminal",
+    "input": {
+      "from_class": "ATR",
+      "to_class": "RCR"
+    },
+    "expected_allowed": false,
+    "expected_terminal": true
+  },
+  {
+    "id": "VEC-038",
+    "invariant": "VER-INV-004",
+    "description": "AIP cannot transition to FRI — terminal",
+    "input": {
+      "from_class": "AIP",
+      "to_class": "FRI"
+    },
+    "expected_allowed": false,
+    "expected_terminal": true
+  },
+  {
+    "id": "VEC-039",
+    "invariant": "VER-INV-004",
+    "description": "GDR cannot transition to ADR — terminal",
+    "input": {
+      "from_class": "GDR",
+      "to_class": "ADR"
+    },
+    "expected_allowed": false,
+    "expected_terminal": true
+  },
+  {
+    "id": "VEC-040",
+    "invariant": "VER-INV-004",
+    "description": "PVR cannot transition to FRI — terminal",
+    "input": {
+      "from_class": "PVR",
+      "to_class": "FRI"
+    },
+    "expected_allowed": false,
+    "expected_terminal": true
+  },
+  {
+    "id": "VEC-041",
+    "invariant": "VER-INV-004",
+    "description": "RCR cannot transition to EER — terminal",
+    "input": {
+      "from_class": "RCR",
+      "to_class": "EER"
+    },
+    "expected_allowed": false,
+    "expected_terminal": true
+  },
+  {
+    "id": "VEC-042",
+    "invariant": "VER-INV-004",
+    "description": "ATR cannot transition to GDR — terminal",
+    "input": {
+      "from_class": "ATR",
+      "to_class": "GDR"
+    },
+    "expected_allowed": false,
+    "expected_terminal": true
+  },
+  {
+    "id": "VEC-043",
+    "invariant": "VER-INV-005",
+    "description": "payment | data:EU infra:EU owner:none → EU_AI_ACT",
+    "input": {
+      "action_type": "payment",
+      "data_subject_region": "EU",
+      "infrastructure_region": "EU",
+      "agent_owner_jurisdiction": ""
+    },
+    "expected_primary_regime": "EU_AI_ACT",
+    "expected_decision": "REQUIRE_HUMAN_APPROVAL",
+    "expected_conflicts": false
+  },
+  {
+    "id": "VEC-044",
+    "invariant": "VER-INV-005",
+    "description": "payment | data:EU infra:EU owner:CN → EU_AI_ACT",
+    "input": {
+      "action_type": "payment",
+      "data_subject_region": "EU",
+      "infrastructure_region": "EU",
+      "agent_owner_jurisdiction": "CN"
+    },
+    "expected_primary_regime": "EU_AI_ACT",
+    "expected_decision": "REQUIRE_HUMAN_APPROVAL",
+    "expected_conflicts": true
+  },
+  {
+    "id": "VEC-045",
+    "invariant": "VER-INV-005",
+    "description": "payment | data:AE infra:AE owner:none → GCC_DIFC",
+    "input": {
+      "action_type": "payment",
+      "data_subject_region": "AE",
+      "infrastructure_region": "AE",
+      "agent_owner_jurisdiction": ""
+    },
+    "expected_primary_regime": "GCC_DIFC",
+    "expected_decision": "REQUIRE_HUMAN_APPROVAL",
+    "expected_conflicts": false
+  },
+  {
+    "id": "VEC-046",
+    "invariant": "VER-INV-005",
+    "description": "payment | data:AE infra:AE owner:CN → GCC_DIFC",
+    "input": {
+      "action_type": "payment",
+      "data_subject_region": "AE",
+      "infrastructure_region": "AE",
+      "agent_owner_jurisdiction": "CN"
+    },
+    "expected_primary_regime": "GCC_DIFC",
+    "expected_decision": "REQUIRE_HUMAN_APPROVAL",
+    "expected_conflicts": true
+  },
+  {
+    "id": "VEC-047",
+    "invariant": "VER-INV-005",
+    "description": "web_search | data:EU infra:EU owner:none → EU_AI_ACT",
+    "input": {
+      "action_type": "web_search",
+      "data_subject_region": "EU",
+      "infrastructure_region": "EU",
+      "agent_owner_jurisdiction": ""
+    },
+    "expected_primary_regime": "EU_AI_ACT",
+    "expected_decision": "ALLOW",
+    "expected_conflicts": false
+  },
+  {
+    "id": "VEC-048",
+    "invariant": "VER-INV-005",
+    "description": "content_generation | data:CN infra:CN owner:none → CN_AI_LAW",
+    "input": {
+      "action_type": "content_generation",
+      "data_subject_region": "CN",
+      "infrastructure_region": "CN",
+      "agent_owner_jurisdiction": ""
+    },
+    "expected_primary_regime": "CN_AI_LAW",
+    "expected_decision": "REQUIRE_HUMAN_APPROVAL",
+    "expected_conflicts": false
+  },
+  {
+    "id": "VEC-049",
+    "invariant": "VER-INV-005",
+    "description": "political_content | data:CN infra:CN owner:none → CN_AI_LAW",
+    "input": {
+      "action_type": "political_content",
+      "data_subject_region": "CN",
+      "infrastructure_region": "CN",
+      "agent_owner_jurisdiction": ""
+    },
+    "expected_primary_regime": "CN_AI_LAW",
+    "expected_decision": "DENY",
+    "expected_conflicts": false
+  },
+  {
+    "id": "VEC-050",
+    "invariant": "VER-INV-005",
+    "description": "payment | data:DE infra:EU owner:US → EU_AI_ACT",
+    "input": {
+      "action_type": "payment",
+      "data_subject_region": "DE",
+      "infrastructure_region": "EU",
+      "agent_owner_jurisdiction": "US"
+    },
+    "expected_primary_regime": "EU_AI_ACT",
+    "expected_decision": "REQUIRE_HUMAN_APPROVAL",
+    "expected_conflicts": false
+  },
+  {
+    "id": "VEC-051",
+    "invariant": "VER-INV-005",
+    "description": "payment | data:FR infra:EU owner:CN → EU_AI_ACT",
+    "input": {
+      "action_type": "payment",
+      "data_subject_region": "FR",
+      "infrastructure_region": "EU",
+      "agent_owner_jurisdiction": "CN"
+    },
+    "expected_primary_regime": "EU_AI_ACT",
+    "expected_decision": "REQUIRE_HUMAN_APPROVAL",
+    "expected_conflicts": true
+  },
+  {
+    "id": "VEC-052",
+    "invariant": "VER-INV-005",
+    "description": "hiring | data:EU infra:EU owner:none → EU_AI_ACT",
+    "input": {
+      "action_type": "hiring",
+      "data_subject_region": "EU",
+      "infrastructure_region": "EU",
+      "agent_owner_jurisdiction": ""
+    },
+    "expected_primary_regime": "EU_AI_ACT",
+    "expected_decision": "REQUIRE_HUMAN_APPROVAL",
+    "expected_conflicts": false
+  },
+  {
+    "id": "VEC-053",
+    "invariant": "VER-INV-005",
+    "description": "credit_scoring | data:EU infra:EU owner:none → EU_AI_ACT",
+    "input": {
+      "action_type": "credit_scoring",
+      "data_subject_region": "EU",
+      "infrastructure_region": "EU",
+      "agent_owner_jurisdiction": ""
+    },
+    "expected_primary_regime": "EU_AI_ACT",
+    "expected_decision": "REQUIRE_HUMAN_APPROVAL",
+    "expected_conflicts": false
+  },
+  {
+    "id": "VEC-054",
+    "invariant": "VER-INV-005",
+    "description": "data_analysis | data:AE infra:DIFC owner:none → GCC_DIFC",
+    "input": {
+      "action_type": "data_analysis",
+      "data_subject_region": "AE",
+      "infrastructure_region": "DIFC",
+      "agent_owner_jurisdiction": ""
+    },
+    "expected_primary_regime": "GCC_DIFC",
+    "expected_decision": "ALLOW",
+    "expected_conflicts": false
+  },
+  {
+    "id": "VEC-055",
+    "invariant": "VER-INV-005",
+    "description": "transfer_funds | data:AE infra:AE owner:none → GCC_DIFC",
+    "input": {
+      "action_type": "transfer_funds",
+      "data_subject_region": "AE",
+      "infrastructure_region": "AE",
+      "agent_owner_jurisdiction": ""
+    },
+    "expected_primary_regime": "GCC_DIFC",
+    "expected_decision": "REQUIRE_HUMAN_APPROVAL",
+    "expected_conflicts": false
+  },
+  {
+    "id": "VEC-056",
+    "invariant": "VER-INV-005",
+    "description": "payment | data:SA infra:AE owner:none → GCC_DIFC",
+    "input": {
+      "action_type": "payment",
+      "data_subject_region": "SA",
+      "infrastructure_region": "AE",
+      "agent_owner_jurisdiction": ""
+    },
+    "expected_primary_regime": "GCC_DIFC",
+    "expected_decision": "REQUIRE_HUMAN_APPROVAL",
+    "expected_conflicts": false
+  },
+  {
+    "id": "VEC-057",
+    "invariant": "VER-INV-005",
+    "description": "web_search | data:CN infra:CN owner:none → CN_AI_LAW",
+    "input": {
+      "action_type": "web_search",
+      "data_subject_region": "CN",
+      "infrastructure_region": "CN",
+      "agent_owner_jurisdiction": ""
+    },
+    "expected_primary_regime": "CN_AI_LAW",
+    "expected_decision": "ALLOW",
+    "expected_conflicts": false
+  },
+  {
+    "id": "VEC-058",
+    "invariant": "VER-INV-005",
+    "description": "payment | data:EU infra:EU owner:AE → EU_AI_ACT",
+    "input": {
+      "action_type": "payment",
+      "data_subject_region": "EU",
+      "infrastructure_region": "EU",
+      "agent_owner_jurisdiction": "AE"
+    },
+    "expected_primary_regime": "EU_AI_ACT",
+    "expected_decision": "REQUIRE_HUMAN_APPROVAL",
+    "expected_conflicts": true
+  },
+  {
+    "id": "VEC-059",
+    "invariant": "VER-INV-006",
+    "description": "Chain ['A', 'B', 'C'] — revoke B → halt:True",
+    "input": {
+      "chain": [
+        "A",
+        "B",
+        "C"
+      ],
+      "revoke": "B",
+      "reason": "trust_degraded"
+    },
+    "expected_halt_required": true,
+    "expected_downstream_count": 1
+  },
+  {
+    "id": "VEC-060",
+    "invariant": "VER-INV-006",
+    "description": "Chain ['A', 'B', 'C', 'D'] — revoke B → halt:True",
+    "input": {
+      "chain": [
+        "A",
+        "B",
+        "C",
+        "D"
+      ],
+      "revoke": "B",
+      "reason": "revoked"
+    },
+    "expected_halt_required": true,
+    "expected_downstream_count": 2
+  },
+  {
+    "id": "VEC-061",
+    "invariant": "VER-INV-006",
+    "description": "Chain ['A', 'B', 'C', 'D'] — revoke C → halt:True",
+    "input": {
+      "chain": [
+        "A",
+        "B",
+        "C",
+        "D"
+      ],
+      "revoke": "C",
+      "reason": "anomaly"
+    },
+    "expected_halt_required": true,
+    "expected_downstream_count": 1
+  },
+  {
+    "id": "VEC-062",
+    "invariant": "VER-INV-006",
+    "description": "Chain ['A', 'B'] — revoke B → halt:True",
+    "input": {
+      "chain": [
+        "A",
+        "B"
+      ],
+      "revoke": "B",
+      "reason": "expired"
+    },
+    "expected_halt_required": true,
+    "expected_downstream_count": 0
+  },
+  {
+    "id": "VEC-063",
+    "invariant": "VER-INV-006",
+    "description": "Chain ['A', 'B', 'C'] — revoke A → halt:True",
+    "input": {
+      "chain": [
+        "A",
+        "B",
+        "C"
+      ],
+      "revoke": "A",
+      "reason": "passport_revoked"
+    },
+    "expected_halt_required": true,
+    "expected_downstream_count": 2
+  },
+  {
+    "id": "VEC-064",
+    "invariant": "VER-INV-006",
+    "description": "Chain ['A', 'B', 'C', 'D', 'E'] — revoke B → halt:True",
+    "input": {
+      "chain": [
+        "A",
+        "B",
+        "C",
+        "D",
+        "E"
+      ],
+      "revoke": "B",
+      "reason": "policy_violation"
+    },
+    "expected_halt_required": true,
+    "expected_downstream_count": 3
+  },
+  {
+    "id": "VEC-065",
+    "invariant": "VER-INV-006",
+    "description": "Chain ['A', 'B', 'C'] — revoke C → halt:False",
+    "input": {
+      "chain": [
+        "A",
+        "B",
+        "C"
+      ],
+      "revoke": "C",
+      "reason": "trust_degraded"
+    },
+    "expected_halt_required": false,
+    "expected_downstream_count": 0
+  },
+  {
+    "id": "VEC-066",
+    "invariant": "VER-INV-006",
+    "description": "Chain ['A', 'B', 'C', 'D'] — revoke D → halt:False",
+    "input": {
+      "chain": [
+        "A",
+        "B",
+        "C",
+        "D"
+      ],
+      "revoke": "D",
+      "reason": "expired"
+    },
+    "expected_halt_required": false,
+    "expected_downstream_count": 0
+  },
+  {
+    "id": "VEC-067",
+    "invariant": "VER-INV-006",
+    "description": "Chain ['A', 'B', 'C'] — revoke B → halt:True",
+    "input": {
+      "chain": [
+        "A",
+        "B",
+        "C"
+      ],
+      "revoke": "B",
+      "reason": "shadow_detected"
+    },
+    "expected_halt_required": true,
+    "expected_downstream_count": 1
+  },
+  {
+    "id": "VEC-068",
+    "invariant": "VER-INV-006",
+    "description": "Chain ['A', 'B', 'C', 'D'] — revoke A → halt:True",
+    "input": {
+      "chain": [
+        "A",
+        "B",
+        "C",
+        "D"
+      ],
+      "revoke": "A",
+      "reason": "revoked"
+    },
+    "expected_halt_required": true,
+    "expected_downstream_count": 3
+  },
+  {
+    "id": "VEC-069",
+    "invariant": "VER-INV-006",
+    "description": "Chain ['A', 'B'] — revoke A → halt:True",
+    "input": {
+      "chain": [
+        "A",
+        "B"
+      ],
+      "revoke": "A",
+      "reason": "expired"
+    },
+    "expected_halt_required": true,
+    "expected_downstream_count": 1
+  },
+  {
+    "id": "VEC-070",
+    "invariant": "VER-INV-006",
+    "description": "Chain ['A', 'B', 'C', 'D', 'E'] — revoke C → halt:True",
+    "input": {
+      "chain": [
+        "A",
+        "B",
+        "C",
+        "D",
+        "E"
+      ],
+      "revoke": "C",
+      "reason": "anomaly"
+    },
+    "expected_halt_required": true,
+    "expected_downstream_count": 2
+  },
+  {
+    "id": "VEC-071",
+    "invariant": "VER-INV-007",
+    "description": "Pre-remediation FRI captured before collapse — case 1",
+    "input": {
+      "chain_id": "chain_000",
+      "revoke": "agent_B",
+      "reason": "trust_degraded"
+    },
+    "expected_pre_remediation_evidence_class": "FRI",
+    "expected_captured_before_remediation": true,
+    "expected_ver_inv_007_compliant": true
+  },
+  {
+    "id": "VEC-072",
+    "invariant": "VER-INV-007",
+    "description": "Pre-remediation FRI captured before collapse — case 2",
+    "input": {
+      "chain_id": "chain_001",
+      "revoke": "agent_C",
+      "reason": "trust_degraded"
+    },
+    "expected_pre_remediation_evidence_class": "FRI",
+    "expected_captured_before_remediation": true,
+    "expected_ver_inv_007_compliant": true
+  },
+  {
+    "id": "VEC-073",
+    "invariant": "VER-INV-007",
+    "description": "Pre-remediation FRI captured before collapse — case 3",
+    "input": {
+      "chain_id": "chain_002",
+      "revoke": "agent_D",
+      "reason": "trust_degraded"
+    },
+    "expected_pre_remediation_evidence_class": "FRI",
+    "expected_captured_before_remediation": true,
+    "expected_ver_inv_007_compliant": true
+  },
+  {
+    "id": "VEC-074",
+    "invariant": "VER-INV-007",
+    "description": "Pre-remediation FRI captured before collapse — case 4",
+    "input": {
+      "chain_id": "chain_003",
+      "revoke": "agent_B",
+      "reason": "trust_degraded"
+    },
+    "expected_pre_remediation_evidence_class": "FRI",
+    "expected_captured_before_remediation": true,
+    "expected_ver_inv_007_compliant": true
+  },
+  {
+    "id": "VEC-075",
+    "invariant": "VER-INV-007",
+    "description": "Pre-remediation FRI captured before collapse — case 5",
+    "input": {
+      "chain_id": "chain_004",
+      "revoke": "agent_C",
+      "reason": "trust_degraded"
+    },
+    "expected_pre_remediation_evidence_class": "FRI",
+    "expected_captured_before_remediation": true,
+    "expected_ver_inv_007_compliant": true
+  },
+  {
+    "id": "VEC-076",
+    "invariant": "VER-INV-007",
+    "description": "Pre-remediation FRI captured before collapse — case 6",
+    "input": {
+      "chain_id": "chain_005",
+      "revoke": "agent_D",
+      "reason": "trust_degraded"
+    },
+    "expected_pre_remediation_evidence_class": "FRI",
+    "expected_captured_before_remediation": true,
+    "expected_ver_inv_007_compliant": true
+  },
+  {
+    "id": "VEC-077",
+    "invariant": "VER-INV-007",
+    "description": "Pre-remediation FRI captured before collapse — case 7",
+    "input": {
+      "chain_id": "chain_006",
+      "revoke": "agent_B",
+      "reason": "trust_degraded"
+    },
+    "expected_pre_remediation_evidence_class": "FRI",
+    "expected_captured_before_remediation": true,
+    "expected_ver_inv_007_compliant": true
+  },
+  {
+    "id": "VEC-078",
+    "invariant": "VER-INV-007",
+    "description": "Pre-remediation FRI captured before collapse — case 8",
+    "input": {
+      "chain_id": "chain_007",
+      "revoke": "agent_C",
+      "reason": "trust_degraded"
+    },
+    "expected_pre_remediation_evidence_class": "FRI",
+    "expected_captured_before_remediation": true,
+    "expected_ver_inv_007_compliant": true
+  },
+  {
+    "id": "VEC-079",
+    "invariant": "VER-INV-007",
+    "description": "Pre-remediation FRI captured before collapse — case 9",
+    "input": {
+      "chain_id": "chain_008",
+      "revoke": "agent_D",
+      "reason": "trust_degraded"
+    },
+    "expected_pre_remediation_evidence_class": "FRI",
+    "expected_captured_before_remediation": true,
+    "expected_ver_inv_007_compliant": true
+  },
+  {
+    "id": "VEC-080",
+    "invariant": "VER-INV-007",
+    "description": "Pre-remediation FRI captured before collapse — case 10",
+    "input": {
+      "chain_id": "chain_009",
+      "revoke": "agent_B",
+      "reason": "trust_degraded"
+    },
+    "expected_pre_remediation_evidence_class": "FRI",
+    "expected_captured_before_remediation": true,
+    "expected_ver_inv_007_compliant": true
+  }
 ]
 
 # ── ENHANCED PROPAGATE_REVOCATION ────────────────────────────
