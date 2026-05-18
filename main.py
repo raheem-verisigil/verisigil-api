@@ -7389,8 +7389,8 @@ CONFORMANCE_VECTORS = [
     "invariant": "VER-INV-008",
     "description": "Canonical serialization — Boolean values",
     "input": {
-      "flag": true,
-      "other": false
+      "flag": True,
+      "other": False
     },
     "expected_canonical": "{\"flag\":true,\"other\":false}",
     "expected_hash": "sha256:97071956dc58b0d752262d2f60f02ba9fedca2c615692eed751c30fb94023293"
@@ -7534,7 +7534,7 @@ CONFORMANCE_VECTORS = [
     },
     "expected_class": "GDR",
     "expected_weight": "DELEGATION_AUTHORITY",
-    "expected_terminal": true
+    "expected_terminal": True
   },
   {
     "id": "VEC-022",
@@ -7547,7 +7547,7 @@ CONFORMANCE_VECTORS = [
     },
     "expected_class": "RCR",
     "expected_weight": "CONTINUITY_PROOF",
-    "expected_terminal": true
+    "expected_terminal": True
   },
   {
     "id": "VEC-023",
@@ -7560,7 +7560,7 @@ CONFORMANCE_VECTORS = [
     },
     "expected_class": "ATR",
     "expected_weight": "AUTHORITY_TRANSITION",
-    "expected_terminal": true
+    "expected_terminal": True
   },
   {
     "id": "VEC-024",
@@ -7573,7 +7573,7 @@ CONFORMANCE_VECTORS = [
     },
     "expected_class": "EER",
     "expected_weight": "ESCALATION_EVIDENCE",
-    "expected_terminal": true
+    "expected_terminal": True
   },
   {
     "id": "VEC-025",
@@ -7586,7 +7586,7 @@ CONFORMANCE_VECTORS = [
     },
     "expected_class": "ADR",
     "expected_weight": "APPROVAL_DECISION",
-    "expected_terminal": true
+    "expected_terminal": True
   },
   {
     "id": "VEC-026",
@@ -7599,7 +7599,7 @@ CONFORMANCE_VECTORS = [
     },
     "expected_class": "PVR",
     "expected_weight": "POLICY_VIOLATION",
-    "expected_terminal": true
+    "expected_terminal": True
   },
   {
     "id": "VEC-027",
@@ -7612,7 +7612,7 @@ CONFORMANCE_VECTORS = [
     },
     "expected_class": "FRI",
     "expected_weight": "FORENSIC_INPUT",
-    "expected_terminal": true
+    "expected_terminal": True
   },
   {
     "id": "VEC-028",
@@ -7625,7 +7625,7 @@ CONFORMANCE_VECTORS = [
     },
     "expected_class": "AIP",
     "expected_weight": "ARCHIVE_INTEGRITY",
-    "expected_terminal": true
+    "expected_terminal": True
   },
   {
     "id": "VEC-029",
@@ -7638,7 +7638,7 @@ CONFORMANCE_VECTORS = [
     },
     "expected_class": "GDR",
     "expected_weight": "DELEGATION_AUTHORITY",
-    "expected_terminal": true
+    "expected_terminal": True
   },
   {
     "id": "VEC-030",
@@ -7651,7 +7651,7 @@ CONFORMANCE_VECTORS = [
     },
     "expected_class": "PVR",
     "expected_weight": "POLICY_VIOLATION",
-    "expected_terminal": true
+    "expected_terminal": True
   },
   {
     "id": "VEC-031",
@@ -7661,8 +7661,8 @@ CONFORMANCE_VECTORS = [
       "from_class": "GDR",
       "to_class": "PVR"
     },
-    "expected_allowed": false,
-    "expected_terminal": true
+    "expected_allowed": False,
+    "expected_terminal": True
   },
   {
     "id": "VEC-032",
@@ -7672,8 +7672,8 @@ CONFORMANCE_VECTORS = [
       "from_class": "PVR",
       "to_class": "ADR"
     },
-    "expected_allowed": false,
-    "expected_terminal": true
+    "expected_allowed": False,
+    "expected_terminal": True
   },
   {
     "id": "VEC-033",
@@ -7683,8 +7683,8 @@ CONFORMANCE_VECTORS = [
       "from_class": "ADR",
       "to_class": "GDR"
     },
-    "expected_allowed": false,
-    "expected_terminal": true
+    "expected_allowed": False,
+    "expected_terminal": True
   },
   {
     "id": "VEC-034",
@@ -7694,8 +7694,8 @@ CONFORMANCE_VECTORS = [
       "from_class": "FRI",
       "to_class": "AIP"
     },
-    "expected_allowed": false,
-    "expected_terminal": true
+    "expected_allowed": False,
+    "expected_terminal": True
   },
   {
     "id": "VEC-035",
@@ -7705,8 +7705,8 @@ CONFORMANCE_VECTORS = [
       "from_class": "RCR",
       "to_class": "GDR"
     },
-    "expected_allowed": false,
-    "expected_terminal": true
+    "expected_allowed": False,
+    "expected_terminal": True
   },
   {
     "id": "VEC-036",
@@ -7716,8 +7716,8 @@ CONFORMANCE_VECTORS = [
       "from_class": "EER",
       "to_class": "ADR"
     },
-    "expected_allowed": false,
-    "expected_terminal": true
+    "expected_allowed": False,
+    "expected_terminal": True
   },
   {
     "id": "VEC-037",
@@ -7727,8 +7727,8 @@ CONFORMANCE_VECTORS = [
       "from_class": "ATR",
       "to_class": "RCR"
     },
-    "expected_allowed": false,
-    "expected_terminal": true
+    "expected_allowed": False,
+    "expected_terminal": True
   },
   {
     "id": "VEC-038",
@@ -7738,8 +7738,8 @@ CONFORMANCE_VECTORS = [
       "from_class": "AIP",
       "to_class": "FRI"
     },
-    "expected_allowed": false,
-    "expected_terminal": true
+    "expected_allowed": False,
+    "expected_terminal": True
   },
   {
     "id": "VEC-039",
@@ -7749,8 +7749,8 @@ CONFORMANCE_VECTORS = [
       "from_class": "GDR",
       "to_class": "ADR"
     },
-    "expected_allowed": false,
-    "expected_terminal": true
+    "expected_allowed": False,
+    "expected_terminal": True
   },
   {
     "id": "VEC-040",
@@ -7760,8 +7760,8 @@ CONFORMANCE_VECTORS = [
       "from_class": "PVR",
       "to_class": "FRI"
     },
-    "expected_allowed": false,
-    "expected_terminal": true
+    "expected_allowed": False,
+    "expected_terminal": True
   },
   {
     "id": "VEC-041",
@@ -7771,8 +7771,8 @@ CONFORMANCE_VECTORS = [
       "from_class": "RCR",
       "to_class": "EER"
     },
-    "expected_allowed": false,
-    "expected_terminal": true
+    "expected_allowed": False,
+    "expected_terminal": True
   },
   {
     "id": "VEC-042",
@@ -7782,8 +7782,8 @@ CONFORMANCE_VECTORS = [
       "from_class": "ATR",
       "to_class": "GDR"
     },
-    "expected_allowed": false,
-    "expected_terminal": true
+    "expected_allowed": False,
+    "expected_terminal": True
   },
   {
     "id": "VEC-043",
@@ -7797,7 +7797,7 @@ CONFORMANCE_VECTORS = [
     },
     "expected_primary_regime": "EU_AI_ACT",
     "expected_decision": "REQUIRE_HUMAN_APPROVAL",
-    "expected_conflicts": false
+    "expected_conflicts": False
   },
   {
     "id": "VEC-044",
@@ -7811,7 +7811,7 @@ CONFORMANCE_VECTORS = [
     },
     "expected_primary_regime": "EU_AI_ACT",
     "expected_decision": "REQUIRE_HUMAN_APPROVAL",
-    "expected_conflicts": true
+    "expected_conflicts": True
   },
   {
     "id": "VEC-045",
@@ -7825,7 +7825,7 @@ CONFORMANCE_VECTORS = [
     },
     "expected_primary_regime": "GCC_DIFC",
     "expected_decision": "REQUIRE_HUMAN_APPROVAL",
-    "expected_conflicts": false
+    "expected_conflicts": False
   },
   {
     "id": "VEC-046",
@@ -7839,7 +7839,7 @@ CONFORMANCE_VECTORS = [
     },
     "expected_primary_regime": "GCC_DIFC",
     "expected_decision": "REQUIRE_HUMAN_APPROVAL",
-    "expected_conflicts": true
+    "expected_conflicts": True
   },
   {
     "id": "VEC-047",
@@ -7853,7 +7853,7 @@ CONFORMANCE_VECTORS = [
     },
     "expected_primary_regime": "EU_AI_ACT",
     "expected_decision": "ALLOW",
-    "expected_conflicts": false
+    "expected_conflicts": False
   },
   {
     "id": "VEC-048",
@@ -7867,7 +7867,7 @@ CONFORMANCE_VECTORS = [
     },
     "expected_primary_regime": "CN_AI_LAW",
     "expected_decision": "REQUIRE_HUMAN_APPROVAL",
-    "expected_conflicts": false
+    "expected_conflicts": False
   },
   {
     "id": "VEC-049",
@@ -7881,7 +7881,7 @@ CONFORMANCE_VECTORS = [
     },
     "expected_primary_regime": "CN_AI_LAW",
     "expected_decision": "DENY",
-    "expected_conflicts": false
+    "expected_conflicts": False
   },
   {
     "id": "VEC-050",
@@ -7895,7 +7895,7 @@ CONFORMANCE_VECTORS = [
     },
     "expected_primary_regime": "EU_AI_ACT",
     "expected_decision": "REQUIRE_HUMAN_APPROVAL",
-    "expected_conflicts": false
+    "expected_conflicts": False
   },
   {
     "id": "VEC-051",
@@ -7909,7 +7909,7 @@ CONFORMANCE_VECTORS = [
     },
     "expected_primary_regime": "EU_AI_ACT",
     "expected_decision": "REQUIRE_HUMAN_APPROVAL",
-    "expected_conflicts": true
+    "expected_conflicts": True
   },
   {
     "id": "VEC-052",
@@ -7923,7 +7923,7 @@ CONFORMANCE_VECTORS = [
     },
     "expected_primary_regime": "EU_AI_ACT",
     "expected_decision": "REQUIRE_HUMAN_APPROVAL",
-    "expected_conflicts": false
+    "expected_conflicts": False
   },
   {
     "id": "VEC-053",
@@ -7937,7 +7937,7 @@ CONFORMANCE_VECTORS = [
     },
     "expected_primary_regime": "EU_AI_ACT",
     "expected_decision": "REQUIRE_HUMAN_APPROVAL",
-    "expected_conflicts": false
+    "expected_conflicts": False
   },
   {
     "id": "VEC-054",
@@ -7951,7 +7951,7 @@ CONFORMANCE_VECTORS = [
     },
     "expected_primary_regime": "GCC_DIFC",
     "expected_decision": "ALLOW",
-    "expected_conflicts": false
+    "expected_conflicts": False
   },
   {
     "id": "VEC-055",
@@ -7965,7 +7965,7 @@ CONFORMANCE_VECTORS = [
     },
     "expected_primary_regime": "GCC_DIFC",
     "expected_decision": "REQUIRE_HUMAN_APPROVAL",
-    "expected_conflicts": false
+    "expected_conflicts": False
   },
   {
     "id": "VEC-056",
@@ -7979,7 +7979,7 @@ CONFORMANCE_VECTORS = [
     },
     "expected_primary_regime": "GCC_DIFC",
     "expected_decision": "REQUIRE_HUMAN_APPROVAL",
-    "expected_conflicts": false
+    "expected_conflicts": False
   },
   {
     "id": "VEC-057",
@@ -7993,7 +7993,7 @@ CONFORMANCE_VECTORS = [
     },
     "expected_primary_regime": "CN_AI_LAW",
     "expected_decision": "ALLOW",
-    "expected_conflicts": false
+    "expected_conflicts": False
   },
   {
     "id": "VEC-058",
@@ -8007,7 +8007,7 @@ CONFORMANCE_VECTORS = [
     },
     "expected_primary_regime": "EU_AI_ACT",
     "expected_decision": "REQUIRE_HUMAN_APPROVAL",
-    "expected_conflicts": true
+    "expected_conflicts": True
   },
   {
     "id": "VEC-059",
@@ -8022,7 +8022,7 @@ CONFORMANCE_VECTORS = [
       "revoke": "B",
       "reason": "trust_degraded"
     },
-    "expected_halt_required": true,
+    "expected_halt_required": True,
     "expected_downstream_count": 1
   },
   {
@@ -8039,7 +8039,7 @@ CONFORMANCE_VECTORS = [
       "revoke": "B",
       "reason": "revoked"
     },
-    "expected_halt_required": true,
+    "expected_halt_required": True,
     "expected_downstream_count": 2
   },
   {
@@ -8056,7 +8056,7 @@ CONFORMANCE_VECTORS = [
       "revoke": "C",
       "reason": "anomaly"
     },
-    "expected_halt_required": true,
+    "expected_halt_required": True,
     "expected_downstream_count": 1
   },
   {
@@ -8071,7 +8071,7 @@ CONFORMANCE_VECTORS = [
       "revoke": "B",
       "reason": "expired"
     },
-    "expected_halt_required": true,
+    "expected_halt_required": True,
     "expected_downstream_count": 0
   },
   {
@@ -8087,7 +8087,7 @@ CONFORMANCE_VECTORS = [
       "revoke": "A",
       "reason": "passport_revoked"
     },
-    "expected_halt_required": true,
+    "expected_halt_required": True,
     "expected_downstream_count": 2
   },
   {
@@ -8105,7 +8105,7 @@ CONFORMANCE_VECTORS = [
       "revoke": "B",
       "reason": "policy_violation"
     },
-    "expected_halt_required": true,
+    "expected_halt_required": True,
     "expected_downstream_count": 3
   },
   {
@@ -8121,7 +8121,7 @@ CONFORMANCE_VECTORS = [
       "revoke": "C",
       "reason": "trust_degraded"
     },
-    "expected_halt_required": false,
+    "expected_halt_required": False,
     "expected_downstream_count": 0
   },
   {
@@ -8138,7 +8138,7 @@ CONFORMANCE_VECTORS = [
       "revoke": "D",
       "reason": "expired"
     },
-    "expected_halt_required": false,
+    "expected_halt_required": False,
     "expected_downstream_count": 0
   },
   {
@@ -8154,7 +8154,7 @@ CONFORMANCE_VECTORS = [
       "revoke": "B",
       "reason": "shadow_detected"
     },
-    "expected_halt_required": true,
+    "expected_halt_required": True,
     "expected_downstream_count": 1
   },
   {
@@ -8171,7 +8171,7 @@ CONFORMANCE_VECTORS = [
       "revoke": "A",
       "reason": "revoked"
     },
-    "expected_halt_required": true,
+    "expected_halt_required": True,
     "expected_downstream_count": 3
   },
   {
@@ -8186,7 +8186,7 @@ CONFORMANCE_VECTORS = [
       "revoke": "A",
       "reason": "expired"
     },
-    "expected_halt_required": true,
+    "expected_halt_required": True,
     "expected_downstream_count": 1
   },
   {
@@ -8204,7 +8204,7 @@ CONFORMANCE_VECTORS = [
       "revoke": "C",
       "reason": "anomaly"
     },
-    "expected_halt_required": true,
+    "expected_halt_required": True,
     "expected_downstream_count": 2
   },
   {
@@ -8217,8 +8217,8 @@ CONFORMANCE_VECTORS = [
       "reason": "trust_degraded"
     },
     "expected_pre_remediation_evidence_class": "FRI",
-    "expected_captured_before_remediation": true,
-    "expected_ver_inv_007_compliant": true
+    "expected_captured_before_remediation": True,
+    "expected_ver_inv_007_compliant": True
   },
   {
     "id": "VEC-072",
@@ -8230,8 +8230,8 @@ CONFORMANCE_VECTORS = [
       "reason": "trust_degraded"
     },
     "expected_pre_remediation_evidence_class": "FRI",
-    "expected_captured_before_remediation": true,
-    "expected_ver_inv_007_compliant": true
+    "expected_captured_before_remediation": True,
+    "expected_ver_inv_007_compliant": True
   },
   {
     "id": "VEC-073",
@@ -8243,8 +8243,8 @@ CONFORMANCE_VECTORS = [
       "reason": "trust_degraded"
     },
     "expected_pre_remediation_evidence_class": "FRI",
-    "expected_captured_before_remediation": true,
-    "expected_ver_inv_007_compliant": true
+    "expected_captured_before_remediation": True,
+    "expected_ver_inv_007_compliant": True
   },
   {
     "id": "VEC-074",
@@ -8256,8 +8256,8 @@ CONFORMANCE_VECTORS = [
       "reason": "trust_degraded"
     },
     "expected_pre_remediation_evidence_class": "FRI",
-    "expected_captured_before_remediation": true,
-    "expected_ver_inv_007_compliant": true
+    "expected_captured_before_remediation": True,
+    "expected_ver_inv_007_compliant": True
   },
   {
     "id": "VEC-075",
@@ -8269,8 +8269,8 @@ CONFORMANCE_VECTORS = [
       "reason": "trust_degraded"
     },
     "expected_pre_remediation_evidence_class": "FRI",
-    "expected_captured_before_remediation": true,
-    "expected_ver_inv_007_compliant": true
+    "expected_captured_before_remediation": True,
+    "expected_ver_inv_007_compliant": True
   },
   {
     "id": "VEC-076",
@@ -8282,8 +8282,8 @@ CONFORMANCE_VECTORS = [
       "reason": "trust_degraded"
     },
     "expected_pre_remediation_evidence_class": "FRI",
-    "expected_captured_before_remediation": true,
-    "expected_ver_inv_007_compliant": true
+    "expected_captured_before_remediation": True,
+    "expected_ver_inv_007_compliant": True
   },
   {
     "id": "VEC-077",
@@ -8295,8 +8295,8 @@ CONFORMANCE_VECTORS = [
       "reason": "trust_degraded"
     },
     "expected_pre_remediation_evidence_class": "FRI",
-    "expected_captured_before_remediation": true,
-    "expected_ver_inv_007_compliant": true
+    "expected_captured_before_remediation": True,
+    "expected_ver_inv_007_compliant": True
   },
   {
     "id": "VEC-078",
@@ -8308,8 +8308,8 @@ CONFORMANCE_VECTORS = [
       "reason": "trust_degraded"
     },
     "expected_pre_remediation_evidence_class": "FRI",
-    "expected_captured_before_remediation": true,
-    "expected_ver_inv_007_compliant": true
+    "expected_captured_before_remediation": True,
+    "expected_ver_inv_007_compliant": True
   },
   {
     "id": "VEC-079",
@@ -8321,8 +8321,8 @@ CONFORMANCE_VECTORS = [
       "reason": "trust_degraded"
     },
     "expected_pre_remediation_evidence_class": "FRI",
-    "expected_captured_before_remediation": true,
-    "expected_ver_inv_007_compliant": true
+    "expected_captured_before_remediation": True,
+    "expected_ver_inv_007_compliant": True
   },
   {
     "id": "VEC-080",
@@ -8334,8 +8334,8 @@ CONFORMANCE_VECTORS = [
       "reason": "trust_degraded"
     },
     "expected_pre_remediation_evidence_class": "FRI",
-    "expected_captured_before_remediation": true,
-    "expected_ver_inv_007_compliant": true
+    "expected_captured_before_remediation": True,
+    "expected_ver_inv_007_compliant": True
   }
 ]
 
