@@ -1,7 +1,7 @@
 {
   "verisigil_conformance_suite": "2.0",
   "schema": "VGS-CONFORMANCE",
-  "total_vectors": 96,
+  "total_vectors": 104,
   "invariants_covered": 7,
   "canonical_rules": {
     "sort_keys": true,
@@ -1284,8 +1284,108 @@
       "expected_admissible": false,
       "expected_offline_verifiable": true,
       "expected_verdict_contains": "BOUNDARY VIOLATED"
+    },
+    {
+      "id": "VEC-097",
+      "invariant": "VER-INV-013",
+      "description": "Valid NVIDIA H100 SXM5 clean provenance APPROVED",
+      "input": {
+        "serial_number": "132ABC123DEF",
+        "chip_type": "NVIDIA_H100_SXM5",
+        "deployment_country": "US",
+        "claimed_purchaser": "Acme AI Corporation"
+      },
+      "expected_verdict": "VERIFIED",
+      "expected_export_violation": false,
+      "expected_passport_eligible": true
+    },
+    {
+      "id": "VEC-098",
+      "invariant": "VER-INV-013",
+      "description": "NVIDIA H100 deployed in CN export control violation",
+      "input": {
+        "serial_number": "132ABC123DEF",
+        "chip_type": "NVIDIA_H100_SXM5",
+        "deployment_country": "CN",
+        "claimed_purchaser": "Beijing Tech Ltd"
+      },
+      "expected_verdict": "UNVERIFIABLE",
+      "expected_export_violation": true,
+      "expected_passport_eligible": false,
+      "evasion_vector": "Chip smuggling"
+    },
+    {
+      "id": "VEC-099",
+      "invariant": "VER-INV-013",
+      "description": "BIS entity list match HIGH risk shell company",
+      "input": {
+        "org_name": "Huawei Technologies",
+        "org_jurisdiction": "CN"
+      },
+      "expected_bis_match": true,
+      "expected_shell_risk_above": 0.5
+    },
+    {
+      "id": "VEC-100",
+      "invariant": "VER-INV-013",
+      "description": "Unknown serial GENERIC_GPU inference LOW confidence",
+      "input": {
+        "serial_number": "UNKNOWN123",
+        "chip_type": "GENERIC_GPU",
+        "deployment_country": "US"
+      },
+      "expected_inferred_type": "GENERIC_GPU",
+      "expected_confidence_below": 0.5,
+      "expected_controlled": false
+    },
+    {
+      "id": "VEC-101",
+      "invariant": "VER-INV-013",
+      "description": "AWS Nitro available HIGH attestation confidence",
+      "input": {
+        "infrastructure": "aws-us-east-1",
+        "deployment_country": "US"
+      },
+      "expected_nitro_available": true,
+      "expected_attestation_confidence": "HIGH"
+    },
+    {
+      "id": "VEC-102",
+      "invariant": "VER-INV-013",
+      "description": "H200 serial prefix H2A infer NVIDIA_H200",
+      "input": {
+        "serial_number": "H2AABC123DEF"
+      },
+      "expected_inferred_type": "NVIDIA_H200",
+      "expected_controlled": true,
+      "expected_export_class": "ECCN_3A090"
+    },
+    {
+      "id": "VEC-103",
+      "invariant": "VER-INV-013",
+      "description": "BVI jurisdiction shell company HIGH risk indicator",
+      "input": {
+        "org_name": "Global Holdings Ltd",
+        "org_jurisdiction": "BVI"
+      },
+      "expected_indicator": "HIGH_RISK_JURISDICTION",
+      "expected_shell_risk_above": 0.2
+    },
+    {
+      "id": "VEC-104",
+      "invariant": "VER-INV-013",
+      "description": "ECCN 3A090 without license in RU export violation",
+      "input": {
+        "serial_number": "M3XABC1234567",
+        "chip_type": "AMD_MI300X",
+        "deployment_country": "RU"
+      },
+      "expected_export_violation": true,
+      "expected_passport_eligible": false,
+      "evasion_vector": "Chip smuggling via Russia"
     }
   ],
   "cross_domain_vectors": 5,
-  "otanis_vectors": 11
+  "otanis_vectors": 11,
+  "chipverify_vectors": 8
 }
