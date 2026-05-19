@@ -15601,6 +15601,389 @@ async def architecture_complete(x_api_key: Optional[str] = Header(None)):
     }
 
 
+
+# ============================================================
+# VGS-016: ORCHESTRATION SURVIVABILITY ENGINE
+# ============================================================
+# Akhilesh (DecisionAssure): "The admissibility decision
+# may remain locally valid while the overall execution
+# state becomes progressively less governable."
+#
+# VeriSigil + DecisionAssure relationship:
+# Runtime Guard    → admissibility gate (point-in-time)
+# VGS-016          → survivability supervision (continuous)
+#
+# Akhilesh's 4 failure surfaces:
+# 1. Authority changes mid-chain
+# 2. Downstream commitments accumulate asynchronously
+# 3. Rollback viability decays faster than escalation
+# 4. Policy equivalence drifts during continuation
+#
+# This layer answers: "Is execution STILL governable
+# as the chain progresses — not just at point of ALLOW?"
+# ============================================================
+
+# Commitment registry — track async accumulations
+_COMMITMENT_REGISTRY: dict = {}
+
+# Survivability state per execution chain
+_SURVIVABILITY_STATES: dict = {}
+
+def compute_survivability(
+    chain_id:             str,
+    agent_id:             str,
+    steps_completed:      int,
+    steps_total:          int,
+    authority_state:      str,
+    commitments_made:     list,
+    rollback_window_secs: float,
+    escalation_pending:   bool,
+    escalation_elapsed_secs: float,
+    policy_version_at_start: str,
+    policy_version_current:  str,
+    trust_score:          float,
+) -> dict:
+    """
+    VGS-016: Orchestration Survivability Score.
+
+    Akhilesh: "Binary ALLOW/DENY gates remain structurally
+    local decisions unless there is a survivability layer
+    supervising continuation integrity, rollback feasibility,
+    commitment fracture gradients, and execution legitimacy
+    collapse points across the orchestration chain."
+
+    Returns continuous survivability score (0.0 → 1.0)
+    and collapse point detection.
+    """
+    surv_id   = f"SURV-{uuid.uuid4().hex[:8].upper()}"
+    timestamp = datetime.utcnow().isoformat()
+
+    # Dimension 1: Continuation Integrity
+    # Authority still valid as chain progresses
+    continuation_score = 1.0 if authority_state == "VALID" else 0.0
+    continuation_hash  = _sha256(json.dumps({
+        "chain_id":       chain_id,
+        "step":           steps_completed,
+        "authority_state":authority_state,
+        "timestamp":      timestamp,
+    }, sort_keys=True, separators=(",",":"), ensure_ascii=False))
+
+    # Dimension 2: Rollback Feasibility
+    # Decays as commitments accumulate and time passes
+    irreversible_count = sum(1 for c in commitments_made if c.get("irreversible", False))
+    reversible_count   = len(commitments_made) - irreversible_count
+    rollback_score     = max(0.0, 1.0 - (irreversible_count * 0.3) - (steps_completed / max(1, steps_total) * 0.2))
+
+    # Dimension 3: Commitment Fracture Gradient
+    # Rate at which commitments accumulate vs governance capacity
+    commitment_rate    = len(commitments_made) / max(1, steps_completed)
+    fracture_risk      = min(1.0, commitment_rate * 0.4)
+    fracture_score     = 1.0 - fracture_risk
+    fracture_gradient  = {
+        "commitments_total":  len(commitments_made),
+        "irreversible_count": irreversible_count,
+        "commitment_rate":    round(commitment_rate, 4),
+        "fracture_risk":      round(fracture_risk, 4),
+        "gradient_direction": "INCREASING" if commitment_rate > 0.5 else "STABLE",
+    }
+
+    # Dimension 4: Policy Equivalence Drift
+    policy_drifted     = policy_version_at_start != policy_version_current
+    policy_score       = 0.3 if policy_drifted else 1.0
+    policy_drift_info  = {
+        "drifted":            policy_drifted,
+        "version_at_start":   policy_version_at_start,
+        "version_current":    policy_version_current,
+        "impact":             "HIGH — continuation state may be invalid" if policy_drifted else "NONE",
+    }
+
+    # Dimension 5: Escalation Decay
+    # Rollback window vs escalation time remaining
+    escalation_decay   = 0.0
+    if escalation_pending:
+        # If escalation takes longer than rollback window, becomes ungovernable
+        escalation_decay = min(1.0, escalation_elapsed_secs / max(1, rollback_window_secs))
+    escalation_score   = 1.0 - escalation_decay
+
+    # Composite Survivability Score
+    survivability_score = round(
+        (continuation_score * 0.35) +
+        (rollback_score      * 0.25) +
+        (fracture_score      * 0.20) +
+        (policy_score        * 0.10) +
+        (escalation_score    * 0.10),
+        4
+    )
+
+    # Legitimacy collapse detection
+    # Akhilesh: "execution legitimacy collapse points"
+    collapse_detected  = survivability_score < 0.45
+    collapse_points    = []
+    if continuation_score == 0.0:
+        collapse_points.append("AUTHORITY_MID_CHAIN_EXPIRED")
+    if rollback_score < 0.3:
+        collapse_points.append("ROLLBACK_INFEASIBLE")
+    if fracture_risk > 0.7:
+        collapse_points.append("COMMITMENT_FRACTURE_CRITICAL")
+    if policy_drifted:
+        collapse_points.append("POLICY_DRIFT_DURING_CONTINUATION")
+    if escalation_decay > 0.8:
+        collapse_points.append("ESCALATION_DECAY_BEYOND_ROLLBACK")
+
+    # Survivability status
+    status = (
+        "SURVIVABLE"      if survivability_score >= 0.75 else
+        "DEGRADING"       if survivability_score >= 0.55 else
+        "CRITICAL"        if survivability_score >= 0.35 else
+        "COLLAPSED"
+    )
+
+    # Recommended action
+    action = (
+        "CONTINUE"             if status == "SURVIVABLE" else
+        "ESCALATE_IMMEDIATELY" if status == "DEGRADING"  else
+        "HALT_AND_ROLLBACK"    if status == "CRITICAL"   else
+        "EMERGENCY_COLLAPSE"
+    )
+
+    result = {
+        "survivability_id":    surv_id,
+        "schema":              "VGS-016",
+        "chain_id":            chain_id,
+        "agent_id":            agent_id,
+        "steps_completed":     steps_completed,
+        "steps_total":         steps_total,
+
+        # The survivability score — continuous, not binary
+        "survivability_score": survivability_score,
+        "survivability_status":status,
+        "recommended_action":  action,
+        "collapse_detected":   collapse_detected,
+        "collapse_points":     collapse_points,
+
+        # Akhilesh's 4 dimensions
+        "continuation_integrity": {
+            "score":             continuation_score,
+            "authority_state":   authority_state,
+            "integrity_hash":    continuation_hash,
+            "intact":            authority_state == "VALID",
+        },
+        "rollback_feasibility": {
+            "score":             rollback_score,
+            "irreversible_count":irreversible_count,
+            "reversible_count":  reversible_count,
+            "feasible":          rollback_score >= 0.5,
+            "window_secs":       rollback_window_secs,
+        },
+        "commitment_fracture":   fracture_gradient,
+        "policy_drift":          policy_drift_info,
+        "escalation_decay": {
+            "score":             escalation_score,
+            "pending":           escalation_pending,
+            "elapsed_secs":      escalation_elapsed_secs,
+            "decay_rate":        round(escalation_decay, 4),
+            "beyond_rollback":   escalation_decay > 0.8,
+        },
+
+        # Akhilesh framing
+        "akhilesh_framing": {
+            "local_admissibility_valid":  authority_state == "VALID",
+            "overall_state_governable":   not collapse_detected,
+            "key_insight":                "Locally valid admissibility ≠ globally governable execution",
+            "survivability_layer":        "VGS-016 supervises AFTER the ALLOW gate",
+        },
+
+        "proof_hash":          _sha256(json.dumps({
+            "surv_id":     surv_id,
+            "chain_id":    chain_id,
+            "score":       survivability_score,
+            "status":      status,
+            "timestamp":   timestamp,
+        }, sort_keys=True, separators=(",",":"), ensure_ascii=False)),
+        "timestamp":           timestamp,
+    }
+
+    _SURVIVABILITY_STATES[chain_id] = result
+    return result
+
+def register_commitment(
+    chain_id:     str,
+    agent_id:     str,
+    commitment_type:str,
+    amount_usd:   float = 0,
+    irreversible: bool  = False,
+    rollback_window_secs:float = 300,
+) -> dict:
+    """
+    Commitment Registry.
+    Akhilesh: "downstream commitments accumulate asynchronously"
+    Track every commitment made during multi-step execution.
+    """
+    commitment_id = f"COMMIT-{uuid.uuid4().hex[:8].upper()}"
+    timestamp     = datetime.utcnow().isoformat()
+
+    commitment = {
+        "commitment_id":        commitment_id,
+        "schema":               "VGS-016",
+        "chain_id":             chain_id,
+        "agent_id":             agent_id,
+        "commitment_type":      commitment_type,
+        "amount_usd":           amount_usd,
+        "irreversible":         irreversible,
+        "rollback_window_secs": rollback_window_secs,
+        "rollback_deadline":    timestamp,
+        "status":               "COMMITTED",
+        "commitment_hash":      _sha256(json.dumps({
+            "commitment_id":  commitment_id,
+            "chain_id":       chain_id,
+            "commitment_type":commitment_type,
+            "amount_usd":     amount_usd,
+            "irreversible":   irreversible,
+            "timestamp":      timestamp,
+        }, sort_keys=True, separators=(",",":"), ensure_ascii=False)),
+        "timestamp":            timestamp,
+    }
+
+    if chain_id not in _COMMITMENT_REGISTRY:
+        _COMMITMENT_REGISTRY[chain_id] = []
+    _COMMITMENT_REGISTRY[chain_id].append(commitment)
+    return commitment
+
+
+# ── VGS-016 SURVIVABILITY ENDPOINTS ──────────────────────────
+
+class SurvivabilityRequest(BaseModel):
+    chain_id:              str
+    agent_id:              str
+    steps_completed:       int   = 1
+    steps_total:           int   = 5
+    authority_state:       str   = "VALID"
+    commitments_made:      list  = []
+    rollback_window_secs:  float = 300.0
+    escalation_pending:    bool  = False
+    escalation_elapsed_secs:float= 0.0
+    policy_version_at_start:str  = "POL-001-v1.0"
+    policy_version_current: str  = "POL-001-v1.0"
+    trust_score:           float = 0.963
+
+class CommitmentRequest(BaseModel):
+    chain_id:            str
+    agent_id:            str
+    commitment_type:     str
+    amount_usd:          float = 0
+    irreversible:        bool  = False
+    rollback_window_secs:float = 300.0
+
+@app.post("/v1/survivability/score", tags=["VGS-016 Orchestration Survivability"])
+async def survivability_score(
+    req:       SurvivabilityRequest,
+    x_api_key: Optional[str] = Header(None)
+):
+    """
+    VGS-016: Orchestration Survivability Score.
+
+    Akhilesh (DecisionAssure): "The admissibility decision
+    may remain locally valid while the overall execution
+    state becomes progressively less governable."
+
+    Supervises 4 failure surfaces after ALLOW is granted:
+    1. Continuation integrity (authority mid-chain)
+    2. Rollback feasibility (decays with commitments)
+    3. Commitment fracture gradient (accumulation rate)
+    4. Policy equivalence drift (version changes)
+
+    Returns: survivability_score 0.0→1.0
+    Status: SURVIVABLE → DEGRADING → CRITICAL → COLLAPSED
+    Action: CONTINUE → ESCALATE → HALT_AND_ROLLBACK → EMERGENCY
+    """
+    require_api_key(x_api_key)
+    result = compute_survivability(
+        chain_id              = req.chain_id,
+        agent_id              = req.agent_id,
+        steps_completed       = req.steps_completed,
+        steps_total           = req.steps_total,
+        authority_state       = req.authority_state,
+        commitments_made      = req.commitments_made,
+        rollback_window_secs  = req.rollback_window_secs,
+        escalation_pending    = req.escalation_pending,
+        escalation_elapsed_secs=req.escalation_elapsed_secs,
+        policy_version_at_start=req.policy_version_at_start,
+        policy_version_current =req.policy_version_current,
+        trust_score           = req.trust_score,
+    )
+    await log_event(req.agent_id, "SURVIVABILITY_SCORED", {
+        "chain_id": req.chain_id,
+        "score":    result["survivability_score"],
+        "status":   result["survivability_status"],
+        "collapse": result["collapse_detected"],
+    })
+    return result
+
+@app.post("/v1/survivability/commitment", tags=["VGS-016 Orchestration Survivability"])
+async def survivability_commitment(
+    req:       CommitmentRequest,
+    x_api_key: Optional[str] = Header(None)
+):
+    """
+    VGS-016: Register a commitment in the execution chain.
+    Track async commitment accumulation.
+    Akhilesh: "downstream commitments accumulate asynchronously"
+    """
+    require_api_key(x_api_key)
+    return register_commitment(
+        req.chain_id, req.agent_id, req.commitment_type,
+        req.amount_usd, req.irreversible, req.rollback_window_secs
+    )
+
+@app.get("/v1/survivability/chain/{chain_id}", tags=["VGS-016 Orchestration Survivability"])
+async def survivability_chain(
+    chain_id:  str,
+    x_api_key: Optional[str] = Header(None)
+):
+    """Get survivability state for an execution chain."""
+    require_api_key(x_api_key)
+    state = _SURVIVABILITY_STATES.get(chain_id)
+    commitments = _COMMITMENT_REGISTRY.get(chain_id, [])
+    return {
+        "chain_id":    chain_id,
+        "state":       state,
+        "commitments": commitments,
+        "commitment_count": len(commitments),
+    }
+
+@app.get("/v1/survivability/framing", tags=["VGS-016 Orchestration Survivability"])
+async def survivability_framing(x_api_key: Optional[str] = Header(None)):
+    """
+    The Akhilesh framing — formally documented.
+    VeriSigil + DecisionAssure architectural relationship.
+    """
+    require_api_key(x_api_key)
+    return {
+        "schema": "VGS-016",
+        "akhilesh_framing": {
+            "key_insight":    "Locally valid admissibility ≠ globally governable execution",
+            "failure_surfaces":[
+                "Authority changes mid-chain",
+                "Downstream commitments accumulate asynchronously",
+                "Rollback viability decays faster than escalation latency",
+                "Policy equivalence drifts while continuation state still valid",
+            ],
+        },
+        "architectural_relationship": {
+            "Runtime_Guard":    "Admissibility gate — point-in-time LOCAL decision",
+            "VGS_016":          "Survivability supervision — continuous POST-ALLOW monitoring",
+            "DecisionAssure":   "Runtime survivability supervision — Akhilesh's layer",
+            "relationship":     "Adjacent but different layers — potentially complementary",
+        },
+        "verisigil_covers": {
+            "point_of_decision":"POST /v1/execution/control",
+            "post_allow":        "POST /v1/survivability/score",
+            "commitment_tracking":"POST /v1/survivability/commitment",
+            "graph_collapse":    "POST /v1/impossibility/graph-collapse",
+        },
+    }
+
+
 # ============================================================
 # PAYSTACK WEBHOOK — Automatic onboarding on payment
 # ============================================================
