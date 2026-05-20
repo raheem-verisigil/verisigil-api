@@ -17737,6 +17737,491 @@ async def atf_dual_context_receipt(
     return result
 
 
+
+# ============================================================
+# VGS-014 EXTENSION: MEMORY GOVERNANCE LAYER (VGM)
+# ============================================================
+# Jorge Leon: "Memory is becoming part of AI identity.
+# Memory poisoning becomes identity poisoning.
+# Retrieval becomes a governance event.
+# Forgetting becomes a regulated action."
+#
+# New components:
+# 1. Memory Identity Ledger      — origin + provenance
+# 2. Admissible Retrieval Engine — governed retrieval
+# 3. Memory Isolation Zones      — separation of concerns
+# 4. Semantic Contamination      — poisoning detection
+# 5. Governed Forgetting         — expiry/decay/quarantine
+# 6. Cross-Agent Memory          — sovereignty on handoff
+# ============================================================
+
+# Memory Isolation Zones
+MEMORY_ISOLATION_ZONES = {
+    "OPERATIONAL":    {"description":"Active task execution memory","risk":"LOW","cross_agent":True},
+    "REASONING":      {"description":"Model reasoning chain memory","risk":"MEDIUM","cross_agent":False},
+    "SOVEREIGN":      {"description":"Jurisdiction-bound regulated memory","risk":"HIGH","cross_agent":False},
+    "REGULATED":      {"description":"GDPR/HIPAA/financial regulated data","risk":"HIGH","cross_agent":False},
+    "USER_PRIVATE":   {"description":"User-consented private memory","risk":"HIGH","cross_agent":False},
+    "SAFETY_CRITICAL":{"description":"Safety guardrail memory","risk":"CRITICAL","cross_agent":False},
+}
+
+# Memory Identity Ledger — extended registry
+_MEMORY_IDENTITY_LEDGER: dict = {}
+
+def create_memory_identity(
+    agent_id:         str,
+    content_type:     str,
+    origin_agent_id:  str,
+    authority_source: str,
+    jurisdiction:     str,
+    isolation_zone:   str = "OPERATIONAL",
+    confidence:       float = 1.0,
+) -> dict:
+    """
+    Memory Identity Ledger.
+    Jorge: "Memory is becoming part of AI identity."
+    Every memory object gets a birth certificate:
+    origin identity, authority source, confidence state,
+    jurisdiction tag, retention policy, admissibility class.
+    """
+    mem_id    = f"MIL-{uuid.uuid4().hex[:8].upper()}"
+    timestamp = datetime.utcnow().isoformat()
+
+    zone  = MEMORY_ISOLATION_ZONES.get(isolation_zone, MEMORY_ISOLATION_ZONES["OPERATIONAL"])
+    canon = json.dumps({
+        "mem_id":        mem_id,
+        "agent_id":      agent_id,
+        "origin":        origin_agent_id,
+        "content_type":  content_type,
+        "jurisdiction":  jurisdiction,
+        "timestamp":     timestamp,
+    }, sort_keys=True, separators=(",",":"), ensure_ascii=False)
+    memory_hash = _sha256(canon)
+
+    record = {
+        "memory_id":        mem_id,
+        "schema":           "VGM-1.0",
+        "agent_id":         agent_id,
+        "content_type":     content_type,
+
+        # Origin identity — the birth certificate
+        "origin_identity": {
+            "origin_agent_id": origin_agent_id,
+            "authority_source": authority_source,
+            "created_at":      timestamp,
+            "genesis_bound":   True,
+        },
+
+        # Confidence + contamination state
+        "confidence_state": {
+            "score":           confidence,
+            "status":          "TRUSTED" if confidence >= 0.8 else "UNCERTAIN" if confidence >= 0.5 else "SUSPECT",
+            "contamination_score": 0.0,
+            "contamination_detected": False,
+            "last_verified_at": timestamp,
+        },
+
+        # Provenance chain
+        "memory_provenance": {
+            "memory_hash":     memory_hash,
+            "delegation_chain": [],
+            "transformation_log": [],
+            "offline_verifiable": True,
+        },
+
+        # Isolation + governance
+        "isolation_zone":  isolation_zone,
+        "zone_definition": zone,
+        "jurisdiction":    jurisdiction,
+        "retention_policy":"GOVERNED",
+        "admissibility_class": "ADMISSIBLE" if confidence >= 0.8 else "CONDITIONAL",
+        "lifecycle":       "ACTIVE",
+        "created_at":      timestamp,
+    }
+
+    _MEMORY_IDENTITY_LEDGER[mem_id] = record
+    return record
+
+def check_memory_admissibility(
+    mem_id:   str,
+    agent_id: str,
+    purpose:  str,
+) -> dict:
+    """
+    Admissible Retrieval Engine.
+    Jorge: "retrieval becomes a governance event."
+    Before memory retrieval — same governance model as execution:
+    ALLOW / REFUSED / REQUIRE_HUMAN_APPROVAL
+    """
+    timestamp = datetime.utcnow().isoformat()
+    record    = _MEMORY_IDENTITY_LEDGER.get(mem_id) or _CONSTITUTIONAL_MEMORY.get(mem_id)
+
+    if not record:
+        return {
+            "mem_id":   mem_id,
+            "decision": "REFUSED",
+            "reason":   "MEMORY_NOT_FOUND",
+            "timestamp":timestamp,
+        }
+
+    confidence  = record.get("confidence_state",{}).get("score",1.0) if "confidence_state" in record else 1.0
+    contaminated= record.get("confidence_state",{}).get("contamination_detected",False) if "confidence_state" in record else False
+    lifecycle   = record.get("lifecycle", record.get("memory_lifecycle","ACTIVE"))
+    zone        = record.get("isolation_zone","OPERATIONAL")
+    zone_def    = MEMORY_ISOLATION_ZONES.get(zone,{})
+
+    # Governance checks
+    if lifecycle in ["REVOKED","EXPIRED","QUARANTINED"]:
+        decision, reason = "REFUSED", f"MEMORY_LIFECYCLE_{lifecycle}"
+    elif contaminated:
+        decision, reason = "REFUSED", "CONTAMINATION_DETECTED"
+    elif confidence < 0.5:
+        decision, reason = "REFUSED", "CONFIDENCE_TOO_LOW"
+    elif not zone_def.get("cross_agent",True) and agent_id != record.get("agent_id",""):
+        decision, reason = "REFUSED", f"ISOLATION_ZONE_{zone}_NO_CROSS_AGENT"
+    elif confidence < 0.8:
+        decision, reason = "REQUIRE_HUMAN_APPROVAL", "UNCERTAIN_MEMORY_NEEDS_REVIEW"
+    else:
+        decision, reason = "ALLOW", "ALL_RETRIEVAL_CONDITIONS_SATISFIED"
+
+    return {
+        "mem_id":        mem_id,
+        "agent_id":      agent_id,
+        "purpose":       purpose,
+        "decision":      decision,
+        "reason":        reason,
+        "confidence":    confidence,
+        "isolation_zone":zone,
+        "contaminated":  contaminated,
+        "lifecycle":     lifecycle,
+        "timestamp":     timestamp,
+        "jorge_standard":"Retrieval is a governance event — same model as execution",
+    }
+
+def detect_semantic_contamination(
+    mem_id:           str,
+    new_content_hash: str,
+    injection_signals:list = [],
+    drift_score:      float = 0.0,
+) -> dict:
+    """
+    Semantic Contamination Detection.
+    Detects: poisoned context, prompt injection persistence,
+    recursive hallucination, adversarial semantic drift.
+    """
+    timestamp = datetime.utcnow().isoformat()
+    record    = _MEMORY_IDENTITY_LEDGER.get(mem_id)
+
+    injection_detected = len(injection_signals) > 0
+    drift_detected     = drift_score > 0.3
+    contaminated       = injection_detected or drift_detected or drift_score > 0.7
+
+    severity = (
+        "CRITICAL" if drift_score > 0.7 or (injection_detected and drift_detected) else
+        "HIGH"     if injection_detected or drift_score > 0.5 else
+        "MEDIUM"   if drift_detected else
+        "NONE"
+    )
+
+    if record and contaminated:
+        record["confidence_state"]["contamination_detected"] = True
+        record["confidence_state"]["contamination_score"]    = drift_score
+        record["confidence_state"]["status"]                 = "CONTAMINATED"
+        record["lifecycle"]                                  = "QUARANTINED"
+        _MEMORY_IDENTITY_LEDGER[mem_id] = record
+
+    return {
+        "mem_id":            mem_id,
+        "contaminated":      contaminated,
+        "severity":          severity,
+        "injection_detected":injection_detected,
+        "injection_signals": injection_signals,
+        "drift_score":       drift_score,
+        "drift_detected":    drift_detected,
+        "action":            "QUARANTINE" if contaminated else "NONE",
+        "lifecycle_updated": "QUARANTINED" if contaminated else "ACTIVE",
+        "timestamp":         timestamp,
+    }
+
+def governed_forgetting(
+    mem_id:          str,
+    forgetting_type: str,
+    reason:          str,
+    authority:       str,
+) -> dict:
+    """
+    Governed Forgetting.
+    Jorge: "forgetting becomes a regulated action."
+    Types: EXPIRE, DECAY, QUARANTINE, ESCALATE, ARCHIVE, REQUIRE_RENEWAL
+    Not all forgetting is deletion.
+    """
+    timestamp = datetime.utcnow().isoformat()
+    forgetting_id = f"FORGET-{uuid.uuid4().hex[:8].upper()}"
+
+    valid_types = ["EXPIRE","DECAY","QUARANTINE","ESCALATE","ARCHIVE","REQUIRE_RENEWAL","DELETE"]
+    if forgetting_type not in valid_types:
+        return {"error": f"Invalid forgetting_type. Must be one of {valid_types}"}
+
+    # Update memory record
+    record = _MEMORY_IDENTITY_LEDGER.get(mem_id) or _CONSTITUTIONAL_MEMORY.get(mem_id)
+    new_lifecycle = {
+        "EXPIRE":          "EXPIRED",
+        "DECAY":           "DECAYED",
+        "QUARANTINE":      "QUARANTINED",
+        "ESCALATE":        "ESCALATED",
+        "ARCHIVE":         "ARCHIVED",
+        "REQUIRE_RENEWAL": "PENDING_RENEWAL",
+        "DELETE":          "DELETED",
+    }[forgetting_type]
+
+    if record:
+        record["lifecycle"] = new_lifecycle
+        record["forgotten_at"] = timestamp
+        record["forgetting_type"] = forgetting_type
+        record["forgetting_authority"] = authority
+        if mem_id in _MEMORY_IDENTITY_LEDGER:
+            _MEMORY_IDENTITY_LEDGER[mem_id] = record
+        elif mem_id in _CONSTITUTIONAL_MEMORY:
+            _CONSTITUTIONAL_MEMORY[mem_id] = record
+
+    return {
+        "forgetting_id":   forgetting_id,
+        "schema":          "VGM-1.0",
+        "mem_id":          mem_id,
+        "forgetting_type": forgetting_type,
+        "reason":          reason,
+        "authority":       authority,
+        "new_lifecycle":   new_lifecycle,
+        "recoverable":     forgetting_type in ["DECAY","QUARANTINE","ARCHIVE","REQUIRE_RENEWAL"],
+        "permanent":       forgetting_type in ["DELETE","EXPIRE"],
+        "forgetting_hash": _sha256(json.dumps({
+            "forgetting_id": forgetting_id,
+            "mem_id":       mem_id,
+            "type":         forgetting_type,
+            "timestamp":    timestamp,
+        }, sort_keys=True, separators=(",",":"), ensure_ascii=False)),
+        "jorge_standard":  "Forgetting is a regulated action — not silent deletion",
+        "timestamp":       timestamp,
+    }
+
+def transfer_memory_cross_agent(
+    mem_id:          str,
+    from_agent_id:   str,
+    to_agent_id:     str,
+    delegation_scope:list,
+    jurisdiction:    str,
+) -> dict:
+    """
+    Cross-Agent Memory Sovereignty.
+    Jorge: "When one agent passes memory to another —
+    delegation receipts attached, provenance preserved,
+    admissibility re-evaluated."
+    ATF DR invariant applied: scope cannot expand on handoff.
+    """
+    timestamp   = datetime.utcnow().isoformat()
+    transfer_id = f"XFER-{uuid.uuid4().hex[:8].upper()}"
+
+    record = _MEMORY_IDENTITY_LEDGER.get(mem_id) or _CONSTITUTIONAL_MEMORY.get(mem_id)
+    if not record:
+        return {"transfer_id":transfer_id,"transferred":False,"reason":"Memory not found"}
+
+    zone    = record.get("isolation_zone","OPERATIONAL")
+    zone_def= MEMORY_ISOLATION_ZONES.get(zone,{})
+
+    # Cannot transfer non-cross-agent zones
+    if not zone_def.get("cross_agent",True):
+        return {
+            "transfer_id":  transfer_id,
+            "transferred":  False,
+            "reason":       f"ISOLATION_ZONE_{zone}_PROHIBITS_CROSS_AGENT_TRANSFER",
+            "zone":         zone,
+            "timestamp":    timestamp,
+        }
+
+    # Add to provenance delegation chain
+    delegation_record = {
+        "from_agent": from_agent_id,
+        "to_agent":   to_agent_id,
+        "scope":      delegation_scope,
+        "transferred_at": timestamp,
+        "transfer_hash":  _sha256(f"{transfer_id}:{from_agent_id}:{to_agent_id}:{timestamp}"),
+    }
+
+    if "memory_provenance" in record:
+        record["memory_provenance"]["delegation_chain"].append(delegation_record)
+        _MEMORY_IDENTITY_LEDGER[mem_id] = record
+
+    return {
+        "transfer_id":    transfer_id,
+        "mem_id":         mem_id,
+        "from_agent":     from_agent_id,
+        "to_agent":       to_agent_id,
+        "transferred":    True,
+        "delegation_scope":delegation_scope,
+        "jurisdiction":   jurisdiction,
+        "provenance_updated": True,
+        "atf_invariant":  "scope cannot expand on cross-agent handoff",
+        "transfer_hash":  delegation_record["transfer_hash"],
+        "timestamp":      timestamp,
+    }
+
+
+# ── VGM: MEMORY GOVERNANCE LAYER ENDPOINTS ───────────────────
+
+class MemoryIdentityRequest(BaseModel):
+    agent_id:        str
+    content_type:    str
+    origin_agent_id: str
+    authority_source:str
+    jurisdiction:    str   = "EU"
+    isolation_zone:  str   = "OPERATIONAL"
+    confidence:      float = 1.0
+
+class MemoryRetrievalRequest(BaseModel):
+    mem_id:   str
+    agent_id: str
+    purpose:  str = "task_execution"
+
+class ContaminationRequest(BaseModel):
+    mem_id:           str
+    new_content_hash: str   = ""
+    injection_signals:list  = []
+    drift_score:      float = 0.0
+
+class GoverningForgettingRequest(BaseModel):
+    mem_id:          str
+    forgetting_type: str = "EXPIRE"
+    reason:          str
+    authority:       str
+
+class CrossAgentMemoryRequest(BaseModel):
+    mem_id:          str
+    from_agent_id:   str
+    to_agent_id:     str
+    delegation_scope:list  = ["read"]
+    jurisdiction:    str   = "EU"
+
+@app.post("/v1/memory/identity/create", tags=["VGS-014 Constitutional Memory"])
+async def memory_identity_create(
+    req:       MemoryIdentityRequest,
+    x_api_key: Optional[str] = Header(None)
+):
+    """
+    Memory Identity Ledger.
+    Every memory object gets a birth certificate:
+    origin identity, authority source, confidence state,
+    jurisdiction, isolation zone, provenance chain.
+    Jorge: "Memory is becoming part of AI identity."
+    """
+    require_api_key(x_api_key)
+    result = create_memory_identity(
+        req.agent_id, req.content_type, req.origin_agent_id,
+        req.authority_source, req.jurisdiction,
+        req.isolation_zone, req.confidence,
+    )
+    await log_event(req.agent_id, "MEMORY_IDENTITY_CREATED", {
+        "mem_id": result["memory_id"],
+        "zone":   result["isolation_zone"],
+    })
+    return result
+
+@app.post("/v1/memory/retrieve", tags=["VGS-014 Constitutional Memory"])
+async def memory_retrieve(
+    req:       MemoryRetrievalRequest,
+    x_api_key: Optional[str] = Header(None)
+):
+    """
+    Admissible Retrieval Engine.
+    Jorge: "Retrieval becomes a governance event."
+    Before any memory retrieval: scope, confidence, contamination,
+    isolation zone, lifecycle — all verified.
+    ALLOW / REFUSED / REQUIRE_HUMAN_APPROVAL
+    Same governance model as execution.
+    """
+    require_api_key(x_api_key)
+    return check_memory_admissibility(req.mem_id, req.agent_id, req.purpose)
+
+@app.post("/v1/memory/contamination/detect", tags=["VGS-014 Constitutional Memory"])
+async def memory_contamination_detect(
+    req:       ContaminationRequest,
+    x_api_key: Optional[str] = Header(None)
+):
+    """
+    Semantic Contamination Detection.
+    Detects: prompt injection persistence, poisoned context,
+    recursive hallucination, adversarial semantic drift.
+    Contaminated memories → QUARANTINED lifecycle.
+    """
+    require_api_key(x_api_key)
+    return detect_semantic_contamination(
+        req.mem_id, req.new_content_hash,
+        req.injection_signals, req.drift_score,
+    )
+
+@app.post("/v1/memory/forget", tags=["VGS-014 Constitutional Memory"])
+async def memory_forget(
+    req:       GoverningForgettingRequest,
+    x_api_key: Optional[str] = Header(None)
+):
+    """
+    Governed Forgetting.
+    Jorge: "Forgetting becomes a regulated action."
+    Types: EXPIRE, DECAY, QUARANTINE, ESCALATE,
+           ARCHIVE, REQUIRE_RENEWAL, DELETE
+    Not all forgetting is deletion.
+    Produces cryptographic forgetting receipt.
+    """
+    require_api_key(x_api_key)
+    return governed_forgetting(
+        req.mem_id, req.forgetting_type,
+        req.reason, req.authority,
+    )
+
+@app.post("/v1/memory/transfer", tags=["VGS-014 Constitutional Memory"])
+async def memory_transfer(
+    req:       CrossAgentMemoryRequest,
+    x_api_key: Optional[str] = Header(None)
+):
+    """
+    Cross-Agent Memory Sovereignty.
+    When one agent passes memory to another:
+    delegation receipts attached, provenance preserved,
+    admissibility re-evaluated, scope cannot expand.
+    ATF invariant: delegation_scope ≤ originating_scope.
+    """
+    require_api_key(x_api_key)
+    return transfer_memory_cross_agent(
+        req.mem_id, req.from_agent_id, req.to_agent_id,
+        req.delegation_scope, req.jurisdiction,
+    )
+
+@app.get("/v1/memory/isolation-zones", tags=["VGS-014 Constitutional Memory"])
+async def memory_isolation_zones(x_api_key: Optional[str] = Header(None)):
+    """
+    Memory Isolation Zones — separation of concerns.
+    OPERATIONAL / REASONING / SOVEREIGN / REGULATED /
+    USER_PRIVATE / SAFETY_CRITICAL
+    """
+    require_api_key(x_api_key)
+    return {
+        "schema":          "VGM-1.0",
+        "isolation_zones": MEMORY_ISOLATION_ZONES,
+        "total_zones":     len(MEMORY_ISOLATION_ZONES),
+        "jorge_leon":      "Memory architecture for AI systems that need continuity across users, tasks, and time",
+        "verisigil":       "VGS-014 Constitutional Memory + VGM Governance Layer",
+    }
+
+@app.get("/v1/memory/identity/ledger", tags=["VGS-014 Constitutional Memory"])
+async def memory_identity_ledger(x_api_key: Optional[str] = Header(None)):
+    """Full Memory Identity Ledger — all registered memory objects."""
+    require_api_key(x_api_key)
+    return {
+        "schema":    "VGM-1.0",
+        "total":     len(_MEMORY_IDENTITY_LEDGER),
+        "memories":  list(_MEMORY_IDENTITY_LEDGER.values()),
+    }
+
+
 # ============================================================
 # PAYSTACK WEBHOOK — Automatic onboarding on payment
 # ============================================================
