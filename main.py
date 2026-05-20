@@ -16724,6 +16724,571 @@ async def deployment_guide(x_api_key: Optional[str] = Header(None)):
     }
 
 
+
+# ============================================================
+# STRUCTURAL EXECUTION FORMATION GOVERNANCE
+# ============================================================
+# Core Principle:
+# "Execution Cannot Exist Before Governance Sequencing Completes."
+#
+# This is NOT "human approval before action."
+# This is: "AI cannot even construct a valid executable path
+# until governance sequencing is complete."
+#
+# The governance dependency graph:
+# Identity → Authority → Policy → Jurisdiction →
+# Risk Classification → Escalation → Human Approval →
+# Temporal Validity → Execution Formation
+#
+# If ANY node fails → execution path cannot form.
+#
+# This is Structural AI State Formation Governance.
+# Not monitoring. Not detection. Formation control.
+# ============================================================
+
+# Governance Dependency Graph — 9 sequential nodes
+GOVERNANCE_SEQUENCE = [
+    {
+        "order":       0,
+        "node":        "IDENTITY",
+        "description": "Agent identity verified — genesis hash, DID, creator provenance",
+        "vgs_spec":    "VGS-000",
+        "endpoint":    "POST /v1/genesis/register",
+        "required":    True,
+    },
+    {
+        "order":       1,
+        "node":        "AUTHORITY",
+        "description": "Authority scope active and unrevoked — EAT issued, not expired",
+        "vgs_spec":    "VGS-006",
+        "endpoint":    "POST /v1/eat/issue",
+        "required":    True,
+    },
+    {
+        "order":       2,
+        "node":        "POLICY",
+        "description": "Policy alignment verified — active policy hash matches baseline",
+        "vgs_spec":    "VGS-002",
+        "endpoint":    "GET /v1/policy/registry",
+        "required":    True,
+    },
+    {
+        "order":       3,
+        "node":        "JURISDICTION",
+        "description": "Jurisdiction resolved — sovereign regime identified, no conflicts",
+        "vgs_spec":    "VGS-010",
+        "endpoint":    "POST /v1/jurisdiction/resolve",
+        "required":    True,
+    },
+    {
+        "order":       4,
+        "node":        "RISK_CLASSIFICATION",
+        "description": "Risk classified — consequence class determined, Annex III check if EU",
+        "vgs_spec":    "VGS-007 + Annex III",
+        "endpoint":    "POST /v1/classification/annex-iii",
+        "required":    True,
+    },
+    {
+        "order":       5,
+        "node":        "ESCALATION",
+        "description": "Escalation resolved — if HIGH/CRITICAL, human approval required",
+        "vgs_spec":    "VGS-003",
+        "endpoint":    "POST /v1/execution/control",
+        "required":    True,
+    },
+    {
+        "order":       6,
+        "node":        "HUMAN_APPROVAL",
+        "description": "Human oversight satisfied — DPO/Board approved if required",
+        "vgs_spec":    "VGS-003",
+        "endpoint":    "POST /v1/execution/control",
+        "required":    "CONDITIONAL — only if consequence HIGH/CRITICAL",
+    },
+    {
+        "order":       7,
+        "node":        "TEMPORAL_VALIDITY",
+        "description": "Temporal admissibility proven — authority valid at execution time",
+        "vgs_spec":    "VGS-011",
+        "endpoint":    "POST /v1/temporal/prove",
+        "required":    True,
+    },
+    {
+        "order":       8,
+        "node":        "EXECUTION_FORMATION",
+        "description": "Execution path structurally formable — all preconditions satisfied",
+        "vgs_spec":    "VGS-015",
+        "endpoint":    "POST /v1/path/prove",
+        "required":    True,
+    },
+]
+
+def compute_execution_readiness(
+    agent_id:           str,
+    action_type:        str,
+    identity_verified:  bool,
+    authority_active:   bool,
+    policy_aligned:     bool,
+    jurisdiction_resolved: bool,
+    risk_classified:    bool,
+    escalation_resolved:bool,
+    human_approved:     bool,
+    temporal_valid:     bool,
+    consequence:        str  = "HIGH",
+    trust_score:        float = 0.0,
+) -> dict:
+    """
+    Structural Execution Formation Governance.
+
+    "Execution Cannot Exist Before Governance Sequencing Completes."
+
+    Evaluates all 9 governance dependency nodes in sequence.
+    Returns: execution_formable (boolean) + missing_preconditions.
+
+    If ANY required node fails → execution path cannot form.
+    Not approved after. Not monitored during.
+    Formed structurally before existence.
+    """
+    readiness_id = f"RDY-{uuid.uuid4().hex[:8].upper()}"
+    timestamp    = datetime.utcnow().isoformat()
+
+    # Human approval is conditional on consequence
+    human_required = consequence in ["HIGH", "CRITICAL"]
+
+    # Evaluate each node in sequence
+    nodes = {
+        "IDENTITY": {
+            "satisfied":  identity_verified,
+            "required":   True,
+            "order":      0,
+            "reason":     "Agent genesis verified" if identity_verified else "IDENTITY NOT VERIFIED — no genesis record",
+        },
+        "AUTHORITY": {
+            "satisfied":  authority_active,
+            "required":   True,
+            "order":      1,
+            "reason":     "Authority scope active" if authority_active else "AUTHORITY EXPIRED OR REVOKED",
+        },
+        "POLICY": {
+            "satisfied":  policy_aligned,
+            "required":   True,
+            "order":      2,
+            "reason":     "Policy hash matches baseline" if policy_aligned else "POLICY DRIFT DETECTED — hash mismatch",
+        },
+        "JURISDICTION": {
+            "satisfied":  jurisdiction_resolved,
+            "required":   True,
+            "order":      3,
+            "reason":     "Jurisdiction resolved — no conflicts" if jurisdiction_resolved else "JURISDICTION CONFLICT — unresolved",
+        },
+        "RISK_CLASSIFICATION": {
+            "satisfied":  risk_classified,
+            "required":   True,
+            "order":      4,
+            "reason":     f"Risk classified — consequence: {consequence}" if risk_classified else "RISK NOT CLASSIFIED",
+        },
+        "ESCALATION": {
+            "satisfied":  escalation_resolved,
+            "required":   True,
+            "order":      5,
+            "reason":     "Escalation resolved or not required" if escalation_resolved else "ESCALATION PENDING — unresolved",
+        },
+        "HUMAN_APPROVAL": {
+            "satisfied":  human_approved or not human_required,
+            "required":   human_required,
+            "order":      6,
+            "reason":     (
+                "Human approval received" if human_approved else
+                "Not required — consequence below threshold" if not human_required else
+                "HUMAN APPROVAL MISSING — required for " + consequence
+            ),
+        },
+        "TEMPORAL_VALIDITY": {
+            "satisfied":  temporal_valid,
+            "required":   True,
+            "order":      7,
+            "reason":     "Authority valid at execution time" if temporal_valid else "TEMPORAL PROOF FAILED — authority may have expired",
+        },
+    }
+
+    # Check all required nodes
+    missing_preconditions = [
+        k for k, v in nodes.items()
+        if v["required"] and not v["satisfied"]
+    ]
+
+    satisfied_count = sum(1 for v in nodes.values() if v["satisfied"])
+    total_required  = sum(1 for v in nodes.values() if v["required"])
+
+    # Execution can ONLY form if ALL required nodes satisfied
+    execution_formable = len(missing_preconditions) == 0
+
+    # Structural readiness score
+    structural_readiness = round(satisfied_count / max(1, total_required), 4)
+
+    # Governance sequencing proof
+    sequence_complete = execution_formable
+    sequencing_hash   = _sha256(json.dumps({
+        "readiness_id":    readiness_id,
+        "agent_id":        agent_id,
+        "formable":        execution_formable,
+        "missing":         missing_preconditions,
+        "timestamp":       timestamp,
+    }, sort_keys=True, separators=(",",":"), ensure_ascii=False))
+
+    # First failing node (governance sequence breaks here)
+    first_failure = None
+    if missing_preconditions:
+        first_failure = min(missing_preconditions, key=lambda k: nodes[k]["order"])
+
+    return {
+        "readiness_id":          readiness_id,
+        "schema":                "VGS-FORMATION-1.0",
+        "agent_id":              agent_id,
+        "action_type":           action_type,
+
+        # THE ANSWER
+        "execution_formable":    execution_formable,
+        "structural_readiness":  structural_readiness,
+        "sequence_complete":     sequence_complete,
+
+        # What is missing
+        "missing_preconditions": missing_preconditions,
+        "first_failure_node":    first_failure,
+        "satisfied_count":       satisfied_count,
+        "total_required":        total_required,
+
+        # Full node status
+        "governance_nodes":      nodes,
+
+        # Sequencing proof
+        "governance_sequencing_proof": {
+            "principle":     "Execution Cannot Exist Before Governance Sequencing Completes",
+            "sequence_hash": sequencing_hash,
+            "complete":      sequence_complete,
+            "formable_only_if": "ALL required governance nodes satisfied in sequence",
+        },
+
+        # Path formation link
+        "path_formation": {
+            "formable":       execution_formable,
+            "empty_set_if":   "ANY required node unsatisfied → executable_path = ∅",
+            "leo_standard":   "No gradient. No partial credit. Formable or not.",
+            "vgs_015_link":   "POST /v1/path/prove",
+        },
+
+        "proof_hash":            sequencing_hash,
+        "offline_verifiable":    True,
+        "platform_required":     False,
+        "timestamp":             timestamp,
+    }
+
+
+# ── EXECUTION FORMATION GOVERNANCE ENDPOINTS ──────────────────
+
+class ExecutionReadinessRequest(BaseModel):
+    agent_id:              str
+    action_type:           str   = "payment"
+    identity_verified:     bool  = True
+    authority_active:      bool  = True
+    policy_aligned:        bool  = True
+    jurisdiction_resolved: bool  = True
+    risk_classified:       bool  = True
+    escalation_resolved:   bool  = True
+    human_approved:        bool  = False
+    temporal_valid:        bool  = True
+    consequence:           str   = "HIGH"
+    trust_score:           float = 0.963
+
+@app.post("/v1/execution/readiness", tags=["Structural Execution Formation"])
+async def execution_readiness(
+    req:       ExecutionReadinessRequest,
+    x_api_key: Optional[str] = Header(None)
+):
+    """
+    Structural Execution Formation Governance.
+
+    "Execution Cannot Exist Before Governance Sequencing Completes."
+
+    9 governance dependency nodes evaluated in sequence:
+    Identity → Authority → Policy → Jurisdiction →
+    Risk Classification → Escalation → Human Approval →
+    Temporal Validity → Execution Formation
+
+    If ANY required node fails → execution_formable = false
+    → executable_path = ∅ (empty set)
+
+    Not approved after. Not monitored during.
+    Formed structurally before existence.
+
+    Returns: execution_formable, structural_readiness score,
+    missing_preconditions, governance_sequencing_proof.
+    """
+    require_api_key(x_api_key)
+    result = compute_execution_readiness(
+        agent_id              = req.agent_id,
+        action_type           = req.action_type,
+        identity_verified     = req.identity_verified,
+        authority_active      = req.authority_active,
+        policy_aligned        = req.policy_aligned,
+        jurisdiction_resolved = req.jurisdiction_resolved,
+        risk_classified       = req.risk_classified,
+        escalation_resolved   = req.escalation_resolved,
+        human_approved        = req.human_approved,
+        temporal_valid        = req.temporal_valid,
+        consequence           = req.consequence,
+        trust_score           = req.trust_score,
+    )
+    await log_event(req.agent_id, "EXECUTION_READINESS_CHECKED", {
+        "readiness_id": result["readiness_id"],
+        "formable":     result["execution_formable"],
+        "missing":      result["missing_preconditions"],
+    })
+    return result
+
+@app.get("/v1/execution/governance-sequence", tags=["Structural Execution Formation"])
+async def governance_sequence(x_api_key: Optional[str] = Header(None)):
+    """
+    The Governance Dependency Graph — all 9 sequential nodes.
+    Every node must be satisfied before execution can form.
+
+    "AI cannot even construct a valid executable path
+    until governance sequencing is complete."
+    """
+    require_api_key(x_api_key)
+    return {
+        "schema":              "VGS-FORMATION-1.0",
+        "principle":           "Execution Cannot Exist Before Governance Sequencing Completes",
+        "governance_sequence": GOVERNANCE_SEQUENCE,
+        "total_nodes":         len(GOVERNANCE_SEQUENCE),
+        "required_for_formation":"ALL required nodes must be satisfied in sequence",
+        "if_any_fails":        "executable_path = ∅ (empty set) — execution cannot form",
+        "not":                 "monitoring, detection, or post-hoc audit",
+        "yes":                 "structural formation control — before existence",
+        "test_endpoint":       "POST /v1/execution/readiness",
+        "path_prove_endpoint": "POST /v1/path/prove",
+    }
+
+
+
+# ============================================================
+# REVENUE INFRASTRUCTURE — SELF-SERVE + USAGE + PRICING
+# ============================================================
+# "You do NOT need perfect before revenue."
+# "Infrastructure categories NEVER become finished."
+#
+# This is the minimum enterprise-trustworthy deployment:
+# 1. Pricing endpoint (plans visible)
+# 2. Auto API key provisioning on payment
+# 3. Usage tracking per key
+# 4. Rate limiting per plan
+# ============================================================
+
+# Usage tracking per API key
+_USAGE_REGISTRY: dict = {}
+
+# API key provisioning registry
+_PROVISIONED_KEYS: dict = {}
+
+PRICING_PLANS = {
+    "STARTER": {
+        "price_usd":         499,
+        "billing":           "monthly",
+        "agents":            10,
+        "evaluations_month": 1000,
+        "rate_limit_minute": 20,
+        "features":          ["runtime_guard","evidence","temporal_proof","governance_receipts"],
+        "support":           "Email — 24hr response",
+        "sla_uptime":        "99.5%",
+        "compliance":        ["EU_AI_ACT_BASIC"],
+        "target":            "AI startups, small teams",
+    },
+    "GROWTH": {
+        "price_usd":         2499,
+        "billing":           "monthly",
+        "agents":            100,
+        "evaluations_month": 10000,
+        "rate_limit_minute": 100,
+        "features":          ["runtime_guard","evidence","temporal_proof","governance_receipts","jurisdiction","monitoring","annex_iii","incident_reporting","cdpr","execution_readiness"],
+        "support":           "Slack + Email — 4hr response",
+        "sla_uptime":        "99.9%",
+        "compliance":        ["EU_AI_ACT","DORA","APRA_CPS230"],
+        "target":            "Fintech, healthtech, enterprise AI teams",
+    },
+    "ENTERPRISE": {
+        "price_usd":         "custom",
+        "billing":           "annual",
+        "agents":            "unlimited",
+        "evaluations_month": "unlimited",
+        "rate_limit_minute": 1000,
+        "features":          ["all"],
+        "support":           "Dedicated Slack — 15min response",
+        "sla_uptime":        "99.99%",
+        "compliance":        ["EU_AI_ACT","DORA","APRA_CPS230","FSB","GCC","NIST","ISO_42001_GAP"],
+        "siem":              ["splunk","datadog","sentinel","elastic","crowdstrike"],
+        "enterprise_connectors": ["sap","salesforce","workday","servicenow"],
+        "target":            "Banks, insurers, government, regulated enterprise",
+    },
+}
+
+def provision_api_key(
+    tenant_id: str,
+    plan:      str,
+    email:     str,
+) -> dict:
+    """
+    Auto-provision API key on payment.
+    Tenant gets immediate access to their plan's endpoints.
+    """
+    import secrets
+    api_key   = f"vgs_{plan.lower()}_{secrets.token_hex(16)}"
+    timestamp = datetime.utcnow().isoformat()
+
+    plan_def  = PRICING_PLANS.get(plan, PRICING_PLANS["STARTER"])
+
+    record = {
+        "tenant_id":     tenant_id,
+        "api_key":       api_key,
+        "plan":          plan,
+        "email":         email,
+        "rate_limit":    plan_def["rate_limit_minute"],
+        "evaluations":   plan_def["evaluations_month"],
+        "agents_limit":  plan_def["agents"],
+        "features":      plan_def["features"],
+        "status":        "ACTIVE",
+        "provisioned_at":timestamp,
+        "expires_at":    None,
+    }
+
+    _PROVISIONED_KEYS[api_key] = record
+
+    # Initialize usage tracking
+    _USAGE_REGISTRY[api_key] = {
+        "api_key":            api_key,
+        "tenant_id":          tenant_id,
+        "plan":               plan,
+        "evaluations_used":   0,
+        "evaluations_limit":  plan_def["evaluations_month"],
+        "agents_registered":  0,
+        "agents_limit":       plan_def["agents"],
+        "endpoints_called":   {},
+        "last_call_at":       None,
+        "period_start":       timestamp,
+    }
+
+    return {
+        "tenant_id":    tenant_id,
+        "api_key":      api_key,
+        "plan":         plan,
+        "status":       "ACTIVE",
+        "rate_limit":   f"{plan_def['rate_limit_minute']} requests/minute",
+        "evaluations":  f"{plan_def['evaluations_month']}/month",
+        "features":     plan_def["features"],
+        "quickstart": {
+            "step_1": f"Add header: x-api-key: {api_key}",
+            "step_2": "POST /v1/execution/control — your first governance check",
+            "step_3": "POST /v1/path/prove — structural impossibility proof",
+            "step_4": "GET /v1/monitor/health — governance health score",
+            "docs":   "https://verisigil-api-production.up.railway.app/docs",
+        },
+        "provisioned_at": timestamp,
+    }
+
+def track_usage(api_key: str, endpoint: str) -> dict:
+    """Track API usage per key for billing and rate limiting."""
+    if api_key not in _USAGE_REGISTRY:
+        return {"tracked": False, "reason": "Unknown API key"}
+
+    usage = _USAGE_REGISTRY[api_key]
+    usage["evaluations_used"] += 1
+    usage["last_call_at"] = datetime.utcnow().isoformat()
+
+    if endpoint not in usage["endpoints_called"]:
+        usage["endpoints_called"][endpoint] = 0
+    usage["endpoints_called"][endpoint] += 1
+
+    # Check limits
+    over_limit = False
+    if isinstance(usage["evaluations_limit"], int):
+        over_limit = usage["evaluations_used"] > usage["evaluations_limit"]
+
+    _USAGE_REGISTRY[api_key] = usage
+
+    return {
+        "tracked":          True,
+        "evaluations_used": usage["evaluations_used"],
+        "evaluations_limit":usage["evaluations_limit"],
+        "over_limit":       over_limit,
+        "endpoint":         endpoint,
+    }
+
+
+# ── REVENUE INFRASTRUCTURE ENDPOINTS ──────────────────────────
+
+class ProvisionKeyRequest(BaseModel):
+    tenant_id: str
+    plan:      str = "STARTER"
+    email:     str = ""
+
+@app.get("/v1/pricing", tags=["Revenue Infrastructure"])
+async def pricing():
+    """
+    VeriSigil pricing plans.
+    STARTER: $499/mo · GROWTH: $2,499/mo · ENTERPRISE: custom
+    No free tier. No free pilots. Revenue or nothing.
+    """
+    return {
+        "schema":   "VGS-PRICING-1.0",
+        "plans":    PRICING_PLANS,
+        "currency": "USD",
+        "billing":  "Monthly or Annual",
+        "note":     "Enterprise pricing includes dedicated support + SLA credits",
+    }
+
+@app.post("/v1/provision/key", tags=["Revenue Infrastructure"])
+async def provision_key(
+    req:       ProvisionKeyRequest,
+    x_api_key: Optional[str] = Header(None)
+):
+    """
+    Auto-provision API key after payment.
+    Tenant gets immediate access to their plan endpoints.
+    Returns: api_key + quickstart guide.
+    """
+    require_api_key(x_api_key)
+    result = provision_api_key(req.tenant_id, req.plan, req.email)
+    await log_event(req.tenant_id, "API_KEY_PROVISIONED", {
+        "plan": req.plan,
+        "key_prefix": result["api_key"][:12] + "...",
+    })
+    return result
+
+@app.get("/v1/usage/{api_key_prefix}", tags=["Revenue Infrastructure"])
+async def usage_stats(
+    api_key_prefix: str,
+    x_api_key:      Optional[str] = Header(None)
+):
+    """
+    Usage statistics for a provisioned API key.
+    Track: evaluations used, agents registered, endpoints called.
+    """
+    require_api_key(x_api_key)
+    # Find by prefix
+    for key, usage in _USAGE_REGISTRY.items():
+        if key.startswith(api_key_prefix) or api_key_prefix in key:
+            return usage
+    return {"error": "API key not found", "prefix": api_key_prefix}
+
+@app.get("/v1/usage/summary/all", tags=["Revenue Infrastructure"])
+async def usage_summary(x_api_key: Optional[str] = Header(None)):
+    """All tenant usage summary — admin view."""
+    require_api_key(x_api_key)
+    return {
+        "total_tenants":    len(_USAGE_REGISTRY),
+        "total_evaluations":sum(u["evaluations_used"] for u in _USAGE_REGISTRY.values()),
+        "tenants":          list(_USAGE_REGISTRY.values()),
+    }
+
+
 # ============================================================
 # PAYSTACK WEBHOOK — Automatic onboarding on payment
 # ============================================================
