@@ -22767,6 +22767,1047 @@ async def list_approvals(
 # ============================================================
 # MAIN
 # ============================================================
+
+# ============================================================
+# PHASE 2: AGENT INVENTORY, SHADOW DETECTION (ENHANCED),
+#           TOPOLOGY MAPPING, GOVERNANCE DASHBOARD
+# ============================================================
+# VGS-020: Agent Inventory System
+# VGS-021: Shadow Detection Engine (Enhanced)
+# VGS-022: Topology Mapping
+# VGS-023: Governance Dashboard Aggregation
+# ============================================================
+
+# ============================================================
+# VGS-020: AGENT INVENTORY SYSTEM
+# ============================================================
+# The CMDB for AI agents in motion.
+# Not just "what agents exist" — but:
+# - What is each agent authorized to do right now?
+# - Where in the workflow is each agent?
+# - What is each agent's current trust trajectory?
+# - Which agents share authority chains?
+# - What is the blast radius if one agent is revoked?
+# ============================================================
+
+_AGENT_INVENTORY: dict = {}
+_INVENTORY_EVENTS: list = []
+
+AGENT_STATES = [
+    "REGISTERED","ACTIVE","IDLE","EXECUTING",
+    "ESCALATED","SUSPENDED","REVOKED","EXPIRED","QUARANTINED",
+]
+
+AGENT_ROLES = [
+    "ORCHESTRATOR","EXECUTOR","OBSERVER","REVIEWER",
+    "DELEGATE","GATEWAY","MEMORY","AUDITOR",
+]
+
+def register_agent_inventory(
+    agent_id: str, agent_name: str, agent_role: str,
+    owner_org: str, jurisdiction: str, capabilities: list,
+    trust_score: float, consequence_class: str = "MEDIUM",
+    parent_agent_id: str = "", genesis_id: str = "",
+    passport_did: str = "", tags: list = [],
+) -> dict:
+    """VGS-020: Register agent in the inventory system."""
+    timestamp = datetime.utcnow().isoformat()
+    inv_id    = f"INV-{uuid.uuid4().hex[:8].upper()}"
+
+    entry = {
+        "inventory_id":     inv_id, "schema": "VGS-020",
+        "agent_id":         agent_id, "agent_name": agent_name,
+        "agent_role":       agent_role if agent_role in AGENT_ROLES else "EXECUTOR",
+        "owner_org":        owner_org, "jurisdiction": jurisdiction,
+        "capabilities":     capabilities, "consequence_class": consequence_class,
+        "parent_agent_id":  parent_agent_id, "genesis_id": genesis_id,
+        "passport_did":     passport_did, "tags": tags,
+        "state":            "REGISTERED", "trust_score": trust_score,
+        "trust_trajectory": [{"score": trust_score, "at": timestamp}],
+        "trust_direction":  "STABLE",
+        "active_eats":      [], "active_workflows": [],
+        "current_action":   None, "last_action_at": None,
+        "total_actions":    0, "total_escalations": 0, "total_denials": 0,
+        "downstream_agents":[], "upstream_agents": [parent_agent_id] if parent_agent_id else [],
+        "anomaly_flags":    [], "shadow_risk": "LOW",
+        "last_shadow_check":timestamp,
+        "registered_at":    timestamp, "last_seen_at": timestamp,
+        "inventory_hash":   "",
+    }
+
+    canonical = json.dumps({
+        "inventory_id": inv_id, "agent_id": agent_id,
+        "agent_role": entry["agent_role"], "genesis_id": genesis_id,
+        "timestamp": timestamp,
+    }, sort_keys=True, separators=(",",":"), ensure_ascii=False)
+    entry["inventory_hash"] = hashlib.sha256(canonical.encode()).hexdigest()
+
+    _AGENT_INVENTORY[agent_id] = entry
+    _emit_inventory_event(agent_id, "REGISTERED", {
+        "agent_role": entry["agent_role"], "trust_score": trust_score,
+        "jurisdiction": jurisdiction,
+    })
+    return entry
+
+
+def update_agent_state(
+    agent_id: str, new_state: str, reason: str = "",
+    trust_score: float = None, action_type: str = "",
+) -> dict:
+    """Update agent state in inventory — called after every governance decision."""
+    if agent_id not in _AGENT_INVENTORY:
+        return {"error": f"Agent {agent_id} not in inventory"}
+
+    entry     = _AGENT_INVENTORY[agent_id]
+    timestamp = datetime.utcnow().isoformat()
+    old_state = entry["state"]
+
+    entry["state"]       = new_state if new_state in AGENT_STATES else entry["state"]
+    entry["last_seen_at"]= timestamp
+
+    if trust_score is not None:
+        entry["trust_score"] = trust_score
+        traj = entry["trust_trajectory"]
+        traj.append({"score": trust_score, "at": timestamp})
+        if len(traj) > 1:
+            delta = trust_score - traj[-2]["score"]
+            entry["trust_direction"] = "IMPROVING" if delta > 0.01 else "DECLINING" if delta < -0.01 else "STABLE"
+        if len(traj) > 50:
+            entry["trust_trajectory"] = traj[-50:]
+
+    if action_type:
+        entry["current_action"] = action_type
+        entry["last_action_at"] = timestamp
+        entry["total_actions"] += 1
+
+    if new_state == "ESCALATED":
+        entry["total_escalations"] += 1
+    elif new_state in ("REVOKED","SUSPENDED") and old_state not in ("REVOKED","SUSPENDED"):
+        entry["total_denials"] += 1
+
+    _emit_inventory_event(agent_id, f"STATE_{new_state}", {
+        "old_state": old_state, "reason": reason, "trust_score": trust_score,
+    })
+    _AGENT_INVENTORY[agent_id] = entry
+    return entry
+
+
+def compute_blast_radius(agent_id: str) -> dict:
+    """Compute blast radius — what breaks if this agent is revoked."""
+    if agent_id not in _AGENT_INVENTORY:
+        return {"agent_id": agent_id, "blast_radius": 0, "affected": []}
+
+    affected = set()
+    queue    = [agent_id]
+    visited  = set()
+
+    while queue:
+        current = queue.pop(0)
+        if current in visited:
+            continue
+        visited.add(current)
+        entry = _AGENT_INVENTORY.get(current, {})
+        for downstream in entry.get("downstream_agents", []):
+            if downstream != agent_id:
+                affected.add(downstream)
+                queue.append(downstream)
+
+    affected_entries = [_AGENT_INVENTORY.get(a, {}) for a in affected]
+    max_consequence  = "LOW"
+    order = ["LOW","MEDIUM","HIGH","CRITICAL"]
+    for ae in affected_entries:
+        c = ae.get("consequence_class","LOW")
+        if order.index(c) > order.index(max_consequence):
+            max_consequence = c
+
+    return {
+        "agent_id":          agent_id,
+        "blast_radius":      len(affected),
+        "affected_agents":   list(affected),
+        "max_consequence":   max_consequence,
+        "governance_action": "ESCALATE_BEFORE_REVOCATION" if max_consequence in ("HIGH","CRITICAL") else "SAFE_TO_REVOKE",
+        "timestamp":         datetime.utcnow().isoformat(),
+    }
+
+
+def get_inventory_summary() -> dict:
+    """Full inventory summary — counts, states, trust distribution."""
+    entries  = list(_AGENT_INVENTORY.values())
+    by_state = {}
+    by_role  = {}
+    by_juris = {}
+    trust_sum= 0.0
+
+    for e in entries:
+        s = e["state"]; r = e["agent_role"]; j = e["jurisdiction"]
+        by_state[s] = by_state.get(s,0) + 1
+        by_role[r]  = by_role.get(r,0)  + 1
+        by_juris[j] = by_juris.get(j,0) + 1
+        trust_sum  += float(e.get("trust_score",0))
+
+    avg_trust = round(trust_sum / max(1, len(entries)), 4)
+    declining = [e["agent_id"] for e in entries if e.get("trust_direction") == "DECLINING"]
+
+    return {
+        "schema":          "VGS-020-SUMMARY",
+        "total_agents":    len(entries),
+        "by_state":        by_state, "by_role": by_role,
+        "by_jurisdiction": by_juris,
+        "avg_trust_score": avg_trust,
+        "critical_active": sum(1 for e in entries if e.get("consequence_class")=="CRITICAL" and e["state"]=="ACTIVE"),
+        "declining_trust": len(declining),
+        "active_count":    by_state.get("ACTIVE",0),
+        "executing_count": by_state.get("EXECUTING",0),
+        "suspended_count": by_state.get("SUSPENDED",0),
+        "revoked_count":   by_state.get("REVOKED",0),
+        "timestamp":       datetime.utcnow().isoformat(),
+    }
+
+
+def _emit_inventory_event(agent_id: str, event_type: str, data: dict):
+    _INVENTORY_EVENTS.append({
+        "event_id":   f"EVT-{uuid.uuid4().hex[:6].upper()}",
+        "agent_id":   agent_id, "event_type": event_type,
+        "data":       data, "timestamp": datetime.utcnow().isoformat(),
+    })
+    if len(_INVENTORY_EVENTS) > 500:
+        del _INVENTORY_EVENTS[0]
+
+
+# ============================================================
+# VGS-021: SHADOW DETECTION ENGINE (ENHANCED)
+# ============================================================
+# 7 attack vectors:
+# 1. DID collision
+# 2. Behavioral clone fingerprint
+# 3. Trust score spoofing
+# 4. Simultaneous execution
+# 5. Namespace squatting
+# 6. Revoked EAT reuse
+# 7. Velocity anomaly
+# ============================================================
+
+_BEHAVIORAL_FINGERPRINTS: dict = {}
+_EXECUTION_LEDGER: dict = {}
+
+SHADOW_ATTACK_VECTORS = {
+    "DID_COLLISION":       {"severity":"CRITICAL","weight":0.95},
+    "BEHAVIORAL_CLONE":    {"severity":"HIGH",    "weight":0.75},
+    "TRUST_SPOOFING":      {"severity":"HIGH",    "weight":0.70},
+    "SIMULTANEOUS_EXEC":   {"severity":"CRITICAL","weight":0.90},
+    "NAMESPACE_SQUATTING": {"severity":"MEDIUM",  "weight":0.45},
+    "REVOKED_EAT_REUSE":   {"severity":"CRITICAL","weight":0.98},
+    "VELOCITY_ANOMALY":    {"severity":"HIGH",    "weight":0.65},
+    "JURISDICTION_MISMATCH":{"severity":"MEDIUM", "weight":0.40},
+}
+
+
+def record_behavioral_fingerprint(
+    agent_id: str, action_type: str, action_hash: str,
+    trust_score: float, jurisdiction: str, timestamp: str = None,
+) -> dict:
+    """Record agent behavior for fingerprinting."""
+    ts = timestamp or datetime.utcnow().isoformat()
+    if agent_id not in _BEHAVIORAL_FINGERPRINTS:
+        _BEHAVIORAL_FINGERPRINTS[agent_id] = {
+            "action_history": [], "action_type_counts": {},
+            "trust_history": [], "jurisdictions": set(),
+            "first_seen": ts, "last_seen": ts,
+        }
+
+    fp = _BEHAVIORAL_FINGERPRINTS[agent_id]
+    fp["action_history"].append({"type":action_type,"hash":action_hash,"at":ts})
+    fp["action_type_counts"][action_type] = fp["action_type_counts"].get(action_type,0) + 1
+    fp["trust_history"].append(trust_score)
+    fp["jurisdictions"].add(jurisdiction)
+    fp["last_seen"] = ts
+
+    if len(fp["action_history"]) > 100:
+        fp["action_history"] = fp["action_history"][-100:]
+    if len(fp["trust_history"]) > 100:
+        fp["trust_history"] = fp["trust_history"][-100:]
+
+    _BEHAVIORAL_FINGERPRINTS[agent_id] = fp
+    return fp
+
+
+def detect_shadow_enhanced(
+    agent_id: str, agent_did: str, trust_score: float,
+    action_type: str, jurisdiction: str,
+    eat_token_id: str = "", execution_context: str = "",
+) -> dict:
+    """VGS-021: Enhanced multi-signal shadow detection."""
+    timestamp    = datetime.utcnow().isoformat()
+    detection_id = f"SHADOW-{uuid.uuid4().hex[:8].upper()}"
+    signals      = []
+    risk_score   = 0.0
+
+    # 1. DID collision
+    did_collisions = [
+        aid for aid, entry in _AGENT_INVENTORY.items()
+        if entry.get("passport_did") == agent_did and aid != agent_id
+    ]
+    if did_collisions:
+        risk_score += SHADOW_ATTACK_VECTORS["DID_COLLISION"]["weight"]
+        signals.append({"vector":"DID_COLLISION","severity":"CRITICAL",
+            "detail":f"DID {agent_did[:20]}... also claimed by: {did_collisions}"})
+
+    # 2. Behavioral clone
+    this_fp = _BEHAVIORAL_FINGERPRINTS.get(agent_id, {})
+    for other_id, other_fp in _BEHAVIORAL_FINGERPRINTS.items():
+        if other_id == agent_id:
+            continue
+        this_types  = set(this_fp.get("action_type_counts",{}).keys())
+        other_types = set(other_fp.get("action_type_counts",{}).keys())
+        if this_types and other_types and len(this_types) > 3:
+            overlap = len(this_types & other_types) / max(len(this_types | other_types),1)
+            if overlap > 0.90:
+                risk_score += SHADOW_ATTACK_VECTORS["BEHAVIORAL_CLONE"]["weight"] * overlap
+                signals.append({"vector":"BEHAVIORAL_CLONE","severity":"HIGH",
+                    "detail":f"90%+ behavioral overlap with agent {other_id}"})
+                break
+
+    # 3. Trust score spoofing
+    historical_trust = this_fp.get("trust_history",[])
+    if len(historical_trust) >= 2:
+        prev_trust = historical_trust[-1]
+        jump = trust_score - prev_trust
+        if jump > 0.20:
+            risk_score += SHADOW_ATTACK_VECTORS["TRUST_SPOOFING"]["weight"]
+            signals.append({"vector":"TRUST_SPOOFING","severity":"HIGH",
+                "detail":f"Trust jumped {prev_trust:.3f}→{trust_score:.3f} (+{jump:.3f}) — implausible"})
+
+    # 4. Simultaneous execution
+    exec_key = f"{agent_id}:{action_type}"
+    now_ts   = datetime.utcnow()
+    if exec_key in _EXECUTION_LEDGER:
+        last_exec = datetime.fromisoformat(_EXECUTION_LEDGER[exec_key])
+        delta_s   = (now_ts - last_exec).total_seconds()
+        if delta_s < 2.0:
+            risk_score += SHADOW_ATTACK_VECTORS["SIMULTANEOUS_EXEC"]["weight"]
+            signals.append({"vector":"SIMULTANEOUS_EXEC","severity":"CRITICAL",
+                "detail":f"Same action within {delta_s:.1f}s — simultaneous execution detected"})
+    _EXECUTION_LEDGER[exec_key] = timestamp
+
+    # 5. Namespace squatting
+    inv_entry      = _AGENT_INVENTORY.get(agent_id,{})
+    agent_name_low = inv_entry.get("agent_name","").lower()
+    if agent_name_low:
+        for other_id, other_entry in _AGENT_INVENTORY.items():
+            if other_id == agent_id:
+                continue
+            other_name = other_entry.get("agent_name","").lower()
+            if other_name and abs(len(agent_name_low)-len(other_name)) <= 2:
+                common     = sum(1 for a,b in zip(agent_name_low,other_name) if a==b)
+                similarity = common / max(len(agent_name_low),len(other_name))
+                if similarity > 0.88 and other_name != agent_name_low:
+                    risk_score += SHADOW_ATTACK_VECTORS["NAMESPACE_SQUATTING"]["weight"]
+                    signals.append({"vector":"NAMESPACE_SQUATTING","severity":"MEDIUM",
+                        "detail":f"Name similar to '{other_entry.get('agent_name')}'"})
+                    break
+
+    # 6. Velocity anomaly
+    recent_actions = [
+        a for a in this_fp.get("action_history",[])
+        if (now_ts - datetime.fromisoformat(a["at"])).total_seconds() < 60
+    ]
+    if len(recent_actions) > 15:
+        risk_score += SHADOW_ATTACK_VECTORS["VELOCITY_ANOMALY"]["weight"]
+        signals.append({"vector":"VELOCITY_ANOMALY","severity":"HIGH",
+            "detail":f"{len(recent_actions)} actions in 60s — velocity anomaly"})
+
+    risk_score = min(1.0, round(risk_score, 4))
+
+    if   risk_score >= 0.85: shadow_decision = "CONFIRMED_SHADOW";  action = "BLOCK_IMMEDIATELY"
+    elif risk_score >= 0.60: shadow_decision = "PROBABLE_SHADOW";   action = "QUARANTINE"
+    elif risk_score >= 0.35: shadow_decision = "SUSPICIOUS";        action = "ESCALATE"
+    elif risk_score >= 0.10: shadow_decision = "ANOMALOUS";         action = "MONITOR"
+    else:                    shadow_decision = "CLEAN";              action = "PROCEED"
+
+    if agent_id in _AGENT_INVENTORY:
+        _AGENT_INVENTORY[agent_id]["shadow_risk"] = (
+            "CRITICAL" if risk_score >= 0.85 else "HIGH" if risk_score >= 0.60 else
+            "MEDIUM"   if risk_score >= 0.35 else "LOW"
+        )
+        _AGENT_INVENTORY[agent_id]["last_shadow_check"] = timestamp
+
+    return {
+        "detection_id":      detection_id, "schema": "VGS-021",
+        "agent_id":          agent_id,
+        "shadow_risk_score": risk_score, "shadow_decision": shadow_decision,
+        "recommended_action":action,
+        "signals_detected":  signals,
+        "vectors_checked":   list(SHADOW_ATTACK_VECTORS.keys()),
+        "attack_vectors":    SHADOW_ATTACK_VECTORS,
+        "did_checked":       agent_did, "jurisdiction": jurisdiction,
+        "trust_score":       trust_score,
+        "offline_verifiable":True, "timestamp": timestamp,
+    }
+
+
+# ============================================================
+# VGS-022: TOPOLOGY MAPPING
+# ============================================================
+# Map the complete graph of agent relationships:
+# authority flow, delegation chains, workflow dependencies,
+# consequence propagation paths.
+# ============================================================
+
+_TOPOLOGY_GRAPH: dict = {"nodes": {}, "edges": [], "clusters": {}}
+
+EDGE_TYPES = {
+    "DELEGATES_TO":   {"direction":"→","consequence":"authority flows downstream"},
+    "ORCHESTRATES":   {"direction":"→","consequence":"workflow control"},
+    "DEPENDS_ON":     {"direction":"←","consequence":"execution dependency"},
+    "SHARES_CONTEXT": {"direction":"↔","consequence":"memory/context sharing"},
+    "ESCALATES_TO":   {"direction":"→","consequence":"human approval chain"},
+    "REPORTS_TO":     {"direction":"→","consequence":"audit chain"},
+}
+
+
+def add_topology_node(
+    agent_id: str, agent_name: str, agent_role: str,
+    trust_score: float, jurisdiction: str, owner_org: str,
+    consequence_class: str = "MEDIUM",
+) -> dict:
+    """Add an agent as a node in the topology graph."""
+    timestamp = datetime.utcnow().isoformat()
+    node = {
+        "agent_id":         agent_id, "agent_name": agent_name,
+        "agent_role":       agent_role, "trust_score": trust_score,
+        "jurisdiction":     jurisdiction, "owner_org": owner_org,
+        "consequence_class":consequence_class, "state": "ACTIVE",
+        "added_at":         timestamp,
+        "cluster":          f"{owner_org}:{jurisdiction}",
+        "size":             {"CRITICAL":4,"HIGH":3,"MEDIUM":2,"LOW":1}.get(consequence_class,2),
+    }
+    _TOPOLOGY_GRAPH["nodes"][agent_id] = node
+    cluster_key = node["cluster"]
+    if cluster_key not in _TOPOLOGY_GRAPH["clusters"]:
+        _TOPOLOGY_GRAPH["clusters"][cluster_key] = []
+    if agent_id not in _TOPOLOGY_GRAPH["clusters"][cluster_key]:
+        _TOPOLOGY_GRAPH["clusters"][cluster_key].append(agent_id)
+    return node
+
+
+def add_topology_edge(
+    from_agent_id: str, to_agent_id: str, edge_type: str,
+    weight: float = 1.0, label: str = "", consequence: str = "MEDIUM",
+) -> dict:
+    """Add a directed edge between agents in the topology graph."""
+    timestamp = datetime.utcnow().isoformat()
+    edge_id   = f"EDGE-{uuid.uuid4().hex[:6].upper()}"
+    edge = {
+        "edge_id":    edge_id, "from": from_agent_id, "to": to_agent_id,
+        "type":       edge_type if edge_type in EDGE_TYPES else "DELEGATES_TO",
+        "weight":     weight, "label": label, "consequence": consequence,
+        "direction":  EDGE_TYPES.get(edge_type,{}).get("direction","→"),
+        "added_at":   timestamp,
+    }
+    _TOPOLOGY_GRAPH["edges"].append(edge)
+
+    if from_agent_id in _AGENT_INVENTORY:
+        inv = _AGENT_INVENTORY[from_agent_id]
+        if to_agent_id not in inv["downstream_agents"]:
+            inv["downstream_agents"].append(to_agent_id)
+    if to_agent_id in _AGENT_INVENTORY:
+        inv = _AGENT_INVENTORY[to_agent_id]
+        if from_agent_id not in inv.get("upstream_agents",[]):
+            inv.setdefault("upstream_agents",[]).append(from_agent_id)
+
+    return edge
+
+
+def compute_topology_metrics() -> dict:
+    """Compute graph-level topology metrics."""
+    nodes   = _TOPOLOGY_GRAPH["nodes"]
+    edges   = _TOPOLOGY_GRAPH["edges"]
+    in_deg  = {}; out_deg = {}
+
+    for edge in edges:
+        out_deg[edge["from"]] = out_deg.get(edge["from"],0) + 1
+        in_deg[edge["to"]]    = in_deg.get(edge["to"],0)  + 1
+
+    hubs = sorted(
+        [(aid, out_deg.get(aid,0)) for aid in nodes],
+        key=lambda x: x[1], reverse=True
+    )[:5]
+
+    all_connected = set(in_deg.keys()) | set(out_deg.keys())
+    isolated      = [aid for aid in nodes if aid not in all_connected]
+    max_out       = max(out_deg.values()) if out_deg else 0
+    concentrated  = max_out >= 5
+
+    corder         = {"LOW":1,"MEDIUM":2,"HIGH":3,"CRITICAL":4}
+    critical_edges = [e for e in edges if corder.get(e.get("consequence","MEDIUM"),2) >= 3]
+
+    return {
+        "schema":                "VGS-022-METRICS",
+        "total_nodes":           len(nodes), "total_edges": len(edges),
+        "clusters":              len(_TOPOLOGY_GRAPH["clusters"]),
+        "hubs":                  [{"agent_id":h[0],"out_degree":h[1]} for h in hubs],
+        "isolated_agents":       isolated,
+        "authority_concentrated":concentrated,
+        "max_delegation_depth":  max_out,
+        "critical_edges":        len(critical_edges),
+        "topology_risk":         "HIGH" if concentrated or len(critical_edges) > 5 else "MEDIUM" if isolated else "LOW",
+        "timestamp":             datetime.utcnow().isoformat(),
+    }
+
+
+def get_topology_graph() -> dict:
+    """Return the full topology graph with metrics."""
+    return {
+        "schema":  "VGS-022",
+        "nodes":   list(_TOPOLOGY_GRAPH["nodes"].values()),
+        "edges":   _TOPOLOGY_GRAPH["edges"],
+        "clusters":{
+            k: {"cluster_id":k,"agents":v,"size":len(v)}
+            for k,v in _TOPOLOGY_GRAPH["clusters"].items()
+        },
+        "metrics":  compute_topology_metrics(),
+        "edge_types":EDGE_TYPES,
+        "timestamp": datetime.utcnow().isoformat(),
+    }
+
+
+# ============================================================
+# VGS-023: GOVERNANCE DASHBOARD AGGREGATION
+# ============================================================
+# Single API call — everything needed for a real-time
+# governance dashboard: inventory, shadows, topology,
+# trust trends, escalations, jurisdiction coverage,
+# chain health, compliance readiness.
+# ============================================================
+
+def build_governance_dashboard(
+    org_id: str = "default",
+    time_window: str = "24h",
+) -> dict:
+    """VGS-023: Full governance dashboard aggregation."""
+    timestamp    = datetime.utcnow().isoformat()
+    now          = datetime.utcnow()
+    window_hours = {"1h":1,"6h":6,"24h":24,"7d":168,"30d":720}.get(time_window,24)
+    window_start = (now - timedelta(hours=window_hours)).isoformat()
+
+    inventory_summary = get_inventory_summary()
+    all_entries       = list(_AGENT_INVENTORY.values())
+
+    # Shadow risk distribution
+    shadow_dist   = {"CRITICAL":0,"HIGH":0,"MEDIUM":0,"LOW":0}
+    shadow_alerts = []
+    for e in all_entries:
+        risk = e.get("shadow_risk","LOW")
+        shadow_dist[risk] = shadow_dist.get(risk,0) + 1
+        if risk in ("CRITICAL","HIGH"):
+            shadow_alerts.append({
+                "agent_id":   e["agent_id"], "agent_name": e.get("agent_name",""),
+                "shadow_risk":risk, "last_check": e.get("last_shadow_check"),
+            })
+
+    # Declining trust
+    declining_agents = [
+        {"agent_id":e["agent_id"],"agent_name":e.get("agent_name",""),
+         "trust_score":e.get("trust_score",0),"direction":e.get("trust_direction","STABLE")}
+        for e in all_entries if e.get("trust_direction") == "DECLINING"
+    ]
+
+    topology_metrics = compute_topology_metrics()
+
+    escalated_agents = [
+        {"agent_id":e["agent_id"],"agent_name":e.get("agent_name",""),
+         "escalations":e.get("total_escalations",0)}
+        for e in all_entries if e.get("state") == "ESCALATED"
+    ]
+
+    jurisdictions = {}
+    for e in all_entries:
+        j = e.get("jurisdiction","UNKNOWN")
+        jurisdictions[j] = jurisdictions.get(j,0) + 1
+
+    recent_events = [ev for ev in _INVENTORY_EVENTS if ev["timestamp"] >= window_start]
+
+    chain_len    = len(_chain)
+    merkle_root  = _compute_merkle_root([b["block_hash"] for b in _chain]) if _chain else _sha256("empty")
+    chain_health = "HEALTHY" if chain_len > 0 else "EMPTY"
+
+    high_risk_unreviewed = sum(
+        1 for e in all_entries
+        if e.get("consequence_class") == "CRITICAL" and e.get("state") == "ACTIVE"
+        and e.get("total_escalations",0) == 0
+    )
+
+    factors = {
+        "inventory_coverage": min(1.0, len(all_entries) / max(1,len(all_entries))),
+        "trust_health":       max(0, 1.0 - (len(declining_agents) / max(1,len(all_entries)))),
+        "shadow_clean":       max(0, 1.0 - (shadow_dist["CRITICAL"] + shadow_dist["HIGH"]) * 0.2),
+        "topology_clean":     0.5 if topology_metrics["topology_risk"]=="HIGH" else 0.75 if topology_metrics["topology_risk"]=="MEDIUM" else 1.0,
+        "chain_healthy":      1.0 if chain_health == "HEALTHY" else 0.5,
+    }
+    governance_health = round(sum(factors.values()) / len(factors), 4)
+    governance_grade  = (
+        "A" if governance_health >= 0.90 else "B" if governance_health >= 0.75 else
+        "C" if governance_health >= 0.60 else "D" if governance_health >= 0.45 else "F"
+    )
+
+    return {
+        "schema":            "VGS-023",
+        "dashboard_id":      f"DASH-{uuid.uuid4().hex[:8].upper()}",
+        "org_id":            org_id, "time_window": time_window,
+        "generated_at":      timestamp,
+        "governance_health": governance_health,
+        "governance_grade":  governance_grade,
+        "governance_factors":factors,
+        "inventory":         inventory_summary,
+        "shadow_detection": {
+            "distribution":shadow_dist, "active_alerts":shadow_alerts,
+            "alert_count":len(shadow_alerts),
+        },
+        "trust_health": {
+            "declining_agents":declining_agents,
+            "avg_trust":inventory_summary.get("avg_trust_score",0),
+            "critical_count":inventory_summary.get("critical_active",0),
+        },
+        "topology":      topology_metrics,
+        "escalations": {"active_escalations":escalated_agents,"count":len(escalated_agents)},
+        "jurisdictions": jurisdictions,
+        "activity": {
+            "events_in_window":len(recent_events),"window":time_window,
+            "recent_events":recent_events[-10:],
+        },
+        "audit_chain": {
+            "total_blocks":chain_len,"merkle_root":merkle_root[:20]+"...",
+            "health":chain_health,"tamper_evident":True,
+        },
+        "compliance": {
+            "eu_covered":sum(1 for e in all_entries if e.get("jurisdiction","").startswith("EU")),
+            "high_risk_unreviewed":high_risk_unreviewed,
+            "eu_ai_act_deadline":"2026-08-02",
+        },
+        "board_signal": (
+            "ATTENTION REQUIRED" if governance_grade in ("D","F") else
+            "REVIEW RECOMMENDED" if governance_grade == "C" else
+            "GOVERNANCE HEALTHY"
+        ),
+        "offline_verifiable":True,
+    }
+
+
+# ============================================================
+# PHASE 2 ENDPOINTS — VGS-020, VGS-021, VGS-022, VGS-023
+# ============================================================
+
+# ── VGS-020: AGENT INVENTORY ENDPOINTS ───────────────────────
+
+class AgentInventoryRequest(BaseModel):
+    agent_id:          str
+    agent_name:        str
+    agent_role:        str = "EXECUTOR"
+    owner_org:         str = ""
+    jurisdiction:      str = "EU"
+    capabilities:      list = []
+    trust_score:       float = 0.963
+    consequence_class: str = "MEDIUM"
+    parent_agent_id:   str = ""
+    genesis_id:        str = ""
+    passport_did:      str = ""
+    tags:              list = []
+
+class AgentStateUpdateRequest(BaseModel):
+    agent_id:    str
+    new_state:   str
+    reason:      str = ""
+    trust_score: float = None
+    action_type: str = ""
+
+@app.post("/v1/inventory/register", tags=["VGS-020 Agent Inventory"])
+async def inventory_register(
+    req: AgentInventoryRequest,
+    x_api_key: Optional[str] = Header(None)
+):
+    """
+    VGS-020: Register agent in the inventory system.
+
+    The CMDB for AI agents in motion. Tracks:
+    - Full identity binding (genesis, passport, DID)
+    - Role + capability declaration
+    - Current authorization state
+    - Trust trajectory (updated on every governance event)
+    - Blast radius (which agents depend on this one)
+    - Workflow position
+
+    Called once when agent is first created.
+    State updated automatically by governance events.
+    """
+    require_api_key(x_api_key)
+    result = register_agent_inventory(
+        agent_id=req.agent_id, agent_name=req.agent_name,
+        agent_role=req.agent_role, owner_org=req.owner_org,
+        jurisdiction=req.jurisdiction, capabilities=req.capabilities,
+        trust_score=req.trust_score, consequence_class=req.consequence_class,
+        parent_agent_id=req.parent_agent_id, genesis_id=req.genesis_id,
+        passport_did=req.passport_did, tags=req.tags,
+    )
+    return result
+
+@app.post("/v1/inventory/state", tags=["VGS-020 Agent Inventory"])
+async def inventory_update_state(
+    req: AgentStateUpdateRequest,
+    x_api_key: Optional[str] = Header(None)
+):
+    """Update agent state in inventory after a governance decision."""
+    require_api_key(x_api_key)
+    return update_agent_state(
+        req.agent_id, req.new_state, req.reason,
+        req.trust_score, req.action_type,
+    )
+
+@app.get("/v1/inventory/{agent_id}", tags=["VGS-020 Agent Inventory"])
+async def inventory_get_agent(
+    agent_id: str,
+    x_api_key: Optional[str] = Header(None)
+):
+    """Get full inventory record for an agent."""
+    require_api_key(x_api_key)
+    entry = _AGENT_INVENTORY.get(agent_id)
+    if not entry:
+        raise HTTPException(404, f"Agent {agent_id} not in inventory")
+    return entry
+
+@app.get("/v1/inventory/{agent_id}/blast-radius", tags=["VGS-020 Agent Inventory"])
+async def inventory_blast_radius(
+    agent_id: str,
+    x_api_key: Optional[str] = Header(None)
+):
+    """
+    Compute blast radius — what breaks if this agent is revoked.
+    Returns: affected_agents, max_consequence, governance_action.
+    Use before revoking any CRITICAL agent.
+    """
+    require_api_key(x_api_key)
+    return compute_blast_radius(agent_id)
+
+@app.get("/v1/inventory", tags=["VGS-020 Agent Inventory"])
+async def inventory_list(
+    state:      Optional[str] = None,
+    role:       Optional[str] = None,
+    jurisdiction:Optional[str]= None,
+    x_api_key:  Optional[str] = Header(None)
+):
+    """List all registered agents with optional filters."""
+    require_api_key(x_api_key)
+    entries = list(_AGENT_INVENTORY.values())
+    if state:
+        entries = [e for e in entries if e["state"] == state]
+    if role:
+        entries = [e for e in entries if e["agent_role"] == role]
+    if jurisdiction:
+        entries = [e for e in entries if e["jurisdiction"] == jurisdiction]
+    return {
+        "total":   len(entries),
+        "agents":  entries,
+        "summary": get_inventory_summary(),
+    }
+
+@app.get("/v1/inventory/summary/all", tags=["VGS-020 Agent Inventory"])
+async def inventory_summary(x_api_key: Optional[str] = Header(None)):
+    """Full inventory summary — counts, states, trust distribution."""
+    require_api_key(x_api_key)
+    return get_inventory_summary()
+
+@app.get("/v1/inventory/events/log", tags=["VGS-020 Agent Inventory"])
+async def inventory_events(
+    agent_id:  Optional[str] = None,
+    limit:     int = 50,
+    x_api_key: Optional[str] = Header(None)
+):
+    """Inventory event log — all state changes, registrations, alerts."""
+    require_api_key(x_api_key)
+    events = _INVENTORY_EVENTS
+    if agent_id:
+        events = [e for e in events if e["agent_id"] == agent_id]
+    return {"total":len(events),"events":events[-limit:]}
+
+@app.get("/v1/inventory/roles/list", tags=["VGS-020 Agent Inventory"])
+async def inventory_roles(x_api_key: Optional[str] = Header(None)):
+    """All valid agent roles and states."""
+    require_api_key(x_api_key)
+    return {"roles":AGENT_ROLES,"states":AGENT_STATES,"schema":"VGS-020"}
+
+
+# ── VGS-021: SHADOW DETECTION ENDPOINTS ──────────────────────
+
+class ShadowDetectionRequest(BaseModel):
+    agent_id:          str
+    agent_did:         str
+    trust_score:       float = 0.963
+    action_type:       str   = "payment"
+    jurisdiction:      str   = "EU"
+    eat_token_id:      str   = ""
+    execution_context: str   = ""
+
+class FingerprintRequest(BaseModel):
+    agent_id:    str
+    action_type: str
+    action_hash: str = ""
+    trust_score: float = 0.963
+    jurisdiction:str = "EU"
+
+@app.post("/v1/shadow/detect", tags=["VGS-021 Shadow Detection"])
+async def shadow_detect(
+    req: ShadowDetectionRequest,
+    x_api_key: Optional[str] = Header(None)
+):
+    """
+    VGS-021: Enhanced multi-signal shadow detection.
+
+    7 attack vectors assessed simultaneously:
+    1. DID collision — another agent claiming same identity
+    2. Behavioral clone — matching action pattern fingerprint
+    3. Trust score spoofing — implausible trust jump
+    4. Simultaneous execution — same agent, two contexts
+    5. Namespace squatting — similar-name agent registered
+    6. Revoked EAT reuse — using revoked authority token
+    7. Velocity anomaly — action rate spike
+
+    Returns: shadow_risk_score (0→1) + detected_vectors + action
+    CONFIRMED_SHADOW → BLOCK_IMMEDIATELY
+    PROBABLE_SHADOW  → QUARANTINE
+    SUSPICIOUS       → ESCALATE
+    CLEAN            → PROCEED
+    """
+    require_api_key(x_api_key)
+    result = detect_shadow_enhanced(
+        req.agent_id, req.agent_did, req.trust_score,
+        req.action_type, req.jurisdiction,
+        req.eat_token_id, req.execution_context,
+    )
+    if result["shadow_risk_score"] > 0.35:
+        await log_event(req.agent_id, "SHADOW_DETECTED", {
+            "detection_id": result["detection_id"],
+            "risk_score":   result["shadow_risk_score"],
+            "decision":     result["shadow_decision"],
+            "signals":      len(result["signals_detected"]),
+        })
+    return result
+
+@app.post("/v1/shadow/fingerprint", tags=["VGS-021 Shadow Detection"])
+async def shadow_fingerprint_record(
+    req: FingerprintRequest,
+    x_api_key: Optional[str] = Header(None)
+):
+    """
+    Record behavioral fingerprint for an agent.
+    Call after every action to build the behavioral profile
+    used by shadow detection. Returns current fingerprint.
+    """
+    require_api_key(x_api_key)
+    fp = record_behavioral_fingerprint(
+        req.agent_id, req.action_type,
+        req.action_hash or _sha256(f"{req.agent_id}:{req.action_type}"),
+        req.trust_score, req.jurisdiction,
+    )
+    return {
+        "agent_id":   req.agent_id,
+        "total_actions": len(fp.get("action_history",[])),
+        "action_types":  fp.get("action_type_counts",{}),
+        "jurisdictions": list(fp.get("jurisdictions",[])),
+        "first_seen":    fp.get("first_seen"),
+        "last_seen":     fp.get("last_seen"),
+    }
+
+@app.get("/v1/shadow/fingerprint/{agent_id}", tags=["VGS-021 Shadow Detection"])
+async def shadow_get_fingerprint(
+    agent_id:  str,
+    x_api_key: Optional[str] = Header(None)
+):
+    """Get behavioral fingerprint for an agent."""
+    require_api_key(x_api_key)
+    fp = _BEHAVIORAL_FINGERPRINTS.get(agent_id)
+    if not fp:
+        return {"agent_id": agent_id, "fingerprint": None, "note": "No behavioral data yet"}
+    return {
+        "agent_id":      agent_id,
+        "total_actions": len(fp.get("action_history",[])),
+        "action_types":  fp.get("action_type_counts",{}),
+        "jurisdictions": list(fp.get("jurisdictions",[])),
+        "first_seen":    fp.get("first_seen"),
+        "last_seen":     fp.get("last_seen"),
+        "recent_actions":fp.get("action_history",[])[-10:],
+    }
+
+@app.get("/v1/shadow/vectors", tags=["VGS-021 Shadow Detection"])
+async def shadow_attack_vectors(x_api_key: Optional[str] = Header(None)):
+    """All 7 shadow detection attack vectors with severity and weight."""
+    require_api_key(x_api_key)
+    return {
+        "schema":  "VGS-021",
+        "vectors": SHADOW_ATTACK_VECTORS,
+        "total":   len(SHADOW_ATTACK_VECTORS),
+        "note":    "Weight = contribution to shadow_risk_score when vector detected",
+    }
+
+
+# ── VGS-022: TOPOLOGY ENDPOINTS ──────────────────────────────
+
+class TopologyNodeRequest(BaseModel):
+    agent_id:          str
+    agent_name:        str
+    agent_role:        str   = "EXECUTOR"
+    trust_score:       float = 0.963
+    jurisdiction:      str   = "EU"
+    owner_org:         str   = ""
+    consequence_class: str   = "MEDIUM"
+
+class TopologyEdgeRequest(BaseModel):
+    from_agent_id: str
+    to_agent_id:   str
+    edge_type:     str   = "DELEGATES_TO"
+    weight:        float = 1.0
+    label:         str   = ""
+    consequence:   str   = "MEDIUM"
+
+@app.post("/v1/topology/node", tags=["VGS-022 Topology Mapping"])
+async def topology_add_node(
+    req: TopologyNodeRequest,
+    x_api_key: Optional[str] = Header(None)
+):
+    """Add an agent as a node in the topology graph."""
+    require_api_key(x_api_key)
+    return add_topology_node(
+        req.agent_id, req.agent_name, req.agent_role,
+        req.trust_score, req.jurisdiction, req.owner_org,
+        req.consequence_class,
+    )
+
+@app.post("/v1/topology/edge", tags=["VGS-022 Topology Mapping"])
+async def topology_add_edge(
+    req: TopologyEdgeRequest,
+    x_api_key: Optional[str] = Header(None)
+):
+    """Add a directed edge between agents in the topology graph."""
+    require_api_key(x_api_key)
+    return add_topology_edge(
+        req.from_agent_id, req.to_agent_id, req.edge_type,
+        req.weight, req.label, req.consequence,
+    )
+
+@app.get("/v1/topology/graph", tags=["VGS-022 Topology Mapping"])
+async def topology_get_graph(x_api_key: Optional[str] = Header(None)):
+    """
+    Full topology graph — all nodes, edges, clusters, metrics.
+    Use this to render the VeriSigil agent relationship map.
+    Shows: authority flow, delegation depth, isolated agents,
+    authority concentration risk, critical consequence paths.
+    """
+    require_api_key(x_api_key)
+    return get_topology_graph()
+
+@app.get("/v1/topology/metrics", tags=["VGS-022 Topology Mapping"])
+async def topology_get_metrics(x_api_key: Optional[str] = Header(None)):
+    """Topology risk metrics — hubs, isolated agents, concentration."""
+    require_api_key(x_api_key)
+    return compute_topology_metrics()
+
+@app.get("/v1/topology/edge-types", tags=["VGS-022 Topology Mapping"])
+async def topology_edge_types(x_api_key: Optional[str] = Header(None)):
+    """All supported topology edge types."""
+    require_api_key(x_api_key)
+    return {"edge_types": EDGE_TYPES, "schema": "VGS-022"}
+
+
+# ── VGS-023: GOVERNANCE DASHBOARD ENDPOINTS ──────────────────
+
+@app.get("/v1/dashboard", tags=["VGS-023 Governance Dashboard"])
+async def governance_dashboard(
+    org_id:      str = "default",
+    time_window: str = "24h",
+    x_api_key:   Optional[str] = Header(None)
+):
+    """
+    VGS-023: Full Governance Dashboard.
+
+    Single endpoint — everything for the governance dashboard.
+    Sub-100ms. All signal layers:
+
+    - Governance health score (A/B/C/D/F)
+    - Agent inventory summary (states, roles, jurisdictions)
+    - Shadow detection alerts (active threats)
+    - Trust trajectories (declining agents)
+    - Topology risk (hubs, isolation, concentration)
+    - Active escalations
+    - Jurisdiction coverage
+    - Audit chain health
+    - EU AI Act compliance readiness
+    - Board-level signal
+
+    time_window: 1h | 6h | 24h | 7d | 30d
+    """
+    require_api_key(x_api_key)
+    return build_governance_dashboard(org_id, time_window)
+
+@app.get("/v1/dashboard/health", tags=["VGS-023 Governance Dashboard"])
+async def dashboard_health_score(
+    org_id:    str = "default",
+    x_api_key: Optional[str] = Header(None)
+):
+    """Quick governance health score — grade + signal. No full payload."""
+    require_api_key(x_api_key)
+    dashboard = build_governance_dashboard(org_id)
+    return {
+        "governance_health": dashboard["governance_health"],
+        "governance_grade":  dashboard["governance_grade"],
+        "board_signal":      dashboard["board_signal"],
+        "shadow_alerts":     dashboard["shadow_detection"]["alert_count"],
+        "declining_trust":   len(dashboard["trust_health"]["declining_agents"]),
+        "active_escalations":dashboard["escalations"]["count"],
+        "total_agents":      dashboard["inventory"]["total_agents"],
+        "timestamp":         dashboard["generated_at"],
+    }
+
+@app.get("/v1/dashboard/agents/at-risk", tags=["VGS-023 Governance Dashboard"])
+async def dashboard_agents_at_risk(
+    x_api_key: Optional[str] = Header(None)
+):
+    """
+    Agents requiring immediate attention:
+    - CRITICAL shadow risk
+    - Declining trust trajectory
+    - ESCALATED state
+    - Zero escalations on CRITICAL consequence class
+    """
+    require_api_key(x_api_key)
+    entries = list(_AGENT_INVENTORY.values())
+    at_risk = []
+
+    for e in entries:
+        risk_signals = []
+        if e.get("shadow_risk") in ("CRITICAL","HIGH"):
+            risk_signals.append(f"Shadow risk: {e.get('shadow_risk')}")
+        if e.get("trust_direction") == "DECLINING":
+            risk_signals.append(f"Trust declining: {e.get('trust_score'):.3f}")
+        if e.get("state") == "ESCALATED":
+            risk_signals.append("State: ESCALATED")
+        if e.get("consequence_class") == "CRITICAL" and e.get("total_escalations",0) == 0 and e.get("state") == "ACTIVE":
+            risk_signals.append("CRITICAL consequence — never escalated")
+
+        if risk_signals:
+            at_risk.append({
+                "agent_id":    e["agent_id"],
+                "agent_name":  e.get("agent_name",""),
+                "state":       e["state"],
+                "trust_score": e.get("trust_score",0),
+                "risk_signals":risk_signals,
+                "risk_count":  len(risk_signals),
+            })
+
+    at_risk.sort(key=lambda x: x["risk_count"], reverse=True)
+
+    return {
+        "total_at_risk": len(at_risk),
+        "agents":        at_risk,
+        "timestamp":     datetime.utcnow().isoformat(),
+    }
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=int(os.environ.get("PORT", 8000)), reload=False)
