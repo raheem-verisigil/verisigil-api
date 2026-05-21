@@ -20326,13 +20326,20 @@ def detect_semantic_corruption(
     }
 
     # ── COMPOSITE CORRUPTION SCORE ────────────────────────────
-    corruption_score = round(
-        (clause_mutation_score   * 0.35) +
+    # Clause mutation is CRITICAL — drives overall score
+    # If ANY critical vector detected, floor score at 0.45
+    raw_score = round(
+        (clause_mutation_score   * 0.40) +
         (intent_corruption_score * 0.35) +
-        (numerical_score         * 0.20) +
+        (numerical_score         * 0.15) +
         (drift_score             * 0.10),
         4
     )
+    # Critical vector floor — cannot be CLEAN if mutation detected
+    if clause_mutations or intent_corruptions:
+        corruption_score = max(raw_score, 0.45)
+    else:
+        corruption_score = raw_score
 
     # ── SEVERITY + GOVERNANCE DECISION ────────────────────────
     severity = "CLEAN"
