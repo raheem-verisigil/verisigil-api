@@ -4372,7 +4372,7 @@ def detect_semantic_drift(
 
 @app.post("/v1/document/full-verify", tags=["Document Integrity"])
 async def full_document_verify(
-    req:       SemanticVerifyRequest,
+    req:       DocumentVerifyRequest,
     x_api_key: Optional[str] = Header(None)
 ):
     """
