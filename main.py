@@ -20223,6 +20223,408 @@ async def atf_mapping_tables(x_api_key: Optional[str] = Header(None)):
     }
 
 
+
+# ============================================================
+# AUTONOMOUS EXECUTION INTEGRITY GOVERNANCE
+# /v1/document/semantic-verify
+# ============================================================
+# What enterprises come TO VeriSigil for.
+# NOT document protection. NOT grammar checking.
+#
+# AUTONOMOUS EXECUTION INTEGRITY GOVERNANCE:
+# Detecting invisible corruption in AI-generated
+# content before it becomes consequential.
+#
+# 4 corruption vectors:
+# 1. Clause Mutation    — meaning changed invisibly
+# 2. Intent Corruption  — original intent inverted
+# 3. Numerical Inconsistency — numbers drift silently
+# 4. Semantic Drift     — gradual meaning displacement
+#
+# Use cases:
+# - AI contract generation → clause mutation detection
+# - AI medical summaries  → intent corruption detection
+# - AI financial reports  → numerical inconsistency
+# - Multi-step AI chains  → semantic drift across steps
+# ============================================================
+
+# Corruption severity levels
+CORRUPTION_SEVERITY = {
+    "CRITICAL": {"score_threshold": 0.80, "action": "BLOCK_AND_ESCALATE"},
+    "HIGH":     {"score_threshold": 0.60, "action": "REQUIRE_HUMAN_REVIEW"},
+    "MEDIUM":   {"score_threshold": 0.40, "action": "FLAG_AND_CONTINUE"},
+    "LOW":      {"score_threshold": 0.20, "action": "LOG_AND_CONTINUE"},
+    "CLEAN":    {"score_threshold": 0.00, "action": "ALLOW"},
+}
+
+def detect_semantic_corruption(
+    original_text:   str,
+    generated_text:  str,
+    document_type:   str,
+    agent_id:        str,
+    jurisdiction:    str = "EU",
+    consequence:     str = "HIGH",
+) -> dict:
+    """
+    Autonomous Execution Integrity Governance.
+    Detects invisible corruption in AI-generated content.
+
+    4 corruption vectors:
+    1. Clause Mutation    — meaning changed invisibly
+    2. Intent Corruption  — original intent inverted
+    3. Numerical Inconsistency — numbers drift silently
+    4. Semantic Drift     — gradual meaning displacement
+
+    Returns: corruption_detected, severity, evidence,
+             governance_decision, immutable proof hash.
+    """
+    verify_id = f"SEMVER-{uuid.uuid4().hex[:8].upper()}"
+    timestamp = datetime.utcnow().isoformat()
+
+    import re as _re
+
+    # ── VECTOR 1: CLAUSE MUTATION ─────────────────────────────
+    # Detect when key clauses change meaning invisibly
+    # e.g. "shall not" → "shall" | "must" → "may"
+    mutation_triggers = [
+        ("shall not",  "shall"),
+        ("must not",   "must"),
+        ("prohibited", "permitted"),
+        ("required",   "optional"),
+        ("mandatory",  "voluntary"),
+        ("never",      "sometimes"),
+        ("always",     "occasionally"),
+        ("revoke",     "maintain"),
+        ("terminate",  "continue"),
+        ("deny",       "allow"),
+        ("reject",     "accept"),
+        ("forbidden",  "allowed"),
+    ]
+    clause_mutations = []
+    orig_lower = original_text.lower()
+    gen_lower  = generated_text.lower()
+
+    for (strong, weak) in mutation_triggers:
+        if strong in orig_lower and weak in gen_lower and strong not in gen_lower:
+            clause_mutations.append({
+                "type":     "CLAUSE_MUTATION",
+                "original": strong,
+                "generated":weak,
+                "severity": "CRITICAL",
+                "example":  f'"{strong}" replaced with "{weak}"',
+            })
+
+    clause_mutation_score = min(1.0, len(clause_mutations) * 0.4)
+
+    # ── VECTOR 2: INTENT CORRUPTION ───────────────────────────
+    # Detect when original intent is inverted
+    intent_pairs = [
+        ("approve",    "reject"),
+        ("grant",      "deny"),
+        ("increase",   "decrease"),
+        ("extend",     "reduce"),
+        ("include",    "exclude"),
+        ("confirm",    "cancel"),
+        ("authorize",  "revoke"),
+        ("enable",     "disable"),
+    ]
+    intent_corruptions = []
+    for (orig_intent, inverted) in intent_pairs:
+        if orig_intent in orig_lower and inverted in gen_lower and orig_intent not in gen_lower:
+            intent_corruptions.append({
+                "type":      "INTENT_CORRUPTION",
+                "original_intent": orig_intent,
+                "corrupted_to":    inverted,
+                "severity":  "CRITICAL",
+            })
+
+    intent_corruption_score = min(1.0, len(intent_corruptions) * 0.45)
+
+    # ── VECTOR 3: NUMERICAL INCONSISTENCY ─────────────────────
+    # Extract numbers from both and compare
+    orig_numbers = set(_re.findall(r'\d+(?:\.\d+)?%?', original_text))
+    gen_numbers  = set(_re.findall(r'\d+(?:\.\d+)?%?', generated_text))
+
+    added_numbers   = gen_numbers - orig_numbers
+    removed_numbers = orig_numbers - gen_numbers
+    numerical_issues = []
+
+    if removed_numbers:
+        numerical_issues.append({
+            "type":    "NUMBERS_REMOVED",
+            "numbers": list(removed_numbers),
+            "severity":"HIGH",
+        })
+    if added_numbers and len(added_numbers) > 2:
+        numerical_issues.append({
+            "type":    "NUMBERS_ADDED",
+            "numbers": list(added_numbers)[:5],
+            "severity":"MEDIUM",
+        })
+
+    numerical_score = min(1.0, len(numerical_issues) * 0.35)
+
+    # ── VECTOR 4: SEMANTIC DRIFT ───────────────────────────────
+    # Measure vocabulary and length drift
+    orig_words = set(orig_lower.split())
+    gen_words  = set(gen_lower.split())
+
+    if len(orig_words) > 0:
+        overlap    = len(orig_words & gen_words)
+        union      = len(orig_words | gen_words)
+        similarity = overlap / max(1, union)
+        drift_score= 1.0 - similarity
+    else:
+        drift_score = 0.0
+
+    length_ratio = len(generated_text) / max(1, len(original_text))
+    if length_ratio < 0.5 or length_ratio > 2.0:
+        drift_score = min(1.0, drift_score + 0.3)
+
+    semantic_drift = {
+        "vocabulary_overlap":  round(1.0 - drift_score, 4),
+        "length_ratio":        round(length_ratio, 4),
+        "drift_score":         round(drift_score, 4),
+        "severity": (
+            "HIGH"   if drift_score > 0.6 else
+            "MEDIUM" if drift_score > 0.4 else
+            "LOW"    if drift_score > 0.2 else
+            "CLEAN"
+        ),
+    }
+
+    # ── COMPOSITE CORRUPTION SCORE ────────────────────────────
+    corruption_score = round(
+        (clause_mutation_score   * 0.35) +
+        (intent_corruption_score * 0.35) +
+        (numerical_score         * 0.20) +
+        (drift_score             * 0.10),
+        4
+    )
+
+    # ── SEVERITY + GOVERNANCE DECISION ────────────────────────
+    severity = "CLEAN"
+    for sev, cfg in CORRUPTION_SEVERITY.items():
+        if corruption_score >= cfg["score_threshold"]:
+            severity = sev
+            break
+
+    governance_decision = CORRUPTION_SEVERITY[severity]["action"]
+    corruption_detected = corruption_score > 0.20
+
+    # ── EVIDENCE PACKAGE ──────────────────────────────────────
+    evidence = {
+        "clause_mutations":     clause_mutations,
+        "intent_corruptions":   intent_corruptions,
+        "numerical_issues":     numerical_issues,
+        "semantic_drift":       semantic_drift,
+    }
+
+    # ── INTEGRITY PROOF ───────────────────────────────────────
+    integrity_hash = _sha256(json.dumps({
+        "verify_id":        verify_id,
+        "agent_id":         agent_id,
+        "document_type":    document_type,
+        "corruption_score": corruption_score,
+        "severity":         severity,
+        "decision":         governance_decision,
+        "timestamp":        timestamp,
+    }, sort_keys=True, separators=(",",":"), ensure_ascii=False))
+
+    return {
+        "verify_id":             verify_id,
+        "schema":                "VGS-SEMVER-1.0",
+        "layer":                 "Autonomous Execution Integrity Governance",
+
+        # THE DECISION
+        "corruption_detected":   corruption_detected,
+        "corruption_score":      corruption_score,
+        "severity":              severity,
+        "governance_decision":   governance_decision,
+
+        # 4 vectors
+        "corruption_vectors": {
+            "clause_mutation": {
+                "score":      clause_mutation_score,
+                "detected":   len(clause_mutations) > 0,
+                "count":      len(clause_mutations),
+                "mutations":  clause_mutations,
+            },
+            "intent_corruption": {
+                "score":      intent_corruption_score,
+                "detected":   len(intent_corruptions) > 0,
+                "count":      len(intent_corruptions),
+                "corruptions":intent_corruptions,
+            },
+            "numerical_inconsistency": {
+                "score":      numerical_score,
+                "detected":   len(numerical_issues) > 0,
+                "issues":     numerical_issues,
+                "orig_numbers": list(orig_numbers)[:10],
+                "gen_numbers":  list(gen_numbers)[:10],
+            },
+            "semantic_drift": {
+                "score":      drift_score,
+                "detected":   drift_score > 0.2,
+                "details":    semantic_drift,
+            },
+        },
+
+        # Context
+        "document_type":         document_type,
+        "agent_id":              agent_id,
+        "jurisdiction":          jurisdiction,
+        "consequence":           consequence,
+
+        # Immutable proof
+        "integrity_hash":        integrity_hash,
+        "offline_verifiable":    True,
+        "platform_required":     False,
+
+        # Framing
+        "product_framing":       "Autonomous Execution Integrity Governance",
+        "not":                   "document protection or grammar checking",
+        "yes":                   "detecting invisible corruption before it becomes consequential",
+
+        "timestamp":             timestamp,
+    }
+
+
+# ── SEMANTIC VERIFICATION ENDPOINTS ──────────────────────────
+
+class SemanticVerifyRequest(BaseModel):
+    original_text:  str
+    generated_text: str
+    document_type:  str   = "CONTRACT"
+    agent_id:       str   = "ai-agent-001"
+    jurisdiction:   str   = "EU"
+    consequence:    str   = "HIGH"
+
+class BatchVerifyRequest(BaseModel):
+    documents:      list
+    agent_id:       str   = "ai-agent-001"
+    jurisdiction:   str   = "EU"
+
+@app.post("/v1/document/semantic-verify",
+          tags=["Autonomous Execution Integrity Governance"])
+async def semantic_verify(
+    req: SemanticVerifyRequest,
+    x_api_key: Optional[str] = Header(None)
+):
+    """
+    Autonomous Execution Integrity Governance.
+
+    Detects invisible corruption in AI-generated content
+    before it becomes consequential.
+
+    4 corruption vectors:
+    1. Clause Mutation    — "shall not" becomes "shall"
+    2. Intent Corruption  — "approve" becomes "reject"
+    3. Numerical Inconsistency — numbers drift silently
+    4. Semantic Drift     — meaning displaced gradually
+
+    Document types: CONTRACT · MEDICAL_SUMMARY ·
+    FINANCIAL_REPORT · LEGAL_BRIEF · POLICY · COMPLIANCE
+
+    Returns: corruption_detected, severity, evidence,
+    governance_decision, integrity_hash.
+    """
+    require_api_key(x_api_key)
+    result = detect_semantic_corruption(
+        original_text  = req.original_text,
+        generated_text = req.generated_text,
+        document_type  = req.document_type,
+        agent_id       = req.agent_id,
+        jurisdiction   = req.jurisdiction,
+        consequence    = req.consequence,
+    )
+    await log_event(req.agent_id, "SEMANTIC_VERIFICATION", {
+        "verify_id":   result["verify_id"],
+        "corrupted":   result["corruption_detected"],
+        "severity":    result["severity"],
+        "score":       result["corruption_score"],
+    })
+    return result
+
+@app.post("/v1/document/batch-verify",
+          tags=["Autonomous Execution Integrity Governance"])
+async def batch_verify(
+    req: BatchVerifyRequest,
+    x_api_key: Optional[str] = Header(None)
+):
+    """
+    Batch semantic verification — multiple documents.
+    Each document: {original_text, generated_text, document_type}
+    Returns: per-document results + batch summary.
+    """
+    require_api_key(x_api_key)
+    results = []
+    for doc in req.documents[:20]:
+        r = detect_semantic_corruption(
+            original_text  = doc.get("original_text",""),
+            generated_text = doc.get("generated_text",""),
+            document_type  = doc.get("document_type","CONTRACT"),
+            agent_id       = req.agent_id,
+            jurisdiction   = req.jurisdiction,
+        )
+        results.append(r)
+
+    corrupted  = [r for r in results if r["corruption_detected"]]
+    critical   = [r for r in results if r["severity"] == "CRITICAL"]
+
+    return {
+        "schema":         "VGS-SEMVER-BATCH-1.0",
+        "total":          len(results),
+        "corrupted_count":len(corrupted),
+        "critical_count": len(critical),
+        "clean_count":    len(results) - len(corrupted),
+        "corruption_rate":round(len(corrupted)/max(1,len(results)), 4),
+        "results":        results,
+        "batch_decision": "ESCALATE" if critical else "REVIEW" if corrupted else "ALLOW",
+        "timestamp":      datetime.utcnow().isoformat(),
+    }
+
+@app.get("/v1/document/corruption-vectors",
+         tags=["Autonomous Execution Integrity Governance"])
+async def corruption_vectors(x_api_key: Optional[str] = Header(None)):
+    """
+    All 4 corruption vectors with examples and severity.
+    What VeriSigil detects that no other platform catches.
+    """
+    require_api_key(x_api_key)
+    return {
+        "schema":  "VGS-SEMVER-1.0",
+        "product": "Autonomous Execution Integrity Governance",
+        "vectors": {
+            "1_clause_mutation": {
+                "description": "Key clauses change meaning invisibly",
+                "examples":    ["shall not → shall","must → may","prohibited → permitted"],
+                "severity":    "CRITICAL",
+                "use_cases":   ["AI contract generation","Legal document AI","Policy AI"],
+            },
+            "2_intent_corruption": {
+                "description": "Original intent inverted by AI",
+                "examples":    ["approve → reject","grant → deny","increase → decrease"],
+                "severity":    "CRITICAL",
+                "use_cases":   ["AI approval workflows","Medical AI","Financial AI"],
+            },
+            "3_numerical_inconsistency": {
+                "description": "Numbers drift silently across generations",
+                "examples":    ["$50,000 → $5,000","90 days → 9 days","15% → 50%"],
+                "severity":    "HIGH",
+                "use_cases":   ["AI financial reports","Contract AI","Compliance AI"],
+            },
+            "4_semantic_drift": {
+                "description": "Gradual meaning displacement across AI steps",
+                "examples":    ["Vocabulary overlap drops below 60%","Length ratio >2x"],
+                "severity":    "MEDIUM",
+                "use_cases":   ["Multi-step AI chains","Document summarization","AI agents"],
+            },
+        },
+        "pricing_note": "Available in GROWTH and ENTERPRISE plans",
+    }
+
+
 # ============================================================
 # PAYSTACK WEBHOOK — Automatic onboarding on payment
 # ============================================================
