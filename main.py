@@ -18428,9 +18428,13 @@ def call_claude_cognitive(
     Uses claude-sonnet-4-6 to assess semantic consequence risk.
     Falls back to rule-based engine if API unavailable.
     """
-    api_key = _os.environ.get("ANTHROPIC_API_KEY","")
+    api_key = (
+        _os.environ.get("ANTHROPIC_API_KEY","") or
+        _os.environ.get("CLAUDE_APPI_KEY","") or
+        _os.environ.get("CLAUDE_API_KEY","")
+    )
     if not api_key:
-        return {"claude_used": False, "reason": "No API key"}
+        return {"claude_used": False, "reason": "No API key in environment"}
 
     system_prompt = """You are VeriSigil AI's Cognitive Admissibility Engine.
 Your role: assess whether AI-generated content carries cognitive consequence risk
@@ -19183,6 +19187,55 @@ def resolve_conflict(decisions: list) -> str:
         key = (result, d) if (result, d) in CONFLICT_RESOLUTION_TABLE else (d, result)
         result = CONFLICT_RESOLUTION_TABLE.get(key, "DENY")
     return result
+
+
+def evaluate_execution_admissibility(
+    agent_id:    str,
+    action_type: str,
+    trust_score: float,
+    consequence: str,
+    jurisdiction:str,
+) -> dict:
+    """
+    Helper: evaluate execution admissibility for GCM Layer 1.
+    Wraps the core admissibility logic for use inside GCM converge.
+    """
+    from datetime import timedelta as _td2
+    now  = datetime.utcnow()
+    auth_from  = (now - _td2(hours=6)).isoformat()
+    auth_until = (now + _td2(hours=18)).isoformat()
+
+    # Determine decision based on trust + consequence
+    if trust_score < 0.50:
+        decision = "DENY"
+        reason   = "TRUST_BELOW_FLOOR"
+    elif trust_score < 0.65:
+        decision = "REFUSED"
+        reason   = "TRUST_INSUFFICIENT"
+    elif consequence in ["HIGH","CRITICAL"] and trust_score < 0.85:
+        decision = "REQUIRE_HUMAN_APPROVAL"
+        reason   = "HIGH_CONSEQUENCE_REQUIRES_OVERSIGHT"
+    else:
+        decision = "ALLOW"
+        reason   = "ALL_CONDITIONS_SATISFIED"
+
+    execution_hash = _sha256(json.dumps({
+        "agent_id":    agent_id,
+        "action_type": action_type,
+        "trust_score": trust_score,
+        "consequence": consequence,
+        "decision":    decision,
+        "timestamp":   datetime.utcnow().isoformat(),
+    }, sort_keys=True, separators=(",",":"), ensure_ascii=False))
+
+    return {
+        "decision":       decision,
+        "reason":         reason,
+        "execution_hash": execution_hash,
+        "trust_score":    trust_score,
+        "consequence":    consequence,
+        "jurisdiction":   jurisdiction,
+    }
 
 def create_gcm_session(
     request_id:   str,
