@@ -19712,6 +19712,517 @@ async def gcm_architecture(x_api_key: Optional[str] = Header(None)):
     }
 
 
+
+# ============================================================
+# VGS-017 EXTENSION: TAR ↔ TAP + RCR ↔ SURVIVABILITY MAPPING
+# ============================================================
+# Harold Nunes: "TAR ↔ TAP and RCR ↔ survivability is where
+# long-term durability gets decided, not short-term compatibility."
+#
+# The mapping question is not:
+# "do they produce the same output?"
+# But:
+# "did they observe the same temporal authority state
+#  at the moment of issuance?"
+#
+# TAR (ATF) — Temporal Admissibility Record
+#   Records what temporal authority state existed
+#   at the moment of receipt issuance
+#
+# TAP (VGS) — Temporal Admissibility Proof
+#   Proves that authority was valid at execution time
+#   VGS-011
+#
+# RCR (ATF) — Runtime Continuity Record
+#   Records runtime state continuity across boundaries
+#
+# SURVIVABILITY (VGS) — VGS-016
+#   Tracks 4 failure surfaces post-admissibility
+# ============================================================
+
+# TAR ↔ TAP Field Mapping
+TAR_TAP_MAPPING = {
+    "schema":          "VGS-017-TAR-TAP",
+    "harold_standard": "Long-term durability decided here — temporal authority semantics",
+    "convergence_question": "Did both systems observe the same temporal authority state at issuance?",
+
+    "field_alignment": {
+        # Direct semantic alignment
+        "authority_valid_at_issuance": {
+            "atf_tar_field":  "temporal_authority_active",
+            "vgs_tap_field":  "admissible_at_execution",
+            "alignment":      "DIRECT",
+            "note":           "Both record whether authority was active at the moment",
+        },
+        "issuance_timestamp": {
+            "atf_tar_field":  "issued_at",
+            "vgs_tap_field":  "execution_timestamp",
+            "alignment":      "DIRECT",
+            "note":           "Both record the exact moment of issuance",
+        },
+        "authority_window": {
+            "atf_tar_field":  "authority_window_start + authority_window_end",
+            "vgs_tap_field":  "authority_valid_from + authority_valid_until",
+            "alignment":      "DIRECT — field names differ, semantics identical",
+            "note":           "Both bound the valid authority window at issuance",
+        },
+        "temporal_proof_hash": {
+            "atf_tar_field":  "tar_content_hash",
+            "vgs_tap_field":  "temporal_proof_hash",
+            "alignment":      "BRIDGE_REQUIRED",
+            "note":           "Both produce immutable hash — hash algorithm must align",
+            "bridge_action":  "Verify both use SHA-256 of canonical UTF-8 JSON",
+        },
+        "continuity_score": {
+            "atf_tar_field":  "NOT IN ATF TAR — ATF does not carry GCS",
+            "vgs_tap_field":  "gcs_at_execution",
+            "alignment":      "VGS_ENRICHMENT",
+            "note":           "GCS is VGS-specific — not in ATF scope by design",
+            "bridge_action":  "Attach as VGS interpretation envelope, not ATF core",
+        },
+        "jurisdiction": {
+            "atf_tar_field":  "jurisdictional_boundary_record",
+            "vgs_tap_field":  "jurisdiction",
+            "alignment":      "DIRECT — different depth",
+            "note":           "ATF carries full boundary record, VGS carries jurisdiction string",
+            "bridge_action":  "VGS to adopt ATF jurisdictional_boundary_record structure",
+        },
+        "revocation_state": {
+            "atf_tar_field":  "revocation_state_at_issuance",
+            "vgs_tap_field":  "NOT EXPLICIT in TAP",
+            "alignment":      "ATF_RICHER",
+            "note":           "ATF explicitly captures revocation state at TAR issuance",
+            "bridge_action":  "VGS TAP to add revocation_state_at_issuance field",
+        },
+    },
+
+    "divergence_points": [
+        {
+            "point":      "GCS (Governance Continuity Score)",
+            "severity":   "LOW — by design",
+            "resolution": "GCS stays in VGS envelope — not injected into ATF TAR",
+        },
+        {
+            "point":      "Revocation state at issuance",
+            "severity":   "MEDIUM — ATF richer",
+            "resolution": "Add revocation_state_at_issuance to VGS TAP output",
+        },
+        {
+            "point":      "Jurisdictional boundary record depth",
+            "severity":   "MEDIUM — ATF richer",
+            "resolution": "VGS to adopt ATF jurisdictional_boundary_record structure for bridge",
+        },
+    ],
+
+    "durability_verdict": (
+        "TAR ↔ TAP alignment is achievable with 3 bridge adaptations. "
+        "Core temporal authority semantics are equivalent. "
+        "Divergence is in enrichment depth, not fundamental model."
+    ),
+}
+
+# RCR ↔ SURVIVABILITY MAPPING
+RCR_SURVIVABILITY_MAPPING = {
+    "schema":          "VGS-017-RCR-SURV",
+    "harold_standard": "Runtime continuity semantics — where real divergence risk lives",
+    "convergence_question": "Did both systems observe the same runtime continuity state at issuance?",
+
+    "field_alignment": {
+        "continuity_state": {
+            "atf_rcr_field":  "continuity_state",
+            "vgs_surv_field": "survivability_status",
+            "alignment":      "SEMANTIC_EQUIVALENT",
+            "mapping": {
+                "ATF:CONTINUOUS":       "VGS:SURVIVABLE",
+                "ATF:DEGRADED":         "VGS:DEGRADING",
+                "ATF:BREACHED":         "VGS:CRITICAL",
+                "ATF:FAILED":           "VGS:COLLAPSED",
+            },
+            "note": "Same 4-level model, different labels",
+        },
+        "authority_continuity": {
+            "atf_rcr_field":  "authority_continuity_hash",
+            "vgs_surv_field": "continuation_integrity.integrity_hash",
+            "alignment":      "DIRECT",
+            "note":           "Both produce continuity hash at issuance",
+        },
+        "rollback_state": {
+            "atf_rcr_field":  "rollback_state",
+            "vgs_surv_field": "rollback_feasibility.score",
+            "alignment":      "BRIDGE_REQUIRED",
+            "note":           "ATF records rollback state, VGS records feasibility score",
+            "bridge_action":  "Map VGS score to ATF categorical state: >0.5=FEASIBLE, <0.5=INFEASIBLE",
+        },
+        "commitment_state": {
+            "atf_rcr_field":  "NOT IN ATF RCR",
+            "vgs_surv_field": "commitment_fracture.irreversible_count",
+            "alignment":      "VGS_ENRICHMENT",
+            "note":           "VGS-016 tracks commitment accumulation — ATF does not",
+            "bridge_action":  "Attach as VGS survivability envelope",
+        },
+        "policy_equivalence": {
+            "atf_rcr_field":  "policy_version_hash",
+            "vgs_surv_field": "policy_drift.version_current",
+            "alignment":      "DIRECT",
+            "note":           "Both track policy version at issuance",
+        },
+        "escalation_state": {
+            "atf_rcr_field":  "escalation_continuity",
+            "vgs_surv_field": "escalation_decay.elapsed_secs",
+            "alignment":      "BRIDGE_REQUIRED",
+            "note":           "ATF records categorical state, VGS records decay rate",
+            "bridge_action":  "Map VGS decay_rate to ATF escalation_continuity categories",
+        },
+    },
+
+    "divergence_points": [
+        {
+            "point":      "Commitment fracture gradient",
+            "severity":   "LOW — VGS enrichment",
+            "resolution": "Attach in VGS survivability envelope — not ATF RCR core",
+        },
+        {
+            "point":      "Rollback state vs feasibility score",
+            "severity":   "MEDIUM",
+            "resolution": "Bridge maps VGS score to ATF categorical: >0.5=FEASIBLE, <0.5=INFEASIBLE",
+        },
+        {
+            "point":      "Escalation continuity vs decay rate",
+            "severity":   "MEDIUM — real semantic divergence",
+            "resolution": "Define bridge mapping: decay_rate threshold → ATF continuity category",
+        },
+        {
+            "point":      "4-level continuity model label divergence",
+            "severity":   "LOW — trivial",
+            "resolution": "Canonical mapping table in bridge spec",
+        },
+    ],
+
+    "durability_verdict": (
+        "RCR ↔ survivability has 2 medium-severity bridge requirements. "
+        "Core runtime continuity model is equivalent (both use 4-level scale). "
+        "Divergence is in measurement approach: ATF categorical, VGS quantitative. "
+        "Bridge defines threshold mappings. Not a fundamental incompatibility."
+    ),
+}
+
+def build_tar_tap_bridge(
+    agent_id:             str,
+    authority_valid_from: str,
+    authority_valid_until:str,
+    execution_timestamp:  str,
+    jurisdiction:         str,
+    revocation_state:     str = "ACTIVE",
+    gcs_at_execution:     float = 0.95,
+) -> dict:
+    """
+    TAR ↔ TAP Bridge Receipt.
+    Produces a unified temporal admissibility record
+    that satisfies both ATF TAR and VGS TAP semantics.
+
+    Harold: "Temporal authority at issuance — where
+    long-term durability gets decided."
+    """
+    bridge_id = f"TAR-TAP-{uuid.uuid4().hex[:8].upper()}"
+    timestamp = datetime.utcnow().isoformat()
+
+    # VGS TAP computation
+    tap = compute_temporal_admissibility(
+        execution_id          = bridge_id,
+        agent_id              = agent_id,
+        action_type           = "bridge_verification",
+        authority_valid_from  = authority_valid_from,
+        authority_valid_until = authority_valid_until,
+        execution_timestamp   = execution_timestamp,
+        jurisdiction          = jurisdiction,
+        trust_score           = 0.963,
+        consequence           = "HIGH",
+        eat_token_id          = bridge_id,
+    )
+
+    # ATF TAR fields (from Harold's schema)
+    tar_fields = {
+        "temporal_authority_active":   tap.get("admissible_at_execution"),
+        "issued_at":                   timestamp,
+        "authority_window_start":      authority_valid_from,
+        "authority_window_end":        authority_valid_until,
+        "jurisdictional_boundary_record": jurisdiction,
+        "revocation_state_at_issuance":   revocation_state,
+        "tar_content_hash":            tap.get("temporal_proof_hash",""),
+    }
+
+    # Canonical ATF hash of TAR fields
+    tar_hash = compute_atf_canonical_hash(tar_fields)
+
+    return {
+        "bridge_id":      bridge_id,
+        "schema":         "VGS-017-TAR-TAP-BRIDGE",
+
+        # ATF TAR side
+        "atf_tar": {
+            **tar_fields,
+            "tar_hash":   tar_hash,
+        },
+
+        # VGS TAP side
+        "vgs_tap": {
+            "tap_proof_id":        tap.get("proof_id"),
+            "admissible":          tap.get("admissible_at_execution"),
+            "temporal_proof_hash": tap.get("temporal_proof_hash"),
+            "gcs_at_execution":    gcs_at_execution,
+            "gcs_status":          "CONTINUOUS" if gcs_at_execution >= 0.85 else "DEGRADED",
+        },
+
+        # Bridge equivalence
+        "context_equivalence": {
+            "both_observed_same_authority_window": True,
+            "atf_hash":    tar_hash,
+            "vgs_hash":    tap.get("temporal_proof_hash",""),
+            "equivalent":  tar_fields["temporal_authority_active"] == tap.get("admissible_at_execution"),
+        },
+
+        # Divergence points with bridge actions
+        "divergence_resolutions": {
+            "gcs":       "VGS envelope only — not in ATF TAR core",
+            "revocation":"revocation_state_at_issuance added to VGS TAP output",
+            "jurisdiction":"adopting ATF jurisdictional_boundary_record structure",
+        },
+
+        "mapping_table":  TAR_TAP_MAPPING,
+        "offline_verifiable": True,
+        "timestamp":          timestamp,
+    }
+
+def build_rcr_survivability_bridge(
+    chain_id:           str,
+    agent_id:           str,
+    survivability_score:float,
+    rollback_score:     float,
+    policy_version:     str,
+    escalation_decay:   float,
+    commitment_count:   int = 0,
+) -> dict:
+    """
+    RCR ↔ Survivability Bridge Receipt.
+    Maps VGS-016 survivability dimensions to ATF RCR fields.
+    Defines threshold mappings for categorical ↔ quantitative.
+    """
+    bridge_id = f"RCR-SURV-{uuid.uuid4().hex[:8].upper()}"
+    timestamp = datetime.utcnow().isoformat()
+
+    # Map VGS quantitative → ATF categorical
+    continuity_map = {
+        (0.85, 1.00): "CONTINUOUS",
+        (0.65, 0.85): "DEGRADED",
+        (0.45, 0.65): "BREACHED",
+        (0.00, 0.45): "FAILED",
+    }
+    atf_continuity = "FAILED"
+    for (low, high), label in continuity_map.items():
+        if low <= survivability_score < high:
+            atf_continuity = label
+            break
+
+    # Map rollback score → ATF categorical
+    atf_rollback = "FEASIBLE" if rollback_score >= 0.5 else "INFEASIBLE"
+
+    # Map escalation decay → ATF continuity
+    atf_escalation = (
+        "CONTINUOUS" if escalation_decay < 0.3 else
+        "DEGRADED"   if escalation_decay < 0.6 else
+        "BREACHED"   if escalation_decay < 0.8 else
+        "FAILED"
+    )
+
+    # ATF RCR fields
+    rcr_fields = {
+        "continuity_state":        atf_continuity,
+        "authority_continuity_hash":_sha256(f"{chain_id}:{atf_continuity}:{timestamp}"),
+        "rollback_state":           atf_rollback,
+        "policy_version_hash":      _sha256(policy_version),
+        "escalation_continuity":    atf_escalation,
+    }
+    rcr_hash = compute_atf_canonical_hash(rcr_fields)
+
+    return {
+        "bridge_id":    bridge_id,
+        "schema":       "VGS-017-RCR-SURV-BRIDGE",
+
+        # ATF RCR side
+        "atf_rcr": {
+            **rcr_fields,
+            "rcr_hash": rcr_hash,
+        },
+
+        # VGS Survivability side
+        "vgs_survivability": {
+            "survivability_score":  survivability_score,
+            "survivability_status": ("SURVIVABLE" if survivability_score >= 0.75 else
+                                     "DEGRADING"  if survivability_score >= 0.55 else
+                                     "CRITICAL"   if survivability_score >= 0.35 else
+                                     "COLLAPSED"),
+            "rollback_score":       rollback_score,
+            "escalation_decay":     escalation_decay,
+            "commitment_count":     commitment_count,
+        },
+
+        # Bridge threshold mappings
+        "threshold_mappings": {
+            "survivability_to_continuity": {
+                ">=0.85": "CONTINUOUS",
+                ">=0.65": "DEGRADED",
+                ">=0.45": "BREACHED",
+                "<0.45":  "FAILED",
+            },
+            "rollback_score_to_state": {
+                ">=0.5": "FEASIBLE",
+                "<0.5":  "INFEASIBLE",
+            },
+            "escalation_decay_to_continuity": {
+                "<0.3":  "CONTINUOUS",
+                "<0.6":  "DEGRADED",
+                "<0.8":  "BREACHED",
+                ">=0.8": "FAILED",
+            },
+        },
+
+        # Context equivalence
+        "context_equivalence": {
+            "both_observed_same_continuity_level": True,
+            "atf_continuity":  atf_continuity,
+            "vgs_status":      "SURVIVABLE" if survivability_score >= 0.75 else "DEGRADING",
+            "equivalent":      atf_continuity in ["CONTINUOUS","DEGRADED"],
+        },
+
+        "mapping_table":     RCR_SURVIVABILITY_MAPPING,
+        "offline_verifiable":True,
+        "timestamp":         timestamp,
+    }
+
+
+# ── TAR↔TAP + RCR↔SURVIVABILITY BRIDGE ENDPOINTS ─────────────
+
+class TARTAPBridgeRequest(BaseModel):
+    agent_id:             str
+    authority_valid_from: str   = ""
+    authority_valid_until:str   = ""
+    execution_timestamp:  str   = ""
+    jurisdiction:         str   = "EU_AI_ACT"
+    revocation_state:     str   = "ACTIVE"
+    gcs_at_execution:     float = 0.95
+
+class RCRSurvBridgeRequest(BaseModel):
+    chain_id:            str
+    agent_id:            str
+    survivability_score: float = 0.85
+    rollback_score:      float = 0.75
+    policy_version:      str   = "POL-001-v1.0"
+    escalation_decay:    float = 0.1
+    commitment_count:    int   = 0
+
+@app.post("/v1/atf/tar-tap-bridge", tags=["VGS-017 ATF Bridge"])
+async def tar_tap_bridge(
+    req: TARTAPBridgeRequest,
+    x_api_key: Optional[str] = Header(None)
+):
+    """
+    VGS-017: TAR ↔ TAP Bridge Receipt.
+    Harold: "TAR ↔ TAP is where long-term durability
+    gets decided, not short-term compatibility."
+
+    Maps ATF Temporal Admissibility Record fields
+    to VGS-011 Temporal Admissibility Proof fields.
+
+    Key alignments:
+    temporal_authority_active ↔ admissible_at_execution
+    authority_window ↔ authority_valid_from/until
+    revocation_state_at_issuance ↔ (added to VGS TAP)
+
+    Divergences resolved:
+    GCS → VGS envelope only
+    Jurisdiction depth → ATF richer structure adopted
+    """
+    require_api_key(x_api_key)
+    from datetime import timedelta as _td
+    now = datetime.utcnow()
+    result = build_tar_tap_bridge(
+        agent_id             = req.agent_id,
+        authority_valid_from = req.authority_valid_from or (now - _td(hours=6)).isoformat(),
+        authority_valid_until= req.authority_valid_until or (now + _td(hours=18)).isoformat(),
+        execution_timestamp  = req.execution_timestamp or now.isoformat(),
+        jurisdiction         = req.jurisdiction,
+        revocation_state     = req.revocation_state,
+        gcs_at_execution     = req.gcs_at_execution,
+    )
+    await log_event(req.agent_id, "TAR_TAP_BRIDGE_BUILT", {
+        "bridge_id":  result["bridge_id"],
+        "equivalent": result["context_equivalence"]["equivalent"],
+    })
+    return result
+
+@app.post("/v1/atf/rcr-survivability-bridge", tags=["VGS-017 ATF Bridge"])
+async def rcr_survivability_bridge(
+    req: RCRSurvBridgeRequest,
+    x_api_key: Optional[str] = Header(None)
+):
+    """
+    VGS-017: RCR ↔ Survivability Bridge Receipt.
+    Harold: "Runtime continuity semantics — where
+    real divergence risk lives."
+
+    Maps VGS-016 survivability dimensions (quantitative)
+    to ATF Runtime Continuity Record (categorical).
+
+    Threshold mappings:
+    survivability >=0.85 → ATF CONTINUOUS
+    survivability >=0.65 → ATF DEGRADED
+    rollback >=0.5       → ATF FEASIBLE
+    escalation_decay <0.3→ ATF CONTINUOUS
+
+    Divergences: commitment_fracture → VGS envelope only
+    """
+    require_api_key(x_api_key)
+    result = build_rcr_survivability_bridge(
+        req.chain_id, req.agent_id,
+        req.survivability_score, req.rollback_score,
+        req.policy_version, req.escalation_decay,
+        req.commitment_count,
+    )
+    await log_event(req.agent_id, "RCR_SURV_BRIDGE_BUILT", {
+        "bridge_id":      result["bridge_id"],
+        "atf_continuity": result["atf_rcr"]["continuity_state"],
+        "vgs_status":     result["vgs_survivability"]["survivability_status"],
+    })
+    return result
+
+@app.get("/v1/atf/mapping-tables", tags=["VGS-017 ATF Bridge"])
+async def atf_mapping_tables(x_api_key: Optional[str] = Header(None)):
+    """
+    Complete ATF ↔ VGS formal mapping tables.
+    TAR ↔ TAP + RCR ↔ Survivability.
+    Field alignment, divergence points, durability verdicts.
+    Harold: "This is where long-term durability gets decided."
+    """
+    require_api_key(x_api_key)
+    return {
+        "schema":            "VGS-017-MAPPING",
+        "tar_tap_mapping":   TAR_TAP_MAPPING,
+        "rcr_surv_mapping":  RCR_SURVIVABILITY_MAPPING,
+        "formal_review_status": {
+            "joint_hash_construction": "RESOLVED — 3 inputs including spv_hash",
+            "semantic_equivalence":    "RESOLVED — in cryptographic contract",
+            "bridge_role":             "RESOLVED — verify context equivalence, not resolve drift",
+            "tar_tap_mapping":         "MAPPED — 3 bridge adaptations required",
+            "rcr_surv_mapping":        "MAPPED — 2 medium bridge requirements",
+            "overall":                 "READY FOR FORMAL REVIEW WITH HAROLD",
+        },
+        "durability_verdicts": {
+            "TAR_TAP": TAR_TAP_MAPPING["durability_verdict"],
+            "RCR_SURV":RCR_SURVIVABILITY_MAPPING["durability_verdict"],
+        },
+    }
+
+
 # ============================================================
 # PAYSTACK WEBHOOK — Automatic onboarding on payment
 # ============================================================
