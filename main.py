@@ -4367,76 +4367,8 @@ def detect_semantic_drift(
 # SEMANTIC INTEGRITY ENDPOINTS
 # ============================================================
 
-class SemanticVerifyRequest(BaseModel):
-    document_id:    str
-    agent_id:       str
-    original_text:  str
-    current_text:   str
-    document_type:  str = "general"
-    interaction_num:int = 1
+# SemanticVerifyRequest — see Autonomous Execution Integrity Governance section
 
-@app.post("/v1/document/semantic-verify", tags=["Document Integrity"])
-async def semantic_verify(
-    req:       SemanticVerifyRequest,
-    x_api_key: Optional[str] = Header(None)
-):
-    """
-    SEMANTIC INTEGRITY VERIFICATION
-
-    Detects meaning-level corruption that structural hashes cannot catch.
-
-    'Approved after legal review' → 'Approved'
-    Hash: CHANGED. Meaning: CATASTROPHICALLY CORRUPTED.
-
-    '$50,000 payment' → '$5,000 payment'
-    Hash: CHANGED. Loss: $45,000.
-
-    Detects:
-    - Meaning drift — same structure, different meaning
-    - Clause mutation — key clauses changed or removed
-    - Intent corruption — approval language weakened
-    - Numerical inconsistency — amounts/dates changed
-    - Compliance language degradation — regulatory language removed
-    - Unauthorized semantic change — meaning changed silently
-
-    Based on Microsoft Research:
-    'LLMs Corrupt Your Documents When You Delegate'
-    Documents can look finished while meaning has been corrupted.
-    """
-    require_api_key(x_api_key)
-
-    result = detect_semantic_drift(
-        original_text  = req.original_text,
-        current_text   = req.current_text,
-        document_type  = req.document_type,
-        interaction_num= req.interaction_num,
-    )
-
-    # Chain to Merkle audit trail
-    chain_append(
-        execution_id  = f"sem_{uuid.uuid4().hex[:8]}",
-        agent_id      = req.agent_id,
-        action        = f"semantic_verify:{req.document_type}",
-        decision      = result["semantic_risk"],
-        policy_reason = result["recommendation"],
-        confidence    = result["semantic_integrity"],
-        extra         = {
-            "document_id":      req.document_id,
-            "semantic_integrity":result["semantic_integrity"],
-            "violation_count":  result["violation_count"],
-            "corruption_invisible": result["corruption_invisible"],
-        }
-    )
-
-    await log_event(req.agent_id, "SEMANTIC_INTEGRITY_VERIFIED", {
-        "document_id":       req.document_id,
-        "semantic_integrity":result["semantic_integrity"],
-        "semantic_risk":     result["semantic_risk"],
-        "violation_count":   result["violation_count"],
-        "interaction_num":   req.interaction_num,
-    })
-
-    return result
 
 @app.post("/v1/document/full-verify", tags=["Document Integrity"])
 async def full_document_verify(
