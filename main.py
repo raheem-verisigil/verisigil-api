@@ -17742,6 +17742,12 @@ def build_dual_context_receipt(
             "third_party":     "Validates spv_hash semantic equivalence",
             "no_platform":     "All three verify independently. No live runtime required.",
             "harold_standard": "The architecture becomes durable instead of merely interoperable.",
+            "bridge_role":     "Bridge does NOT resolve drift. Bridge VERIFIES both sides issued against equivalent execution contexts.",
+            "bridge_job":      "execution_context(ATF issuance) ≡ execution_context(VGS issuance)",
+            "if_contexts_match":   "joint_hash valid — both receipts mutually anchored",
+            "if_contexts_diverge": "joint_hash construction fails — contexts diverged at issuance",
+            "not_the_bridge":  ["detect post-issuance changes","reconcile semantic differences","adjudicate runtime disputes"],
+            "durability_test": "Can both systems agree on execution context at issuance — across time, runtime versions, jurisdictions?",
         },
 
         "offline_verifiable":  True,
