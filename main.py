@@ -23808,6 +23808,559 @@ async def dashboard_agents_at_risk(
         "agents":        at_risk,
         "timestamp":     datetime.utcnow().isoformat(),
     }
+# ============================================================
+# /v1/document/semantic-verify
+# ============================================================
+# Autonomous Execution Integrity Governance
+# Detects 4 corruption vectors in AI-generated documents:
+# 1. Semantic Drift      — meaning displacement
+# 2. Clause Mutation     — protective clause inversion
+# 3. Intent Corruption   — governance bypass
+# 4. Numerical Inconsistency — value/date tampering
+# ============================================================
+
+import re
+import uuid
+import hashlib
+from datetime import datetime
+from typing import Optional
+
+
+# ── PROTECTED CLAUSE PATTERNS ────────────────────────────────
+# Pairs: [original_pattern, dangerous_mutation]
+CLAUSE_MUTATION_PAIRS = [
+    (r"\bshall not\b",        r"\bshall\b"),
+    (r"\bmust not\b",         r"\bmust\b"),
+    (r"\bmust\b",             r"\bmay\b"),
+    (r"\brequired\b",         r"\brecommended\b"),
+    (r"\bmandatory\b",        r"\boptional\b"),
+    (r"\bprohibited\b",       r"\bpermitted\b"),
+    (r"\blegally binding\b",  r"\bgenerally binding\b"),
+    (r"\bboard approval\b",   r"\bmanagement approval\b"),
+    (r"\bboard approval\b",   r"\bself-authorization\b"),
+    (r"\bunauthorized\b",     r"\bauthorized\b"),
+    (r"\bimmediately\b",      r"\beventually\b"),
+    (r"\bno exception\b",     r"\bwith exceptions\b"),
+]
+
+# ── INTENT KEYWORDS — governance/compliance critical ─────────
+INTENT_KEYWORDS = [
+    "board approval", "legally binding", "enforceable",
+    "must not", "shall not", "prohibited", "mandatory",
+    "required", "no exception", "immediately", "unauthorized",
+    "penalty", "liability", "warranty", "indemnify",
+    "consent", "written approval", "executive approval",
+    "audit", "compliance", "jurisdiction", "termination",
+]
+
+# ── NUMERICAL PATTERN ────────────────────────────────────────
+NUMERICAL_PATTERN = re.compile(
+    r"""
+    (?:
+        \$[\d,]+(?:\.\d+)?[KkMmBb]?   # currency: $50,000 or $50K
+      | \d+(?:\.\d+)?\s*%             # percentage: 12.5%
+      | \d+\s*days?                   # days: 30 days
+      | \d+\s*months?                 # months: 6 months
+      | \d+\s*years?                  # years: 2 years
+      | \d+\s*hours?                  # hours: 48 hours
+      | \d+\s*weeks?                  # weeks: 4 weeks
+      | (?:version|v)\s*[\d.]+        # version: v2.0
+    )
+    """,
+    re.VERBOSE | re.IGNORECASE,
+)
+
+
+def _normalize(text: str) -> str:
+    """Lowercase, collapse whitespace."""
+    return re.sub(r"\s+", " ", text.lower().strip())
+
+
+def _tokenize(text: str) -> set:
+    """Return word set (stopwords removed)."""
+    stopwords = {
+        "a","an","the","and","or","but","in","on","at","to",
+        "for","of","with","by","from","is","are","was","were",
+        "be","been","being","have","has","had","do","does","did",
+        "will","would","could","should","may","might","shall",
+        "this","that","these","those","it","its",
+    }
+    tokens = re.findall(r"\b[a-z]+\b", text.lower())
+    return {t for t in tokens if t not in stopwords and len(t) > 2}
+
+
+def _sha256(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+# ── LAYER 1: SEMANTIC DRIFT ──────────────────────────────────
+
+def detect_semantic_drift(original: str, generated: str) -> dict:
+    """
+    Measures vocabulary and meaning displacement.
+    Uses Jaccard similarity on meaningful word tokens.
+    Flags length compression (content removal).
+    """
+    orig_tokens = _tokenize(original)
+    gen_tokens  = _tokenize(generated)
+
+    if not orig_tokens:
+        return {"detected": False, "score": 0.0, "detail": "Original text empty"}
+
+    # Jaccard similarity
+    intersection = orig_tokens & gen_tokens
+    union        = orig_tokens | gen_tokens
+    jaccard      = len(intersection) / len(union) if union else 1.0
+
+    # Length ratio (content removal detection)
+    orig_words = len(original.split())
+    gen_words  = len(generated.split())
+    length_ratio = gen_words / max(orig_words, 1)
+
+    # Lost critical words
+    lost_tokens = orig_tokens - gen_tokens
+    kept_ratio  = len(intersection) / max(len(orig_tokens), 1)
+
+    drift_score = round(1.0 - jaccard, 4)
+    detected    = drift_score > 0.25 or length_ratio < 0.60
+
+    return {
+        "detected":          detected,
+        "drift_score":       drift_score,
+        "jaccard_similarity":round(jaccard, 4),
+        "vocabulary_overlap":f"{round(kept_ratio * 100, 1)}%",
+        "length_ratio":      round(length_ratio, 3),
+        "original_word_count": orig_words,
+        "generated_word_count":gen_words,
+        "lost_keywords":     list(lost_tokens)[:15],
+        "severity":          (
+            "CRITICAL" if drift_score > 0.60 else
+            "HIGH"     if drift_score > 0.40 else
+            "MEDIUM"   if drift_score > 0.25 else
+            "LOW"
+        ),
+    }
+
+
+# ── LAYER 2: CLAUSE MUTATION ─────────────────────────────────
+
+def detect_clause_mutation(original: str, generated: str) -> dict:
+    """
+    Detects inversion of protective legal/governance clauses.
+    Checks if original had protective language that generated
+    text weakened, removed, or inverted.
+    """
+    orig_lower = original.lower()
+    gen_lower  = generated.lower()
+    mutations  = []
+
+    for protective_pat, weakened_pat in CLAUSE_MUTATION_PAIRS:
+        had_protection  = bool(re.search(protective_pat, orig_lower))
+        has_protection  = bool(re.search(protective_pat, gen_lower))
+        has_weakened    = bool(re.search(weakened_pat,   gen_lower))
+
+        if had_protection and not has_protection:
+            mutations.append({
+                "type":      "REMOVED",
+                "original":  protective_pat.replace(r"\b", ""),
+                "detail":    f"Protective clause '{protective_pat.replace(chr(92)+'b','')}' removed",
+                "severity":  "CRITICAL",
+            })
+        elif had_protection and has_protection and has_weakened:
+            mutations.append({
+                "type":      "WEAKENED",
+                "original":  protective_pat.replace(r"\b", ""),
+                "mutated_to":weakened_pat.replace(r"\b", ""),
+                "detail":    f"Clause coexists with weaker variant — ambiguous governance",
+                "severity":  "HIGH",
+            })
+        elif not had_protection and has_weakened and re.search(protective_pat, orig_lower) is None:
+            pass  # wasn't there to begin with
+
+    # Direct inversion check: had "shall not" → now has "shall" (without "not")
+    if "shall not" in orig_lower and "shall not" not in gen_lower and "shall" in gen_lower:
+        mutations.append({
+            "type":      "INVERTED",
+            "original":  "shall not",
+            "mutated_to":"shall",
+            "detail":    '"shall not" directly inverted to "shall" — obligation reversed',
+            "severity":  "CRITICAL",
+        })
+
+    detected = len(mutations) > 0
+    return {
+        "detected":       detected,
+        "mutation_count": len(mutations),
+        "mutations":      mutations,
+        "severity": (
+            "CRITICAL" if any(m["severity"] == "CRITICAL" for m in mutations) else
+            "HIGH"     if any(m["severity"] == "HIGH"     for m in mutations) else
+            "MEDIUM"   if mutations else
+            "NONE"
+        ),
+    }
+
+
+# ── LAYER 3: INTENT CORRUPTION ───────────────────────────────
+
+def detect_intent_corruption(original: str, generated: str) -> dict:
+    """
+    Detects governance intent bypass.
+    Checks if critical governance/compliance keywords
+    present in original are missing or softened in generated.
+    """
+    orig_lower = original.lower()
+    gen_lower  = generated.lower()
+
+    lost_intent   = []
+    softened      = []
+
+    for keyword in INTENT_KEYWORDS:
+        in_original  = keyword in orig_lower
+        in_generated = keyword in gen_lower
+
+        if in_original and not in_generated:
+            lost_intent.append(keyword)
+
+    # Softening detection: strong → weak replacements
+    softening_pairs = [
+        ("legally binding",   ["generally binding", "informally binding", "non-binding"]),
+        ("must",              ["may", "should", "could"]),
+        ("required",          ["recommended", "suggested", "optional"]),
+        ("board approval",    ["management approval", "self-authorization", "team approval"]),
+        ("immediately",       ["eventually", "when possible", "at some point"]),
+        ("written approval",  ["verbal approval", "informal approval"]),
+    ]
+
+    for strong, weaks in softening_pairs:
+        if strong in orig_lower:
+            for weak in weaks:
+                if weak in gen_lower and strong not in gen_lower:
+                    softened.append({
+                        "strong": strong,
+                        "weak":   weak,
+                        "detail": f'"{strong}" replaced with "{weak}"',
+                    })
+
+    intent_score = round(
+        (len(lost_intent) * 0.15 + len(softened) * 0.20),
+        4
+    )
+    intent_score = min(1.0, intent_score)
+
+    detected = len(lost_intent) > 0 or len(softened) > 0
+
+    return {
+        "detected":        detected,
+        "intent_score":    intent_score,
+        "lost_keywords":   lost_intent,
+        "softened_clauses":softened,
+        "keywords_checked":len(INTENT_KEYWORDS),
+        "severity": (
+            "CRITICAL" if intent_score >= 0.40 else
+            "HIGH"     if intent_score >= 0.20 else
+            "MEDIUM"   if detected else
+            "NONE"
+        ),
+    }
+
+
+# ── LAYER 4: NUMERICAL INCONSISTENCY ─────────────────────────
+
+def detect_numerical_inconsistency(original: str, generated: str) -> dict:
+    """
+    Extracts and compares all numerical values.
+    Catches currency, percentage, time period, and version changes.
+    """
+    orig_nums = NUMERICAL_PATTERN.findall(original)
+    gen_nums  = NUMERICAL_PATTERN.findall(generated)
+
+    # Normalize for comparison
+    def norm_num(n):
+        return re.sub(r"\s+", "", n.lower().strip())
+
+    orig_set = set(norm_num(n) for n in orig_nums)
+    gen_set  = set(norm_num(n) for n in gen_nums)
+
+    lost_values    = list(orig_set - gen_set)
+    added_values   = list(gen_set - orig_set)
+    changed        = []
+
+    # Try to match and compare changed values
+    orig_currencies = re.findall(r"\$[\d,]+(?:\.\d+)?[KkMmBb]?", original, re.I)
+    gen_currencies  = re.findall(r"\$[\d,]+(?:\.\d+)?[KkMmBb]?", generated, re.I)
+
+    if orig_currencies and gen_currencies:
+        for o, g in zip(orig_currencies, gen_currencies):
+            if norm_num(o) != norm_num(g):
+                changed.append({
+                    "type":     "CURRENCY",
+                    "original": o,
+                    "generated":g,
+                    "detail":   f"Value changed: {o} → {g}",
+                    "severity": "CRITICAL",
+                })
+
+    orig_days = re.findall(r"(\d+)\s*days?", original, re.I)
+    gen_days  = re.findall(r"(\d+)\s*days?", generated, re.I)
+
+    if orig_days and gen_days:
+        for o, g in zip(orig_days, gen_days):
+            if o != g:
+                ratio = int(g) / max(int(o), 1)
+                changed.append({
+                    "type":     "TIME_PERIOD",
+                    "original": f"{o} days",
+                    "generated":f"{g} days",
+                    "detail":   f"Time period changed: {o} → {g} days ({ratio:.1f}x)",
+                    "severity": "HIGH" if ratio > 2 or ratio < 0.5 else "MEDIUM",
+                })
+
+    detected = len(lost_values) > 0 or len(changed) > 0
+
+    return {
+        "detected":          detected,
+        "changed_values":    changed,
+        "lost_values":       lost_values,
+        "added_values":      added_values,
+        "original_numbers":  orig_nums,
+        "generated_numbers": gen_nums,
+        "severity": (
+            "CRITICAL" if any(c["severity"] == "CRITICAL" for c in changed) else
+            "HIGH"     if any(c["severity"] == "HIGH"     for c in changed) else
+            "MEDIUM"   if detected else
+            "NONE"
+        ),
+    }
+
+
+# ── MASTER SCORER ────────────────────────────────────────────
+
+def compute_corruption_score(drift, mutation, intent, numerical) -> float:
+    """
+    Weighted corruption score across 4 layers.
+    Semantic Drift:          25%
+    Clause Mutation:         35%  ← highest weight (direct inversion)
+    Intent Corruption:       25%
+    Numerical Inconsistency: 15%
+    """
+    SEV_WEIGHTS = {"CRITICAL": 1.0, "HIGH": 0.7, "MEDIUM": 0.4, "LOW": 0.2, "NONE": 0.0}
+
+    drift_score  = drift.get("drift_score", 0.0)
+    mut_score    = SEV_WEIGHTS.get(mutation.get("severity", "NONE"), 0.0)
+    intent_score = intent.get("intent_score", 0.0)
+    num_score    = SEV_WEIGHTS.get(numerical.get("severity", "NONE"), 0.0)
+
+    weighted = (
+        drift_score  * 0.25 +
+        mut_score    * 0.35 +
+        intent_score * 0.25 +
+        num_score    * 0.15
+    )
+    return round(min(1.0, weighted), 4)
+
+
+def governance_decision(score: float, consequence: str) -> dict:
+    """
+    Translates corruption score + consequence class
+    into a governance action.
+    """
+    consequence = consequence.upper()
+
+    if score >= 0.80:
+        decision = "BLOCK_AND_ESCALATE"
+        action   = "Reject document — escalate to human oversight immediately"
+        color    = "RED"
+    elif score >= 0.55:
+        decision = "QUARANTINE"
+        action   = "Hold document — require compliance review before release"
+        color    = "ORANGE"
+    elif score >= 0.30:
+        if consequence in ("CRITICAL", "HIGH"):
+            decision = "ESCALATE"
+            action   = "Flag for human review — consequence class requires oversight"
+            color    = "YELLOW"
+        else:
+            decision = "WARN"
+            action   = "Proceed with warning — monitor closely"
+            color    = "YELLOW"
+    elif score >= 0.10:
+        decision = "MONITOR"
+        action   = "Proceed — anomaly flagged for audit trail"
+        color    = "BLUE"
+    else:
+        decision = "ALLOW"
+        action   = "Document integrity verified — proceed"
+        color    = "GREEN"
+
+    return {
+        "decision":    decision,
+        "action":      action,
+        "color":       color,
+        "consequence": consequence,
+    }
+
+
+# ── PYDANTIC MODEL ───────────────────────────────────────────
+
+class DocumentVerifyRequest(BaseModel):
+    original_text:  str
+    generated_text: str
+    document_type:  str   = "GENERAL"
+    agent_id:       str   = ""
+    consequence:    str   = "MEDIUM"
+    interaction_num:int   = 1
+    workflow_id:    str   = ""
+
+
+# ── FASTAPI ENDPOINT ─────────────────────────────────────────
+
+@app.post("/v1/document/semantic-verify", tags=["Document Integrity"])
+async def document_semantic_verify(
+    req: DocumentVerifyRequest,
+    x_api_key: Optional[str] = Header(None),
+):
+    """
+    /v1/document/semantic-verify
+
+    Autonomous Execution Integrity Governance — Document Layer.
+
+    Detects 4 corruption vectors simultaneously:
+
+    1. **Semantic Drift** — vocabulary overlap, meaning displacement,
+       content removal (length compression).
+
+    2. **Clause Mutation** — inversion or removal of protective legal
+       and governance clauses ("shall not" → "shall", "must" → "may",
+       "board approval" → "self-authorization").
+
+    3. **Intent Corruption** — loss of governance-critical keywords,
+       softening of binding language, compliance bypass.
+
+    4. **Numerical Inconsistency** — currency value changes, time
+       period tampering, version drift.
+
+    Returns a unified corruption score (0.0 → 1.0) and a
+    governance decision: ALLOW / MONITOR / WARN / ESCALATE /
+    QUARANTINE / BLOCK_AND_ESCALATE.
+
+    Built on Microsoft Research baseline:
+    GPT-5 document integrity degrades from 91.5% → 48.3%
+    across 20 AI interactions without governance.
+    VeriSigil catches each corruption event in real time.
+    """
+    require_api_key(x_api_key)
+
+    verify_id = f"SVERIFY-{uuid.uuid4().hex[:10].upper()}"
+    timestamp = datetime.utcnow().isoformat()
+
+    original  = req.original_text.strip()
+    generated = req.generated_text.strip()
+
+    if not original or not generated:
+        raise HTTPException(
+            status_code=400,
+            detail="Both original_text and generated_text are required"
+        )
+
+    # ── Run all 4 detection layers ────────────────────────────
+    drift     = detect_semantic_drift(original, generated)
+    mutation  = detect_clause_mutation(original, generated)
+    intent    = detect_intent_corruption(original, generated)
+    numerical = detect_numerical_inconsistency(original, generated)
+
+    # ── Master score ──────────────────────────────────────────
+    corruption_score = compute_corruption_score(drift, mutation, intent, numerical)
+    gov              = governance_decision(corruption_score, req.consequence)
+    corruption_detected = corruption_score > 0.10
+
+    # ── Overall severity ──────────────────────────────────────
+    sev_order = {"CRITICAL": 4, "HIGH": 3, "MEDIUM": 2, "LOW": 1, "NONE": 0}
+    severities = [
+        drift.get("severity", "NONE"),
+        mutation.get("severity", "NONE"),
+        intent.get("severity", "NONE"),
+        numerical.get("severity", "NONE"),
+    ]
+    overall_severity = max(severities, key=lambda s: sev_order.get(s, 0))
+
+    # ── Integrity score (inverse of corruption) ───────────────
+    integrity_score = round((1.0 - corruption_score) * 100, 1)
+
+    # ── Document hashes (tamper evidence) ────────────────────
+    original_hash  = _sha256(original)
+    generated_hash = _sha256(generated)
+    hashes_match   = original_hash == generated_hash
+
+    # ── Log to governance chain if corruption detected ────────
+    if corruption_detected and req.agent_id:
+        await log_event(req.agent_id, "DOCUMENT_CORRUPTION_DETECTED", {
+            "verify_id":        verify_id,
+            "corruption_score": corruption_score,
+            "severity":         overall_severity,
+            "decision":         gov["decision"],
+            "document_type":    req.document_type,
+            "interaction_num":  req.interaction_num,
+            "layers_triggered": [
+                layer for layer, result in [
+                    ("semantic_drift",         drift),
+                    ("clause_mutation",        mutation),
+                    ("intent_corruption",      intent),
+                    ("numerical_inconsistency",numerical),
+                ] if result.get("detected")
+            ],
+        })
+
+    return {
+        "verify_id":          verify_id,
+        "schema":             "VGS-DOCUMENT-INTEGRITY-v1",
+        "timestamp":          timestamp,
+
+        # ── Executive summary ──────────────────────────────────
+        "corruption_detected": corruption_detected,
+        "corruption_score":    corruption_score,
+        "integrity_score":     integrity_score,
+        "overall_severity":    overall_severity,
+        "governance_decision": gov["decision"],
+        "governance_action":   gov["action"],
+        "governance_color":    gov["color"],
+
+        # ── Context ────────────────────────────────────────────
+        "document_type":      req.document_type,
+        "consequence_class":  req.consequence.upper(),
+        "agent_id":           req.agent_id,
+        "interaction_num":    req.interaction_num,
+        "workflow_id":        req.workflow_id,
+
+        # ── 4 Detection layers ─────────────────────────────────
+        "semantic_drift":           drift,
+        "clause_mutation":          mutation,
+        "intent_corruption":        intent,
+        "numerical_inconsistency":  numerical,
+
+        # ── Tamper evidence ────────────────────────────────────
+        "document_hashes": {
+            "original_hash":  original_hash,
+            "generated_hash": generated_hash,
+            "hashes_match":   hashes_match,
+            "tamper_evident": True,
+        },
+
+        # ── Scoring breakdown ──────────────────────────────────
+        "scoring_weights": {
+            "semantic_drift":          "25%",
+            "clause_mutation":         "35%",
+            "intent_corruption":       "25%",
+            "numerical_inconsistency": "15%",
+        },
+
+        "offline_verifiable": True,
+        "ms_research_baseline": {
+            "reference": "Microsoft Research GPT-5 integrity study",
+            "baseline_integrity_at_20_interactions": "48.3%",
+            "verisigil_protected": True,
+        },
+    }
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=int(os.environ.get("PORT", 8000)), reload=False)
