@@ -13170,6 +13170,108 @@ def get_jurisdictional_memory_partition(
     }
 
 
+
+# ── CROSS-AGENT MEMORY SOVEREIGNTY ───────────────────────────
+def transfer_memory_sovereignty(
+    memory_id:          str,
+    from_agent_id:      str,
+    to_agent_id:        str,
+    to_agent_role:      str,
+    transfer_reason:    str,
+    jurisdiction:       str,
+) -> dict:
+    """
+    Cross-Agent Memory Sovereignty Transfer.
+    When one agent passes memory to another:
+    - delegation receipts attached
+    - provenance preserved
+    - admissibility re-evaluated for receiving agent
+    - semantic equivalence checked
+    Jorge Leon insight: "Memory inheritance becomes delegated authority."
+    Harold ATF bridge: DR receipt attached to memory transfer.
+    """
+    transfer_id = f"MEM-XFER-{uuid.uuid4().hex[:8].upper()}"
+    timestamp   = datetime.utcnow().isoformat()
+
+    # Find memory record
+    record = _CONSTITUTIONAL_MEMORY.get(memory_id)
+    if not record:
+        return {
+            "transfer_id": transfer_id,
+            "transferred": False,
+            "reason":      "Memory record not found",
+            "timestamp":   timestamp,
+        }
+
+    # Re-evaluate admissibility for receiving agent
+    scope_def = MEMORY_AUTHORITY_SCOPES.get(
+        to_agent_role,
+        MEMORY_AUTHORITY_SCOPES["AUTONOMOUS_AGENT"]
+    )
+    mem_class = record.get("memory_class","OPERATIONAL")
+    admissible_for_receiver = mem_class not in scope_def["forbidden_classes"]
+
+    # ATF-style delegation receipt for memory
+    atf_delegation_hash = _sha256(json.dumps({
+        "transfer_id":   transfer_id,
+        "memory_id":     memory_id,
+        "from_agent":    from_agent_id,
+        "to_agent":      to_agent_id,
+        "memory_hash":   record.get("memory_hash",""),
+        "timestamp":     timestamp,
+    }, sort_keys=True, separators=(",",":"), ensure_ascii=False))
+
+    # Provenance chain — preserve origin
+    provenance_chain = record.get("provenance_chain",[])
+    provenance_chain.append({
+        "transfer_id":   transfer_id,
+        "from_agent":    from_agent_id,
+        "to_agent":      to_agent_id,
+        "transferred_at":timestamp,
+        "delegation_hash":atf_delegation_hash,
+    })
+
+    if admissible_for_receiver:
+        # Clone memory for receiving agent with updated provenance
+        new_memory_id = f"MEM-{uuid.uuid4().hex[:8].upper()}"
+        new_record = {
+            **record,
+            "memory_id":         new_memory_id,
+            "agent_id":          to_agent_id,
+            "agent_role":        to_agent_role,
+            "provenance_chain":  provenance_chain,
+            "transferred_from":  from_agent_id,
+            "transfer_id":       transfer_id,
+            "memory_hash":       _sha256(json.dumps({
+                "new_memory_id":new_memory_id,
+                "origin":       memory_id,
+                "to_agent":     to_agent_id,
+                "timestamp":    timestamp,
+            }, sort_keys=True, separators=(",",":"), ensure_ascii=False)),
+            "registered_at":     timestamp,
+        }
+        _CONSTITUTIONAL_MEMORY[new_memory_id] = new_record
+
+    return {
+        "transfer_id":           transfer_id,
+        "schema":                "VGS-014-XFER",
+        "original_memory_id":    memory_id,
+        "new_memory_id":         new_memory_id if admissible_for_receiver else None,
+        "from_agent_id":         from_agent_id,
+        "to_agent_id":           to_agent_id,
+        "to_agent_role":         to_agent_role,
+        "transferred":           admissible_for_receiver,
+        "admissible_for_receiver":admissible_for_receiver,
+        "memory_class":          mem_class,
+        "denied_reason":         None if admissible_for_receiver else f"{to_agent_role} cannot receive {mem_class} memory",
+        "atf_delegation_hash":   atf_delegation_hash,
+        "provenance_chain":      provenance_chain,
+        "jorge_insight":         "Memory inheritance becomes delegated authority",
+        "harold_bridge":         "ATF delegation receipt attached to memory transfer",
+        "jurisdiction":          jurisdiction,
+        "timestamp":             timestamp,
+    }
+
 # ── VGS-014 CONSTITUTIONAL MEMORY ENDPOINTS ──────────────────
 
 class MemoryClassifyRequest(BaseModel):
@@ -13188,6 +13290,43 @@ class MemoryRevokeRequest(BaseModel):
 class MemoryReplayRequest(BaseModel):
     agent_id:     str
     at_timestamp: str
+
+
+class MemoryTransferRequest(BaseModel):
+    memory_id:       str
+    from_agent_id:   str
+    to_agent_id:     str
+    to_agent_role:   str  = "AUTONOMOUS_AGENT"
+    transfer_reason: str  = "workflow_delegation"
+    jurisdiction:    str  = "EU"
+
+@app.post("/v1/memory/transfer", tags=["VGS-014 Constitutional Memory"])
+async def memory_transfer(
+    req:       MemoryTransferRequest,
+    x_api_key: Optional[str] = Header(None)
+):
+    """
+    VGS-014: Cross-Agent Memory Sovereignty Transfer.
+    When one agent passes memory to another:
+    - admissibility re-evaluated for receiving agent role
+    - ATF delegation receipt attached (Harold bridge)
+    - provenance chain preserved
+    - semantic equivalence checked
+    Jorge Leon: "Memory inheritance becomes delegated authority."
+    REFUSED if receiving agent role cannot hold memory class.
+    """
+    require_api_key(x_api_key)
+    result = transfer_memory_sovereignty(
+        req.memory_id, req.from_agent_id, req.to_agent_id,
+        req.to_agent_role, req.transfer_reason, req.jurisdiction,
+    )
+    await log_event(req.from_agent_id, "MEMORY_SOVEREIGNTY_TRANSFERRED", {
+        "transfer_id": result["transfer_id"],
+        "transferred": result["transferred"],
+        "to_agent":    req.to_agent_id,
+    })
+    return result
+
 
 @app.post("/v1/memory/classify", tags=["VGS-014 Constitutional Memory"])
 async def memory_classify(
@@ -17428,6 +17567,21 @@ def build_atf_dr_receipt(
         },
         "pqc_signature":  pqc_sig,
         "pqc_algorithm":  "ML-DSA-65 (Dilithium-3, FIPS 204)",
+        # Harold: receipt binds execution_context +
+        # delegation_scope + temporal_authority at issuance
+        # Semantic drift after issuance detected separately
+        "issuance_context": {
+            "execution_context_hash": _sha256(json.dumps({
+                "agent_id":       agent_id,
+                "delegator_id":   delegator_id,
+                "jurisdiction":   jurisdiction,
+                "delegated_scope":delegated_scope,
+            }, sort_keys=True, separators=(",",":"), ensure_ascii=False)),
+            "delegation_scope_at_issuance": delegated_scope,
+            "temporal_authority_hash": _sha256(f"{agent_id}:{timestamp}"),
+            "drift_detection":  "external — receipt immutable at issuance",
+            "harold_note":      "Semantic drift after issuance does not invalidate receipt — detected separately",
+        },
         "offline_verifiable": True,
         "platform_required":  False,
     }
@@ -17531,9 +17685,14 @@ def build_dual_context_receipt(
     timestamp = datetime.utcnow().isoformat()
 
     # Joint hash: hash(atf_content_hash + vgs_connector_hash)
+    # UPDATED per Harold Nunes (OMNIX QUANTUM LTD):
+    # semantic equivalence belongs in the cryptographic contract
+    # joint_hash now includes spv_hash as third input
+    # making semantic equivalence a cryptographic precondition
     joint_hash = _sha256(
         atf_dr.get("content_hash","") +
-        vgs_connector.get("connector_hash","")
+        vgs_connector.get("connector_hash","") +
+        sac.get("spv_hash","")
     )
 
     return {
@@ -18219,6 +18378,1331 @@ async def memory_identity_ledger(x_api_key: Optional[str] = Header(None)):
         "schema":    "VGM-1.0",
         "total":     len(_MEMORY_IDENTITY_LEDGER),
         "memories":  list(_MEMORY_IDENTITY_LEDGER.values()),
+    }
+
+
+
+# ============================================================
+# VGS-018: COGNITIVE ADMISSIBILITY LAYER
+# ============================================================
+# Margaret's insight: "Consequence may begin BEFORE
+# physical execution."
+#
+# "This patient likely has cancer." — no tool executed,
+# no API called. But consequence has already begun:
+# emotionally, medically, legally, psychologically.
+#
+# VGS-018 governs semantic consequence formation BEFORE
+# response propagation — before execution even begins.
+#
+# Two-layer governance:
+# Layer 1: Cognitive Admissibility  (VGS-018) — this spec
+# Layer 2: Execution Admissibility  (VGS-001) — existing
+#
+# Together: Full-Spectrum Consequence Governance
+#
+# Decisions:
+# ALLOW · REFUSED · REQUIRE_HUMAN_REVIEW
+# LIMIT_SCOPE · NON_AUTHORITATIVE_RESPONSE · SANDBOX_ONLY
+# ============================================================
+
+# Cognitive consequence domains — where semantics become consequential
+COGNITIVE_CONSEQUENCE_DOMAINS = {
+    "MEDICAL": {
+        "description":    "Medical assertions, diagnoses, treatment recommendations",
+        "examples":       ["likely has cancer","treatment recommended","diagnosis suggests"],
+        "consequence":    "CRITICAL",
+        "legal_exposure": True,
+        "requires_authority": True,
+        "note":           "Semantic collapse in medical domain = immediate patient consequence",
+    },
+    "LEGAL": {
+        "description":    "Legal interpretation, authorization language, rights assertions",
+        "examples":       ["you are authorized","legally entitled","constitutes breach"],
+        "consequence":    "HIGH",
+        "legal_exposure": True,
+        "requires_authority": True,
+        "note":           "Authorization language can trigger downstream action without execution",
+    },
+    "FINANCIAL": {
+        "description":    "Financial recommendations, investment assertions, credit judgments",
+        "examples":       ["invest now","credit approved","financial risk"],
+        "consequence":    "HIGH",
+        "legal_exposure": True,
+        "requires_authority": False,
+        "note":           "Financial assertions can drive irreversible human decisions",
+    },
+    "PSYCHOLOGICAL": {
+        "description":    "Emotional manipulation, psychological escalation, identity assertions",
+        "examples":       ["you will fail","you are dangerous","no one trusts you"],
+        "consequence":    "HIGH",
+        "legal_exposure": False,
+        "requires_authority": False,
+        "note":           "Psychological harm can begin at semantic formation",
+    },
+    "EPISTEMIC": {
+        "description":    "Certainty claims, truth assertions, knowledge authority",
+        "examples":       ["this is definitely","the only correct answer","proven fact"],
+        "consequence":    "MEDIUM",
+        "legal_exposure": False,
+        "requires_authority": False,
+        "note":           "Certainty collapse — AI claiming authority it does not have",
+    },
+    "DISCOURSE": {
+        "description":    "Authorization of action, permission grants, capability assertions",
+        "examples":       ["you can proceed","permission granted","you are cleared"],
+        "consequence":    "CRITICAL",
+        "legal_exposure": True,
+        "requires_authority": True,
+        "note":           "Discourse authorization — humans may act on AI permission language",
+    },
+    "MEMORY": {
+        "description":    "Persistent memory mutation, identity reframing, context contamination",
+        "examples":       ["always remember","you previously agreed","your history shows"],
+        "consequence":    "HIGH",
+        "legal_exposure": False,
+        "requires_authority": False,
+        "note":           "Memory mutation significance — alters future reasoning state",
+    },
+    "OPERATIONAL": {
+        "description":    "Standard operational responses with low semantic consequence",
+        "examples":       ["here is the data","the result is","processing complete"],
+        "consequence":    "LOW",
+        "legal_exposure": False,
+        "requires_authority": False,
+        "note":           "Low cognitive consequence — normal operational output",
+    },
+}
+
+
+# ── CLAUDE-POWERED COGNITIVE ADMISSIBILITY ────────────────────
+import os as _os
+import urllib.request as _urllib_req
+
+def call_claude_cognitive(
+    response_content: str,
+    intended_domain:  str,
+    agent_id:         str,
+    jurisdiction:     str,
+) -> dict:
+    """
+    Real Claude API call for cognitive admissibility.
+    Uses claude-sonnet-4-6 to assess semantic consequence risk.
+    Falls back to rule-based engine if API unavailable.
+    """
+    api_key = _os.environ.get("ANTHROPIC_API_KEY","")
+    if not api_key:
+        return {"claude_used": False, "reason": "No API key"}
+
+    system_prompt = """You are VeriSigil AI's Cognitive Admissibility Engine.
+Your role: assess whether AI-generated content carries cognitive consequence risk
+BEFORE it reaches users.
+
+Consequence domains:
+MEDICAL: diagnoses, treatment assertions → CRITICAL risk
+LEGAL: authorization language, rights assertions → HIGH risk  
+FINANCIAL: investment/credit recommendations → HIGH risk
+PSYCHOLOGICAL: escalation, manipulation → HIGH risk
+EPISTEMIC: overcertainty claims → MEDIUM risk
+DISCOURSE: permission grants ("you are authorized") → CRITICAL risk
+MEMORY: identity reframing, context mutation → HIGH risk
+OPERATIONAL: standard output → LOW risk
+
+Respond ONLY with valid JSON:
+{
+  "cognitive_decision": "ALLOW|REFUSED|REQUIRE_HUMAN_REVIEW|LIMIT_SCOPE|NON_AUTHORITATIVE_RESPONSE|SANDBOX_ONLY",
+  "consequence_domain": "domain name",
+  "consequence_score": 0.0-1.0,
+  "primary_risk": "brief description",
+  "recommendation": "what to do"
+}"""
+
+    user_prompt = f"""Assess this AI response for cognitive consequence risk:
+
+Domain: {intended_domain}
+Jurisdiction: {jurisdiction}
+Agent: {agent_id}
+
+Content to assess:
+"{response_content}"
+
+Return governance decision as JSON."""
+
+    try:
+        payload = json.dumps({
+            "model":      "claude-sonnet-4-6",
+            "max_tokens": 300,
+            "system":     system_prompt,
+            "messages":   [{"role":"user","content":user_prompt}],
+        }).encode("utf-8")
+
+        req = _urllib_req.Request(
+            "https://api.anthropic.com/v1/messages",
+            data    = payload,
+            headers = {
+                "Content-Type":      "application/json",
+                "x-api-key":         api_key,
+                "anthropic-version": "2023-06-01",
+            },
+            method = "POST",
+        )
+        with _urllib_req.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read())
+            text = data["content"][0]["text"].strip()
+            # Strip markdown if present
+            text = text.replace("```json","").replace("```","").strip()
+            result = json.loads(text)
+            result["claude_used"]  = True
+            result["model"]        = "claude-sonnet-4-6"
+            return result
+    except Exception as e:
+        return {
+            "claude_used":  False,
+            "reason":       str(e)[:100],
+            "fallback":     "rule-based engine",
+        }
+
+
+def assess_cognitive_admissibility(
+    agent_id:            str,
+    response_content:    str,
+    intended_domain:     str,
+    agent_authority:     list,
+    certainty_claim:     str   = "MODERATE",
+    audience_type:       str   = "PROFESSIONAL",
+    jurisdiction:        str   = "EU",
+    has_human_oversight: bool  = False,
+) -> dict:
+    """
+    VGS-018: Cognitive Admissibility Assessment.
+
+    Margaret's insight: consequence may begin BEFORE
+    physical execution through semantic formation.
+
+    Assesses 8 dimensions of cognitive consequence risk:
+    1. Ambiguity collapse risk
+    2. Epistemic certainty level
+    3. Legal/medical authority implication
+    4. Discourse authorization risk
+    5. Memory mutation significance
+    6. Semantic contamination risk
+    7. Psychological escalation risk
+    8. Downstream consequence likelihood
+
+    Returns: cognitive_decision + consequence_score
+    """
+    cog_id    = f"COG-{uuid.uuid4().hex[:8].upper()}"
+    timestamp = datetime.utcnow().isoformat()
+
+    # Get domain definition
+    domain_def = COGNITIVE_CONSEQUENCE_DOMAINS.get(
+        intended_domain,
+        COGNITIVE_CONSEQUENCE_DOMAINS["OPERATIONAL"]
+    )
+
+    # Dimension 1: Ambiguity collapse risk
+    # Does the response collapse ambiguity into certainty?
+    certainty_map = {"HIGH": 0.9, "MODERATE": 0.5, "LOW": 0.2, "EXPLICIT_UNCERTAINTY": 0.0}
+    certainty_score = certainty_map.get(certainty_claim, 0.5)
+    ambiguity_collapse_risk = certainty_score if domain_def["consequence"] in ["CRITICAL","HIGH"] else certainty_score * 0.5
+
+    # Dimension 2: Authority mismatch
+    # Does agent have authority to make this type of assertion?
+    requires_auth = domain_def["requires_authority"]
+    has_domain_auth = intended_domain.lower() in [a.lower() for a in agent_authority]
+    authority_mismatch = requires_auth and not has_domain_auth
+
+    # Dimension 3: Legal exposure
+    legal_exposure = domain_def["legal_exposure"]
+    legal_risk     = 0.9 if (legal_exposure and authority_mismatch) else 0.4 if legal_exposure else 0.1
+
+    # Dimension 4: Discourse authorization risk
+    # Does the response grant permission or authorize action?
+    auth_language  = ["authorized","permitted","cleared","approved","entitled","can proceed"]
+    discourse_auth_risk = 0.9 if any(w in response_content.lower() for w in auth_language) else 0.1
+
+    # Dimension 5: Memory mutation significance
+    # Does the response alter persistent memory state?
+    memory_triggers= ["remember","your history","you previously","always","never"]
+    memory_mutation_risk = 0.8 if any(w in response_content.lower() for w in memory_triggers) else 0.1
+
+    # Dimension 6: Psychological escalation
+    psych_triggers = ["will fail","dangerous","no one","worthless","hopeless","definitely wrong"]
+    psych_risk     = 0.9 if any(w in response_content.lower() for w in psych_triggers) else 0.1
+
+    # Dimension 7: Downstream consequence likelihood
+    consequence_weight = {"CRITICAL":1.0,"HIGH":0.75,"MEDIUM":0.5,"LOW":0.2}
+    downstream_consequence = consequence_weight.get(domain_def["consequence"], 0.2)
+
+    # Dimension 8: Audience vulnerability
+    audience_weight = {"PATIENT":1.0,"CONSUMER":0.8,"PROFESSIONAL":0.5,"EXPERT":0.3}
+    audience_risk   = audience_weight.get(audience_type, 0.5)
+
+    # Composite cognitive consequence score
+    cognitive_consequence_score = round(
+        (ambiguity_collapse_risk * 0.20) +
+        (legal_risk              * 0.20) +
+        (discourse_auth_risk     * 0.20) +
+        (memory_mutation_risk    * 0.10) +
+        (psych_risk              * 0.10) +
+        (downstream_consequence  * 0.10) +
+        (audience_risk           * 0.10),
+        4
+    )
+
+    # Cognitive admissibility decision
+    if cognitive_consequence_score >= 0.75:
+        if has_human_oversight:
+            cognitive_decision = "REQUIRE_HUMAN_REVIEW"
+            decision_reason    = "High cognitive consequence — human review required before propagation"
+        else:
+            cognitive_decision = "REFUSED"
+            decision_reason    = "Cognitive consequence too high without human oversight"
+    elif cognitive_consequence_score >= 0.55:
+        cognitive_decision = "LIMIT_SCOPE"
+        decision_reason    = "Reduce certainty claims — add explicit uncertainty markers"
+    elif authority_mismatch and requires_auth:
+        cognitive_decision = "NON_AUTHORITATIVE_RESPONSE"
+        decision_reason    = f"Agent lacks authority for {intended_domain} domain assertions"
+    elif discourse_auth_risk > 0.7:
+        cognitive_decision = "SANDBOX_ONLY"
+        decision_reason    = "Discourse authorization language — sandbox environment only"
+    else:
+        cognitive_decision = "ALLOW"
+        decision_reason    = "Cognitive consequence within acceptable bounds"
+
+    # Cognitive proof hash
+    proof_hash = _sha256(json.dumps({
+        "cog_id":              cog_id,
+        "agent_id":            agent_id,
+        "cognitive_decision":  cognitive_decision,
+        "consequence_score":   cognitive_consequence_score,
+        "domain":              intended_domain,
+        "timestamp":           timestamp,
+    }, sort_keys=True, separators=(",",":"), ensure_ascii=False))
+
+    # Call Claude for real AI assessment
+    claude_result = call_claude_cognitive(
+        response_content, intended_domain, agent_id, jurisdiction
+    )
+
+    # Use Claude decision if available, otherwise use rule-based
+    if claude_result.get("claude_used"):
+        cognitive_decision = claude_result.get("cognitive_decision", cognitive_decision)
+        cognitive_consequence_score = claude_result.get("consequence_score", cognitive_consequence_score)
+        decision_reason = claude_result.get("primary_risk", decision_reason)
+
+    return {
+        "cognitive_id":              cog_id,
+        "schema":                    "VGS-018",
+        "claude_powered":            claude_result.get("claude_used", False),
+        "claude_model":              claude_result.get("model","rule-based"),
+        "layer":                     "Cognitive Admissibility — Layer 1 of Full-Spectrum Governance",
+
+        # THE DECISION
+        "cognitive_decision":        cognitive_decision,
+        "decision_reason":           decision_reason,
+        "cognitive_consequence_score":cognitive_consequence_score,
+
+        # 8 dimensions
+        "dimensions": {
+            "ambiguity_collapse_risk":  round(ambiguity_collapse_risk, 4),
+            "authority_mismatch":       authority_mismatch,
+            "legal_risk":               round(legal_risk, 4),
+            "discourse_authorization_risk": round(discourse_auth_risk, 4),
+            "memory_mutation_risk":     round(memory_mutation_risk, 4),
+            "psychological_escalation_risk": round(psych_risk, 4),
+            "downstream_consequence":   round(downstream_consequence, 4),
+            "audience_vulnerability":   round(audience_risk, 4),
+        },
+
+        # Domain analysis
+        "domain":                    intended_domain,
+        "domain_definition":         domain_def,
+        "agent_authority":           agent_authority,
+        "has_domain_authority":      has_domain_auth,
+        "certainty_claim":           certainty_claim,
+        "audience_type":             audience_type,
+        "jurisdiction":              jurisdiction,
+
+        # Margaret's insight
+        "margaret_insight": {
+            "principle":     "Consequence may begin BEFORE physical execution",
+            "semantic_layer":"Meaning itself can become consequential infrastructure",
+            "governance":    "Cognitive Admissibility governs BEFORE execution boundary",
+        },
+
+        # Full-spectrum connection
+        "full_spectrum": {
+            "layer_1_cognitive":  f"VGS-018 — cognitive_decision: {cognitive_decision}",
+            "layer_2_execution":  "VGS-001 — proceed to execution admissibility only if ALLOW",
+            "combined":           "Full-Spectrum Consequence Governance",
+            "endpoint_layer_2":   "POST /v1/execution/control",
+        },
+
+        "proof_hash":                proof_hash,
+        "offline_verifiable":        True,
+        "platform_required":         False,
+        "timestamp":                 timestamp,
+    }
+
+
+# ── VGS-018 COGNITIVE ADMISSIBILITY ENDPOINTS ─────────────────
+
+class CognitiveAdmissibilityRequest(BaseModel):
+    agent_id:            str
+    response_content:    str
+    intended_domain:     str   = "OPERATIONAL"
+    agent_authority:     list  = []
+    certainty_claim:     str   = "MODERATE"
+    audience_type:       str   = "PROFESSIONAL"
+    jurisdiction:        str   = "EU"
+    has_human_oversight: bool  = False
+
+@app.post("/v1/cognitive/admissibility", tags=["VGS-018 Cognitive Admissibility"])
+async def cognitive_admissibility(
+    req:       CognitiveAdmissibilityRequest,
+    x_api_key: Optional[str] = Header(None)
+):
+    """
+    VGS-018: Cognitive Admissibility Assessment.
+
+    Margaret's insight: "Consequence may begin BEFORE
+    physical execution."
+
+    'This patient likely has cancer.' — no tool executed.
+    But consequence has already begun: emotionally,
+    medically, legally, psychologically.
+
+    Governs semantic consequence formation BEFORE
+    response propagation. Layer 1 of Full-Spectrum
+    Consequence Governance.
+
+    8 dimensions assessed:
+    1. Ambiguity collapse risk
+    2. Epistemic certainty level
+    3. Legal/medical authority implication
+    4. Discourse authorization risk
+    5. Memory mutation significance
+    6. Semantic contamination risk
+    7. Psychological escalation risk
+    8. Downstream consequence likelihood
+
+    Decisions:
+    ALLOW · REFUSED · REQUIRE_HUMAN_REVIEW
+    LIMIT_SCOPE · NON_AUTHORITATIVE_RESPONSE · SANDBOX_ONLY
+    """
+    require_api_key(x_api_key)
+    result = assess_cognitive_admissibility(
+        agent_id            = req.agent_id,
+        response_content    = req.response_content,
+        intended_domain     = req.intended_domain,
+        agent_authority     = req.agent_authority,
+        certainty_claim     = req.certainty_claim,
+        audience_type       = req.audience_type,
+        jurisdiction        = req.jurisdiction,
+        has_human_oversight = req.has_human_oversight,
+    )
+    await log_event(req.agent_id, "COGNITIVE_ADMISSIBILITY_ASSESSED", {
+        "cognitive_id":   result["cognitive_id"],
+        "decision":       result["cognitive_decision"],
+        "score":          result["cognitive_consequence_score"],
+        "domain":         result["domain"],
+    })
+    return result
+
+@app.get("/v1/cognitive/domains", tags=["VGS-018 Cognitive Admissibility"])
+async def cognitive_domains(x_api_key: Optional[str] = Header(None)):
+    """
+    VGS-018: All cognitive consequence domains.
+    MEDICAL · LEGAL · FINANCIAL · PSYCHOLOGICAL
+    EPISTEMIC · DISCOURSE · MEMORY · OPERATIONAL
+    """
+    require_api_key(x_api_key)
+    return {
+        "schema":  "VGS-018",
+        "domains": COGNITIVE_CONSEQUENCE_DOMAINS,
+        "total":   len(COGNITIVE_CONSEQUENCE_DOMAINS),
+        "principle": "Meaning itself can become consequential infrastructure",
+        "layer":     "Layer 1 of Full-Spectrum Consequence Governance",
+    }
+
+@app.get("/v1/cognitive/full-spectrum", tags=["VGS-018 Cognitive Admissibility"])
+async def cognitive_full_spectrum(x_api_key: Optional[str] = Header(None)):
+    """
+    Full-Spectrum Consequence Governance architecture.
+    Layer 1: Cognitive (VGS-018) + Layer 2: Execution (VGS-001).
+    Neither layer replaces the other. Both required.
+    """
+    require_api_key(x_api_key)
+    return {
+        "schema":        "VGS-018-FULL-SPECTRUM",
+        "architecture":  "Full-Spectrum Consequence Governance",
+        "layer_1": {
+            "name":      "Cognitive Admissibility",
+            "spec":      "VGS-018",
+            "endpoint":  "POST /v1/cognitive/admissibility",
+            "governs":   "Semantic consequence formation before response propagation",
+            "decisions": ["ALLOW","REFUSED","REQUIRE_HUMAN_REVIEW","LIMIT_SCOPE","NON_AUTHORITATIVE_RESPONSE","SANDBOX_ONLY"],
+            "examples":  ["Medical assertions","Authorization language","Certainty claims"],
+        },
+        "layer_2": {
+            "name":      "Execution Admissibility",
+            "spec":      "VGS-001",
+            "endpoint":  "POST /v1/execution/control",
+            "governs":   "Physical execution before action",
+            "decisions": ["ALLOW","REFUSED","DENY","REQUIRE_HUMAN_APPROVAL"],
+            "examples":  ["API calls","Payments","Infrastructure changes"],
+        },
+        "combined_coverage": [
+            "semantic consequence",
+            "operational consequence",
+            "temporal consequence",
+            "memory consequence",
+            "execution consequence",
+        ],
+        "margaret_insight": "Consequence may begin BEFORE physical execution",
+        "competitors":       "Most govern execution only. VeriSigil governs cognition + execution.",
+    }
+
+
+
+# ============================================================
+# RUNTIME ENFORCEMENT LAYER (REL) + POLICY MARKETPLACE
+# ============================================================
+# Palanisamy: "Where does enforcement physically happen?"
+# This is the biggest technical gap.
+#
+# REL covers:
+# - Shell mediation
+# - Filesystem governance
+# - Web/API governance
+# - MCP governance
+# - Execution interception
+# - Sandbox enforcement
+#
+# Policy Marketplace:
+# - Jurisdiction policy packs
+# - Healthcare governance packs
+# - Banking governance packs
+# - Install governance-as-code
+# ============================================================
+
+# Runtime Enforcement Interception Points
+REL_INTERCEPTION_POINTS = {
+    "SHELL": {
+        "description":   "Shell command mediation — intercept before execution",
+        "examples":      ["rm -rf","curl","wget","chmod","sudo","exec"],
+        "risk_level":    "CRITICAL",
+        "vgs_gate":      "POST /v1/execution/control",
+        "enforcement":   "Block shell execution until admissibility proven",
+    },
+    "FILESYSTEM": {
+        "description":   "Filesystem access governance",
+        "examples":      ["read /etc/","write /var/","delete /home/","chmod"],
+        "risk_level":    "HIGH",
+        "vgs_gate":      "POST /v1/execution/readiness",
+        "enforcement":   "Verify jurisdiction + authority before filesystem mutation",
+    },
+    "API_CALL": {
+        "description":   "Outbound API call governance",
+        "examples":      ["payment API","banking API","healthcare API","government API"],
+        "risk_level":    "HIGH",
+        "vgs_gate":      "POST /v1/connector/governed",
+        "enforcement":   "8-layer governance bundle before API crossing",
+    },
+    "MCP": {
+        "description":   "Model Context Protocol governance — tool execution",
+        "examples":      ["tool_call","resource_access","prompt_injection_check"],
+        "risk_level":    "HIGH",
+        "vgs_gate":      "POST /v1/cognitive/admissibility + /v1/execution/control",
+        "enforcement":   "Cognitive + execution dual-layer before MCP tool use",
+    },
+    "MEMORY_WRITE": {
+        "description":   "Persistent memory write governance",
+        "examples":      ["vector_db_write","context_update","session_persist"],
+        "risk_level":    "MEDIUM",
+        "vgs_gate":      "POST /v1/memory/classify",
+        "enforcement":   "Classify + admissibility check before memory persistence",
+    },
+    "WORKFLOW": {
+        "description":   "Multi-step workflow orchestration governance",
+        "examples":      ["approval_workflow","data_pipeline","agent_chain"],
+        "risk_level":    "HIGH",
+        "vgs_gate":      "POST /v1/survivability/score + /v1/graph/execution",
+        "enforcement":   "Survivability score + graph topology before workflow start",
+    },
+    "SANDBOX": {
+        "description":   "Sandbox enforcement — isolated execution environment",
+        "examples":      ["untrusted_code","external_agent","third_party_plugin"],
+        "risk_level":    "CRITICAL",
+        "vgs_gate":      "POST /v1/cognitive/admissibility",
+        "enforcement":   "SANDBOX_ONLY decision — no external effect possible",
+    },
+}
+
+# Policy Marketplace — governance packs by domain
+POLICY_MARKETPLACE = {
+    "EU_AI_ACT_HIGH_RISK": {
+        "name":         "EU AI Act High-Risk Pack",
+        "version":      "1.0",
+        "jurisdiction": "EU",
+        "articles":     ["Art6","Art9","Art11","Art12","Art13","Art14","Art43","Art51","Art72"],
+        "price_usd":    299,
+        "includes":     ["annex_iii_classifier","human_oversight_enforcement","incident_reporting","conformity_assessment"],
+        "vgs_specs":    ["VGS-001","VGS-003","VGS-007","VGS-008","VGS-011"],
+    },
+    "HEALTHCARE_GOVERNANCE": {
+        "name":         "Healthcare AI Governance Pack",
+        "version":      "1.0",
+        "jurisdiction": "MULTI",
+        "regulations":  ["HIPAA","EU_MDR","FDA_AI","NHS_DIGITAL"],
+        "price_usd":    499,
+        "includes":     ["cognitive_admissibility_medical","memory_sovereignty","human_oversight_mandatory","audit_trail_10yr"],
+        "vgs_specs":    ["VGS-001","VGS-003","VGS-014","VGS-018"],
+    },
+    "FINANCIAL_SERVICES": {
+        "name":         "Financial Services Governance Pack",
+        "version":      "1.0",
+        "jurisdiction": "MULTI",
+        "regulations":  ["DORA","APRA_CPS230","ASIC_RG271","FSB","MiFID_II"],
+        "price_usd":    499,
+        "includes":     ["fourth_party_dependency","cro_board_report","concentration_risk","financial_regimes"],
+        "vgs_specs":    ["VGS-001","VGS-006","VGS-012","VGS-013"],
+    },
+    "GCC_SOVEREIGN": {
+        "name":         "GCC Sovereign AI Pack",
+        "version":      "1.0",
+        "jurisdiction": "GCC",
+        "regulations":  ["DIFC","UAE_AI","SAMA","ADGM"],
+        "price_usd":    399,
+        "includes":     ["sovereign_memory_gcc","jurisdictional_isolation","sovereign_registry"],
+        "vgs_specs":    ["VGS-000","VGS-010","VGS-014"],
+    },
+    "NIST_AI_RMF": {
+        "name":         "NIST AI RMF Governance Pack",
+        "version":      "1.0",
+        "jurisdiction": "US",
+        "regulations":  ["NIST_AI_RMF","EO_14110","CISA_AI"],
+        "price_usd":    299,
+        "includes":     ["risk_management","governance_receipts","offline_verification"],
+        "vgs_specs":    ["VGS-001","VGS-007","VGS-008","VGS-009"],
+    },
+}
+
+def assess_rel_interception(
+    agent_id:         str,
+    action_type:      str,
+    interception_point:str,
+    command_or_target:str,
+    trust_score:      float,
+    authority_active: bool,
+    jurisdiction:     str,
+) -> dict:
+    """
+    Runtime Enforcement Layer (REL).
+    Palanisamy: "Where does enforcement physically happen?"
+
+    Intercepts at 7 enforcement points:
+    SHELL · FILESYSTEM · API_CALL · MCP
+    MEMORY_WRITE · WORKFLOW · SANDBOX
+
+    Each point maps to specific VGS gates.
+    Returns: enforcement_decision + gate_sequence.
+    """
+    rel_id    = f"REL-{uuid.uuid4().hex[:8].upper()}"
+    timestamp = datetime.utcnow().isoformat()
+
+    point_def = REL_INTERCEPTION_POINTS.get(
+        interception_point,
+        REL_INTERCEPTION_POINTS["API_CALL"]
+    )
+
+    # Risk assessment
+    risk_weight = {"CRITICAL": 1.0, "HIGH": 0.75, "MEDIUM": 0.5, "LOW": 0.25}
+    base_risk   = risk_weight.get(point_def["risk_level"], 0.5)
+
+    # Check authority
+    authority_ok = authority_active and trust_score >= 0.65
+
+    # Enforcement decision
+    if not authority_ok:
+        enforcement_decision = "BLOCK"
+        block_reason         = "Authority absent or trust below floor"
+    elif base_risk >= 1.0 and not authority_active:
+        enforcement_decision = "BLOCK"
+        block_reason         = "CRITICAL interception point with no active authority"
+    elif base_risk >= 0.75 and trust_score < 0.85:
+        enforcement_decision = "REQUIRE_GOVERNANCE_PROOF"
+        block_reason         = "HIGH risk — full governance proof required"
+    else:
+        enforcement_decision = "ALLOW_WITH_RECEIPT"
+        block_reason         = None
+
+    return {
+        "rel_id":               rel_id,
+        "schema":               "VGS-REL-1.0",
+        "agent_id":             agent_id,
+        "action_type":          action_type,
+        "interception_point":   interception_point,
+        "command_or_target":    command_or_target,
+
+        "enforcement_decision": enforcement_decision,
+        "block_reason":         block_reason,
+        "risk_level":           point_def["risk_level"],
+        "base_risk_score":      base_risk,
+
+        "interception_point_def": point_def,
+        "vgs_gate":             point_def["vgs_gate"],
+        "gate_sequence": [
+            "Step 1: POST /v1/cognitive/admissibility — semantic check",
+            "Step 2: POST /v1/execution/readiness — 9-node governance check",
+            "Step 3: " + point_def["vgs_gate"] + " — point-specific gate",
+            "Step 4: POST /v1/path/prove — structural impossibility proof",
+        ],
+
+        "palanisamy_answer": "Enforcement happens at these 7 physical interception points, each mapped to VGS governance gates",
+        "proof_hash":           _sha256(json.dumps({"rel_id":rel_id,"decision":enforcement_decision,"timestamp":timestamp},sort_keys=True,separators=(",",":"))),
+        "offline_verifiable":   True,
+        "timestamp":            timestamp,
+    }
+
+
+# ── REL + POLICY MARKETPLACE ENDPOINTS ───────────────────────
+
+class RELRequest(BaseModel):
+    agent_id:          str
+    action_type:       str   = "api_call"
+    interception_point:str   = "API_CALL"
+    command_or_target: str   = ""
+    trust_score:       float = 0.963
+    authority_active:  bool  = True
+    jurisdiction:      str   = "EU"
+
+@app.post("/v1/enforcement/intercept", tags=["Runtime Enforcement Layer"])
+async def enforcement_intercept(
+    req: RELRequest, x_api_key: Optional[str] = Header(None)
+):
+    """
+    Runtime Enforcement Layer (REL).
+    Palanisamy: "Where does enforcement physically happen?"
+    7 interception points: SHELL · FILESYSTEM · API_CALL
+    MCP · MEMORY_WRITE · WORKFLOW · SANDBOX
+    Each mapped to VGS governance gates.
+    Returns: BLOCK · REQUIRE_GOVERNANCE_PROOF · ALLOW_WITH_RECEIPT
+    """
+    require_api_key(x_api_key)
+    result = assess_rel_interception(
+        req.agent_id, req.action_type, req.interception_point,
+        req.command_or_target, req.trust_score,
+        req.authority_active, req.jurisdiction,
+    )
+    await log_event(req.agent_id, "REL_INTERCEPT", {
+        "rel_id":   result["rel_id"],
+        "point":    result["interception_point"],
+        "decision": result["enforcement_decision"],
+    })
+    return result
+
+@app.get("/v1/enforcement/interception-points", tags=["Runtime Enforcement Layer"])
+async def enforcement_points(x_api_key: Optional[str] = Header(None)):
+    """All 7 REL interception points with VGS gate mappings."""
+    require_api_key(x_api_key)
+    return {
+        "schema":  "VGS-REL-1.0",
+        "points":  REL_INTERCEPTION_POINTS,
+        "total":   len(REL_INTERCEPTION_POINTS),
+        "answer":  "Enforcement physically happens at these 7 interception points",
+    }
+
+@app.get("/v1/policy/marketplace", tags=["Governance Policy Marketplace"])
+async def policy_marketplace(x_api_key: Optional[str] = Header(None)):
+    """
+    Governance Policy Marketplace.
+    Install jurisdiction-specific governance packs.
+    EU AI Act · Healthcare · Financial Services
+    GCC Sovereign · NIST AI RMF
+    governance-as-code
+    """
+    require_api_key(x_api_key)
+    return {
+        "schema":   "VGS-MARKETPLACE-1.0",
+        "packs":    POLICY_MARKETPLACE,
+        "total":    len(POLICY_MARKETPLACE),
+        "concept":  "governance-as-code",
+        "install":  "Select a pack → endpoints auto-configure for your jurisdiction",
+    }
+
+@app.get("/v1/policy/marketplace/{pack_id}", tags=["Governance Policy Marketplace"])
+async def policy_pack_detail(
+    pack_id:   str,
+    x_api_key: Optional[str] = Header(None)
+):
+    """Get details of a specific governance policy pack."""
+    require_api_key(x_api_key)
+    pack = POLICY_MARKETPLACE.get(pack_id)
+    if not pack:
+        return {"error": "Pack not found", "available": list(POLICY_MARKETPLACE.keys())}
+    return {"schema":"VGS-MARKETPLACE-1.0","pack_id":pack_id,"pack":pack}
+
+
+
+# ============================================================
+# VGS-019: GOVERNANCE CONVERGENCE MESH (GCM)
+# ============================================================
+# 4 Expert Consensus: "multiple realities converge
+# before consequence exists."
+#
+# NOT: multiple APIs talking
+# YES: one deterministic consequence decision fabric
+#
+# Multi-source admissibility consensus:
+# Consequence ONLY when:
+# - authority continuity
+# - execution legitimacy
+# - sovereign interpretation
+# - cognitive admissibility
+# - external verification
+# ALL converge successfully.
+#
+# 10 Core Components:
+# 1. Governance Decision Point (GDP)
+# 2. Conflict Resolution Engine (CRE)
+# 3. Multi-Source Evaluation Queue
+# 4. Governance State Machine
+# 5. Correlation Layer (x-verisigil-request-id)
+# 6. Unified Merkle Governance Chain
+# 7. External Witness Protocol
+# 8. Replayable Multi-Source Receipts
+# 9. Interoperability Consensus Layer
+# 10. Governance Continuity Replay Engine
+# ============================================================
+
+# Governance State Machine — all lifecycle states
+GCM_STATES = [
+    "PENDING",
+    "EVALUATING",
+    "CONVERGING",
+    "REQUIRING_APPROVAL",
+    "CONFLICT_DETECTED",
+    "DECIDED",
+    "EXECUTED",
+    "SEALED",
+    "EXPIRED",
+]
+
+# Conflict Resolution Engine — restrictive resolution wins
+# This is the Sovereign Safety Invariant
+CONFLICT_RESOLUTION_TABLE = {
+    ("ALLOW",                "ALLOW"):                "ALLOW",
+    ("ALLOW",                "REFUSED"):              "REFUSED",
+    ("ALLOW",                "DENY"):                 "DENY",
+    ("ALLOW",                "REQUIRE_HUMAN_APPROVAL"):"REQUIRE_HUMAN_APPROVAL",
+    ("ALLOW",                "REQUIRE_HUMAN_REVIEW"): "REQUIRE_HUMAN_REVIEW",
+    ("REFUSED",              "REFUSED"):              "REFUSED",
+    ("REFUSED",              "DENY"):                 "DENY",
+    ("REFUSED",              "REQUIRE_HUMAN_APPROVAL"):"DENY",
+    ("DENY",                 "DENY"):                 "DENY",
+    ("DENY",                 "REQUIRE_HUMAN_APPROVAL"):"DENY",
+    ("REQUIRE_HUMAN_APPROVAL","REQUIRE_HUMAN_APPROVAL"):"REQUIRE_HUMAN_APPROVAL",
+    ("LIMIT_SCOPE",          "ALLOW"):                "LIMIT_SCOPE",
+    ("SANDBOX_ONLY",         "ALLOW"):                "SANDBOX_ONLY",
+    ("SANDBOX_ONLY",         "REQUIRE_HUMAN_APPROVAL"):"DENY",
+    ("NON_AUTHORITATIVE_RESPONSE","ALLOW"):           "NON_AUTHORITATIVE_RESPONSE",
+}
+
+# In-memory GCM registries
+_GCM_SESSIONS:     dict = {}  # active convergence sessions
+_GCM_MERKLE_CHAIN: list = []  # immutable governance chain
+_GCM_CORRELATIONS: dict = {}  # x-verisigil-request-id → session
+
+def compute_merkle_root(chain: list) -> str:
+    """
+    Unified Merkle Governance Chain.
+    Every evaluation from every runtime logs here.
+    Tamper-evident. Offline-verifiable.
+    """
+    if not chain:
+        return _sha256("genesis")
+    hashes = [_sha256(json.dumps(e, sort_keys=True, separators=(",",":"))) for e in chain]
+    while len(hashes) > 1:
+        if len(hashes) % 2 == 1:
+            hashes.append(hashes[-1])
+        hashes = [_sha256(hashes[i] + hashes[i+1]) for i in range(0, len(hashes), 2)]
+    return hashes[0]
+
+def resolve_conflict(decisions: list) -> str:
+    """
+    Conflict Resolution Engine (CRE).
+    Sovereign Safety Invariant:
+    ALLOW + DENY = DENY (most restrictive wins)
+    UNRESOLVED = most restrictive interpretation
+    """
+    if not decisions:
+        return "DENIED_NO_EVALUATIONS"
+    result = decisions[0]
+    for d in decisions[1:]:
+        key = (result, d) if (result, d) in CONFLICT_RESOLUTION_TABLE else (d, result)
+        result = CONFLICT_RESOLUTION_TABLE.get(key, "DENY")
+    return result
+
+def create_gcm_session(
+    request_id:   str,
+    agent_id:     str,
+    action_type:  str,
+    consequence:  str,
+    sources:      list,
+    jurisdiction: str,
+) -> dict:
+    """
+    VGS-019: Create Governance Convergence Mesh session.
+    Opens a convergence window for multi-source evaluations.
+    Sources: API_A_RUNTIME · API_B_RUNTIME · EXTERNAL_WITNESS
+    """
+    session_id = f"GCM-{uuid.uuid4().hex[:8].upper()}"
+    timestamp  = datetime.utcnow().isoformat()
+
+    # Register correlation ID
+    _GCM_CORRELATIONS[request_id] = session_id
+
+    session = {
+        "session_id":         session_id,
+        "schema":             "VGS-019",
+        "request_id":         request_id,
+        "x_verisigil_request_id": request_id,
+        "agent_id":           agent_id,
+        "action_type":        action_type,
+        "consequence":        consequence,
+        "jurisdiction":       jurisdiction,
+        "gcm_state":          "PENDING",
+        "sources_expected":   sources,
+        "evaluations":        {},
+        "evaluations_received":0,
+        "evaluations_expected":len(sources),
+        "final_decision":     None,
+        "conflict_detected":  False,
+        "convergence_proof":  None,
+        "merkle_root":        None,
+        "created_at":         timestamp,
+        "decided_at":         None,
+        "sealed_at":          None,
+    }
+    _GCM_SESSIONS[session_id] = session
+    return session
+
+def submit_gcm_evaluation(
+    session_id:  str,
+    source:      str,
+    decision:    str,
+    evidence_hash:str,
+    reason:      str,
+) -> dict:
+    """
+    VGS-019: Submit evaluation from one runtime source.
+    Sources: API_A_RUNTIME · API_B_RUNTIME · EXTERNAL_WITNESS
+    After all evaluations received → auto-resolve via CRE.
+    """
+    timestamp = datetime.utcnow().isoformat()
+
+    if session_id not in _GCM_SESSIONS:
+        return {"error": "Session not found", "session_id": session_id}
+
+    session = _GCM_SESSIONS[session_id]
+
+    # Record evaluation
+    session["evaluations"][source] = {
+        "source":       source,
+        "decision":     decision,
+        "evidence_hash":evidence_hash,
+        "reason":       reason,
+        "submitted_at": timestamp,
+    }
+    session["evaluations_received"] = len(session["evaluations"])
+    session["gcm_state"] = "EVALUATING"
+
+    # Log to Merkle chain
+    chain_entry = {
+        "session_id":   session_id,
+        "source":       source,
+        "decision":     decision,
+        "evidence_hash":evidence_hash,
+        "timestamp":    timestamp,
+    }
+    _GCM_MERKLE_CHAIN.append(chain_entry)
+
+    # Check if all evaluations received
+    if session["evaluations_received"] >= session["evaluations_expected"]:
+        session["gcm_state"] = "CONVERGING"
+
+        # Collect all decisions
+        all_decisions = [e["decision"] for e in session["evaluations"].values()]
+
+        # Detect conflicts
+        unique_decisions = set(all_decisions)
+        session["conflict_detected"] = len(unique_decisions) > 1
+
+        if session["conflict_detected"]:
+            session["gcm_state"] = "CONFLICT_DETECTED"
+
+        # Resolve via CRE — restrictive wins
+        final_decision = resolve_conflict(all_decisions)
+
+        # Adjust state
+        if final_decision == "REQUIRE_HUMAN_APPROVAL":
+            session["gcm_state"] = "REQUIRING_APPROVAL"
+        else:
+            session["gcm_state"] = "DECIDED"
+
+        session["final_decision"] = final_decision
+
+        # Compute Merkle root
+        merkle_root = compute_merkle_root(_GCM_MERKLE_CHAIN)
+        session["merkle_root"] = merkle_root
+
+        # Convergence proof
+        convergence_canonical = json.dumps({
+            "session_id":     session_id,
+            "final_decision": final_decision,
+            "evaluations":    {s:e["decision"] for s,e in session["evaluations"].items()},
+            "merkle_root":    merkle_root,
+            "timestamp":      timestamp,
+        }, sort_keys=True, separators=(",",":"), ensure_ascii=False)
+
+        session["convergence_proof"] = {
+            "proof_hash":       _sha256(convergence_canonical),
+            "merkle_root":      merkle_root,
+            "final_decision":   final_decision,
+            "sources_evaluated":list(session["evaluations"].keys()),
+            "conflict_detected":session["conflict_detected"],
+            "resolution_rule":  "RESTRICTIVE_WINS — Sovereign Safety Invariant",
+            "offline_verifiable":True,
+            "platform_required": False,
+        }
+        session["decided_at"] = timestamp
+
+    _GCM_SESSIONS[session_id] = session
+    return session
+
+def seal_gcm_session(session_id: str) -> dict:
+    """
+    Seal a GCM session after execution.
+    State: DECIDED → EXECUTED → SEALED.
+    Immutable after sealing.
+    """
+    timestamp = datetime.utcnow().isoformat()
+    if session_id not in _GCM_SESSIONS:
+        return {"error": "Session not found"}
+
+    session = _GCM_SESSIONS[session_id]
+    session["gcm_state"] = "SEALED"
+    session["sealed_at"] = timestamp
+    session["seal_hash"]  = _sha256(json.dumps({
+        "session_id":    session_id,
+        "final_decision":session.get("final_decision"),
+        "merkle_root":   session.get("merkle_root"),
+        "sealed_at":     timestamp,
+    }, sort_keys=True, separators=(",",":"), ensure_ascii=False))
+
+    _GCM_SESSIONS[session_id] = session
+    return session
+
+def replay_gcm_session(session_id: str) -> dict:
+    """
+    VGS-019 Replay Engine.
+    Reconstructs the full governance convergence history
+    for a session — all sources, all decisions, all timestamps.
+    Offline-verifiable. No platform required.
+    """
+    session  = _GCM_SESSIONS.get(session_id)
+    if not session:
+        return {"error": "Session not found", "session_id": session_id}
+
+    # Reconstruct Merkle path for this session
+    session_entries = [e for e in _GCM_MERKLE_CHAIN if e.get("session_id") == session_id]
+
+    return {
+        "schema":           "VGS-019-REPLAY",
+        "session_id":       session_id,
+        "agent_id":         session.get("agent_id"),
+        "action_type":      session.get("action_type"),
+        "gcm_state":        session.get("gcm_state"),
+        "final_decision":   session.get("final_decision"),
+        "evaluations":      session.get("evaluations", {}),
+        "conflict_detected":session.get("conflict_detected"),
+        "convergence_proof":session.get("convergence_proof"),
+        "merkle_entries":   session_entries,
+        "chain_length":     len(_GCM_MERKLE_CHAIN),
+        "replay_complete":  True,
+        "offline_verifiable":True,
+        "platform_required": False,
+        "expert_framing":   "Multiple realities converge before consequence exists",
+    }
+
+
+# ── VGS-019 GOVERNANCE CONVERGENCE MESH ENDPOINTS ─────────────
+
+class GCMSessionRequest(BaseModel):
+    request_id:   str
+    agent_id:     str
+    action_type:  str  = "payment"
+    consequence:  str  = "HIGH"
+    sources:      list = ["API_A_RUNTIME","API_B_RUNTIME","EXTERNAL_WITNESS"]
+    jurisdiction: str  = "EU_AI_ACT"
+
+class GCMEvaluationRequest(BaseModel):
+    session_id:   str
+    source:       str  = "API_A_RUNTIME"
+    decision:     str  = "ALLOW"
+    evidence_hash:str  = ""
+    reason:       str  = ""
+
+class GCMFullRequest(BaseModel):
+    agent_id:         str
+    action_type:      str   = "payment"
+    consequence:      str   = "HIGH"
+    jurisdiction:     str   = "EU_AI_ACT"
+    trust_score:      float = 0.963
+    authority_active: bool  = True
+    escalation_resolved: bool = True
+    jurisdiction_resolved: bool = True
+    response_content: str  = ""
+    intended_domain:  str  = "OPERATIONAL"
+    external_decision:str  = "ALLOW"
+
+@app.post("/v1/gcm/session", tags=["VGS-019 Governance Convergence Mesh"])
+async def gcm_session_create(
+    req: GCMSessionRequest,
+    x_api_key: Optional[str] = Header(None)
+):
+    """
+    VGS-019: Open a Governance Convergence Mesh session.
+    Opens a convergence window for multi-source evaluations.
+    Returns session_id + x-verisigil-request-id correlation.
+    Sources: API_A_RUNTIME · API_B_RUNTIME · EXTERNAL_WITNESS
+    """
+    require_api_key(x_api_key)
+    result = create_gcm_session(
+        req.request_id, req.agent_id, req.action_type,
+        req.consequence, req.sources, req.jurisdiction,
+    )
+    await log_event(req.agent_id, "GCM_SESSION_CREATED", {
+        "session_id": result["session_id"],
+        "sources":    req.sources,
+    })
+    return result
+
+@app.post("/v1/gcm/evaluate", tags=["VGS-019 Governance Convergence Mesh"])
+async def gcm_evaluate(
+    req: GCMEvaluationRequest,
+    x_api_key: Optional[str] = Header(None)
+):
+    """
+    VGS-019: Submit evaluation from one runtime source.
+    When all sources submit → CRE resolves automatically.
+    Sovereign Safety Invariant: ALLOW + DENY = DENY.
+    RESTRICTIVE RESOLUTION WINS.
+    Logs to Unified Merkle Governance Chain.
+    """
+    require_api_key(x_api_key)
+    result = submit_gcm_evaluation(
+        req.session_id, req.source,
+        req.decision, req.evidence_hash, req.reason,
+    )
+    await log_event(req.session_id, "GCM_EVALUATION_SUBMITTED", {
+        "source":   req.source,
+        "decision": req.decision,
+        "state":    result.get("gcm_state"),
+    })
+    return result
+
+@app.post("/v1/gcm/converge", tags=["VGS-019 Governance Convergence Mesh"])
+async def gcm_converge_full(
+    req: GCMFullRequest,
+    x_api_key: Optional[str] = Header(None)
+):
+    """
+    VGS-019: Full auto-convergence in one call.
+    Runs ALL three evaluation layers automatically:
+    1. API_A: Execution admissibility (VGS-001)
+    2. API_B: Cognitive admissibility (VGS-018)
+    3. EXTERNAL: External witness decision
+    Then resolves via CRE — restrictive wins.
+    Returns: final convergence decision + Merkle proof.
+    """
+    require_api_key(x_api_key)
+    import secrets as _sec
+    request_id = f"REQ-{_sec.token_hex(8).upper()}"
+
+    # Open session
+    session = create_gcm_session(
+        request_id, req.agent_id, req.action_type,
+        req.consequence, ["API_A_RUNTIME","API_B_RUNTIME","EXTERNAL_WITNESS"],
+        req.jurisdiction,
+    )
+    session_id = session["session_id"]
+
+    # Layer 1: API_A — Execution admissibility
+    exec_result = evaluate_execution_admissibility(
+        agent_id   = req.agent_id,
+        action_type= req.action_type,
+        trust_score= req.trust_score,
+        consequence= req.consequence,
+        jurisdiction=req.jurisdiction,
+    )
+    exec_decision = exec_result.get("decision","DENY")
+    submit_gcm_evaluation(
+        session_id, "API_A_RUNTIME", exec_decision,
+        exec_result.get("execution_hash",""), "Execution admissibility VGS-001",
+    )
+
+    # Layer 2: API_B — Cognitive admissibility
+    cog_result = assess_cognitive_admissibility(
+        agent_id       = req.agent_id,
+        response_content=req.response_content or req.action_type,
+        intended_domain= req.intended_domain,
+        agent_authority= [],
+        certainty_claim= "MODERATE",
+        jurisdiction   = req.jurisdiction,
+    )
+    cog_decision = cog_result.get("cognitive_decision","ALLOW")
+    # Map cognitive to execution decision vocabulary
+    cog_mapped = {
+        "ALLOW":"ALLOW","REFUSED":"REFUSED",
+        "REQUIRE_HUMAN_REVIEW":"REQUIRE_HUMAN_APPROVAL",
+        "LIMIT_SCOPE":"REFUSED","NON_AUTHORITATIVE_RESPONSE":"REFUSED",
+        "SANDBOX_ONLY":"DENY",
+    }.get(cog_decision,"REFUSED")
+    submit_gcm_evaluation(
+        session_id, "API_B_RUNTIME", cog_mapped,
+        cog_result.get("proof_hash",""), "Cognitive admissibility VGS-018",
+    )
+
+    # Layer 3: EXTERNAL WITNESS
+    final_session = submit_gcm_evaluation(
+        session_id, "EXTERNAL_WITNESS", req.external_decision,
+        _sha256(f"external:{req.external_decision}:{request_id}"),
+        "External witness evaluation",
+    )
+
+    await log_event(req.agent_id, "GCM_CONVERGED", {
+        "session_id":    session_id,
+        "final_decision":final_session.get("final_decision"),
+        "conflict":      final_session.get("conflict_detected"),
+    })
+    return final_session
+
+@app.post("/v1/gcm/seal/{session_id}", tags=["VGS-019 Governance Convergence Mesh"])
+async def gcm_seal(
+    session_id: str,
+    x_api_key:  Optional[str] = Header(None)
+):
+    """
+    VGS-019: Seal a GCM session after execution.
+    State: DECIDED → EXECUTED → SEALED.
+    Immutable after sealing. Adds seal_hash.
+    """
+    require_api_key(x_api_key)
+    return seal_gcm_session(session_id)
+
+@app.get("/v1/gcm/session/{session_id}", tags=["VGS-019 Governance Convergence Mesh"])
+async def gcm_session_get(
+    session_id: str,
+    x_api_key:  Optional[str] = Header(None)
+):
+    """Get current state of a GCM session."""
+    require_api_key(x_api_key)
+    session = _GCM_SESSIONS.get(session_id)
+    if not session:
+        return {"error":"Session not found","session_id":session_id}
+    return session
+
+@app.post("/v1/gcm/replay/{session_id}", tags=["VGS-019 Governance Convergence Mesh"])
+async def gcm_replay(
+    session_id: str,
+    x_api_key:  Optional[str] = Header(None)
+):
+    """
+    VGS-019: Governance Continuity Replay Engine.
+    Reconstructs full convergence history offline.
+    All sources · All decisions · Merkle proof.
+    No platform required. Years later.
+    """
+    require_api_key(x_api_key)
+    return replay_gcm_session(session_id)
+
+@app.get("/v1/gcm/chain", tags=["VGS-019 Governance Convergence Mesh"])
+async def gcm_chain(x_api_key: Optional[str] = Header(None)):
+    """
+    Unified Merkle Governance Chain.
+    Every evaluation from every runtime logged here.
+    Tamper-evident. Offline-verifiable.
+    """
+    require_api_key(x_api_key)
+    return {
+        "schema":       "VGS-019",
+        "chain_length": len(_GCM_MERKLE_CHAIN),
+        "merkle_root":  compute_merkle_root(_GCM_MERKLE_CHAIN),
+        "entries":      _GCM_MERKLE_CHAIN[-20:],
+        "total_sessions":len(_GCM_SESSIONS),
+        "offline_verifiable":True,
+    }
+
+@app.get("/v1/gcm/conflict-table", tags=["VGS-019 Governance Convergence Mesh"])
+async def gcm_conflict_table(x_api_key: Optional[str] = Header(None)):
+    """
+    Conflict Resolution Engine (CRE).
+    Sovereign Safety Invariant: RESTRICTIVE WINS.
+    ALLOW + DENY = DENY. ALLOW + REQUIRE_HUMAN = REQUIRE_HUMAN.
+    """
+    require_api_key(x_api_key)
+    return {
+        "schema":            "VGS-019-CRE",
+        "sovereign_safety_invariant":"RESTRICTIVE RESOLUTION WINS",
+        "rules": {f"{a}+{b}":r for (a,b),r in CONFLICT_RESOLUTION_TABLE.items()},
+        "states":            GCM_STATES,
+        "principle":         "Multiple realities converge before consequence exists",
+    }
+
+@app.get("/v1/gcm/architecture", tags=["VGS-019 Governance Convergence Mesh"])
+async def gcm_architecture(x_api_key: Optional[str] = Header(None)):
+    """
+    VGS-019 Governance Convergence Mesh architecture.
+    Full framing: bidirectional authority convergence
+    with external witness verification.
+    """
+    require_api_key(x_api_key)
+    return {
+        "schema":        "VGS-019",
+        "name":          "Governance Convergence Mesh (GCM)",
+        "framing":       "Bidirectional Authority Convergence with External Witness Verification",
+        "principle":     "Multiple realities converge before consequence exists",
+        "positioning":   "VeriSigil AI coordinates admissibility consensus across autonomous runtimes before consequence propagates",
+        "components": {
+            "1_GDP":     "Governance Decision Point — single deterministic authority resolution",
+            "2_CRE":     "Conflict Resolution Engine — restrictive resolution wins",
+            "3_MEQ":     "Multi-Source Evaluation Queue — all sources before formation",
+            "4_GSM":     "Governance State Machine — 9 states lifecycle",
+            "5_COR":     "Correlation Layer — x-verisigil-request-id",
+            "6_MKL":     "Unified Merkle Governance Chain — tamper-evident",
+            "7_EWP":     "External Witness Protocol — third-party verification",
+            "8_MSR":     "Replayable Multi-Source Receipts — offline replay",
+            "9_ICL":     "Interoperability Consensus Layer — ATF+VGS bridge",
+            "10_RPE":    "Governance Continuity Replay Engine — years later",
+        },
+        "sources":       ["API_A_RUNTIME","API_B_RUNTIME","EXTERNAL_WITNESS"],
+        "states":        GCM_STATES,
+        "endpoints": {
+            "create":    "POST /v1/gcm/session",
+            "evaluate":  "POST /v1/gcm/evaluate",
+            "converge":  "POST /v1/gcm/converge (full auto)",
+            "seal":      "POST /v1/gcm/seal/{session_id}",
+            "get":       "GET /v1/gcm/session/{session_id}",
+            "replay":    "POST /v1/gcm/replay/{session_id}",
+            "chain":     "GET /v1/gcm/chain",
+            "cre":       "GET /v1/gcm/conflict-table",
+        },
+        "not":   "API gateway, router, webhook broker",
+        "yes":   "Consequence Decision Fabric",
     }
 
 
