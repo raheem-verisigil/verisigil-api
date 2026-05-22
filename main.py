@@ -20484,59 +20484,11 @@ def detect_semantic_corruption(
 
 # ── SEMANTIC VERIFICATION ENDPOINTS ──────────────────────────
 
-class SemanticVerifyRequest(BaseModel):
-    original_text:  str
-    generated_text: str
-    document_type:  str   = "CONTRACT"
-    agent_id:       str   = "ai-agent-001"
-    jurisdiction:   str   = "EU"
-    consequence:    str   = "HIGH"
-
 class BatchVerifyRequest(BaseModel):
     documents:      list
     agent_id:       str   = "ai-agent-001"
     jurisdiction:   str   = "EU"
 
-@app.post("/v1/document/semantic-verify",
-          tags=["Autonomous Execution Integrity Governance"])
-async def semantic_verify(
-    req: SemanticVerifyRequest,
-    x_api_key: Optional[str] = Header(None)
-):
-    """
-    Autonomous Execution Integrity Governance.
-
-    Detects invisible corruption in AI-generated content
-    before it becomes consequential.
-
-    4 corruption vectors:
-    1. Clause Mutation    — "shall not" becomes "shall"
-    2. Intent Corruption  — "approve" becomes "reject"
-    3. Numerical Inconsistency — numbers drift silently
-    4. Semantic Drift     — meaning displaced gradually
-
-    Document types: CONTRACT · MEDICAL_SUMMARY ·
-    FINANCIAL_REPORT · LEGAL_BRIEF · POLICY · COMPLIANCE
-
-    Returns: corruption_detected, severity, evidence,
-    governance_decision, integrity_hash.
-    """
-    require_api_key(x_api_key)
-    result = detect_semantic_corruption(
-        original_text  = req.original_text,
-        generated_text = req.generated_text,
-        document_type  = req.document_type,
-        agent_id       = req.agent_id,
-        jurisdiction   = req.jurisdiction,
-        consequence    = req.consequence,
-    )
-    await log_event(req.agent_id, "SEMANTIC_VERIFICATION", {
-        "verify_id":   result["verify_id"],
-        "corrupted":   result["corruption_detected"],
-        "severity":    result["severity"],
-        "score":       result["corruption_score"],
-    })
-    return result
 
 @app.post("/v1/document/batch-verify",
           tags=["Autonomous Execution Integrity Governance"])
