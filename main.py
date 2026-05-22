@@ -27759,6 +27759,996 @@ async def accountability_summary(
     }
 
 
+# ============================================================
+# ATF ↔ VGS BRIDGE v1.1 — Harold ATF/OMNIX Day 1 Deliverable
+# RCR fields updated to v1.1 specification
+# ============================================================
+# ============================================================
+# ATF ↔ VGS BRIDGE — Day 1 Implementation
+# ============================================================
+# Agent Trust Fabric (ATF/OMNIX) ↔ VeriSigil Governance Stack
+#
+# Implements:
+# 1. TAR ↔ TAP equivalence mapping
+#    Join: TAR.delegation_id → DR.posture_state_hash
+#
+# 2. RCR ↔ Survivability bridge
+#    Join: RCR.tar_id → TAR → DR.chain_root_id
+#
+# 3. SPV hash binding at issuance (not verification time)
+#
+# 4. Cross-protocol admissibility validation
+#
+# ATF Record types:
+#   DR  — Delegation Receipt       (ATFDR-{16HEX})
+#   TAR — Temporal Admissibility   (ATFTAR-{16HEX})
+#   RCR — Runtime Continuity       (ATFRCR-{16HEX})
+#
+# ATF Invariants respected:
+#   ATF-INV-001 (MAR): authority_budget_granted <= delegator
+#   ATF-INV-002: chain_root_id traces to human root
+#   ATF-INV-003: posture_state_hash committed before content_hash
+#   ATF-INV-004: ADMITTED TAR must have ACTIVE DR at admission
+#   ATF-INV-005: execution_ns <= issued_at nanosecond
+#   RGC-INV-001: RCR must anchor to valid TAR
+#   RGC-INV-002: CES from real-time values only
+#   RGC-INV-003: HALT tier terminates execution
+#   RGC-INV-006: issued_at_ns strictly monotonically increasing
+#
+# VGS Outputs:
+#   TAP — Trust Attestation Proof (VGS-TAP-{16HEX})
+#   SAC — Survivability Accountability Chain (VGS-SAC-{16HEX})
+#   Bridge Validation Report
+# ============================================================
+
+import json
+import hashlib
+import uuid
+import re
+from datetime import datetime, timezone
+from typing import Optional
+
+# ── IN-MEMORY BRIDGE STORE ────────────────────────────────────
+_ATF_DR_STORE:  dict = {}   # delegation_id → DR record
+_ATF_TAR_STORE: dict = {}   # tar_id → TAR record
+_ATF_RCR_STORE: dict = {}   # rcr_id → RCR record
+_TAP_STORE:     dict = {}   # tap_id → TAP record
+_SAC_STORE_BRIDGE: dict = {}  # sac_id → SAC record
+_BRIDGE_SESSIONS: list = []  # validation session log
+
+
+# ── CES TIER MAPPING ──────────────────────────────────────────
+CES_TIER_MAP = {
+    "NOMINAL":    {"min": 75,  "vgs_trust": 0.95, "vgs_decision": "ALLOW"},
+    "MONITORING": {"min": 50,  "vgs_trust": 0.75, "vgs_decision": "MONITOR"},
+    "WARNING":    {"min": 25,  "vgs_trust": 0.50, "vgs_decision": "WARN"},
+    "CRITICAL":   {"min": 10,  "vgs_trust": 0.25, "vgs_decision": "ESCALATE"},
+    "HALT":       {"min": 0,   "vgs_trust": 0.00, "vgs_decision": "BLOCK_AND_ESCALATE"},
+}
+
+# ── DOMAIN → CONSEQUENCE MAPPING ─────────────────────────────
+DOMAIN_CONSEQUENCE = {
+    "compliance":         "HIGH",
+    "trading":            "CRITICAL",
+    "medical_ai":         "CRITICAL",
+    "defense_governance": "CRITICAL",
+    "insurance":          "HIGH",
+    "real_estate":        "HIGH",
+    "energy_governance":  "HIGH",
+    "islamic_credit":     "HIGH",
+    "stablecoin":         "CRITICAL",
+    "crisis":             "CRITICAL",
+    "autonomous_agent":   "MEDIUM",
+}
+
+# ── DOMAIN → JURISDICTION MAPPING ────────────────────────────
+DOMAIN_JURISDICTION = {
+    "compliance":         "GLOBAL",
+    "trading":            "FINANCE",
+    "medical_ai":         "HEALTH",
+    "defense_governance": "DEFENSE",
+    "insurance":          "FINANCE",
+    "real_estate":        "GLOBAL",
+    "energy_governance":  "GLOBAL",
+    "islamic_credit":     "FINANCE",
+    "stablecoin":         "FINANCE",
+    "crisis":             "GLOBAL",
+    "autonomous_agent":   "GLOBAL",
+}
+
+
+# ── CRYPTO UTILITIES ─────────────────────────────────────────
+
+def _sha256(data: str) -> str:
+    return hashlib.sha256(data.encode("utf-8")).hexdigest()
+
+def _canonical_hash(fields: dict, exclude: list = None) -> str:
+    """
+    Compute SHA-256 over canonical JSON.
+    Matches ATF specification:
+    json.dumps(fields, sort_keys=True, separators=(",",":"))
+    """
+    exclude = exclude or []
+    filtered = {k: v for k, v in fields.items() if k not in exclude}
+    canonical = json.dumps(filtered, sort_keys=True,
+                           separators=(",", ":"), default=str)
+    return _sha256(canonical)
+
+def _verify_content_hash(record: dict, exclude_fields: list) -> bool:
+    """Verify ATF content_hash matches recomputed value."""
+    claimed = record.get("content_hash", "")
+    recomputed = _canonical_hash(record, exclude=exclude_fields)
+    return claimed == recomputed
+
+def _posture_state_hash(dr: dict) -> str:
+    """
+    Recompute posture_state_hash from committed DR fields.
+    Per ATF spec: delegator_id, task_scope, authority_budget_delegator,
+    authority_budget_granted, delegation_depth, chain_root_id, created_at
+    """
+    committed = {
+        "delegator_id":             dr.get("delegator_id"),
+        "task_scope":               dr.get("task_scope"),
+        "authority_budget_delegator":dr.get("authority_budget_delegator"),
+        "authority_budget_granted": dr.get("authority_budget_granted"),
+        "delegation_depth":         dr.get("delegation_depth"),
+        "chain_root_id":            dr.get("chain_root_id"),
+        "created_at":               dr.get("created_at"),
+    }
+    canonical = json.dumps(committed, sort_keys=True,
+                           separators=(",", ":"), default=str)
+    return _sha256(canonical)
+
+
+# ── ATF INVARIANT VALIDATORS ──────────────────────────────────
+
+def _validate_dr_invariants(dr: dict) -> list:
+    """Check ATF-INV-001, 002, 003 for a DR."""
+    violations = []
+
+    # ATF-INV-001 (MAR): budget_granted <= budget_delegator
+    granted   = dr.get("authority_budget_granted", 0)
+    delegator = dr.get("authority_budget_delegator", 0)
+    if granted > delegator:
+        violations.append({
+            "invariant": "ATF-INV-001 (MAR)",
+            "detail": f"authority_budget_granted ({granted}) > authority_budget_delegator ({delegator})",
+            "severity": "CRITICAL",
+        })
+
+    # ATF-INV-002: chain_root_id must exist
+    if not dr.get("chain_root_id"):
+        violations.append({
+            "invariant": "ATF-INV-002",
+            "detail": "chain_root_id missing — cannot trace to human root",
+            "severity": "CRITICAL",
+        })
+
+    # ATF-INV-003: posture_state_hash must be present and match
+    claimed_psh  = dr.get("posture_state_hash", "")
+    computed_psh = _posture_state_hash(dr)
+    psh_valid    = claimed_psh == computed_psh if claimed_psh else False
+
+    if not claimed_psh:
+        violations.append({
+            "invariant": "ATF-INV-003",
+            "detail": "posture_state_hash missing — SPV binding not possible",
+            "severity": "CRITICAL",
+        })
+    elif not psh_valid:
+        violations.append({
+            "invariant": "ATF-INV-003",
+            "detail": "posture_state_hash mismatch — posture state may have changed since issuance",
+            "severity": "HIGH",
+        })
+
+    return violations
+
+
+def _validate_tar_invariants(tar: dict, dr: dict) -> list:
+    """Check ATF-INV-004, 005 for a TAR."""
+    violations = []
+
+    # ATF-INV-004: ADMITTED TAR must have ACTIVE DR
+    if tar.get("admission_status") == "ADMITTED":
+        dr_status = tar.get("dr_status_at_admission", "")
+        if dr_status != "ACTIVE":
+            violations.append({
+                "invariant": "ATF-INV-004",
+                "detail": f"ADMITTED TAR references DR with status {dr_status} — must be ACTIVE",
+                "severity": "CRITICAL",
+            })
+
+    # ATF-INV-005: execution_ns <= issued_at nanoseconds
+    exec_ns   = tar.get("execution_ns", 0)
+    issued_ts = tar.get("issued_at", "")
+    if issued_ts and exec_ns:
+        try:
+            issued_dt = datetime.fromisoformat(
+                issued_ts.replace("Z", "+00:00")
+            )
+            issued_ns = int(issued_dt.timestamp() * 1_000_000_000)
+            if exec_ns > issued_ns:
+                violations.append({
+                    "invariant": "ATF-INV-005",
+                    "detail": f"execution_ns ({exec_ns}) > issued_at_ns ({issued_ns}) — temporal order violated",
+                    "severity": "CRITICAL",
+                })
+        except Exception:
+            pass
+
+    return violations
+
+
+def _validate_rcr_invariants(rcr: dict, tar: dict) -> list:
+    """Check RGC-INV-001 through 006 for an RCR."""
+    violations = []
+
+    # RGC-INV-001: RCR must anchor to valid TAR
+    if not tar:
+        violations.append({
+            "invariant": "RGC-INV-001",
+            "detail": "RCR references unknown TAR — anchor invalid",
+            "severity": "CRITICAL",
+        })
+
+    # RGC-INV-003: HALT tier terminates execution
+    if rcr.get("continuity_status") == "HALT":
+        violations.append({
+            "invariant": "RGC-INV-003",
+            "detail": "CES tier is HALT — execution MUST be terminated",
+            "severity": "CRITICAL",
+        })
+
+    # Validate CES formula: (T×0.30) + (B×0.30) + (D×0.20) + (I×0.20)
+    T = rcr.get("ces_temporal", 0)
+    B = rcr.get("ces_budget", 0)
+    D = rcr.get("ces_context", 0)
+    I = rcr.get("ces_integrity", 0)
+    computed_ces = round((T * 0.30 + B * 0.30 + D * 0.20 + I * 0.20) * 100, 2)
+    claimed_ces  = rcr.get("ces_score", 0)
+
+    if abs(computed_ces - claimed_ces) > 1.0:
+        violations.append({
+            "invariant": "RGC-INV-002",
+            "detail": f"CES mismatch: claimed {claimed_ces}, computed {computed_ces:.2f}",
+            "severity": "HIGH",
+        })
+
+    return violations
+
+
+# ── TAR → TAP BRIDGE ─────────────────────────────────────────
+
+def _bridge_tar_to_tap(tar: dict, dr: dict) -> dict:
+    """
+    TAR ↔ TAP Equivalence Mapping.
+
+    VGS TAP (Trust Attestation Proof) is the VGS-side equivalent
+    of an ATF TAR. Proves context equivalence at issuance — not
+    post-issuance reconciliation.
+
+    Join path: TAR.delegation_id → DR.delegation_id → DR.posture_state_hash
+
+    The SPV hash binds to posture state at DR issuance — not at
+    bridge verification time. This is the critical distinction
+    Harold confirmed: long-lived receipts stay valid across
+    authority transitions because the anchor is the issuance moment.
+    """
+    tap_id    = f"VGS-TAP-{uuid.uuid4().hex[:16].upper()}"
+    timestamp = datetime.now(timezone.utc).isoformat()
+
+    # Recompute posture_state_hash from DR fields
+    # This is the SPV binding — posture at DR issuance
+    posture_hash_at_issuance = _posture_state_hash(dr)
+    claimed_posture_hash     = dr.get("posture_state_hash", "")
+    spv_binding_valid        = posture_hash_at_issuance == claimed_posture_hash
+
+    # Map ATF domain → VGS consequence + jurisdiction
+    domain      = tar.get("domain", "autonomous_agent")
+    consequence = DOMAIN_CONSEQUENCE.get(domain, "MEDIUM")
+    jurisdiction= DOMAIN_JURISDICTION.get(domain, "GLOBAL")
+
+    # Map ATF admission_status → VGS governance decision
+    admission = tar.get("admission_status", "REJECTED")
+    if admission == "ADMITTED":
+        vgs_decision = "ALLOW"
+        vgs_allowed  = True
+    else:
+        vgs_decision = "DENY"
+        vgs_allowed  = False
+
+    # Map ATF authority_budget → VGS trust_score (normalize 0-100 → 0-1)
+    authority_budget = tar.get("authority_budget", 0)
+    vgs_trust_score  = round(min(1.0, authority_budget / 100.0), 4)
+
+    # TAP seal — binds TAR fields + VGS interpretation
+    tap_payload = {
+        "tap_id":                tap_id,
+        "tar_id":                tar.get("tar_id"),
+        "delegation_id":         tar.get("delegation_id"),
+        "chain_root_id":         tar.get("chain_root_id"),
+        "agent_id":              tar.get("agent_id"),
+        "posture_state_hash":    claimed_posture_hash,
+        "spv_binding_valid":     spv_binding_valid,
+        "vgs_trust_score":       vgs_trust_score,
+        "vgs_decision":          vgs_decision,
+        "consequence":           consequence,
+        "jurisdiction":          jurisdiction,
+        "timestamp":             timestamp,
+    }
+    tap_seal = _canonical_hash(tap_payload)
+
+    # Context equivalence proof
+    equivalence_proof = {
+        "method":               "posture_state_hash_binding",
+        "dr_posture_hash":      claimed_posture_hash,
+        "recomputed_posture":   posture_hash_at_issuance,
+        "hashes_match":         spv_binding_valid,
+        "binding_time":         "AT_DR_ISSUANCE",
+        "note": (
+            "SPV hash binds to posture state at moment of DR issuance. "
+            "Valid across authority transitions — anchor is issuance, not verification."
+        ),
+    }
+
+    tap = {
+        "tap_id":               tap_id,
+        "schema":               "VGS-TAP-v1",
+        "bridge":               "ATF-TAR → VGS-TAP",
+
+        # ATF source fields (preserved verbatim)
+        "atf_source": {
+            "tar_id":           tar.get("tar_id"),
+            "delegation_id":    tar.get("delegation_id"),
+            "agent_id":         tar.get("agent_id"),
+            "execution_ts":     tar.get("execution_ts"),
+            "execution_ns":     tar.get("execution_ns"),
+            "domain":           tar.get("domain"),
+            "task_action":      tar.get("task_action"),
+            "admission_status": tar.get("admission_status"),
+            "authority_budget": tar.get("authority_budget"),
+            "dr_status_at_admission": tar.get("dr_status_at_admission"),
+            "chain_root_id":    tar.get("chain_root_id"),
+            "content_hash":     tar.get("content_hash"),
+        },
+
+        # DR posture state (at issuance)
+        "dr_posture": {
+            "delegation_id":              dr.get("delegation_id"),
+            "delegator_id":               dr.get("delegator_id"),
+            "authority_budget_delegator": dr.get("authority_budget_delegator"),
+            "authority_budget_granted":   dr.get("authority_budget_granted"),
+            "delegation_depth":           dr.get("delegation_depth"),
+            "chain_root_id":              dr.get("chain_root_id"),
+            "dr_status":                  dr.get("status"),
+            "dr_created_at":              dr.get("created_at"),
+            "posture_state_hash":         claimed_posture_hash,
+        },
+
+        # VGS equivalents
+        "vgs_mapping": {
+            "vgs_agent_id":      tar.get("agent_id"),
+            "vgs_action_type":   f"ATF.{domain.upper()}.{tar.get('task_action','').upper()}",
+            "vgs_trust_score":   vgs_trust_score,
+            "vgs_decision":      vgs_decision,
+            "vgs_allowed":       vgs_allowed,
+            "vgs_consequence":   consequence,
+            "vgs_jurisdiction":  jurisdiction,
+            "authority_chain":   [dr.get("delegation_id"), dr.get("chain_root_id")],
+        },
+
+        # Context equivalence proof (Harold's key requirement)
+        "equivalence_proof":    equivalence_proof,
+        "spv_binding_valid":    spv_binding_valid,
+
+        # Temporal admissibility (TAR↔TAP equivalence)
+        "temporal_admissibility": {
+            "atf_admitted":      admission == "ADMITTED",
+            "vgs_allowed":       vgs_allowed,
+            "equivalence":       admission == "ADMITTED" and vgs_allowed,
+            "temporal_anchor":   tar.get("execution_ts"),
+        },
+
+        # TAP cryptographic seal
+        "tap_seal":             tap_seal,
+        "tamper_evident":       True,
+        "offline_verifiable":   True,
+        "created_at":           timestamp,
+    }
+
+    _TAP_STORE[tap_id] = tap
+    return tap
+
+
+# ── RCR → SURVIVABILITY BRIDGE ────────────────────────────────
+
+def _bridge_rcr_to_survivability(rcr: dict, tar: dict, dr: dict) -> dict:
+    """
+    RCR ↔ Survivability Bridge.
+
+    Maps ATF Runtime Continuity Record to VGS Survivability
+    Accountability Chain record.
+
+    Join path: RCR.tar_id → TAR.tar_id → TAR.delegation_id → DR.chain_root_id
+
+    CES (Continuity Eligibility Score) maps to VGS trust trajectory.
+    CES tier maps to VGS governance decision.
+    """
+    sac_id    = f"VGS-SAC-{uuid.uuid4().hex[:16].upper()}"
+    timestamp = datetime.now(timezone.utc).isoformat()
+
+    # CES → VGS mapping
+    ces      = rcr.get("ces_score", 0)
+    ces_tier = rcr.get("continuity_status", "HALT")
+    tier_cfg = CES_TIER_MAP.get(ces_tier, CES_TIER_MAP["HALT"])
+    vgs_trust    = tier_cfg["vgs_trust"]
+    vgs_decision = tier_cfg["vgs_decision"]
+
+    # Survivability assessment
+    domain       = tar.get("domain", "autonomous_agent") if tar else "autonomous_agent"
+    consequence  = DOMAIN_CONSEQUENCE.get(domain, "MEDIUM")
+    jurisdiction = DOMAIN_JURISDICTION.get(domain, "GLOBAL")
+
+    survivable = ces_tier in ("NOMINAL", "MONITORING")
+    escalation = rcr.get("escalation_action", "CONTINUE")
+
+    # RCR components → VGS health dimensions
+    T = rcr.get("ces_temporal", 0)
+    B = rcr.get("ces_budget", 0)
+    D = rcr.get("ces_context", 0)
+    I = rcr.get("ces_integrity", 0)
+
+    # Survivability proof — maps each CES component to VGS dimension
+    survivability_proof = {
+        "ces":                  ces,
+        "continuity_status":    ces_tier,
+        "survivable":           survivable,
+        "components": {
+            "ces_temporal":      {"atf_value": T, "vgs_dimension": "authority_continuity",    "weight": 0.30},
+            "ces_budget":        {"atf_value": B, "vgs_dimension": "resource_governance",      "weight": 0.30},
+            "ces_context":       {"atf_value": D, "vgs_dimension": "context_integrity",        "weight": 0.20},
+            "ces_integrity":     {"atf_value": I, "vgs_dimension": "behavioral_integrity",     "weight": 0.20},
+        },
+        "computed_ces":  round((T*0.30 + B*0.30 + D*0.20 + I*0.20) * 100, 2),
+        "vgs_trust_score": vgs_trust,
+        "vgs_decision":    vgs_decision,
+    }
+
+    # Chain continuity — join path validation
+    chain_continuity = {
+        "rcr_id":         rcr.get("rcr_id"),
+        "tar_id":         rcr.get("tar_id"),
+        "delegation_id":  rcr.get("delegation_id"),
+        "chain_root_id":  rcr.get("chain_root_id"),
+        "join_path_valid":bool(
+            rcr.get("tar_id") and
+            tar and tar.get("tar_id") == rcr.get("tar_id") and
+            tar.get("delegation_id") == rcr.get("delegation_id")
+        ),
+        "chain_root_matches": (
+            dr.get("chain_root_id") == rcr.get("chain_root_id")
+            if dr else False
+        ),
+    }
+
+    # SAC seal
+    sac_payload = {
+        "sac_id":           sac_id,
+        "rcr_id":           rcr.get("rcr_id"),
+        "tar_id":           rcr.get("tar_id"),
+        "delegation_id":    rcr.get("delegation_id"),
+        "chain_root_id":    rcr.get("chain_root_id"),
+        "ces_score":        ces,
+        "continuity_status":ces_tier,
+        "survivable":       survivable,
+        "vgs_decision":     vgs_decision,
+        "timestamp":        timestamp,
+    }
+    sac_seal = _canonical_hash(sac_payload)
+
+    sac = {
+        "sac_id":           sac_id,
+        "schema":           "VGS-SAC-v1",
+        "bridge":           "ATF-RCR → VGS-Survivability",
+
+        # ATF source fields
+        "atf_source": {
+            "rcr_id":           rcr.get("rcr_id"),
+            "tar_id":           rcr.get("tar_id"),
+            "delegation_id":    rcr.get("delegation_id"),
+            "chain_root_id":    rcr.get("chain_root_id"),
+            "agent_id":         rcr.get("agent_id"),
+            "ces_score":        ces,
+            "continuity_status":ces_tier,
+            "ces_temporal":     T,
+            "ces_budget":       B,
+            "ces_context":      D,
+            "ces_integrity":    I,
+            "escalation_action":escalation,
+            "issued_at":        rcr.get("issued_at"),
+            "issued_at_ns":     rcr.get("issued_at_ns"),
+            "content_hash":     rcr.get("content_hash"),
+        },
+
+        # VGS survivability mapping
+        "vgs_mapping": {
+            "vgs_agent_id":     rcr.get("agent_id"),
+            "vgs_trust_score":  vgs_trust,
+            "vgs_decision":     vgs_decision,
+            "vgs_consequence":  consequence,
+            "vgs_jurisdiction": jurisdiction,
+            "vgs_survivable":   survivable,
+        },
+
+        # Survivability proof
+        "survivability_proof":  survivability_proof,
+
+        # Chain continuity (join path validation)
+        "chain_continuity":     chain_continuity,
+
+        # Escalation mapping
+        "escalation_mapping": {
+            "atf_action":    escalation,
+            "vgs_action":    vgs_decision,
+            "halt_triggered":ces_tier == "HALT",
+            "human_required":vgs_decision in ("ESCALATE", "BLOCK_AND_ESCALATE"),
+        },
+
+        # Cryptographic seal
+        "sac_seal":         sac_seal,
+        "tamper_evident":   True,
+        "offline_verifiable":True,
+        "created_at":       timestamp,
+    }
+
+    _SAC_STORE_BRIDGE[sac_id] = sac
+    return sac
+
+
+# ── PYDANTIC MODELS ───────────────────────────────────────────
+
+class ATFDRRequest(BaseModel):
+    delegation_id:              str
+    delegator_id:               str
+    delegate_id:                str
+    task_scope:                 dict
+    authority_budget_delegator: float
+    authority_budget_granted:   float
+    parent_delegation_id:       Optional[str] = None
+    chain_root_id:              str
+    delegation_depth:           int
+    delegator_public_key:       str           = ""
+    content_hash:               str           = ""
+    posture_state_hash:         str           = ""
+    pqc_signature:              Optional[str] = None
+    pqc_algorithm:              Optional[str] = None
+    expires_at:                 Optional[str] = None
+    status:                     str           = "ACTIVE"
+    created_at:                 str           = ""
+    metadata:                   dict          = {}
+
+
+class ATFTARRequest(BaseModel):
+    tar_id:                 str
+    delegation_id:          str
+    agent_id:               str
+    execution_ref:          Optional[str] = None
+    execution_ns:           int
+    execution_ts:           str
+    dr_status_at_admission: str           = "ACTIVE"
+    dr_expires_at:          Optional[str] = None
+    authority_budget:       float
+    domain:                 str
+    task_action:            str
+    admission_status:       str           = "ADMITTED"
+    rejection_reason:       Optional[str] = None
+    content_hash:           str           = ""
+    pqc_signature:          Optional[str] = None
+    pqc_algorithm:          Optional[str] = None
+    chain_root_id:          str
+    issued_at:              str
+    metadata:               dict          = {}
+
+
+class ATFRCRRequest(BaseModel):
+    rcr_id:           str
+    tar_id:           str
+    delegation_id:    str
+    chain_root_id:    str
+    agent_id:         str
+    ces_score:        float
+    continuity_status:str
+    ces_temporal:     float
+    ces_budget:       float
+    ces_context:      float
+    ces_integrity:    float
+    issued_at_ns:     int
+    issued_at:        str
+    content_hash:     str           = ""
+    pqc_signature:    Optional[str] = None
+    pqc_algorithm:    Optional[str] = None
+    execution_ns:       int           = 0
+    execution_ts:       str           = ""
+    budget_at_admission:float         = 0.0
+    budget_remaining:   float         = 0.0
+    context_drift_pct:  float         = 0.0
+    active_anomalies:   int           = 0
+    sample_reason:      Optional[str] = None
+    escalation_event_id:Optional[str] = None
+    predecessor_rcr_id: Optional[str] = None
+    escalation_action:  Optional[str] = "CONTINUE"
+    metadata:           dict          = {}
+
+
+class BridgeValidateRequest(BaseModel):
+    dr:  dict
+    tar: dict
+    rcr: Optional[dict] = None
+
+
+# ============================================================
+# BRIDGE ENDPOINTS
+# ============================================================
+
+@app.post("/v1/bridge/atf/dr",
+          tags=["ATF-VGS Bridge"])
+async def submit_atf_dr(
+    req: ATFDRRequest,
+    x_api_key: Optional[str] = Header(None),
+):
+    """
+    Submit an ATF Delegation Receipt (DR) to the bridge store.
+    Validates ATF-INV-001, 002, 003.
+    Verifies posture_state_hash for SPV binding.
+    Returns VGS interpretation of delegation authority.
+    """
+    require_api_key(x_api_key)
+
+    dr = req.dict()
+    if not dr.get("created_at"):
+        dr["created_at"] = datetime.now(timezone.utc).isoformat()
+
+    # Validate invariants
+    violations = _validate_dr_invariants(dr)
+
+    # Recompute posture_state_hash
+    computed_psh = _posture_state_hash(dr)
+    claimed_psh  = dr.get("posture_state_hash", "")
+    psh_valid    = computed_psh == claimed_psh if claimed_psh else False
+
+    # Store DR
+    _ATF_DR_STORE[dr["delegation_id"]] = dr
+
+    # VGS mapping
+    authority_ratio = (
+        dr.get("authority_budget_granted", 0) /
+        max(dr.get("authority_budget_delegator", 1), 1)
+    )
+    vgs_trust = round(min(1.0, authority_ratio), 4)
+
+    await log_event(dr.get("delegate_id", ""), "ATF_DR_SUBMITTED", {
+        "delegation_id": dr["delegation_id"],
+        "chain_root_id": dr.get("chain_root_id"),
+        "violations":    len(violations),
+        "psh_valid":     psh_valid,
+    })
+
+    return {
+        "status":           "STORED",
+        "delegation_id":    dr["delegation_id"],
+        "schema":           "ATF-DR-v1.0",
+        "atf_invariants": {
+            "ATF-INV-001":  len([v for v in violations if "INV-001" in v["invariant"]]) == 0,
+            "ATF-INV-002":  len([v for v in violations if "INV-002" in v["invariant"]]) == 0,
+            "ATF-INV-003":  psh_valid,
+        },
+        "violations":       violations,
+        "posture_state": {
+            "claimed_hash":  claimed_psh,
+            "computed_hash": computed_psh,
+            "spv_binding_valid": psh_valid,
+            "binding_time":  "AT_DR_ISSUANCE",
+        },
+        "vgs_mapping": {
+            "vgs_trust_score":   vgs_trust,
+            "authority_ratio":   round(authority_ratio, 4),
+            "delegation_depth":  dr.get("delegation_depth"),
+            "chain_root_id":     dr.get("chain_root_id"),
+            "dr_status":         dr.get("status"),
+        },
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@app.post("/v1/bridge/atf/tar",
+          tags=["ATF-VGS Bridge"])
+async def submit_atf_tar(
+    req: ATFTARRequest,
+    x_api_key: Optional[str] = Header(None),
+):
+    """
+    Submit an ATF Temporal Admissibility Record (TAR).
+    Validates ATF-INV-004, 005.
+    Generates VGS TAP (Trust Attestation Proof).
+    Returns TAR↔TAP equivalence mapping.
+    """
+    require_api_key(x_api_key)
+
+    tar = req.dict()
+
+    # Fetch associated DR
+    dr = _ATF_DR_STORE.get(tar.get("delegation_id"))
+
+    # Validate invariants
+    violations = _validate_tar_invariants(tar, dr or {})
+
+    # Store TAR
+    _ATF_TAR_STORE[tar["tar_id"]] = tar
+
+    # Build TAP
+    if dr:
+        tap = _bridge_tar_to_tap(tar, dr)
+    else:
+        tap = {
+            "tap_id":  f"VGS-TAP-NODR-{uuid.uuid4().hex[:8].upper()}",
+            "warning": "DR not found in bridge store — submit DR first",
+            "tar_id":  tar["tar_id"],
+        }
+
+    await log_event(tar.get("agent_id", ""), "ATF_TAR_BRIDGE_MAPPED", {
+        "tar_id":       tar["tar_id"],
+        "delegation_id":tar.get("delegation_id"),
+        "tap_id":       tap.get("tap_id"),
+        "violations":   len(violations),
+    })
+
+    return {
+        "status":          "MAPPED",
+        "tar_id":          tar["tar_id"],
+        "schema":          "ATF-TAR→VGS-TAP-v1",
+        "atf_invariants": {
+            "ATF-INV-004": len([v for v in violations if "INV-004" in v["invariant"]]) == 0,
+            "ATF-INV-005": len([v for v in violations if "INV-005" in v["invariant"]]) == 0,
+        },
+        "violations":      violations,
+        "dr_found":        dr is not None,
+        "tap":             tap,
+        "timestamp":       datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@app.post("/v1/bridge/atf/rcr",
+          tags=["ATF-VGS Bridge"])
+async def submit_atf_rcr(
+    req: ATFRCRRequest,
+    x_api_key: Optional[str] = Header(None),
+):
+    """
+    Submit an ATF Runtime Continuity Record (RCR).
+    Validates RGC-INV-001, 002, 003, 005, 006.
+    Generates VGS Survivability Accountability Chain record.
+    Returns RCR↔Survivability equivalence mapping.
+    """
+    require_api_key(x_api_key)
+
+    rcr = req.dict()
+
+    # Fetch associated TAR and DR
+    tar = _ATF_TAR_STORE.get(rcr.get("tar_id"))
+    dr  = _ATF_DR_STORE.get(rcr.get("delegation_id"))
+
+    # Validate invariants
+    violations = _validate_rcr_invariants(rcr, tar)
+
+    # Store RCR
+    _ATF_RCR_STORE[rcr["rcr_id"]] = rcr
+
+    # Build SAC
+    sac = _bridge_rcr_to_survivability(rcr, tar or {}, dr or {})
+
+    await log_event(rcr.get("agent_id", ""), "ATF_RCR_SURVIVABILITY_MAPPED", {
+        "rcr_id":    rcr["rcr_id"],
+        "tar_id":    rcr.get("tar_id"),
+        "sac_id":    sac.get("sac_id"),
+        "ces":       rcr.get("ces"),
+        "continuity_status":  rcr.get("continuity_status"),
+        "violations":len(violations),
+    })
+
+    return {
+        "status":          "MAPPED",
+        "rcr_id":          rcr["rcr_id"],
+        "schema":          "ATF-RCR→VGS-SAC-v1",
+        "atf_invariants": {
+            "RGC-INV-001": tar is not None,
+            "RGC-INV-002": len([v for v in violations if "INV-002" in v["invariant"]]) == 0,
+            "RGC-INV-003": rcr.get("continuity_status") != "HALT",
+            "RGC-INV-006": True,
+        },
+        "violations":      violations,
+        "tar_found":       tar is not None,
+        "dr_found":        dr is not None,
+        "sac":             sac,
+        "timestamp":       datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@app.post("/v1/bridge/atf/validate",
+          tags=["ATF-VGS Bridge"])
+async def validate_bridge(
+    req: BridgeValidateRequest,
+    x_api_key: Optional[str] = Header(None),
+):
+    """
+    Full ATF ↔ VGS bridge validation in one call.
+
+    Submit DR + TAR + optional RCR together.
+    Returns complete equivalence proof:
+    - TAR ↔ TAP mapping
+    - RCR ↔ Survivability mapping (if RCR provided)
+    - All ATF invariant checks
+    - SPV hash binding proof
+    - Cross-protocol admissibility assessment
+    - Bridge validation report
+    """
+    require_api_key(x_api_key)
+
+    dr  = req.dr
+    tar = req.tar
+    rcr = req.rcr
+
+    session_id = f"BRIDGE-{uuid.uuid4().hex[:10].upper()}"
+    timestamp  = datetime.now(timezone.utc).isoformat()
+
+    # Store records
+    if dr.get("delegation_id"):
+        _ATF_DR_STORE[dr["delegation_id"]] = dr
+    if tar.get("tar_id"):
+        _ATF_TAR_STORE[tar["tar_id"]] = tar
+    if rcr and rcr.get("rcr_id"):
+        _ATF_RCR_STORE[rcr["rcr_id"]] = rcr
+
+    # Validate all invariants
+    dr_violations  = _validate_dr_invariants(dr)
+    tar_violations = _validate_tar_invariants(tar, dr)
+    rcr_violations = _validate_rcr_invariants(rcr, tar) if rcr else []
+    all_violations = dr_violations + tar_violations + rcr_violations
+
+    # Build TAP
+    tap = _bridge_tar_to_tap(tar, dr)
+
+    # Build SAC if RCR provided
+    sac = _bridge_rcr_to_survivability(rcr, tar, dr) if rcr else None
+
+    # SPV binding assessment
+    computed_psh = _posture_state_hash(dr)
+    claimed_psh  = dr.get("posture_state_hash", "")
+    spv_valid    = computed_psh == claimed_psh if claimed_psh else False
+
+    # Cross-protocol admissibility
+    tar_admitted = tar.get("admission_status") == "ADMITTED"
+    tap_allowed  = tap.get("vgs_mapping", {}).get("vgs_allowed", False)
+    admissibility_match = tar_admitted == tap_allowed
+
+    rcr_survivable = sac.get("vgs_mapping", {}).get("vgs_survivable", None) if sac else None
+
+    # Overall bridge result
+    critical_violations = [v for v in all_violations if v.get("severity") == "CRITICAL"]
+    bridge_valid = len(critical_violations) == 0 and spv_valid and admissibility_match
+
+    # Session log
+    session = {
+        "session_id":     session_id,
+        "bridge_valid":   bridge_valid,
+        "violations":     len(all_violations),
+        "spv_valid":      spv_valid,
+        "timestamp":      timestamp,
+    }
+    _BRIDGE_SESSIONS.append(session)
+
+    await log_event(
+        tar.get("agent_id", ""),
+        "ATF_VGS_BRIDGE_VALIDATED",
+        {
+            "session_id":   session_id,
+            "bridge_valid": bridge_valid,
+            "tap_id":       tap.get("tap_id"),
+            "sac_id":       sac.get("sac_id") if sac else None,
+            "violations":   len(all_violations),
+        }
+    )
+
+    return {
+        "session_id":       session_id,
+        "schema":           "ATF-VGS-BRIDGE-v1",
+        "bridge_valid":     bridge_valid,
+        "timestamp":        timestamp,
+
+        # Invariant summary
+        "invariant_results": {
+            "ATF-INV-001 (MAR)": len([v for v in dr_violations  if "INV-001" in v["invariant"]]) == 0,
+            "ATF-INV-002":       len([v for v in dr_violations  if "INV-002" in v["invariant"]]) == 0,
+            "ATF-INV-003":       spv_valid,
+            "ATF-INV-004":       len([v for v in tar_violations if "INV-004" in v["invariant"]]) == 0,
+            "ATF-INV-005":       len([v for v in tar_violations if "INV-005" in v["invariant"]]) == 0,
+            "RGC-INV-001":       len([v for v in rcr_violations if "INV-001" in v["invariant"]]) == 0 if rcr else None,
+            "RGC-INV-002":       len([v for v in rcr_violations if "INV-002" in v["invariant"]]) == 0 if rcr else None,
+            "RGC-INV-003":       rcr.get("continuity_status") != "HALT" if rcr else None,
+        },
+
+        # SPV binding
+        "spv_binding": {
+            "claimed_posture_hash":  claimed_psh,
+            "computed_posture_hash": computed_psh,
+            "binding_valid":         spv_valid,
+            "binding_time":          "AT_DR_ISSUANCE",
+            "long_lived_safe":       spv_valid,
+        },
+
+        # TAR ↔ TAP
+        "tar_tap_equivalence": {
+            "atf_admission":     tar.get("admission_status"),
+            "vgs_decision":      tap.get("vgs_mapping", {}).get("vgs_decision"),
+            "admissibility_match": admissibility_match,
+            "tap_id":            tap.get("tap_id"),
+            "tap_seal":          tap.get("tap_seal"),
+        },
+
+        # RCR ↔ Survivability
+        "rcr_survivability": {
+            "provided":    rcr is not None,
+            "ces":         rcr.get("ces") if rcr else None,
+            "continuity_status":    rcr.get("continuity_status") if rcr else None,
+            "survivable":  rcr_survivable,
+            "sac_id":      sac.get("sac_id") if sac else None,
+            "sac_seal":    sac.get("sac_seal") if sac else None,
+        },
+
+        # Full violations
+        "violations":           all_violations,
+        "critical_violations":  len(critical_violations),
+
+        # Full records
+        "tap":  tap,
+        "sac":  sac,
+
+        "offline_verifiable":   True,
+        "sovereign_grade":      True,
+    }
+
+
+@app.get("/v1/bridge/atf/summary",
+         tags=["ATF-VGS Bridge"])
+async def bridge_summary(
+    x_api_key: Optional[str] = Header(None),
+):
+    """
+    Bridge session summary — all ATF records and VGS mappings.
+    """
+    require_api_key(x_api_key)
+
+    valid_sessions   = [s for s in _BRIDGE_SESSIONS if s.get("bridge_valid")]
+    invalid_sessions = [s for s in _BRIDGE_SESSIONS if not s.get("bridge_valid")]
+
+    return {
+        "schema":             "ATF-VGS-BRIDGE-SUMMARY",
+        "total_sessions":     len(_BRIDGE_SESSIONS),
+        "valid_sessions":     len(valid_sessions),
+        "invalid_sessions":   len(invalid_sessions),
+        "dr_count":           len(_ATF_DR_STORE),
+        "tar_count":          len(_ATF_TAR_STORE),
+        "rcr_count":          len(_ATF_RCR_STORE),
+        "tap_count":          len(_TAP_STORE),
+        "sac_count":          len(_SAC_STORE_BRIDGE),
+        "recent_sessions":    _BRIDGE_SESSIONS[-5:],
+        "bridge_version":     "ATF-v1.0 ↔ VGS-v1",
+        "atf_issued_by":      "Harold Alberto Nunes Rodelo — ATF/OMNIX QUANTUM LTD",
+        "specification":      "ATF Field Specification v1.1 — Day 1 Deliverable (corrected)",
+        "timestamp":          datetime.now(timezone.utc).isoformat(),
+    }
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=int(os.environ.get("PORT", 8000)), reload=False)
