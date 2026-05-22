@@ -27760,7 +27760,7 @@ async def accountability_summary(
 
 
 # ============================================================
-# ATF ↔ VGS BRIDGE v1.4 — OMNIX QUANTUM LTD
+# ATF ↔ VGS BRIDGE — Final (post Harold report v1.0)
 # ============================================================
 # ============================================================
 # ATF ↔ VGS BRIDGE — v1.4 Implementation
@@ -27810,10 +27810,12 @@ _SAC_STORE_BRIDGE: dict = {}
 _BRIDGE_SESSIONS:  list = []
 
 # ── CES TIER MAPPING (v1.4 — components are 0-100) ───────────
+# CES thresholds per Harold's final report (RGC-INV-004):
+# NOMINAL >= 80.0, MONITORING 50-79.99, CRITICAL < 50
+# HALT = 0-10 (execution terminated per RGC-INV-003)
 CES_TIER_MAP = {
-    "NOMINAL":    {"min": 75,  "vgs_trust": 0.95, "vgs_decision": "ALLOW"},
+    "NOMINAL":    {"min": 80,  "vgs_trust": 0.95, "vgs_decision": "ALLOW"},
     "MONITORING": {"min": 50,  "vgs_trust": 0.75, "vgs_decision": "MONITOR"},
-    "WARNING":    {"min": 25,  "vgs_trust": 0.50, "vgs_decision": "WARN"},
     "CRITICAL":   {"min": 10,  "vgs_trust": 0.25, "vgs_decision": "ESCALATE"},
     "HALT":       {"min": 0,   "vgs_trust": 0.00, "vgs_decision": "BLOCK_AND_ESCALATE"},
 }
@@ -27935,6 +27937,17 @@ def _validate_dr_invariants(dr: dict) -> list:
                 "severity":  "HIGH",
             })
 
+
+    # ATF-INV-005: delegation_depth must increment by exactly 1 per level
+    depth = dr.get("delegation_depth", 0)
+    parent_id = dr.get("parent_delegation_id")
+    if depth == 0 and parent_id:
+        violations.append({
+            "invariant": "ATF-INV-005",
+            "detail":    "delegation_depth=0 (human root) must not have parent_delegation_id",
+            "severity":  "HIGH",
+        })
+
     return violations
 
 
@@ -27995,10 +28008,10 @@ def _validate_tar_invariants(tar: dict, dr: dict) -> list:
 
 
 def _validate_rcr_invariants(rcr: dict, tar: dict) -> list:
-    """RGC-INV-001, 002, 003, 006 — v1.4"""
+    """RGC-INV-001, 002, 003, 004, 006 — per Harold final report v1.0"""
     violations = []
 
-    # RGC-INV-001
+    # RGC-INV-001: RCR must anchor to valid TAR
     if not tar:
         violations.append({
             "invariant": "RGC-INV-001",
@@ -28006,7 +28019,7 @@ def _validate_rcr_invariants(rcr: dict, tar: dict) -> list:
             "severity":  "CRITICAL",
         })
 
-    # RGC-INV-003
+    # RGC-INV-003: HALT terminates execution
     if rcr.get("continuity_status") == "HALT":
         violations.append({
             "invariant": "RGC-INV-003",
@@ -28014,7 +28027,7 @@ def _validate_rcr_invariants(rcr: dict, tar: dict) -> list:
             "severity":  "CRITICAL",
         })
 
-    # RGC-INV-002 — validate CES formula (v1.4: components are 0-100)
+    # RGC-INV-002: CES formula validation (components 0-100)
     T = float(rcr.get("ces_temporal", 0))
     B = float(rcr.get("ces_budget", 0))
     D = float(rcr.get("ces_context", 0))
@@ -28027,6 +28040,43 @@ def _validate_rcr_invariants(rcr: dict, tar: dict) -> list:
             "invariant": "RGC-INV-002",
             "detail":    f"ces_score mismatch: claimed {claimed_ces}, computed {computed_ces:.4f}",
             "severity":  "HIGH",
+        })
+
+    # RGC-INV-004: Continuity status threshold bands
+    # NOMINAL >= 80.0, MONITORING 50-79.99, CRITICAL < 50
+    status = rcr.get("continuity_status", "")
+    ces    = float(rcr.get("ces_score", 0))
+    expected_status = (
+        "NOMINAL"    if ces >= 80.0 else
+        "MONITORING" if ces >= 50.0 else
+        "HALT"       if ces < 10.0  else
+        "CRITICAL"
+    )
+    if status and status not in ("HALT",) and status != expected_status:
+        violations.append({
+            "invariant": "RGC-INV-004",
+            "detail":    f"continuity_status '{status}' inconsistent with CES {ces:.4f} — expected '{expected_status}'",
+            "severity":  "HIGH",
+        })
+
+    # RGC-INV-006: MONITORING RCR must carry escalation_event_id
+    if rcr.get("continuity_status") == "MONITORING":
+        if not rcr.get("escalation_event_id"):
+            violations.append({
+                "invariant": "RGC-INV-006",
+                "detail":    "MONITORING RCR must carry escalation_event_id — null is a violation",
+                "severity":  "HIGH",
+            })
+
+
+    # ATF-INV-004 (Harold): chain_root_id IDENTICAL across ALL records
+    tar_root = tar.get("chain_root_id", "")
+    dr_root  = dr.get("chain_root_id", "")
+    if tar_root and dr_root and tar_root != dr_root:
+        violations.append({
+            "invariant": "ATF-INV-004",
+            "detail":    f"chain_root_id mismatch: TAR has {tar_root}, DR has {dr_root}",
+            "severity":  "CRITICAL",
         })
 
     return violations
@@ -28681,11 +28731,14 @@ async def validate_bridge(
             "ATF-INV-002":       len([v for v in dr_violations  if "INV-002" in v["invariant"]]) == 0,
             "ATF-INV-003":       spv_valid if claimed_psh else "SKIPPED (legacy DR)",
             "ATF-INV-004":       len([v for v in tar_violations if "INV-004" in v["invariant"]]) == 0,
+            "ATF-INV-005":       len([v for v in dr_violations  if "INV-005" in v["invariant"]]) == 0,
             "ATF-INV-005":       len([v for v in tar_violations if "INV-005" in v["invariant"]]) == 0,
             "TAR-INV-006":       len([v for v in tar_violations if "TAR-INV-006" in v["invariant"]]) == 0,
             "RGC-INV-001":       len([v for v in rcr_violations if "INV-001" in v["invariant"]]) == 0 if rcr else None,
             "RGC-INV-002":       len([v for v in rcr_violations if "INV-002" in v["invariant"]]) == 0 if rcr else None,
             "RGC-INV-003":       rcr.get("continuity_status") != "HALT" if rcr else None,
+            "RGC-INV-004":       len([v for v in rcr_violations if "INV-004" in v["invariant"]]) == 0 if rcr else None,
+            "RGC-INV-006":       len([v for v in rcr_violations if "INV-006" in v["invariant"]]) == 0 if rcr else None,
         },
 
         "spv_binding": {
@@ -28749,9 +28802,9 @@ async def bridge_summary(
         "sac_count":        len(_SAC_STORE_BRIDGE),
         "recent_sessions":  _BRIDGE_SESSIONS[-5:],
         "tar_inv006_constant": TAR_MAX_DR_LIFETIME_SECONDS,
-        "bridge_version":   "ATF-v1.4 ↔ VGS-v1",
+        "bridge_version":   "ATF-v1.4 ↔ VGS-v1 (post-final-report refinements)",
         "atf_issued_by":    "Harold Alberto Nunes Rodelo — OMNIX QUANTUM LTD",
-        "specification":    "ATF Field Specification v1.4 — Day 1 Deliverable",
+        "specification":    "ATF Field Specification v1.4 + Harold Final Report v1.0 refinements",
         "timestamp":        datetime.now(timezone.utc).isoformat(),
     }
 
