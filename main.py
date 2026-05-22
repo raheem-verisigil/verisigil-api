@@ -4,16 +4,13 @@ VeriSigil AI - API Server v0.5.4 — Security hardened
 Complete integrated main.py - all endpoints in one file.
 Fix: time import conflict in Runtime Guard resolved.
 """
-
 import asyncio
 import base64, hashlib, math, os, uuid, json, re, time as time_module, smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from time import time
 from datetime import datetime, timedelta
 from typing import List, Optional, Dict, Any
 from enum import Enum
-
 from fastapi import FastAPI, HTTPException, Header, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
