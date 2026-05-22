@@ -72,13 +72,13 @@ _metrics = {
     "passports_issued":  0,
     "approvals_created": 0,
     "sprints_run":       0,
-    "start_time":        time(),
+    "start_time":        time_module.time(),
 }
 
 def _inc(key): _metrics[key] = _metrics.get(key, 0) + 1
 
 def get_uptime() -> str:
-    s = int(time() - _metrics["start_time"])
+    s = int(time_module.time() - _metrics["start_time"])
     d, s = divmod(s, 86400); h, s = divmod(s, 3600); m, s = divmod(s, 60)
     if d: return f"{d}d {h}h {m}m"
     if h: return f"{h}h {m}m {s}s"
@@ -353,7 +353,7 @@ RATE_LIMIT_STORE: dict = {}
 MAX_REQUESTS_PER_MINUTE = 10
 
 def check_rate_limit(client_ip: str) -> bool:
-    now    = time()
+    now    = time_module.time()
     window = RATE_LIMIT_STORE.get(client_ip, [])
     window = [t for t in window if now - t < 60]
     if len(window) >= MAX_REQUESTS_PER_MINUTE:
@@ -21515,7 +21515,7 @@ async def verify_before_execution(
     Every AI agent action goes through this gate.
     Returns ALLOW / DENY / REQUIRE_HUMAN_APPROVAL in <50ms.
     """
-    start_time = time_module.time()  # FIX: use time_module not time.time()
+    start_time = time_module.time()  # FIX: use time_module not time_module.time()
     require_api_key(x_api_key)
 
     passport = await db_get("passports", "agent_id", req.agent_id)
@@ -24337,7 +24337,7 @@ async def document_semantic_verify(
 # ============================================================
 
 import json
-import time
+# import time removed — use time_module
 import hashlib
 import uuid
 from datetime import datetime, timezone
@@ -24399,7 +24399,7 @@ def _temporal_anchor(timestamp: str) -> dict:
     ts_hash = _sha256(timestamp)
     return {
         "iso_timestamp":     timestamp,
-        "unix_epoch":        int(time.time()),
+        "unix_epoch":        int(time_module.time()),
         "timestamp_hash":    ts_hash,
         "anchor_method":     "SHA-256-temporal",
         "backdating_proof":  f"ANCHOR-{ts_hash[:16].upper()}",
