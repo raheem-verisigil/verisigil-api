@@ -4367,19 +4367,22 @@ def detect_semantic_drift(
 # SEMANTIC INTEGRITY ENDPOINTS
 # ============================================================
 
-# SemanticVerifyRequest — see Autonomous Execution Integrity Governance section
-
+class FullVerifyRequest(BaseModel):
+    document_id:    str = ""
+    agent_id:       str = "ai-agent-001"
+    original_text:  str = ""
+    current_text:   str = ""
+    document_type:  str = "CONTRACT"
+    interaction_num:int = 1
 
 @app.post("/v1/document/full-verify", tags=["Document Integrity"])
 async def full_document_verify(
-    req:       DocumentVerifyRequest,
+    req:       FullVerifyRequest,
     x_api_key: Optional[str] = Header(None)
 ):
     """
     FULL DOCUMENT INTEGRITY VERIFICATION
-
     Combines structural + semantic verification in one call.
-
     Returns:
     - Structural integrity (hash-based)
     - Semantic integrity (meaning-based)
@@ -4388,7 +4391,6 @@ async def full_document_verify(
     - All violations from both layers
     """
     require_api_key(x_api_key)
-
     # Structural check
     structural = verify_document_integrity(
         document_id     = req.document_id,
@@ -4402,7 +4404,6 @@ async def full_document_verify(
         "content_intact":   req.original_text == req.current_text,
         "field_violations": [],
     }
-
     # Semantic check
     semantic = detect_semantic_drift(
         original_text   = req.original_text,
@@ -4410,12 +4411,10 @@ async def full_document_verify(
         document_type   = req.document_type,
         interaction_num = req.interaction_num,
     )
-
     # Combined score — semantic is weighted higher for regulated docs
     structural_score = structural.get("integrity_score", 1.0)
     semantic_score   = semantic["semantic_integrity"]
     combined_score   = round((structural_score * 0.4) + (semantic_score * 0.6), 3)
-
     if combined_score >= 0.9:
         combined_risk    = "LOW"
         combined_recommendation = "PROCEED — full integrity maintained"
@@ -4428,7 +4427,6 @@ async def full_document_verify(
     else:
         combined_risk    = "CRITICAL"
         combined_recommendation = "REJECT — document integrity critically compromised"
-
     all_violations = (
         structural.get("field_violations", []) +
         semantic["numerical_violations"] +
@@ -4436,21 +4434,20 @@ async def full_document_verify(
         semantic["intent_violations"] +
         semantic["compliance_violations"]
     )
-
     return {
-        "document_id":           req.document_id,
-        "interaction_num":       req.interaction_num,
-        "combined_integrity":    combined_score,
-        "combined_risk":         combined_risk,
+        "document_id":            req.document_id,
+        "interaction_num":        req.interaction_num,
+        "combined_integrity":     combined_score,
+        "combined_risk":          combined_risk,
         "combined_recommendation":combined_recommendation,
-        "structural_integrity":  structural_score,
-        "semantic_integrity":    semantic_score,
-        "total_violations":      len(all_violations),
-        "all_violations":        all_violations,
-        "corruption_invisible":  semantic["corruption_invisible"],
+        "structural_integrity":   structural_score,
+        "semantic_integrity":     semantic_score,
+        "total_violations":       len(all_violations),
+        "all_violations":         all_violations,
+        "corruption_invisible":   semantic["corruption_invisible"],
         "document_looks_finished":True,
-        "structural_detail":     structural,
-        "semantic_detail":       semantic,
+        "structural_detail":      structural,
+        "semantic_detail":        semantic,
         "autonomous_execution_integrity": {
             "score":          combined_score,
             "risk":           combined_risk,
