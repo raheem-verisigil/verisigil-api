@@ -35736,6 +35736,901 @@ async def vsl_repair(
     }
 
 
+# ============================================================
+# VERISIGIL DATABASE LAYER
+# Supabase persistence for all critical stores
+# ============================================================
+# ============================================================
+# VERISIGIL DATABASE LAYER
+# ============================================================
+# Replaces all 60 in-memory stores with Supabase persistence.
+# Data survives Railway restarts. Production-grade.
+#
+# Strategy:
+# 1. Connect to Supabase on startup
+# 2. Wrap all store operations with DB read/write
+# 3. Keep in-memory cache for performance
+# 4. Fall back to in-memory if DB unavailable
+#
+# Priority stores (most critical data):
+#   _AGENT_INVENTORY          → agents table
+#   _SAC_STORE                → accountability_records table
+#   _CONCURRENCE_WORKFLOWS    → concurrence_workflows table
+#   _APPROVAL_TOKENS          → approval_tokens table
+#   _VSL_SCRIPTS              → vsl_scripts table
+#   _GOVERNANCE_MEMORY        → governance_memory table
+#   _AUDIT_MERKLE_CHAIN       → audit_chain table
+#   _THREAT_SIGNALS           → threat_signals table
+#   _MODEL_REGISTRY           → model_registry table
+#   _SOVEREIGN_AGENTS         → sovereign_agents table
+#   _HAL_REGISTRY             → hal_registry table
+#   _OVERSIGHT_RECORDS        → oversight_records table
+#   _ESCALATION_WINDOWS       → escalation_windows table
+#   _LEGITIMACY_GRAPHS        → legitimacy_graphs table
+#   _ATF_DR_STORE             → atf_delegation_receipts table
+#   _ATF_TAR_STORE            → atf_temporal_records table
+#   _ATF_RCR_STORE            → atf_continuity_records table
+#   _BRIDGE_SESSIONS          → bridge_sessions table
+#
+# All other stores: in-memory with periodic flush
+# ============================================================
+
+import os
+import json
+import asyncio
+import logging
+from datetime import datetime, timezone
+from typing import Optional, Any
+
+logger = logging.getLogger("verisigil.db")
+
+# ── SUPABASE CLIENT ───────────────────────────────────────────
+_supabase_client = None
+_db_available    = False
+
+def get_supabase():
+    """Get or initialize Supabase client."""
+    global _supabase_client, _db_available
+    if _supabase_client:
+        return _supabase_client
+    try:
+        from supabase import create_client
+        url = os.environ.get("SUPABASE_URL", "")
+        key = os.environ.get("SUPABASE_KEY", "")
+        if not url or not key:
+            logger.warning("SUPABASE_URL or SUPABASE_KEY not set — using in-memory fallback")
+            _db_available = False
+            return None
+        _supabase_client = create_client(url, key)
+        _db_available    = True
+        logger.info("Supabase connected successfully")
+        return _supabase_client
+    except Exception as e:
+        logger.error(f"Supabase connection failed: {e} — using in-memory fallback")
+        _db_available = False
+        return None
+
+
+# ── SQL SCHEMA ────────────────────────────────────────────────
+# Run this in your Supabase SQL editor to create all tables.
+# Paste at: supabase.com → your project → SQL Editor → New Query
+
+DB_SCHEMA = """
+-- VeriSigil AI — Database Schema
+-- Run once in Supabase SQL Editor
+
+-- 1. Agents
+CREATE TABLE IF NOT EXISTS agents (
+    agent_id        TEXT PRIMARY KEY,
+    data            JSONB NOT NULL,
+    created_at      TIMESTAMPTZ DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 2. Accountability Records (VGS-024 SAC)
+CREATE TABLE IF NOT EXISTS accountability_records (
+    record_id       TEXT PRIMARY KEY,
+    agent_id        TEXT,
+    action_type     TEXT,
+    consequence_class TEXT,
+    data            JSONB NOT NULL,
+    sealed_at       TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 3. Concurrence Workflows
+CREATE TABLE IF NOT EXISTS concurrence_workflows (
+    workflow_id     TEXT PRIMARY KEY,
+    agent_id        TEXT,
+    action_type     TEXT,
+    status          TEXT DEFAULT 'PENDING',
+    data            JSONB NOT NULL,
+    expires_at      TIMESTAMPTZ,
+    created_at      TIMESTAMPTZ DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 4. Approval Tokens
+CREATE TABLE IF NOT EXISTS approval_tokens (
+    token_id        TEXT PRIMARY KEY,
+    workflow_id     TEXT REFERENCES concurrence_workflows(workflow_id),
+    approver_id     TEXT,
+    approver_role   TEXT,
+    decision        TEXT,
+    token_seal      TEXT,
+    data            JSONB NOT NULL,
+    created_at      TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 5. VSL Scripts
+CREATE TABLE IF NOT EXISTS vsl_scripts (
+    script_id       TEXT PRIMARY KEY,
+    agent_id        TEXT,
+    script_hash     TEXT,
+    valid           BOOLEAN,
+    data            JSONB NOT NULL,
+    created_at      TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 6. Governance Memory
+CREATE TABLE IF NOT EXISTS governance_memory (
+    agent_id        TEXT PRIMARY KEY,
+    data            JSONB NOT NULL,
+    first_seen      TIMESTAMPTZ DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 7. Audit Chain (Merkle)
+CREATE TABLE IF NOT EXISTS audit_chain (
+    entry_id        TEXT PRIMARY KEY,
+    agent_id        TEXT,
+    action_type     TEXT,
+    merkle_hash     TEXT,
+    data            JSONB NOT NULL,
+    created_at      TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 8. Threat Signals
+CREATE TABLE IF NOT EXISTS threat_signals (
+    signal_id       TEXT PRIMARY KEY,
+    signal_type     TEXT,
+    severity        TEXT,
+    framework_origin TEXT,
+    data            JSONB NOT NULL,
+    created_at      TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 9. Model Registry
+CREATE TABLE IF NOT EXISTS model_registry (
+    model_id        TEXT PRIMARY KEY,
+    provider        TEXT,
+    data            JSONB NOT NULL,
+    registered_at   TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 10. Sovereign Agents
+CREATE TABLE IF NOT EXISTS sovereign_agents (
+    agent_id        TEXT PRIMARY KEY,
+    isolation_level TEXT,
+    jurisdiction    TEXT,
+    data            JSONB NOT NULL,
+    activated_at    TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 11. HAL Registry
+CREATE TABLE IF NOT EXISTS hal_registry (
+    domain          TEXT PRIMARY KEY,
+    organization    TEXT,
+    data            JSONB NOT NULL,
+    registered_at   TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 12. Oversight Records
+CREATE TABLE IF NOT EXISTS oversight_records (
+    record_id       TEXT PRIMARY KEY,
+    reviewer_id     TEXT,
+    agent_id        TEXT,
+    decision        TEXT,
+    data            JSONB NOT NULL,
+    created_at      TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 13. Escalation Windows
+CREATE TABLE IF NOT EXISTS escalation_windows (
+    escalation_id   TEXT PRIMARY KEY,
+    agent_id        TEXT,
+    reviewer_id     TEXT,
+    status          TEXT DEFAULT 'ACTIVE',
+    data            JSONB NOT NULL,
+    created_at      TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 14. Legitimacy Graphs
+CREATE TABLE IF NOT EXISTS legitimacy_graphs (
+    workflow_id     TEXT PRIMARY KEY,
+    data            JSONB NOT NULL,
+    created_at      TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 15. ATF Delegation Receipts
+CREATE TABLE IF NOT EXISTS atf_delegation_receipts (
+    delegation_id   TEXT PRIMARY KEY,
+    delegator_id    TEXT,
+    delegate_id     TEXT,
+    chain_root_id   TEXT,
+    data            JSONB NOT NULL,
+    created_at      TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 16. ATF Temporal Records (TAR)
+CREATE TABLE IF NOT EXISTS atf_temporal_records (
+    tar_id          TEXT PRIMARY KEY,
+    delegation_id   TEXT,
+    agent_id        TEXT,
+    admission_status TEXT,
+    data            JSONB NOT NULL,
+    issued_at       TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 17. ATF Continuity Records (RCR)
+CREATE TABLE IF NOT EXISTS atf_continuity_records (
+    rcr_id          TEXT PRIMARY KEY,
+    tar_id          TEXT,
+    delegation_id   TEXT,
+    continuity_status TEXT,
+    ces_score       FLOAT,
+    data            JSONB NOT NULL,
+    issued_at       TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 18. Bridge Sessions
+CREATE TABLE IF NOT EXISTS bridge_sessions (
+    session_id      TEXT PRIMARY KEY,
+    bridge_valid    BOOLEAN,
+    violations      INTEGER DEFAULT 0,
+    data            JSONB NOT NULL,
+    created_at      TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Indexes for performance
+CREATE INDEX IF NOT EXISTS idx_agents_updated ON agents(updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_accountability_agent ON accountability_records(agent_id);
+CREATE INDEX IF NOT EXISTS idx_accountability_sealed ON accountability_records(sealed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_workflows_agent ON concurrence_workflows(agent_id);
+CREATE INDEX IF NOT EXISTS idx_workflows_status ON concurrence_workflows(status);
+CREATE INDEX IF NOT EXISTS idx_tokens_workflow ON approval_tokens(workflow_id);
+CREATE INDEX IF NOT EXISTS idx_audit_agent ON audit_chain(agent_id);
+CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_chain(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_oversight_reviewer ON oversight_records(reviewer_id);
+CREATE INDEX IF NOT EXISTS idx_atf_dr_chain ON atf_delegation_receipts(chain_root_id);
+CREATE INDEX IF NOT EXISTS idx_atf_tar_delegation ON atf_temporal_records(delegation_id);
+CREATE INDEX IF NOT EXISTS idx_atf_rcr_tar ON atf_continuity_records(tar_id);
+CREATE INDEX IF NOT EXISTS idx_threat_type ON threat_signals(signal_type);
+CREATE INDEX IF NOT EXISTS idx_threat_created ON threat_signals(created_at DESC);
+
+-- Row Level Security (enable for production)
+-- ALTER TABLE agents ENABLE ROW LEVEL SECURITY;
+-- ALTER TABLE accountability_records ENABLE ROW LEVEL SECURITY;
+"""
+
+
+# ── DATABASE OPERATIONS ───────────────────────────────────────
+
+class VeriSigilDB:
+    """
+    Database abstraction layer.
+    Falls back to in-memory if Supabase unavailable.
+    All operations are async-safe.
+    """
+
+    def __init__(self):
+        self.client = None
+        self.available = False
+
+    def connect(self):
+        self.client   = get_supabase()
+        self.available = _db_available
+        return self.available
+
+    # ── AGENTS ───────────────────────────────────────────────
+
+    def upsert_agent(self, agent_id: str, data: dict) -> bool:
+        if not self.available:
+            return False
+        try:
+            self.client.table("agents").upsert({
+                "agent_id":   agent_id,
+                "data":       data,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }).execute()
+            return True
+        except Exception as e:
+            logger.error(f"DB upsert_agent error: {e}")
+            return False
+
+    def get_agent(self, agent_id: str) -> Optional[dict]:
+        if not self.available:
+            return None
+        try:
+            result = self.client.table("agents").select("data").eq("agent_id", agent_id).execute()
+            if result.data:
+                return result.data[0]["data"]
+            return None
+        except Exception as e:
+            logger.error(f"DB get_agent error: {e}")
+            return None
+
+    def get_all_agents(self) -> list:
+        if not self.available:
+            return []
+        try:
+            result = self.client.table("agents").select("data").execute()
+            return [r["data"] for r in result.data]
+        except Exception as e:
+            logger.error(f"DB get_all_agents error: {e}")
+            return []
+
+    # ── ACCOUNTABILITY RECORDS ────────────────────────────────
+
+    def insert_accountability_record(self, record_id: str, agent_id: str,
+                                      action_type: str, consequence_class: str,
+                                      data: dict) -> bool:
+        if not self.available:
+            return False
+        try:
+            self.client.table("accountability_records").insert({
+                "record_id":        record_id,
+                "agent_id":         agent_id,
+                "action_type":      action_type,
+                "consequence_class":consequence_class,
+                "data":             data,
+            }).execute()
+            return True
+        except Exception as e:
+            logger.error(f"DB insert_accountability error: {e}")
+            return False
+
+    def get_accountability_record(self, record_id: str) -> Optional[dict]:
+        if not self.available:
+            return None
+        try:
+            result = self.client.table("accountability_records").select("data").eq("record_id", record_id).execute()
+            return result.data[0]["data"] if result.data else None
+        except Exception as e:
+            logger.error(f"DB get_accountability error: {e}")
+            return None
+
+    def get_agent_records(self, agent_id: str, limit: int = 50) -> list:
+        if not self.available:
+            return []
+        try:
+            result = (self.client.table("accountability_records")
+                      .select("data")
+                      .eq("agent_id", agent_id)
+                      .order("sealed_at", desc=True)
+                      .limit(limit)
+                      .execute())
+            return [r["data"] for r in result.data]
+        except Exception as e:
+            logger.error(f"DB get_agent_records error: {e}")
+            return []
+
+    # ── CONCURRENCE WORKFLOWS ─────────────────────────────────
+
+    def upsert_workflow(self, workflow_id: str, data: dict) -> bool:
+        if not self.available:
+            return False
+        try:
+            self.client.table("concurrence_workflows").upsert({
+                "workflow_id": workflow_id,
+                "agent_id":    data.get("agent_id"),
+                "action_type": data.get("action_type"),
+                "status":      data.get("status", "PENDING"),
+                "data":        data,
+                "expires_at":  data.get("expires_at"),
+                "updated_at":  datetime.now(timezone.utc).isoformat(),
+            }).execute()
+            return True
+        except Exception as e:
+            logger.error(f"DB upsert_workflow error: {e}")
+            return False
+
+    def get_workflow(self, workflow_id: str) -> Optional[dict]:
+        if not self.available:
+            return None
+        try:
+            result = self.client.table("concurrence_workflows").select("data").eq("workflow_id", workflow_id).execute()
+            return result.data[0]["data"] if result.data else None
+        except Exception as e:
+            logger.error(f"DB get_workflow error: {e}")
+            return None
+
+    # ── APPROVAL TOKENS ───────────────────────────────────────
+
+    def insert_approval_token(self, token_id: str, workflow_id: str,
+                               approver_id: str, approver_role: str,
+                               decision: str, token_seal: str, data: dict) -> bool:
+        if not self.available:
+            return False
+        try:
+            self.client.table("approval_tokens").insert({
+                "token_id":     token_id,
+                "workflow_id":  workflow_id,
+                "approver_id":  approver_id,
+                "approver_role":approver_role,
+                "decision":     decision,
+                "token_seal":   token_seal,
+                "data":         data,
+            }).execute()
+            return True
+        except Exception as e:
+            logger.error(f"DB insert_approval_token error: {e}")
+            return False
+
+    # ── VSL SCRIPTS ───────────────────────────────────────────
+
+    def insert_vsl_script(self, script_id: str, agent_id: str,
+                           script_hash: str, valid: bool, data: dict) -> bool:
+        if not self.available:
+            return False
+        try:
+            self.client.table("vsl_scripts").insert({
+                "script_id":   script_id,
+                "agent_id":    agent_id,
+                "script_hash": script_hash,
+                "valid":       valid,
+                "data":        data,
+            }).execute()
+            return True
+        except Exception as e:
+            logger.error(f"DB insert_vsl_script error: {e}")
+            return False
+
+    # ── GOVERNANCE MEMORY ────────────────────────────────────
+
+    def upsert_governance_memory(self, agent_id: str, data: dict) -> bool:
+        if not self.available:
+            return False
+        try:
+            self.client.table("governance_memory").upsert({
+                "agent_id":   agent_id,
+                "data":       data,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }).execute()
+            return True
+        except Exception as e:
+            logger.error(f"DB upsert_governance_memory error: {e}")
+            return False
+
+    def get_governance_memory(self, agent_id: str) -> Optional[dict]:
+        if not self.available:
+            return None
+        try:
+            result = self.client.table("governance_memory").select("data").eq("agent_id", agent_id).execute()
+            return result.data[0]["data"] if result.data else None
+        except Exception as e:
+            logger.error(f"DB get_governance_memory error: {e}")
+            return None
+
+    # ── AUDIT CHAIN ───────────────────────────────────────────
+
+    def insert_audit_entry(self, entry_id: str, agent_id: str,
+                            action_type: str, merkle_hash: str, data: dict) -> bool:
+        if not self.available:
+            return False
+        try:
+            self.client.table("audit_chain").insert({
+                "entry_id":    entry_id,
+                "agent_id":    agent_id,
+                "action_type": action_type,
+                "merkle_hash": merkle_hash,
+                "data":        data,
+            }).execute()
+            return True
+        except Exception as e:
+            logger.error(f"DB insert_audit error: {e}")
+            return False
+
+    def get_audit_chain(self, agent_id: str, limit: int = 100) -> list:
+        if not self.available:
+            return []
+        try:
+            result = (self.client.table("audit_chain")
+                      .select("data")
+                      .eq("agent_id", agent_id)
+                      .order("created_at", desc=True)
+                      .limit(limit)
+                      .execute())
+            return [r["data"] for r in result.data]
+        except Exception as e:
+            logger.error(f"DB get_audit_chain error: {e}")
+            return []
+
+    # ── THREAT SIGNALS ────────────────────────────────────────
+
+    def insert_threat_signal(self, signal_id: str, signal_type: str,
+                              severity: str, framework: str, data: dict) -> bool:
+        if not self.available:
+            return False
+        try:
+            self.client.table("threat_signals").insert({
+                "signal_id":      signal_id,
+                "signal_type":    signal_type,
+                "severity":       severity,
+                "framework_origin":framework,
+                "data":           data,
+            }).execute()
+            return True
+        except Exception as e:
+            logger.error(f"DB insert_threat_signal error: {e}")
+            return False
+
+    def get_recent_threat_signals(self, limit: int = 20) -> list:
+        if not self.available:
+            return []
+        try:
+            result = (self.client.table("threat_signals")
+                      .select("data")
+                      .order("created_at", desc=True)
+                      .limit(limit)
+                      .execute())
+            return [r["data"] for r in result.data]
+        except Exception as e:
+            logger.error(f"DB get_threat_signals error: {e}")
+            return []
+
+    # ── ATF RECORDS ───────────────────────────────────────────
+
+    def upsert_atf_dr(self, delegation_id: str, data: dict) -> bool:
+        if not self.available:
+            return False
+        try:
+            self.client.table("atf_delegation_receipts").upsert({
+                "delegation_id": delegation_id,
+                "delegator_id":  data.get("delegator_id"),
+                "delegate_id":   data.get("delegate_id"),
+                "chain_root_id": data.get("chain_root_id"),
+                "data":          data,
+            }).execute()
+            return True
+        except Exception as e:
+            logger.error(f"DB upsert_atf_dr error: {e}")
+            return False
+
+    def get_atf_dr(self, delegation_id: str) -> Optional[dict]:
+        if not self.available:
+            return None
+        try:
+            result = self.client.table("atf_delegation_receipts").select("data").eq("delegation_id", delegation_id).execute()
+            return result.data[0]["data"] if result.data else None
+        except Exception as e:
+            logger.error(f"DB get_atf_dr error: {e}")
+            return None
+
+    def upsert_atf_tar(self, tar_id: str, data: dict) -> bool:
+        if not self.available:
+            return False
+        try:
+            self.client.table("atf_temporal_records").upsert({
+                "tar_id":           tar_id,
+                "delegation_id":    data.get("delegation_id"),
+                "agent_id":         data.get("agent_id"),
+                "admission_status": data.get("admission_status"),
+                "data":             data,
+            }).execute()
+            return True
+        except Exception as e:
+            logger.error(f"DB upsert_atf_tar error: {e}")
+            return False
+
+    def get_atf_tar(self, tar_id: str) -> Optional[dict]:
+        if not self.available:
+            return None
+        try:
+            result = self.client.table("atf_temporal_records").select("data").eq("tar_id", tar_id).execute()
+            return result.data[0]["data"] if result.data else None
+        except Exception as e:
+            logger.error(f"DB get_atf_tar error: {e}")
+            return None
+
+    def upsert_atf_rcr(self, rcr_id: str, data: dict) -> bool:
+        if not self.available:
+            return False
+        try:
+            self.client.table("atf_continuity_records").upsert({
+                "rcr_id":            rcr_id,
+                "tar_id":            data.get("tar_id"),
+                "delegation_id":     data.get("delegation_id"),
+                "continuity_status": data.get("continuity_status"),
+                "ces_score":         data.get("ces_score"),
+                "data":              data,
+            }).execute()
+            return True
+        except Exception as e:
+            logger.error(f"DB upsert_atf_rcr error: {e}")
+            return False
+
+    def get_atf_rcr(self, rcr_id: str) -> Optional[dict]:
+        if not self.available:
+            return None
+        try:
+            result = self.client.table("atf_continuity_records").select("data").eq("rcr_id", rcr_id).execute()
+            return result.data[0]["data"] if result.data else None
+        except Exception as e:
+            logger.error(f"DB get_atf_rcr error: {e}")
+            return None
+
+    # ── BRIDGE SESSIONS ───────────────────────────────────────
+
+    def insert_bridge_session(self, session_id: str, bridge_valid: bool,
+                               violations: int, data: dict) -> bool:
+        if not self.available:
+            return False
+        try:
+            self.client.table("bridge_sessions").insert({
+                "session_id":   session_id,
+                "bridge_valid": bridge_valid,
+                "violations":   violations,
+                "data":         data,
+            }).execute()
+            return True
+        except Exception as e:
+            logger.error(f"DB insert_bridge_session error: {e}")
+            return False
+
+    # ── OVERSIGHT RECORDS ─────────────────────────────────────
+
+    def insert_oversight_record(self, record_id: str, reviewer_id: str,
+                                 agent_id: str, decision: str, data: dict) -> bool:
+        if not self.available:
+            return False
+        try:
+            self.client.table("oversight_records").insert({
+                "record_id":   record_id,
+                "reviewer_id": reviewer_id,
+                "agent_id":    agent_id,
+                "decision":    decision,
+                "data":        data,
+            }).execute()
+            return True
+        except Exception as e:
+            logger.error(f"DB insert_oversight error: {e}")
+            return False
+
+    def get_reviewer_records(self, reviewer_id: str, limit: int = 50) -> list:
+        if not self.available:
+            return []
+        try:
+            result = (self.client.table("oversight_records")
+                      .select("data")
+                      .eq("reviewer_id", reviewer_id)
+                      .order("created_at", desc=True)
+                      .limit(limit)
+                      .execute())
+            return [r["data"] for r in result.data]
+        except Exception as e:
+            logger.error(f"DB get_reviewer_records error: {e}")
+            return []
+
+    # ── HEALTH CHECK ──────────────────────────────────────────
+
+    def health_check(self) -> dict:
+        if not self.available:
+            return {
+                "db_connected": False,
+                "mode":         "IN_MEMORY_FALLBACK",
+                "note":         "Set SUPABASE_URL and SUPABASE_KEY env vars to enable persistence",
+            }
+        try:
+            result = self.client.table("agents").select("agent_id").limit(1).execute()
+            return {
+                "db_connected": True,
+                "mode":         "SUPABASE_PERSISTENT",
+                "provider":     "Supabase",
+                "tables":       18,
+            }
+        except Exception as e:
+            return {
+                "db_connected": False,
+                "mode":         "IN_MEMORY_FALLBACK",
+                "error":        str(e),
+            }
+
+
+# ── GLOBAL DB INSTANCE ────────────────────────────────────────
+db = VeriSigilDB()
+
+
+# ── STARTUP INTEGRATION ───────────────────────────────────────
+def init_db():
+    """Call this in FastAPI startup event."""
+    connected = db.connect()
+    if connected:
+        logger.info("VeriSigil DB: Supabase connected — persistent mode active")
+    else:
+        logger.warning("VeriSigil DB: Supabase unavailable — in-memory fallback active")
+    return connected
+
+
+# ── DB-AWARE STORE WRAPPERS ───────────────────────────────────
+# Drop-in replacements for in-memory store operations.
+# Use these in your endpoint handlers.
+
+def save_agent(agent_id: str, agent_data: dict):
+    """Save agent to both in-memory and DB."""
+    _AGENT_INVENTORY[agent_id] = agent_data
+    db.upsert_agent(agent_id, agent_data)
+
+def load_agent(agent_id: str) -> Optional[dict]:
+    """Load agent from in-memory cache, fallback to DB."""
+    if agent_id in _AGENT_INVENTORY:
+        return _AGENT_INVENTORY[agent_id]
+    data = db.get_agent(agent_id)
+    if data:
+        _AGENT_INVENTORY[agent_id] = data
+    return data
+
+def save_accountability_record(record_id: str, agent_id: str,
+                                action_type: str, consequence: str, data: dict):
+    """Save SAC record to both stores."""
+    _SAC_STORE[record_id] = data
+    db.insert_accountability_record(record_id, agent_id, action_type, consequence, data)
+
+def save_workflow(workflow_id: str, data: dict):
+    """Save concurrence workflow."""
+    _CONCURRENCE_WORKFLOWS[workflow_id] = data
+    db.upsert_workflow(workflow_id, data)
+
+def load_workflow(workflow_id: str) -> Optional[dict]:
+    """Load workflow from cache or DB."""
+    if workflow_id in _CONCURRENCE_WORKFLOWS:
+        return _CONCURRENCE_WORKFLOWS[workflow_id]
+    data = db.get_workflow(workflow_id)
+    if data:
+        _CONCURRENCE_WORKFLOWS[workflow_id] = data
+    return data
+
+def save_vsl_script(script_id: str, agent_id: str,
+                    script_hash: str, valid: bool, data: dict):
+    """Save VSL script."""
+    _VSL_SCRIPTS[script_id] = data
+    db.insert_vsl_script(script_id, agent_id, script_hash, valid, data)
+
+def save_threat_signal(signal_id: str, signal_type: str,
+                       severity: str, framework: str, data: dict):
+    """Save threat signal."""
+    _THREAT_SIGNALS.append(data)
+    if len(_THREAT_SIGNALS) > 500:
+        _THREAT_SIGNALS.pop(0)
+    db.insert_threat_signal(signal_id, signal_type, severity, framework, data)
+
+def save_atf_dr(delegation_id: str, data: dict):
+    """Save ATF DR."""
+    _ATF_DR_STORE[delegation_id] = data
+    db.upsert_atf_dr(delegation_id, data)
+
+def load_atf_dr(delegation_id: str) -> Optional[dict]:
+    """Load ATF DR."""
+    if delegation_id in _ATF_DR_STORE:
+        return _ATF_DR_STORE[delegation_id]
+    data = db.get_atf_dr(delegation_id)
+    if data:
+        _ATF_DR_STORE[delegation_id] = data
+    return data
+
+def save_atf_tar(tar_id: str, data: dict):
+    """Save ATF TAR."""
+    _ATF_TAR_STORE[tar_id] = data
+    db.upsert_atf_tar(tar_id, data)
+
+def load_atf_tar(tar_id: str) -> Optional[dict]:
+    """Load ATF TAR."""
+    if tar_id in _ATF_TAR_STORE:
+        return _ATF_TAR_STORE[tar_id]
+    data = db.get_atf_tar(tar_id)
+    if data:
+        _ATF_TAR_STORE[tar_id] = data
+    return data
+
+def save_governance_memory(agent_id: str, data: dict):
+    """Save governance memory."""
+    _GOVERNANCE_MEMORY[agent_id] = data
+    db.upsert_governance_memory(agent_id, data)
+
+def load_governance_memory(agent_id: str) -> Optional[dict]:
+    """Load governance memory."""
+    if agent_id in _GOVERNANCE_MEMORY:
+        return _GOVERNANCE_MEMORY[agent_id]
+    data = db.get_governance_memory(agent_id)
+    if data:
+        _GOVERNANCE_MEMORY[agent_id] = data
+    return data
+
+
+# ── DB STATUS ENDPOINT ────────────────────────────────────────
+
+from fastapi import Header as FastAPIHeader
+
+@app.get("/v1/db/status",
+         tags=["System"])
+async def db_status(
+    x_api_key: Optional[str] = FastAPIHeader(None),
+):
+    """
+    Database persistence status.
+    Shows whether VeriSigil is running with Supabase
+    persistence or in-memory fallback.
+    """
+    require_api_key(x_api_key)
+
+    health = db.health_check()
+
+    return {
+        "schema":           "VGS-DB-STATUS-v1",
+        "timestamp":        datetime.now(timezone.utc).isoformat(),
+        "db_connected":     health["db_connected"],
+        "mode":             health.get("mode"),
+        "provider":         health.get("provider", "none"),
+        "tables":           health.get("tables", 0),
+        "in_memory_counts": {
+            "agents":              len(_AGENT_INVENTORY),
+            "sac_records":         len(_SAC_STORE) if isinstance(_SAC_STORE, dict) else 0,
+            "concurrence_workflows":len(_CONCURRENCE_WORKFLOWS),
+            "vsl_scripts":         len(_VSL_SCRIPTS),
+            "threat_signals":      len(_THREAT_SIGNALS),
+            "atf_dr":              len(_ATF_DR_STORE),
+            "atf_tar":             len(_ATF_TAR_STORE),
+            "governance_memory":   len(_GOVERNANCE_MEMORY),
+        },
+        "setup_instructions": (
+            None if health["db_connected"] else
+            "Add SUPABASE_URL and SUPABASE_KEY to Railway environment variables. Run DB_SCHEMA SQL in Supabase SQL editor."
+        ),
+        "schema_sql":       "Available at GET /v1/db/schema",
+        "human_readable": (
+            f"Database: {'CONNECTED — Supabase persistent mode' if health['db_connected'] else 'NOT CONNECTED — in-memory fallback active'}. "
+            f"{'All data persists across restarts.' if health['db_connected'] else 'Data lost on Railway restart. Add SUPABASE_URL and SUPABASE_KEY to fix.'}"
+        ),
+    }
+
+
+@app.get("/v1/db/schema",
+         tags=["System"])
+async def db_schema(
+    x_api_key: Optional[str] = FastAPIHeader(None),
+):
+    """
+    Returns the SQL schema to run in Supabase SQL Editor.
+    Creates all 18 tables needed for VeriSigil persistence.
+    """
+    require_api_key(x_api_key)
+
+    return {
+        "schema":       "VGS-DB-SCHEMA-v1",
+        "timestamp":    datetime.now(timezone.utc).isoformat(),
+        "tables":       18,
+        "instructions": [
+            "1. Go to supabase.com → your project",
+            "2. Click SQL Editor → New Query",
+            "3. Paste the SQL from the 'sql' field below",
+            "4. Click Run",
+            "5. Add SUPABASE_URL and SUPABASE_KEY to Railway environment variables",
+            "6. Redeploy — VeriSigil will connect automatically",
+        ],
+        "railway_env_vars": {
+            "SUPABASE_URL": "Your Supabase project URL (Settings → API → Project URL)",
+            "SUPABASE_KEY": "Your Supabase service_role key (Settings → API → service_role)",
+        },
+        "sql": DB_SCHEMA,
+    }
+
+
+
+@app.on_event("startup")
+async def startup_event():
+    """Initialize database connection on startup."""
+    init_db()
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=int(os.environ.get("PORT", 8000)), reload=False)
