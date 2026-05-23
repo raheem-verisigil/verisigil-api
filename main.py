@@ -30896,7 +30896,7 @@ async def gos_start(
             "memory_records":    mem_count,
             "sovereign_agents":  sov_count,
             "threat_signals":    len(_THREAT_SIGNALS) if '_THREAT_SIGNALS' in dir() else 0,
-            "total_endpoints":   318,
+            "total_endpoints":   332,
         },
         "governance_posture": "DENY_BY_DEFAULT",
         "human_readable":     "VeriSigil Governance OS is running. All 11 kernel modules active. Governance posture: deny by default.",
