@@ -32016,6 +32016,13 @@ class LegitimacyRequest(BaseModel):
     jurisdiction:    str         = "GLOBAL"
     override_level:  str         = "SENIOR_MANAGER"
 
+class HALRegisterRequest(BaseModel):
+    domain:          str
+    organization:    str         = ""
+    custom_rules:    dict        = {}
+    jurisdiction:    str         = "GLOBAL"
+    override_level:  str         = "SENIOR_MANAGER"
+
 class HALCheckRequest(BaseModel):
     agent_id:        str
     action_type:     str
