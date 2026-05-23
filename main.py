@@ -30532,7 +30532,7 @@ async def governance_risk_score(
         f"in the {req.domain} domain under {req.jurisdiction} jurisdiction. "
         f"Operational risk score: {risk_score:.1f}/100 ({risk_band}). "
         f"{'Action is irreversible — ' if not req.reversible else ''}"
-        f"{'Financial impact: ${req.financial_impact:,.0f}. ' if req.financial_impact > 0 else ''}"
+        f"{'Financial impact: $' + f'{req.financial_impact:,.0f}' + '. ' if req.financial_impact > 0 else ''}"
         f"Applicable frameworks: {', '.join(frameworks)}. "
         f"Recommended: {recommended_action}."
     )
