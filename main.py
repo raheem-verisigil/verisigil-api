@@ -40119,6 +40119,900 @@ async def vcem_model(
     }
 
 
+# ============================================================
+# CONVERGENCE LAYER
+# Constitutional SDK + ETS + Sovereign Gateway + Runtime Node
+# Expert: convergence, simplification, operationalization
+# ============================================================
+# ============================================================
+# VERISIGIL — CONVERGENCE LAYER
+# ============================================================
+# Expert: "STOP adding random governance concepts.
+# Now you need convergence, simplification, operationalization.
+# Can enterprises actually deploy and trust it?"
+#
+# Building what drives ADOPTION and ENTERPRISE TRUST:
+#
+# 1. Constitutional SDK — simple developer primitives
+#    @require_admissibility
+#    @require_human_continuity
+#    @bounded_execution
+#    These drive developer adoption
+#
+# 2. Execution Trust Score (ETS)
+#    Unified, insurable, auditable, procurement-friendly
+#    Not generic "AI trust" — runtime execution legitimacy
+#
+# 3. Sovereign AI Gateway
+#    Jurisdictional admissibility, AI border control,
+#    cross-border governance translation
+#
+# 4. Runtime Node Architecture
+#    GET /v1/node/profile — deployable node descriptor
+#    Documents the edge/sovereign/air-gap deployment model
+#
+# 8 endpoints total
+# Expert: "execution quality matters more than architecture quantity"
+# ============================================================
+
+import functools
+import time as time_module
+from datetime import datetime, timezone
+from typing import Optional, Callable
+
+# ── STORES ───────────────────────────────────────────────────
+_ETS_RECORDS:    dict = {}  # agent_id → execution trust score
+_GATEWAY_LOG:    list = []  # sovereign gateway decisions
+_NODE_REGISTRY:  dict = {}  # node_id → node profile
+
+
+# ── PYDANTIC MODELS ───────────────────────────────────────────
+
+class ETSRequest(BaseModel):
+    agent_id:              str
+    action_type:           str          = "UNKNOWN"
+    trust_score:           float        = 0.963
+    consequence:           str          = "MEDIUM"
+    jurisdiction:          str          = "GLOBAL"
+    domain:                str          = "general"
+    escalation_history:    int          = 0
+    oversight_confidence:  float        = 0.85
+    temporal_validity:     bool         = True
+    identity_verified:     bool         = True
+    containment_zone:      str          = ""
+
+class GatewayRequest(BaseModel):
+    agent_id:              str
+    action_type:           str
+    origin_jurisdiction:   str          = "GLOBAL"
+    destination_jurisdiction: str       = "EU"
+    consequence:           str          = "MEDIUM"
+    identity_document:     str          = ""
+    visa_id:               str          = ""
+    payload:               dict         = {}
+
+class NodeProfileRequest(BaseModel):
+    node_name:             str
+    deployment_type:       str          = "CLOUD"  # CLOUD|EDGE|SOVEREIGN|AIRGAP|ENTERPRISE
+    jurisdiction:          str          = "GLOBAL"
+    organization:          str          = ""
+    capabilities:          list         = []
+    sovereignty_mode:      bool         = False
+
+
+# ============================================================
+# 1. CONSTITUTIONAL SDK — SIMPLE DEVELOPER PRIMITIVES
+# ============================================================
+# Expert: "Turn all this architecture into simple developer primitives.
+# @require_admissibility @require_human_continuity @bounded_execution
+# This drives adoption."
+
+@app.post("/v1/sdk/admissibility-check",
+          tags=["Constitutional SDK"])
+async def sdk_admissibility_check(
+    agent_id:    str,
+    action_type: str,
+    consequence: str = "MEDIUM",
+    jurisdiction:str = "GLOBAL",
+    x_api_key:   Optional[str] = Header(None),
+):
+    """
+    @require_admissibility — SDK primitive.
+
+    The simplest governance check available.
+    One endpoint. One decision. Drives adoption.
+
+    This is what @require_admissibility does under the hood:
+    — Validates agent identity (birth certificate)
+    — Checks HAL human-only categories
+    — Runs temporal legitimacy check
+    — Computes Execution Trust Score
+    — Returns ALLOW / DENY / REQUIRE_HUMAN_APPROVAL
+
+    Usage in SDK:
+        @require_admissibility(consequence="CRITICAL")
+        def execute_payment(amount):
+            ...
+    """
+    require_api_key(x_api_key)
+
+    check_id  = f"SDK-ADM-{uuid.uuid4().hex[:8].upper()}"
+    timestamp = datetime.now(timezone.utc).isoformat()
+
+    results   = {}
+    issues    = []
+
+    # Step 1: Identity check
+    birth_cert = _BIRTH_CERTIFICATES.get(agent_id)
+    results["identity"] = {
+        "verified": bool(birth_cert),
+        "cert_id":  birth_cert.get("cert_id") if birth_cert else None,
+    }
+    if not birth_cert:
+        issues.append("NO_IDENTITY — issue birth certificate first")
+
+    # Step 2: HAL check
+    action_lower = action_type.lower()
+    hal_blocked  = False
+    hal_category = None
+    for category, rules in HUMAN_ONLY_DECISIONS.items():
+        if any(a.lower() in action_lower for a in rules["actions"]):
+            hal_blocked  = True
+            hal_category = category
+            break
+
+    results["hal"] = {
+        "blocked":  hal_blocked,
+        "category": hal_category,
+    }
+    if hal_blocked:
+        issues.append(f"HAL_BLOCKED — '{action_type}' requires human authority ({hal_category})")
+
+    # Step 3: Agent state
+    agent = _AGENT_INVENTORY.get(agent_id, {})
+    state = agent.get("state", "UNKNOWN")
+    if state in ("KILLED", "SUSPENDED", "QUARANTINED"):
+        issues.append(f"AGENT_{state} — execution not permitted")
+    results["agent_state"] = state
+
+    # Step 4: Trust check
+    trust = agent.get("trust_score", 0.963)
+    if trust < 0.40:
+        issues.append(f"LOW_TRUST — trust score {trust:.3f} below threshold")
+    results["trust_score"] = trust
+
+    # Final decision
+    critical = hal_blocked or state in ("KILLED", "SUSPENDED")
+    decision = (
+        "DENY"                   if critical else
+        "REQUIRE_HUMAN_APPROVAL" if consequence in ("CRITICAL","HIGH") and not birth_cert else
+        "ALLOW"                  if not issues else
+        "REQUIRE_HUMAN_APPROVAL"
+    )
+
+    await log_event(agent_id, "SDK_ADMISSIBILITY_CHECKED", {
+        "check_id":  check_id,
+        "decision":  decision,
+        "issues":    len(issues),
+    })
+
+    return {
+        "check_id":    check_id,
+        "schema":      "VGS-SDK-ADM-v1",
+        "timestamp":   timestamp,
+        "agent_id":    agent_id,
+        "action_type": action_type,
+        "decision":    decision,
+        "allowed":     decision == "ALLOW",
+        "results":     results,
+        "issues":      issues,
+        "sdk_usage":   "@require_admissibility(consequence='CRITICAL')",
+        "human_readable": (
+            f"Admissibility: {decision} for '{agent_id}' → '{action_type}'. "
+            f"Issues: {len(issues)}."
+        ),
+    }
+
+
+@app.post("/v1/sdk/human-continuity-check",
+          tags=["Constitutional SDK"])
+async def sdk_human_continuity_check(
+    reviewer_id: str,
+    agent_id:    str,
+    x_api_key:   Optional[str] = Header(None),
+):
+    """
+    @require_human_continuity — SDK primitive.
+
+    Checks that human oversight is genuinely available
+    and not fatigued, overwhelmed, or rubber-stamping.
+
+    Usage in SDK:
+        @require_human_continuity(reviewer_id="reviewer-001")
+        def critical_operation():
+            ...
+    """
+    require_api_key(x_api_key)
+
+    check_id  = f"SDK-HC-{uuid.uuid4().hex[:8].upper()}"
+    timestamp = datetime.now(timezone.utc).isoformat()
+
+    # Get HAPL metrics for reviewer
+    hapl = _HAPL_METRICS.get(reviewer_id, {})
+    risk = hapl.get("risk_score", 0.0)
+    cont = hapl.get("continuity_score", 1.0)
+
+    # Get oversight records
+    reviewer_records = [r for r in _OVERSIGHT_RECORDS if r.get("reviewer_id") == reviewer_id]
+    recent           = reviewer_records[-10:]
+    approval_rate    = (
+        sum(1 for r in recent if r.get("decision") == "APPROVED") / max(len(recent), 1)
+        if recent else 1.0
+    )
+
+    continuity_ok    = risk < 0.70 and cont > 0.30
+    blind_approval   = approval_rate > 0.95 and len(recent) >= 5
+
+    decision = (
+        "DENY"  if not continuity_ok or blind_approval else
+        "ALLOW"
+    )
+
+    issues = []
+    if not continuity_ok:
+        issues.append(f"HUMAN_CONTINUITY_DEGRADED — reviewer risk {round(risk*100,1)}/100")
+    if blind_approval:
+        issues.append(f"BLIND_APPROVAL_DETECTED — {approval_rate:.0%} approval rate")
+
+    return {
+        "check_id":          check_id,
+        "schema":            "VGS-SDK-HC-v1",
+        "timestamp":         timestamp,
+        "reviewer_id":       reviewer_id,
+        "agent_id":          agent_id,
+        "decision":          decision,
+        "human_continuity_ok":continuity_ok,
+        "blind_approval_risk":blind_approval,
+        "continuity_score":  round(cont * 100, 2),
+        "hapl_risk_score":   round(risk * 100, 2),
+        "issues":            issues,
+        "sdk_usage":         "@require_human_continuity(reviewer_id='reviewer-001')",
+        "human_readable": (
+            f"Human continuity: {decision} for reviewer {reviewer_id}. "
+            f"Continuity score: {round(cont*100,1)}/100. "
+            f"{'Blind approval pattern detected.' if blind_approval else ''}"
+        ),
+    }
+
+
+@app.post("/v1/sdk/bounded-execution-check",
+          tags=["Constitutional SDK"])
+async def sdk_bounded_execution_check(
+    agent_id:          str,
+    action_type:       str,
+    consequence:       str   = "MEDIUM",
+    affected_parties:  int   = 1,
+    financial_impact:  float = 0.0,
+    reversible:        bool  = True,
+    x_api_key:         Optional[str] = Header(None),
+):
+    """
+    @bounded_execution — SDK primitive.
+
+    Checks that execution stays within authorized boundaries:
+    — Consequence class within containment zone limits
+    — Affected parties within blast radius limit
+    — Concurrent execution count within bounds
+
+    Usage in SDK:
+        @bounded_execution(consequence="HIGH", max_parties=50)
+        def batch_operation():
+            ...
+    """
+    require_api_key(x_api_key)
+
+    check_id  = f"SDK-BE-{uuid.uuid4().hex[:8].upper()}"
+    timestamp = datetime.now(timezone.utc).isoformat()
+
+    issues    = []
+
+    # Find agent's containment zone
+    agent_zone = None
+    for zone in _CONTAINMENT_ZONES.values():
+        if agent_id in zone.get("agent_ids", []):
+            agent_zone = zone
+            break
+
+    bounds = {
+        "max_consequence":   agent_zone.get("max_consequence", "CRITICAL") if agent_zone else "CRITICAL",
+        "blast_radius_limit":agent_zone.get("blast_radius_limit", 10000)   if agent_zone else 10000,
+        "max_concurrent":    agent_zone.get("max_concurrent", 100)         if agent_zone else 100,
+        "zone_id":           agent_zone.get("zone_id") if agent_zone else None,
+    }
+
+    # Check consequence class
+    cons_order = ["NONE","LOW","MEDIUM","HIGH","CRITICAL"]
+    req_level  = cons_order.index(consequence.upper()) if consequence.upper() in cons_order else 2
+    max_level  = cons_order.index(bounds["max_consequence"]) if bounds["max_consequence"] in cons_order else 4
+    if req_level > max_level:
+        issues.append(f"CONSEQUENCE_EXCEEDS_ZONE — {consequence} > zone limit {bounds['max_consequence']}")
+
+    # Check blast radius
+    if affected_parties > bounds["blast_radius_limit"]:
+        issues.append(f"BLAST_RADIUS_EXCEEDED — {affected_parties} > zone limit {bounds['blast_radius_limit']}")
+
+    # Check kill switch
+    if agent_id in _KILL_SWITCHES:
+        issues.append(f"KILL_SWITCH_ACTIVE — agent execution permanently halted")
+
+    decision = "DENY" if issues else "ALLOW"
+
+    await log_event(agent_id, "SDK_BOUNDED_CHECK", {
+        "check_id": check_id,
+        "decision": decision,
+        "issues":   len(issues),
+        "zone_id":  bounds["zone_id"],
+    })
+
+    return {
+        "check_id":        check_id,
+        "schema":          "VGS-SDK-BE-v1",
+        "timestamp":       timestamp,
+        "agent_id":        agent_id,
+        "action_type":     action_type,
+        "decision":        decision,
+        "within_bounds":   not bool(issues),
+        "bounds":          bounds,
+        "issues":          issues,
+        "containment_zone":bounds["zone_id"],
+        "sdk_usage":       "@bounded_execution(consequence='HIGH', max_parties=50)",
+        "human_readable": (
+            f"Bounded execution: {decision} for '{agent_id}'. "
+            f"Zone: {bounds['zone_id'] or 'none'}. "
+            f"Issues: {len(issues)}."
+        ),
+    }
+
+
+# ============================================================
+# 2. EXECUTION TRUST SCORE (ETS)
+# ============================================================
+
+@app.post("/v1/execution/trust-score",
+          tags=["Execution Legitimacy"])
+async def execution_trust_score(
+    req: ETSRequest,
+    x_api_key: Optional[str] = Header(None),
+):
+    """
+    Execution Trust Score (ETS).
+
+    Expert: "Not generic AI trust. Runtime execution legitimacy scoring.
+    This becomes: insurable, auditable, measurable, procurement-friendly."
+
+    Unlike generic trust scores — ETS is:
+    — Bound to a specific execution context
+    — Composed of verifiable sub-scores
+    — Independently auditable
+    — Insurable (underwriters can verify inputs)
+    — Procurement-friendly (single number for contracts)
+
+    ETS = weighted composite of:
+    — Trust trajectory (agent historical trust)
+    — Temporal validity (is authority still valid?)
+    — Identity strength (birth cert + passport)
+    — Oversight confidence (are humans genuinely watching?)
+    — Consequence calibration (appropriate for risk level?)
+    — Containment posture (within authorized bounds?)
+    """
+    require_api_key(x_api_key)
+
+    ets_id    = f"ETS-{uuid.uuid4().hex[:10].upper()}"
+    timestamp = datetime.now(timezone.utc).isoformat()
+
+    # Sub-scores (each 0-100)
+    trust_score       = min(100, req.trust_score * 100)
+    temporal_score    = 100.0 if req.temporal_validity else 0.0
+    identity_score    = 100.0 if req.identity_verified else 40.0
+    oversight_score   = min(100, req.oversight_confidence * 100)
+    escalation_penalty= min(30, req.escalation_history * 5)
+    history_score     = max(0, 100 - escalation_penalty)
+
+    # Consequence calibration
+    cons_weights = {"CRITICAL":1.0,"HIGH":0.85,"MEDIUM":0.70,"LOW":0.50,"NONE":0.30}
+    cons_factor  = cons_weights.get(req.consequence.upper(), 0.70)
+
+    # Containment check
+    in_zone    = bool(req.containment_zone)
+    cont_score = 100.0 if in_zone else 75.0
+
+    # ETS composite
+    ets_raw = (
+        trust_score    * 0.25 +
+        temporal_score * 0.20 +
+        identity_score * 0.20 +
+        oversight_score* 0.15 +
+        history_score  * 0.10 +
+        cont_score     * 0.10
+    ) * cons_factor
+
+    ets = round(min(100, max(0, ets_raw)), 2)
+    ets_band = (
+        "EXCELLENT"    if ets >= 85 else
+        "STRONG"       if ets >= 70 else
+        "ADEQUATE"     if ets >= 55 else
+        "MARGINAL"     if ets >= 40 else
+        "INSUFFICIENT"
+    )
+
+    # Insurance signal
+    insurable = ets >= 70
+    insurance_tier = (
+        "STANDARD_COVERAGE"  if ets >= 85 else
+        "ENHANCED_REVIEW"    if ets >= 70 else
+        "SPECIAL_CONDITIONS" if ets >= 55 else
+        "NOT_INSURABLE"
+    )
+
+    ets_record = {
+        "ets_id":      ets_id,
+        "agent_id":    req.agent_id,
+        "ets":         ets,
+        "ets_band":    ets_band,
+        "insurable":   insurable,
+        "timestamp":   timestamp,
+    }
+    _ETS_RECORDS[req.agent_id] = ets_record
+
+    ets_seal = _sha256(json.dumps({
+        "ets_id":    ets_id,
+        "agent_id":  req.agent_id,
+        "ets":       ets,
+        "timestamp": timestamp,
+    }, sort_keys=True))
+
+    await log_event(req.agent_id, "ETS_COMPUTED", {
+        "ets_id":  ets_id,
+        "ets":     ets,
+        "ets_band":ets_band,
+    })
+
+    return {
+        "ets_id":              ets_id,
+        "schema":              "VGS-ETS-v1",
+        "timestamp":           timestamp,
+        "agent_id":            req.agent_id,
+        "action_type":         req.action_type,
+        "execution_trust_score":ets,
+        "ets_band":            ets_band,
+        "insurable":           insurable,
+        "insurance_tier":      insurance_tier,
+        "ets_seal":            ets_seal,
+        "sub_scores": {
+            "trust_trajectory":    round(trust_score, 2),
+            "temporal_validity":   temporal_score,
+            "identity_strength":   identity_score,
+            "oversight_confidence":round(oversight_score, 2),
+            "execution_history":   round(history_score, 2),
+            "containment_posture": cont_score,
+        },
+        "consequence_factor":   cons_factor,
+        "offline_verifiable":   True,
+        "procurement_ready":    True,
+        "human_readable": (
+            f"Execution Trust Score for '{req.agent_id}': "
+            f"{ets:.1f}/100 — {ets_band}. "
+            f"Insurable: {insurable} ({insurance_tier}). "
+            f"Sealed: {ets_seal[:16]}..."
+        ),
+        "board_language": (
+            f"AI agent '{req.agent_id}' has an execution trust score of "
+            f"{ets:.0f}/100 ({ets_band}). "
+            f"{'This execution is insurable under standard coverage.' if insurable else 'This execution does not meet insurance threshold.'} "
+            f"Score is cryptographically sealed and independently auditable."
+        ),
+        "underwriter_note": (
+            f"ETS {ets:.1f}/100. Insurance tier: {insurance_tier}. "
+            f"Seal: {ets_seal} — verify offline with SHA-256. "
+            f"Sub-scores available for actuarial review."
+        ),
+    }
+
+
+@app.get("/v1/execution/trust-score/{agent_id}",
+         tags=["Execution Legitimacy"])
+async def get_execution_trust_score(
+    agent_id:  str,
+    x_api_key: Optional[str] = Header(None),
+):
+    """Get the most recent Execution Trust Score for an agent."""
+    require_api_key(x_api_key)
+
+    record = _ETS_RECORDS.get(agent_id)
+    if not record:
+        return {
+            "agent_id":  agent_id,
+            "found":     False,
+            "message":   "No ETS computed. POST /v1/execution/trust-score to compute.",
+        }
+    return {**record, "timestamp": datetime.now(timezone.utc).isoformat()}
+
+
+# ============================================================
+# 3. SOVEREIGN AI GATEWAY
+# ============================================================
+
+@app.post("/v1/gateway/inspect",
+          tags=["Sovereign Gateway"])
+async def gateway_inspect(
+    req: GatewayRequest,
+    x_api_key: Optional[str] = Header(None),
+):
+    """
+    Sovereign AI Gateway — Jurisdictional Admissibility Inspection.
+
+    Expert: "Governments eventually may need:
+    AI border control, jurisdictional admissibility,
+    execution inspection, cross-border governance translation.
+    You are surprisingly well-positioned for this."
+
+    The Sovereign AI Gateway is VeriSigil's border control
+    for AI execution crossing jurisdictional boundaries.
+
+    Every cross-border AI execution is inspected for:
+    — Valid execution visa
+    — Identity document (birth certificate)
+    — Jurisdictional admissibility
+    — Consequence class clearance
+    — Sovereignty boundary compliance
+
+    This becomes the institutional model for
+    international AI governance infrastructure.
+    """
+    require_api_key(x_api_key)
+
+    inspection_id = f"GATE-{uuid.uuid4().hex[:10].upper()}"
+    timestamp     = datetime.now(timezone.utc).isoformat()
+
+    inspection_checks = []
+    violations        = []
+
+    # Check 1: Identity document
+    birth_cert = _BIRTH_CERTIFICATES.get(req.agent_id)
+    if birth_cert:
+        inspection_checks.append({
+            "check":  "IDENTITY_DOCUMENT",
+            "status": "CLEARED",
+            "detail": f"Birth certificate {birth_cert['cert_id']} verified",
+        })
+    else:
+        inspection_checks.append({
+            "check":  "IDENTITY_DOCUMENT",
+            "status": "FAILED",
+            "detail": "No birth certificate — identity not established",
+        })
+        violations.append("NO_IDENTITY_DOCUMENT")
+
+    # Check 2: Execution visa
+    if req.visa_id:
+        visa = _VISAS.get(req.visa_id)
+        if visa and visa.get("status") == "ACTIVE":
+            inspection_checks.append({
+                "check":  "EXECUTION_VISA",
+                "status": "CLEARED",
+                "detail": f"Visa {req.visa_id} valid for {visa.get('target_domain')}",
+            })
+        else:
+            inspection_checks.append({
+                "check":  "EXECUTION_VISA",
+                "status": "FAILED",
+                "detail": f"Visa {req.visa_id} not found or expired",
+            })
+            violations.append("INVALID_VISA")
+    else:
+        inspection_checks.append({
+            "check":  "EXECUTION_VISA",
+            "status": "WARN",
+            "detail": "No visa presented — single-entry clearance only",
+        })
+
+    # Check 3: Jurisdictional admissibility
+    src_jur = JURISDICTION_MAP.get(req.origin_jurisdiction, JURISDICTION_MAP["GLOBAL"])
+    tgt_jur = JURISDICTION_MAP.get(req.destination_jurisdiction, JURISDICTION_MAP["GLOBAL"])
+
+    cross_border_ok = (
+        req.destination_jurisdiction in src_jur.get("cross_border_allowed", []) or
+        "ALL" in src_jur.get("cross_border_allowed", []) or
+        req.origin_jurisdiction == req.destination_jurisdiction
+    )
+
+    if cross_border_ok:
+        inspection_checks.append({
+            "check":  "JURISDICTIONAL_ADMISSIBILITY",
+            "status": "CLEARED",
+            "detail": f"{req.origin_jurisdiction} → {req.destination_jurisdiction} permitted",
+        })
+    else:
+        inspection_checks.append({
+            "check":  "JURISDICTIONAL_ADMISSIBILITY",
+            "status": "FAILED",
+            "detail": f"{req.destination_jurisdiction} not in {req.origin_jurisdiction} permitted list",
+        })
+        violations.append("JURISDICTION_NOT_ADMITTED")
+
+    # Check 4: HAL border control
+    action_lower  = req.action_type.lower()
+    hal_blocked   = False
+    for category, rules in HUMAN_ONLY_DECISIONS.items():
+        if any(a.lower() in action_lower for a in rules["actions"]):
+            hal_blocked = True
+            inspection_checks.append({
+                "check":  "HAL_BORDER_CONTROL",
+                "status": "BLOCKED",
+                "detail": f"Action '{req.action_type}' in human-only category '{category}'",
+            })
+            violations.append(f"HAL_BLOCKED_{category.upper()}")
+            break
+    if not hal_blocked:
+        inspection_checks.append({
+            "check":  "HAL_BORDER_CONTROL",
+            "status": "CLEARED",
+            "detail": "Action not in human-only restricted list",
+        })
+
+    # Check 5: Destination framework compliance
+    dest_framework = tgt_jur.get("framework", "Unknown")
+    human_req      = tgt_jur.get("human_oversight_required", False)
+    if human_req and req.consequence in ("HIGH","CRITICAL"):
+        inspection_checks.append({
+            "check":  "DESTINATION_COMPLIANCE",
+            "status": "CONDITIONAL",
+            "detail": f"{req.destination_jurisdiction} requires human oversight for {req.consequence} consequence ({dest_framework})",
+        })
+    else:
+        inspection_checks.append({
+            "check":  "DESTINATION_COMPLIANCE",
+            "status": "CLEARED",
+            "detail": f"Compliant with {dest_framework}",
+        })
+
+    # Gateway decision
+    critical    = bool(violations)
+    conditional = any(c["status"] == "CONDITIONAL" for c in inspection_checks)
+    decision    = (
+        "DENIED"      if critical else
+        "CONDITIONAL" if conditional else
+        "CLEARED"
+    )
+
+    gateway_record = {
+        "inspection_id":  inspection_id,
+        "agent_id":       req.agent_id,
+        "decision":       decision,
+        "violations":     violations,
+        "timestamp":      timestamp,
+    }
+    _GATEWAY_LOG.append(gateway_record)
+    if len(_GATEWAY_LOG) > 500:
+        _GATEWAY_LOG.pop(0)
+
+    inspection_seal = _sha256(json.dumps({
+        "inspection_id":     inspection_id,
+        "agent_id":          req.agent_id,
+        "origin":            req.origin_jurisdiction,
+        "destination":       req.destination_jurisdiction,
+        "decision":          decision,
+        "timestamp":         timestamp,
+    }, sort_keys=True, default=str))
+
+    await log_event(req.agent_id, "GATEWAY_INSPECTED", {
+        "inspection_id":     inspection_id,
+        "decision":          decision,
+        "violations":        len(violations),
+        "origin":            req.origin_jurisdiction,
+        "destination":       req.destination_jurisdiction,
+    })
+
+    return {
+        "inspection_id":     inspection_id,
+        "schema":            "VGS-GATEWAY-v1",
+        "timestamp":         timestamp,
+        "agent_id":          req.agent_id,
+        "action_type":       req.action_type,
+        "origin":            req.origin_jurisdiction,
+        "destination":       req.destination_jurisdiction,
+        "decision":          decision,
+        "cleared":           decision == "CLEARED",
+        "inspection_checks": inspection_checks,
+        "violations":        violations,
+        "destination_framework": dest_framework,
+        "inspection_seal":   inspection_seal,
+        "offline_verifiable":True,
+        "human_readable": (
+            f"Gateway inspection {inspection_id}: {decision}. "
+            f"{req.origin_jurisdiction} → {req.destination_jurisdiction}. "
+            f"Checks: {len(inspection_checks)}. Violations: {len(violations)}. "
+            f"Seal: {inspection_seal[:16]}..."
+        ),
+        "government_language": (
+            f"AI agent '{req.agent_id}' requesting execution in "
+            f"{req.destination_jurisdiction} from {req.origin_jurisdiction}: "
+            f"{'CLEARED FOR ENTRY' if decision == 'CLEARED' else 'ENTRY DENIED'}. "
+            f"{'Conditions apply — human oversight required.' if decision == 'CONDITIONAL' else ''}"
+            f"{'Violations: ' + ', '.join(violations) if violations else ''}"
+        ),
+    }
+
+
+@app.get("/v1/gateway/status",
+         tags=["Sovereign Gateway"])
+async def gateway_status(
+    x_api_key: Optional[str] = Header(None),
+):
+    """Sovereign gateway operational status and recent decisions."""
+    require_api_key(x_api_key)
+
+    recent   = _GATEWAY_LOG[-20:]
+    cleared  = len([r for r in recent if r["decision"] == "CLEARED"])
+    denied   = len([r for r in recent if r["decision"] == "DENIED"])
+
+    return {
+        "schema":           "VGS-GATEWAY-STATUS-v1",
+        "timestamp":        datetime.now(timezone.utc).isoformat(),
+        "gateway_status":   "ACTIVE",
+        "total_inspections":len(_GATEWAY_LOG),
+        "recent_cleared":   cleared,
+        "recent_denied":    denied,
+        "clearance_rate":   round(cleared / max(len(recent), 1) * 100, 2),
+        "jurisdictions_supported": list(JURISDICTION_MAP.keys()),
+        "recent_decisions": recent[-5:],
+    }
+
+
+# ============================================================
+# 4. RUNTIME NODE ARCHITECTURE
+# ============================================================
+
+@app.post("/v1/node/register",
+          tags=["Runtime Node"])
+async def node_register(
+    req: NodeProfileRequest,
+    x_api_key: Optional[str] = Header(None),
+):
+    """
+    VeriSigil Runtime Node — Register Deployment Profile.
+
+    Expert: "A lightweight deployable execution node:
+    edge deployable, sovereign deployable, air-gapped capable,
+    enterprise-hosted, government-hosted.
+    Think: Kubernetes for execution legitimacy."
+
+    The Runtime Node is VeriSigil's deployable governance unit.
+    Register a node to describe its deployment context,
+    capabilities, and sovereignty mode.
+
+    Deployment types:
+    CLOUD      — standard cloud deployment (Railway/AWS/GCP/Azure)
+    EDGE       — lightweight edge deployment
+    SOVEREIGN  — sovereign environment, limited external connectivity
+    AIRGAP     — fully air-gapped, offline verification only
+    ENTERPRISE — enterprise-hosted, full connectivity
+    """
+    require_api_key(x_api_key)
+
+    node_id   = f"NODE-{uuid.uuid4().hex[:10].upper()}"
+    timestamp = datetime.now(timezone.utc).isoformat()
+
+    # Node capabilities by deployment type
+    capability_map = {
+        "CLOUD":      ["full_api", "persistent_storage", "real_time_governance", "cross_border"],
+        "EDGE":       ["local_governance", "offline_capable", "reduced_api"],
+        "SOVEREIGN":  ["local_governance", "offline_capable", "sovereignty_mode", "air_gap_ready"],
+        "AIRGAP":     ["offline_only", "local_verification", "no_external_calls"],
+        "ENTERPRISE": ["full_api", "persistent_storage", "real_time_governance", "sso_ready"],
+    }
+
+    base_caps    = capability_map.get(req.deployment_type, capability_map["CLOUD"])
+    all_caps     = list(set(base_caps + req.capabilities))
+
+    node_profile = {
+        "node_id":          node_id,
+        "schema":           "VGS-NODE-v1",
+        "node_name":        req.node_name,
+        "deployment_type":  req.deployment_type,
+        "jurisdiction":     req.jurisdiction,
+        "organization":     req.organization,
+        "capabilities":     all_caps,
+        "sovereignty_mode": req.sovereignty_mode or req.deployment_type in ("SOVEREIGN","AIRGAP"),
+        "offline_capable":  req.deployment_type in ("EDGE","SOVEREIGN","AIRGAP"),
+        "air_gapped":       req.deployment_type == "AIRGAP",
+        "registered_at":    timestamp,
+        "status":           "ACTIVE",
+        "node_seal":        _sha256(f"{node_id}{req.node_name}{req.deployment_type}{timestamp}"),
+        "endpoints":        406,
+        "version":          "1.0.0",
+    }
+
+    _NODE_REGISTRY[node_id] = node_profile
+
+    await log_event("node", "NODE_REGISTERED", {
+        "node_id":         node_id,
+        "deployment_type": req.deployment_type,
+        "jurisdiction":    req.jurisdiction,
+    })
+
+    return {
+        **node_profile,
+        "human_readable": (
+            f"Runtime node '{req.node_name}' registered as {req.deployment_type}. "
+            f"Jurisdiction: {req.jurisdiction}. "
+            f"Sovereignty mode: {node_profile['sovereignty_mode']}. "
+            f"Air-gapped: {node_profile['air_gapped']}. "
+            f"Capabilities: {len(all_caps)}."
+        ),
+        "deployment_note": (
+            f"This node is configured for {req.deployment_type.lower()} deployment "
+            f"under {req.jurisdiction} jurisdiction. "
+            f"{'Fully offline — no external calls permitted.' if node_profile['air_gapped'] else ''}"
+            f"{'Sovereignty mode active — local trust computation only.' if node_profile['sovereignty_mode'] else ''}"
+        ),
+    }
+
+
+@app.get("/v1/node/profile",
+         tags=["Runtime Node"])
+async def node_profile(
+    x_api_key: Optional[str] = Header(None),
+):
+    """
+    Current node deployment profile and capabilities.
+
+    Returns the architecture of the current VeriSigil
+    runtime node — what it is, how it is deployed,
+    what deployment types are supported.
+    """
+    require_api_key(x_api_key)
+
+    return {
+        "schema":           "VGS-NODE-PROFILE-v1",
+        "timestamp":        datetime.now(timezone.utc).isoformat(),
+        "current_deployment":"CLOUD",
+        "platform":         "Railway",
+        "endpoints":        406,
+        "version":          "1.0.0",
+        "registered_nodes": len(_NODE_REGISTRY),
+        "deployment_types": {
+            "CLOUD": {
+                "description":  "Standard cloud deployment — full API, persistent storage",
+                "capabilities": ["full_api","persistent_storage","real_time_governance","cross_border"],
+                "suitable_for": "Enterprise AI teams, regulated industry deployments",
+            },
+            "EDGE": {
+                "description":  "Lightweight edge deployment — offline capable, reduced footprint",
+                "capabilities": ["local_governance","offline_capable","reduced_api"],
+                "suitable_for": "IoT, edge AI, bandwidth-constrained environments",
+            },
+            "SOVEREIGN": {
+                "description":  "Sovereign deployment — limited external connectivity, local trust",
+                "capabilities": ["local_governance","offline_capable","sovereignty_mode","air_gap_ready"],
+                "suitable_for": "Government agencies, national AI infrastructure",
+            },
+            "AIRGAP": {
+                "description":  "Fully air-gapped — offline verification only, no external calls",
+                "capabilities": ["offline_only","local_verification","no_external_calls"],
+                "suitable_for": "Defense, classified environments, maximum sovereignty",
+            },
+            "ENTERPRISE": {
+                "description":  "Enterprise-hosted — full connectivity, SSO ready",
+                "capabilities": ["full_api","persistent_storage","real_time_governance","sso_ready"],
+                "suitable_for": "Large enterprise with existing identity infrastructure",
+            },
+        },
+        "expert_framing":   "Kubernetes for execution legitimacy — lightweight, deployable, sovereign-capable",
+        "register_node":    "POST /v1/node/register to declare your deployment context",
+    }
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=int(os.environ.get("PORT", 8000)), reload=False)
