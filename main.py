@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-VeriSigil AI - API Server v0.5.4 — Security hardened
+VeriSigil AI - Constitutional Execution Substrate v1.0.0
 Complete integrated main.py - all endpoints in one file.
 Fix: time import conflict in Runtime Guard resolved.
 """
@@ -366,9 +366,9 @@ def check_rate_limit(client_ip: str) -> bool:
 # APP SETUP
 # ============================================================
 app = FastAPI(
-    title="VeriSigil AI API",
-    description="The cryptographic identity and security layer for autonomous AI agents.",
-    version="0.5.4",
+    title="VeriSigil AI — Constitutional Execution Substrate",
+    description="Constitutional execution substrate for autonomous AI systems. Governs the formation, legitimacy, authority, cognition, and execution continuity of autonomous AI before actions become reality. 463 live endpoints. VGS-ELI-Certified. EU AI Act compliant.",
+    version="1.0.0",
     docs_url="/docs",
 )
 
@@ -1222,9 +1222,9 @@ def _evaluate_decision(sig_valid, is_revoked, is_expired, shadow_detected,
 async def root():
     return {
         "name":           "VeriSigil AI API",
-        "version":        "0.5.4",
+        "version":        "1.0.0",
         "status":         "live",
-        "description":    "Cryptographic identity and security for autonomous AI agents.",
+        "description":    "Constitutional execution substrate for autonomous AI systems.",
         "website":        "https://www.verisigilai.com",
         "docs":           "/docs",
         "public_key":     PUBLIC_KEY_B64,
