@@ -30896,7 +30896,7 @@ async def gos_start(
             "memory_records":    mem_count,
             "sovereign_agents":  sov_count,
             "threat_signals":    len(_THREAT_SIGNALS) if '_THREAT_SIGNALS' in dir() else 0,
-            "total_endpoints":   332,
+            "total_endpoints":   463,
         },
         "governance_posture": "DENY_BY_DEFAULT",
         "human_readable":     "VeriSigil Governance OS is running. All 11 kernel modules active. Governance posture: deny by default.",
@@ -37952,7 +37952,7 @@ async def ato_mapping(
             "platform_trust_required":  False,
         },
         "deployment_readiness": {
-            "endpoints_live":           375,
+            "endpoints_live":           463,
             "persistent_storage":       "Supabase — 18 tables",
             "ci_cd_pipeline":           "GitHub Actions — 4 jobs",
             "health_checks":            "/health + /readiness + /liveness",
@@ -39150,8 +39150,8 @@ async def vgs_eli_status(
             "VeriSigil operates upstream. ATF operates downstream."
         ),
 
-        "endpoints_live":      387,
-        "doi_publications":    2,
+        "endpoints_live":      463,
+        "doi_publications":    3,
         "independent_validation": "OMNIX QUANTUM LTD — 4 traces, zero violations",
     }
 
@@ -40092,7 +40092,7 @@ async def vcem_model(
         "stages_total":          len(constitutional_chain),
         "stages_active":         sum(1 for s in constitutional_chain if s["status"] == "ACTIVE"),
         "all_stages_active":     all_active,
-        "endpoints_total":       396,
+        "endpoints_total":       463,
         "agents_governed":       total,
 
         "constitutional_statement": (
@@ -44249,8 +44249,8 @@ async def architecture_cci(
             "We became regulation-compatible early — EU AI Act, ATO, ISO 42001",
         ],
 
-        "total_endpoints":   447,
-        "doi_publications":  2,
+        "total_endpoints":   463,
+        "doi_publications":  3,
         "independent_validation": "OMNIX QUANTUM LTD — 4 traces, zero violations",
     }
 
@@ -44271,7 +44271,7 @@ async def architecture_master(
     return {
         "schema":    "VGS-MASTER-ARCH-v1",
         "timestamp": datetime.now(timezone.utc).isoformat(),
-        "total_endpoints": 447,
+        "total_endpoints": 463,
 
         "layer_A_cognitive_formation": {
             "description": "Govern how AI forms understanding",
@@ -44560,7 +44560,7 @@ async def regulatory_flywheel(
         "standard_assets": {
             "doi_1": "10.5281/zenodo.20264923 — VGS Formal Specification",
             "doi_2": "10.5281/zenodo.20349768 — Sovereign Accountability Chain",
-            "doi_3": "pending — VGS-ELI Execution Legitimacy Infrastructure",
+            "doi_3": "10.5281/zenodo.20451306 — VGS-ELI Execution Legitimacy Infrastructure",
             "doi_4": "planned — Constitutional Charter v1.0",
             "doi_5": "planned — VSDL Specification v1.0",
             "doi_6": "planned — Human Sovereignty Preservation",
@@ -44669,7 +44669,7 @@ async def substrate_status(
         ),
 
         "infrastructure_metrics": {
-            "total_endpoints":       460,
+            "total_endpoints":       463,
             "total_lines":           44427,
             "governed_agents":       total,
             "active_agents":         active,
@@ -44707,13 +44707,13 @@ async def substrate_status(
         "publication_record": {
             "doi_1": "10.5281/zenodo.20264923",
             "doi_2": "10.5281/zenodo.20349768",
-            "doi_3": "pending — VGS-ELI v1.0",
+            "doi_3": "10.5281/zenodo.20451306 — VGS-ELI v1.0",
         },
 
         "independent_validation": "OMNIX QUANTUM LTD CEO — 4 traces, zero violations",
 
         "honest_status": (
-            "Pre-revenue. 460 live endpoints. "
+            "Pre-revenue. 463 live endpoints. "
             "VGS-ELI-Certified. "
             "Sandbox validated. "
             "Andrea D. call scheduled. "
