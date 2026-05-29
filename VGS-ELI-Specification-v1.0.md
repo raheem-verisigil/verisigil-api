@@ -4,7 +4,7 @@
 **VeriSigil Governance Standard — VGS-ELI**
 **Authors:** Raheem Larry Babatunde, VeriSigil AI
 **Published:** May 2026
-**DOI:** pending Zenodo submission (DOI #3)
+**DOI:** https://doi.org/10.5281/zenodo.20451306
 **Prior DOIs:** 10.5281/zenodo.20264923 · 10.5281/zenodo.20349768
 **License:** CC BY 4.0
 **Status:** Standards Track
