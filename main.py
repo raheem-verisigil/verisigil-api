@@ -46377,6 +46377,458 @@ async def gateway_resilience(
     }
 
 
+# ============================================================
+# STACK POSITIONING MODULE
+# Expert: "The execution layer is the larger enterprise position"
+# Expert: "Infrastructure dependency is where massive companies are built"
+# ============================================================
+# ============================================================
+# VERISIGIL STACK POSITIONING MODULE
+# ============================================================
+# Expert: "The market is unconsciously separating into layers."
+#
+# | Layer        | Provider             |
+# | TLS          | secure communication |
+# | X.509        | identity             |
+# | PoGR / OMNIX | governance attestation|
+# | VeriSigilAI  | runtime enforcement  |
+#
+# Expert: "The execution layer is probably the larger
+# long-term enterprise position."
+#
+# ENDPOINTS:
+# GET  /v1/stack/position      — the emerging AI governance stack
+# GET  /v1/stack/manifest      — execution dependency manifest
+# GET  /v1/stack/enforcement   — enforcement vs attestation distinction
+# POST /v1/stack/evaluate      — evaluate where a system fits in stack
+# GET  /v1/stack/moat          — the infrastructure dependency thesis
+# ============================================================
+
+from datetime import datetime, timezone
+from typing import Optional
+from pydantic import BaseModel
+from fastapi import Header
+
+
+class StackEvaluateRequest(BaseModel):
+    system_name:  str
+    role:         str   # what the system claims to do
+    operates_at:  str   # "pre_execution" | "post_execution" | "attestation" | "transport"
+    intercepts:   bool  = False
+    generates_proof: bool = False
+    blocks_action:   bool = False
+
+
+@app.get("/v1/stack/position",
+         tags=["Stack Positioning"])
+async def stack_position(
+    x_api_key: Optional[str] = Header(None),
+):
+    """
+    The Emerging AI Governance Stack — Where VeriSigil Sits.
+
+    Expert: "The market is unconsciously separating into layers."
+
+    | Layer         | Provider              | Function                        |
+    | TLS           | OpenSSL / cert auth   | Secure communication channel    |
+    | X.509 / DID   | Certificate authority | Identity verification           |
+    | PoGR / OMNIX  | Governance CA layer   | Governance attestation          |
+    | VeriSigilAI   | Runtime enforcement   | Execution admissibility gate    |
+    | AI Cognition  | OpenAI/Anthropic/etc  | Intelligence layer              |
+    | Regulators    | Government bodies     | Audit consumption               |
+
+    Expert: "Enforcement and attestation are NOT the same thing."
+
+    OMNIX answers: "Can we prove what governance framework existed?"
+    VeriSigil answers: "Can the action execute at all?"
+
+    That is a deeper operational choke point.
+    """
+    require_api_key(x_api_key)
+
+    return {
+        "schema":    "VGS-STACK-POSITION-v1",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "title":     "The Emerging AI Governance Stack",
+
+        "the_stack": {
+            "L1_tls": {
+                "layer":    "Secure Transport",
+                "provider": "TLS / OpenSSL",
+                "function": "Encrypted communication channel",
+                "analogy":  "Nobody bypasses TLS for HTTP in production",
+                "verisigil_relationship": "Below VeriSigil — assumed present",
+            },
+            "L2_identity": {
+                "layer":    "Identity Verification",
+                "provider": "X.509 / DID / W3C",
+                "function": "Cryptographic identity verification",
+                "analogy":  "CA certifies key is authentic — not what you do with it",
+                "verisigil_relationship": "VeriSigil consumes identity — issues AI passports",
+            },
+            "L3_runtime": {
+                "layer":    "Runtime Governance Enforcement",
+                "provider": "VeriSigil AI",
+                "function": "Execution admissibility — ALLOW / DENY / REQUIRE_HUMAN",
+                "analogy":  "Stripe sits in front of payments. Cloudflare sits in front of traffic. VeriSigil sits in front of AI execution.",
+                "verisigil_relationship": "THIS IS VERISIGIL — the execution choke point",
+                "the_question_answered":  "Can the action execute at all?",
+            },
+            "L4_attestation": {
+                "layer":    "Governance Attestation",
+                "provider": "OMNIX / PoGR",
+                "function": "Cryptographic proof that governance occurred — governance CA layer",
+                "analogy":  "X.509 certifies the key. PoGR certifies the governance was authentic.",
+                "verisigil_relationship": "Complementary — OMNIX attests what VeriSigil enforced",
+                "the_question_answered":  "Can we prove what governance framework existed and what evidence was produced?",
+            },
+            "L5_cognition": {
+                "layer":    "AI Cognition",
+                "provider": "OpenAI / Anthropic / Google / Open Source",
+                "function": "Intelligence — reasoning, decision, generation",
+                "verisigil_relationship": "Above VeriSigil — all cognition passes through the enforcement layer",
+            },
+            "L6_audit": {
+                "layer":    "Audit Consumption",
+                "provider": "Regulators / Auditors / Insurers",
+                "function": "Review of governance evidence for compliance verification",
+                "verisigil_relationship": "Downstream consumer of VeriSigil evidence bundles",
+            },
+        },
+
+        "critical_distinction": {
+            "attestation": "Proof that governance existed AFTER the fact — OMNIX / PoGR layer",
+            "enforcement": "Gate that determines WHETHER execution can occur BEFORE the fact — VeriSigil layer",
+            "expert_quote": "Enforcement and attestation are NOT the same thing.",
+        },
+
+        "the_choke_point": (
+            "The company controlling the execution checkpoint usually becomes larger "
+            "than the company controlling the certificate layer. "
+            "Cloudflare sits in front of traffic. "
+            "Stripe sits in front of payments. "
+            "Okta sits in front of identity access. "
+            "Kubernetes sits in front of orchestration. "
+            "VeriSigil is moving toward sitting in front of AI execution."
+        ),
+
+        "the_correct_relationship": {
+            "with_omnix": "Layered interoperability — not competition. VeriSigil enforces. OMNIX attests what was enforced.",
+            "with_tls":   "Assumed present at the transport layer. VeriSigil operates at the execution layer.",
+            "with_x509":  "Consumed by VeriSigil for identity — VeriSigil extends this to AI agent identity via DIDs.",
+            "with_llms":  "All LLM cognition passes through VeriSigil before becoming real-world consequence.",
+        },
+    }
+
+
+@app.get("/v1/stack/manifest",
+         tags=["Stack Positioning"])
+async def stack_manifest(
+    x_api_key: Optional[str] = Header(None),
+):
+    """
+    VeriSigil Execution Dependency Manifest.
+
+    Expert: "Build mandatory execution admissibility.
+    AI systems cannot execute transactions, approvals, critical workflows,
+    autonomous actions without passing through VeriSigil runtime.
+    That becomes infrastructure dependency.
+    Infrastructure dependency is where massive companies are built."
+
+    This endpoint returns the manifest of what creates
+    genuine infrastructure dependency on VeriSigil.
+    """
+    require_api_key(x_api_key)
+
+    return {
+        "schema":    "VGS-STACK-MANIFEST-v1",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "title":     "VeriSigil Execution Dependency Manifest",
+
+        "the_thesis": (
+            "Infrastructure dependency is where massive companies are built. "
+            "Nobody removes TLS from their stack. "
+            "Nobody routes around Stripe's payment gateway. "
+            "Nobody bypasses Kubernetes in a container deployment. "
+            "VeriSigil is building toward the same dependency position "
+            "for autonomous AI execution."
+        ),
+
+        "dependency_vectors": {
+            "evidence_dependency": {
+                "description": "Every governed execution generates a SHA-256 evidence hash",
+                "why_sticky":  "Auditors, regulators, and insurers ask for these records",
+                "removal_cost":"Lose all governance evidence history",
+            },
+            "compliance_dependency": {
+                "description": "EU AI Act, NIST, ISO 42001 alignment mapped to VeriSigil endpoints",
+                "why_sticky":  "Removing VeriSigil removes compliance mapping",
+                "removal_cost":"Rebuild entire regulatory alignment from scratch",
+            },
+            "identity_dependency": {
+                "description": "AI agent passports and DIDs issued through VeriSigil",
+                "why_sticky":  "Agent identity chain breaks if VeriSigil removed",
+                "removal_cost":"Lose cryptographic identity continuity for all agents",
+            },
+            "escalation_dependency": {
+                "description": "Human oversight workflows triggered through VeriSigil HAL",
+                "why_sticky":  "Remove VeriSigil and lose structured human oversight",
+                "removal_cost":"EU AI Act Article 14 compliance gap immediately",
+            },
+            "sdk_dependency": {
+                "description": "LangChain, CrewAI, AutoGen framework adapters integrated",
+                "why_sticky":  "Deep integration into existing agentic stacks",
+                "removal_cost":"Refactor all agentic workflows to remove middleware",
+            },
+        },
+
+        "what_systems_must_pass_through": [
+            "Wire transfers above threshold",
+            "Medical treatment decisions",
+            "Employment termination",
+            "Contract execution above value limit",
+            "Legal and prosecution decisions",
+            "Military and defense authorizations",
+            "Infrastructure modifications",
+            "Agent-to-agent delegation chains",
+            "Cross-border execution requiring jurisdiction clearance",
+            "Any CRITICAL or HIGH consequence autonomous action",
+        ],
+
+        "infrastructure_parallel": {
+            "Stripe":      "Every payment passes through Stripe gateway",
+            "Cloudflare":  "Every HTTP request passes through Cloudflare network",
+            "Okta":        "Every identity access request passes through Okta",
+            "Kubernetes":  "Every container lifecycle passes through K8s orchestration",
+            "VeriSigil":   "Every consequential AI action passes through VeriSigil constitutional runtime",
+        },
+
+        "moat_summary": (
+            "The moat is not the language. Not the dashboard. Not the compliance reports. "
+            "The moat is governance compiled into execution semantics — "
+            "the constitutional layer that autonomous AI systems cannot bypass "
+            "without losing institutional admissibility."
+        ),
+    }
+
+
+@app.get("/v1/stack/enforcement",
+         tags=["Stack Positioning"])
+async def stack_enforcement(
+    x_api_key: Optional[str] = Header(None),
+):
+    """
+    Enforcement vs Attestation — The Critical Distinction.
+
+    Expert: "Harold is building governance proof infrastructure.
+    You are evolving toward governance execution infrastructure.
+    Those are different layers."
+
+    This endpoint articulates the distinction precisely
+    for enterprise architects, regulators, and investors.
+    """
+    require_api_key(x_api_key)
+
+    return {
+        "schema":    "VGS-STACK-ENFORCEMENT-v1",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+
+        "the_distinction": {
+            "attestation": {
+                "definition":  "Cryptographic proof that governance existed — generated after the fact",
+                "timing":      "Post-execution",
+                "provider":    "OMNIX / PoGR / Certificate Authority layer",
+                "question":    "Can we prove what governance framework existed and what evidence was produced?",
+                "analogy":     "X.509 certificate — certifies the key is authentic after issuance",
+                "limitation":  "Cannot prevent an unauthorized action — can only prove it was governed or not",
+            },
+            "enforcement": {
+                "definition":  "Constitutional gate that determines whether execution is permitted — before consequence",
+                "timing":      "Pre-execution",
+                "provider":    "VeriSigil AI",
+                "question":    "Can the action execute at all?",
+                "analogy":     "Stripe payment gateway — payment cannot route without passing through",
+                "strength":    "Prevents unauthorized action before it reaches external systems",
+            },
+        },
+
+        "why_enforcement_is_the_larger_position": (
+            "Attestation tells you what happened. "
+            "Enforcement determines what can happen. "
+            "In regulated industries — banking, healthcare, government, defense — "
+            "the system that controls WHAT CAN HAPPEN "
+            "becomes the infrastructure dependency. "
+            "This is why Stripe is larger than the companies that audit payments. "
+            "This is why Cloudflare is larger than the companies that log traffic."
+        ),
+
+        "the_correct_stack": [
+            "AI cognition layer (OpenAI/Anthropic/etc) — forms intent",
+            "VeriSigil runtime enforcement — governs whether intent becomes action",
+            "OMNIX / PoGR attestation — certifies the governance was authentic",
+            "Regulator audit consumption — reviews the certified governance evidence",
+        ],
+
+        "harold_confirmed": (
+            "Harold's statement: 'The governance layer has to operate where those two leave off.' "
+            "This validates VeriSigil's entire thesis: "
+            "governance must exist at execution time — not after logging, not after audits, "
+            "not after explanations — but before consequence."
+        ),
+
+        "verisigil_commitment": (
+            "VeriSigil is NOT building a certificate authority. "
+            "VeriSigil is NOT building a governance dashboard. "
+            "VeriSigil is building the constitutional execution runtime — "
+            "the enforcement layer that autonomous AI systems must pass through "
+            "before their cognition becomes real-world consequence."
+        ),
+    }
+
+
+@app.post("/v1/stack/evaluate",
+          tags=["Stack Positioning"])
+async def stack_evaluate(
+    req:       StackEvaluateRequest,
+    x_api_key: Optional[str] = Header(None),
+):
+    """
+    Stack Layer Evaluator — Where Does Your System Fit?
+
+    Given a description of any AI governance system,
+    this endpoint determines which layer of the emerging
+    AI governance stack it occupies and how it relates to VeriSigil.
+    """
+    require_api_key(x_api_key)
+
+    # Determine layer
+    if req.blocks_action and req.operates_at == "pre_execution":
+        layer    = "RUNTIME_ENFORCEMENT"
+        provider = "VeriSigil AI layer"
+        overlap  = "HIGH — this system operates in the same layer as VeriSigil"
+        relationship = "Competitive or complementary depending on scope"
+    elif req.generates_proof and not req.blocks_action:
+        layer    = "GOVERNANCE_ATTESTATION"
+        provider = "OMNIX / PoGR layer"
+        overlap  = "LOW — attestation and enforcement are different layers"
+        relationship = "Complementary — VeriSigil enforces, this system attests"
+    elif req.operates_at == "transport":
+        layer    = "SECURE_TRANSPORT"
+        provider = "TLS / infrastructure layer"
+        overlap  = "NONE — different layer entirely"
+        relationship = "Below VeriSigil — assumed present"
+    elif req.operates_at == "post_execution":
+        layer    = "AUDIT_MONITORING"
+        provider = "Compliance / audit layer"
+        overlap  = "LOW"
+        relationship = "Downstream consumer of VeriSigil evidence bundles"
+    else:
+        layer    = "UNCLASSIFIED"
+        provider = "Unclear — may span multiple layers"
+        overlap  = "UNKNOWN"
+        relationship = "Requires further analysis"
+
+    return {
+        "schema":       "VGS-STACK-EVAL-v1",
+        "timestamp":    datetime.now(timezone.utc).isoformat(),
+        "system_name":  req.system_name,
+        "layer":        layer,
+        "provider_type":provider,
+        "overlap_with_verisigil": overlap,
+        "relationship": relationship,
+        "operates_at":  req.operates_at,
+        "blocks_action":req.blocks_action,
+        "generates_proof": req.generates_proof,
+        "expert_note": (
+            "Enforcement and attestation are NOT the same thing. "
+            "The company controlling the execution checkpoint "
+            "usually becomes larger than the company controlling the certificate layer."
+        ),
+    }
+
+
+@app.get("/v1/stack/moat",
+         tags=["Stack Positioning"])
+async def stack_moat(
+    x_api_key: Optional[str] = Header(None),
+):
+    """
+    The VeriSigil Moat — Infrastructure Dependency Thesis.
+
+    Expert: "The BIG Moat VeriSigil Should Build:
+    Not just proof. Build mandatory execution admissibility.
+    AI systems cannot execute without passing through VeriSigil runtime.
+    That becomes infrastructure dependency.
+    Infrastructure dependency is where massive companies are built."
+    """
+    require_api_key(x_api_key)
+
+    return {
+        "schema":    "VGS-STACK-MOAT-v1",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "title":     "The Infrastructure Dependency Thesis",
+
+        "the_moat": (
+            "The moat is not 478 endpoints. "
+            "Not the DOI publications. "
+            "Not the Constitutional Charter. "
+            "The moat is governance compiled into execution semantics — "
+            "so deep into the enterprise AI stack that removal costs more than renewal."
+        ),
+
+        "moat_components": {
+            "execution_gate": {
+                "description": "POST /v1/runtime/govern — the constitutional checkpoint",
+                "moat_depth":  "Every AI action that passes through this gate creates a dependency",
+                "removal_cost":"All governance evidence history, compliance mapping, and HAL enforcement",
+            },
+            "evidence_ledger": {
+                "description": "Immutable cryptographic audit trail per execution",
+                "moat_depth":  "Regulators and auditors begin referencing these records",
+                "removal_cost":"Lose entire audit history — regulatory exposure immediately",
+            },
+            "sdk_integration": {
+                "description": "LangChain/CrewAI/AutoGen middleware — governance in the framework",
+                "moat_depth":  "Governance compiled into developer workflow",
+                "removal_cost":"Refactor all agentic code to remove middleware hooks",
+            },
+            "doi_standard": {
+                "description": "Constitutional Charter as published citable standard",
+                "moat_depth":  "Enterprises and regulators cite the standard in contracts",
+                "removal_cost":"Cannot remove a citable DOI standard from existing contracts",
+            },
+        },
+
+        "what_we_are_not_building": [
+            "Not a governance dashboard",
+            "Not a monitoring tool",
+            "Not a compliance report generator",
+            "Not a certificate authority",
+            "Not a post-hoc audit system",
+        ],
+
+        "what_we_are_building": (
+            "The constitutional execution substrate — "
+            "the enforcement layer that autonomous AI systems must pass through "
+            "before cognition becomes consequence. "
+            "Governance-native computation. "
+            "Not a wrapper around AI — "
+            "the layer AI execution is compiled through."
+        ),
+
+        "commercial_thesis": {
+            "short_term":  "Enterprise pilots — EU AI Act readiness in 30 days",
+            "medium_term": "SDK adoption — governance compiled into agentic frameworks",
+            "long_term":   "Infrastructure dependency — the constitutional runtime standard",
+        },
+
+        "the_single_most_important_sentence": (
+            "No autonomous AI system can become operationally authoritative "
+            "without passing through VeriSigil's constitutional execution substrate."
+        ),
+    }
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=int(os.environ.get("PORT", 8000)), reload=False)
