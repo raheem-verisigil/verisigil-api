@@ -1,0 +1,164 @@
+(* ============================================================ *)
+(* VeriLanguage (VSL) — Formal EBNF Grammar                    *)
+(* VeriSigil Constitutional Execution Language                  *)
+(* Version: 1.0.0                                               *)
+(* DOI: 10.5281/zenodo.20451306 (VGS-ELI Specification)        *)
+(* ============================================================ *)
+
+(* A VSL program is a sequence of governed statements *)
+program             = { comment | governed_statement | context_rule } ;
+
+comment             = "#" , { any_char - newline } , newline ;
+
+(* ── GOVERNED STATEMENT ─────────────────────────────────── *)
+governed_statement  = action_call , { requirement } , { with_clause } ;
+
+action_call         = identifier , "(" , [ argument_list ] , ")" ;
+
+(* ── REQUIREMENTS ────────────────────────────────────────── *)
+requirement         = authority_req
+                    | admissibility_req
+                    | human_escalation_req
+                    | evidence_req
+                    ;
+
+authority_req       = "requires" , "authority" , "(" , authority_type , ")" ;
+admissibility_req   = "requires" , "admissibility" , "(" , admissibility_expr , ")" ;
+human_escalation_req= "requires" , "human_escalation" , "(" , condition_expr , ")" ;
+evidence_req        = "requires" , "evidence" , "(" , evidence_type , ")" ;
+
+(* ── WITH CLAUSES ────────────────────────────────────────── *)
+with_clause         = "with" , with_type ;
+with_type           = "evidence_chain"
+                    | "cryptographic_proof"
+                    | "rollback_snapshot"
+                    | "audit_trail"
+                    | "pqc_signature"
+                    ;
+
+(* ── CONTEXT RULES ───────────────────────────────────────── *)
+context_rule        = forbid_context_mix
+                    | require_separation
+                    | allow_context
+                    ;
+
+forbid_context_mix  = "forbid_context_mix" , "(" , context_domain , "," , context_domain , ")" ;
+require_separation  = "require_separation" , "(" , context_domain , "," , context_domain , ")" ;
+allow_context       = "allow_context" , "(" , context_domain , ")" ;
+
+(* ── AUTHORITY TYPES ─────────────────────────────────────── *)
+authority_type      = "finance.transfer"
+                    | "finance.approve"
+                    | "medical.treatment"
+                    | "medical.diagnosis"
+                    | "legal.terminate"
+                    | "legal.prosecute"
+                    | "military.authorize"
+                    | "hr.terminate"
+                    | "hr.hire"
+                    | "data.export"
+                    | "system.shutdown"
+                    | "contract.execute"
+                    | "infrastructure.modify"
+                    | "agent.delegate"
+                    | "context.cross_domain"
+                    | qualified_name
+                    ;
+
+qualified_name      = identifier , "." , identifier , { "." , identifier } ;
+
+(* ── ADMISSIBILITY EXPRESSIONS ──────────────────────────── *)
+admissibility_expr  = "runtime_verified"
+                    | "clinician_authorized"
+                    | "data_consent_verified"
+                    | "delegation_depth" , comparison , integer
+                    | "trust_score" , comparison , decimal
+                    | identifier
+                    ;
+
+(* ── CONDITION EXPRESSIONS ───────────────────────────────── *)
+condition_expr      = "if" , condition ;
+condition           = field , comparison , value
+                    | field , "==" , enum_value
+                    | "consequence" , ">=" , consequence_level
+                    | "amount" , ">" , number
+                    | "risk" , ">=" , risk_level
+                    ;
+
+consequence_level   = "NONE" | "LOW" | "MEDIUM" | "HIGH" | "CRITICAL" ;
+risk_level          = "LOW" | "MEDIUM" | "HIGH" | "CRITICAL" ;
+
+(* ── EVIDENCE TYPES ──────────────────────────────────────── *)
+evidence_type       = "CHAIN_SEALED"
+                    | "PROOF_GENERATED"
+                    | "SNAPSHOT_CREATED"
+                    | "AUDIT_COMPLETE"
+                    ;
+
+context_domain      = "medical_data" | "insurance_pricing" | "patient_records"
+                    | "commercial_scoring" | "legal_privileged" | "ai_training"
+                    | "financial_pii" | "marketing" | "military_intel"
+                    | "civilian_systems" | "hr_records" | "performance_ai"
+                    | identifier
+                    ;
+
+(* ── PRIMITIVES ──────────────────────────────────────────── *)
+argument_list       = argument , { "," , argument } ;
+argument            = identifier | string | number | boolean ;
+field               = identifier | qualified_name ;
+value               = number | string | boolean | identifier ;
+enum_value          = upper_string ;
+comparison          = ">" | "<" | ">=" | "<=" | "==" | "!=" ;
+
+identifier          = letter , { letter | digit | "_" } ;
+upper_string        = upper_letter , { upper_letter | digit | "_" } ;
+string              = '"' , { any_char - '"' } , '"' ;
+number              = integer | decimal ;
+integer             = digit , { digit } ;
+decimal             = integer , "." , integer ;
+boolean             = "true" | "false" ;
+
+letter              = upper_letter | lower_letter ;
+upper_letter        = "A" | "B" | "C" | "D" | "E" | "F" | "G" | "H" | "I"
+                    | "J" | "K" | "L" | "M" | "N" | "O" | "P" | "Q" | "R"
+                    | "S" | "T" | "U" | "V" | "W" | "X" | "Y" | "Z" ;
+lower_letter        = "a" | "b" | "c" | "d" | "e" | "f" | "g" | "h" | "i"
+                    | "j" | "k" | "l" | "m" | "n" | "o" | "p" | "q" | "r"
+                    | "s" | "t" | "u" | "v" | "w" | "x" | "y" | "z" ;
+digit               = "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" ;
+newline             = ? newline character ? ;
+any_char            = ? any Unicode character ? ;
+
+(* ============================================================ *)
+(* VSL EXAMPLE PROGRAMS                                         *)
+(* ============================================================ *)
+
+(*
+EXAMPLE 1 — Financial transfer:
+
+    transfer_money()
+    requires authority(finance.transfer)
+    requires admissibility(runtime_verified)
+    requires human_escalation(if amount > 10000)
+    with evidence_chain
+    with cryptographic_proof
+    with rollback_snapshot
+
+EXAMPLE 2 — Medical action:
+
+    update_treatment()
+    requires authority(medical.treatment)
+    requires admissibility(clinician_authorized)
+    requires human_escalation(if consequence >= HIGH)
+    with evidence_chain
+    with cryptographic_proof
+    forbid_context_mix(patient_records, insurance_pricing)
+
+EXAMPLE 3 — Agent delegation:
+
+    delegate_task()
+    requires authority(agent.delegate)
+    requires admissibility(delegation_depth < 3)
+    requires human_escalation(if scope == PERMANENT)
+    with evidence_chain
+*)

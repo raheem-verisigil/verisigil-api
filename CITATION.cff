@@ -1,0 +1,63 @@
+cff-version: 1.2.0
+message: "If you use or reference VeriSigil Constitutional Charter v1.0, please cite it as below."
+type: software
+title: "VeriSigil Constitutional Charter v1.0: A Formal Standard for Verifiable AI Execution"
+version: 1.0.0
+date-released: "2026-05-29"
+doi: 10.5281/zenodo.20451306
+url: "https://verisigilai.com"
+repository-code: "https://github.com/raheem-verisigil/verisigil-api"
+license: CC-BY-4.0
+
+authors:
+  - family-names: Babatunde
+    given-names: Raheem Larry
+    affiliation: VeriSigil AI
+    email: raheem@verisigilai.com
+    orcid: ""
+
+abstract: >
+  VeriSigil Constitutional Charter v1.0 defines the formal standard for verifiable,
+  cryptographically provable AI execution governance. It specifies the Constitutional
+  Cognitive Infrastructure (CCI) model comprising four constitutional layers (A: Cognitive
+  Formation, B: Constitutional Runtime, C: Cryptographic Sovereignty, D: Sovereign Governance
+  Mesh), eight constitutional invariants (VGS-ELI-INV-001 through VGS-ELI-INV-008), the
+  ten-stage VeriSigil Constitutional Execution Model (VCEM), VeriLanguage (VSL) grammar
+  specification, and the VeriVM governance runtime architecture. This charter establishes
+  the reference standard for systems claiming constitutional admissibility of autonomous
+  AI execution.
+
+keywords:
+  - AI governance
+  - constitutional AI
+  - formal verification
+  - execution admissibility
+  - autonomous systems
+  - EU AI Act compliance
+  - NIST AI RMF
+  - ISO 42001
+  - cryptographic evidence
+  - runtime governance
+  - VeriLanguage
+  - VeriVM
+  - governance-native computation
+
+references:
+  - type: article
+    title: "VGS Formal Specification"
+    doi: 10.5281/zenodo.20264923
+    authors:
+      - family-names: Babatunde
+        given-names: Raheem Larry
+  - type: article
+    title: "VeriSigil Sovereign Accountability Chain"
+    doi: 10.5281/zenodo.20349768
+    authors:
+      - family-names: Babatunde
+        given-names: Raheem Larry
+  - type: article
+    title: "VGS-ELI Execution Legitimacy Infrastructure v1.0"
+    doi: 10.5281/zenodo.20451306
+    authors:
+      - family-names: Babatunde
+        given-names: Raheem Larry
