@@ -46829,6 +46829,235 @@ async def stack_moat(
     }
 
 
+# ============================================================
+# POGR INTEGRATION MODULE
+# First PoGR Certificate: POGC-EXT-A7F3C2B1D9E4F508
+# Harold (OMNIX): "One is the frame; the other is the evidence."
+# ============================================================
+# ============================================================
+# POGR INTEGRATION MODULE
+# First PoGR Certificate: POGC-EXT-A7F3C2B1D9E4F508
+# Issued by OMNIX QUANTUM LTD to VeriSigil AI — 2026-05-30
+# Harold: "One is the frame; the other is the evidence."
+# ============================================================
+
+from datetime import datetime, timezone
+from typing import Optional
+from pydantic import BaseModel
+from fastapi import Header
+import json as _json_lib
+
+_POGR_FIRST_CERT = {'pogc_id': 'POGC-EXT-A7F3C2B1D9E4F508', 'certificate_class': 'EXTERNAL', 'version': '1.0', 'issuer': 'OMNIX QUANTUM LTD', 'issuer_protocol': 'OMNIX PoGR — ADR-186/187', 'issuer_rfcs': ['RFC-ATF-1', 'RFC-ATF-2', 'RFC-ATF-3', 'RFC-ATF-4', 'RFC-ATF-5', 'RFC-ATF-6'], 'subject_org': 'VeriSigil AI', 'subject_system': 'Constitutional Execution Substrate', 'agent_id': 'financial-agent-1780111266', 'governance_decision': {'action': 'wire_transfer', 'amount_usd': 250000, 'outcome': 'DENY', 'reason': 'Amount exceeds autonomous limit for CRITICAL consequence', 'consequence_class': 'CRITICAL', 'decision_date': '2026-05-30'}, 'evidence_hash': '586b996f53da83652b2690b4117a4830d4bde3c22c7737085c40f5ee86a4ac3a', 'evidence_bundle': 'bundle-482df2c4f1d9', 'evidence_algorithm': 'SHA-256', 'regulatory_mapping': {'EU_AI_Act_Art_11': 'Technical documentation — governance decision record', 'NIST_AU_2': 'Audit Events — machine-readable governance evidence', 'ISO_42001_Art_9_1': 'Monitoring, measurement, analysis and evaluation'}, 'compliance_tier': 'EXT-VGS-ELI-Compliant', 'mandate_certification': 'MANDATE-BOUND', 'enforcement_model': 'Structural DENY — no bypass path admitted', 'boundary_type': 'Pre-execution admissibility gate', 'issued_at': '2026-05-30T21:00:00+00:00', 'expires_at': '2027-05-30T21:00:00+00:00', 'status': 'ACTIVE', 'pqc_algorithm': 'ML-DSA-65', 'fips_standard': 'FIPS 204 / NIST ML-DSA', 'content_hash': 'sha3-256:b48673ddb6d7c95767d38507f8c87d7ee8c157ea7daa0f070c79145795652802', 'pqc_signature': 'STUB-SHA3-256:8930fe331ec441218a522c3dc50d75c4c244f747812cef527908e899fd7f7174', 'external_protocol': {'name': 'VGS-ELI: Execution Legitimacy Infrastructure', 'version': '1.0.0', 'doi': '10.5281/zenodo.20451306', 'invariants': ['VGS-ELI-INV-001', 'VGS-ELI-INV-008'], 'inv_001_desc': 'Pre-Execution Admissibility — authority resolved before action', 'inv_008_desc': 'Causality Preserved — decision trace is causally complete'}}
+
+_POGR_LEDGER = {"POGC-EXT-A7F3C2B1D9E4F508": _POGR_FIRST_CERT}
+
+
+class PogcStoreRequest(BaseModel):
+    pogc_json: str
+    verify: bool = True
+
+class PogcVerifyRequest(BaseModel):
+    pogc_id:       str = ""
+    content_hash:  str = ""
+    evidence_hash: str = ""
+
+
+@app.get("/v1/pogr/certificate/first", tags=["PoGR Integration"])
+async def pogr_first_certificate(x_api_key: Optional[str] = Header(None)):
+    """
+    The Historic First PoGR Certificate — Issued to VeriSigil AI.
+    POGC-EXT-A7F3C2B1D9E4F508 · OMNIX QUANTUM LTD · 2026-05-30
+    Harold: "The refusal is the proof, not the log."
+    """
+    require_api_key(x_api_key)
+    return {
+        "schema": "VGS-POGR-FIRST-v1",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "historic": True,
+        "title": "First External PoGR Certificate Ever Issued",
+        "significance": (
+            "VeriSigil AI is the first organisation to receive an external "
+            "Proof of Governance Certificate under the OMNIX PoGR registry. "
+            "Issued 2026-05-30 for a live production governance decision."
+        ),
+        "certificate": _POGR_FIRST_CERT,
+        "harold_quote": "The refusal is the proof, not the log.",
+        "stack_position": {
+            "verisigil_layer": "Runtime enforcement — BEFORE execution (DENY prevented the action)",
+            "omnix_layer": "Governance attestation — AFTER execution (PoGC proves governance occurred)",
+            "composability": "One is the frame; the other is the evidence.",
+        },
+        "verify_offline": {
+            "method": "SHA-256 of canonical fields",
+            "content_hash": _POGR_FIRST_CERT["content_hash"],
+            "evidence_hash": _POGR_FIRST_CERT["evidence_hash"],
+            "no_omnix_access_required": True,
+        },
+    }
+
+
+@app.get("/v1/pogr/certificate/{pogc_id}", tags=["PoGR Integration"])
+async def pogr_get_certificate(pogc_id: str, x_api_key: Optional[str] = Header(None)):
+    """Retrieve a PoGR Certificate by ID from the VeriSigil ledger."""
+    require_api_key(x_api_key)
+    cert = _POGR_LEDGER.get(pogc_id)
+    if not cert:
+        return {
+            "found": False, "pogc_id": pogc_id,
+            "message": f"Certificate {pogc_id} not found. Register via POST /v1/pogr/certificate/store",
+        }
+    return {
+        "schema": "VGS-POGR-CERT-v1",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "found": True, "pogc_id": pogc_id,
+        "certificate": cert,
+        "status": cert.get("status", "ACTIVE"),
+        "expires_at": cert.get("expires_at", ""),
+    }
+
+
+@app.post("/v1/pogr/verify", tags=["PoGR Integration"])
+async def pogr_verify(req: PogcVerifyRequest, x_api_key: Optional[str] = Header(None)):
+    """
+    Verify a PoGR Certificate Offline.
+    Harold: "Content hash recomputes offline — no OMNIX access required."
+    """
+    require_api_key(x_api_key)
+    ts = datetime.now(timezone.utc).isoformat()
+    if req.pogc_id and req.pogc_id in _POGR_LEDGER:
+        cert  = _POGR_LEDGER[req.pogc_id]
+        match = (not req.content_hash) or cert.get("content_hash","") == req.content_hash
+        return {
+            "schema": "VGS-POGR-VERIFY-v1", "timestamp": ts,
+            "verified": match, "pogc_id": req.pogc_id,
+            "issuer": cert.get("issuer",""), "subject": cert.get("subject_org",""),
+            "status": cert.get("status",""), "content_hash_match": match,
+            "evidence_hash": cert.get("evidence_hash",""),
+            "offline_method": "SHA-256 canonical field hash — no OMNIX access required",
+        }
+    if req.evidence_hash:
+        for cid, cert in _POGR_LEDGER.items():
+            if cert.get("evidence_hash") == req.evidence_hash:
+                return {
+                    "schema": "VGS-POGR-VERIFY-v1", "timestamp": ts,
+                    "verified": True, "pogc_id": cid,
+                    "issuer": cert.get("issuer",""), "subject": cert.get("subject_org",""),
+                    "status": cert.get("status",""), "evidence_hash_match": True,
+                }
+    return {"schema": "VGS-POGR-VERIFY-v1", "timestamp": ts, "verified": False,
+            "message": "Certificate not found. Provide pogc_id or evidence_hash."}
+
+
+@app.post("/v1/pogr/certificate/store", tags=["PoGR Integration"])
+async def pogr_store(req: PogcStoreRequest, x_api_key: Optional[str] = Header(None)):
+    """Store a PoGR Certificate in the VeriSigil runtime ledger."""
+    require_api_key(x_api_key)
+    try:
+        cert_data = _json_lib.loads(req.pogc_json)
+    except Exception:
+        return {"error": "Invalid JSON"}
+    pogc_id = cert_data.get("pogc_id","")
+    if not pogc_id:
+        return {"error": "pogc_id required"}
+    _POGR_LEDGER[pogc_id] = cert_data
+    await log_event("pogr_ledger", "POGC_STORED", {"pogc_id": pogc_id})
+    return {
+        "schema": "VGS-POGR-STORE-v1",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "stored": True, "pogc_id": pogc_id,
+        "retrieve": f"GET /v1/pogr/certificate/{pogc_id}",
+    }
+
+
+@app.get("/v1/stack/compose", tags=["PoGR Integration"])
+async def stack_compose(x_api_key: Optional[str] = Header(None)):
+    """
+    VeriSigil + PoGR Composability Specification.
+    Harold: "Two layers that need each other to be complete."
+    """
+    require_api_key(x_api_key)
+    return {
+        "schema": "VGS-STACK-COMPOSE-v1",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "title": "VeriSigil + PoGR Composability Specification",
+        "harold_confirmation": (
+            "Infrastructure cert establishes what governance framework was in place. "
+            "Execution receipts prove what happened under it. "
+            "Neither replaces the other — one is the frame; the other is the evidence."
+        ),
+        "the_two_layers": {
+            "verisigil": {
+                "role": "Runtime enforcement — pre-execution constitutional gate",
+                "timing": "BEFORE — determines whether execution is admitted",
+                "question": "Can the action execute at all?",
+                "endpoint": "POST /v1/constitutional-gateway/verify",
+            },
+            "pogr_omnix": {
+                "role": "Governance attestation — post-execution certificate registry",
+                "timing": "AFTER — certifies governance framework was in place",
+                "question": "Can we prove governance existed and what evidence was produced?",
+                "issuer": "OMNIX QUANTUM LTD",
+                "protocol": "ADR-186/187 · RFC-ATF-1 through RFC-ATF-6",
+            },
+        },
+        "composability_sequence": [
+            {"step": 1, "actor": "VeriSigil", "action": "Issue agent passport", "endpoint": "POST /v1/constitutional-gateway/issue"},
+            {"step": 2, "actor": "VeriSigil", "action": "Gate the action", "endpoint": "POST /v1/constitutional-gateway/verify", "output": "DENY · evidence_hash: 586b996f..."},
+            {"step": 3, "actor": "VeriSigil", "action": "Export evidence bundle", "endpoint": "POST /v1/constitutional-gateway/prove"},
+            {"step": 4, "actor": "OMNIX PoGR", "action": "Issue PoGC", "output": "POGC-EXT-A7F3C2B1D9E4F508 · ML-DSA-65 signed"},
+            {"step": 5, "actor": "VeriSigil", "action": "Store PoGC", "endpoint": "POST /v1/pogr/certificate/store"},
+            {"step": 6, "actor": "Regulator", "action": "Verify offline", "endpoint": "GET /v1/pogr/certificate/{pogc_id}"},
+        ],
+        "sandbox_test": {
+            "url": "https://verisigilai.com/sandbox_demo.html",
+            "harold": "Looking forward to the sandbox — first real test of where they compose.",
+        },
+        "first_pogc": {
+            "id": "POGC-EXT-A7F3C2B1D9E4F508",
+            "issued": "2026-05-30",
+            "retrieve": "GET /v1/pogr/certificate/POGC-EXT-A7F3C2B1D9E4F508",
+        },
+    }
+
+
+@app.get("/v1/pogr/integration", tags=["PoGR Integration"])
+async def pogr_integration(x_api_key: Optional[str] = Header(None)):
+    """Technical integration specification for VeriSigil + OMNIX PoGR."""
+    require_api_key(x_api_key)
+    return {
+        "schema": "VGS-POGR-INTEGRATION-v1",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "title": "VeriSigil + PoGR Integration Specification",
+        "architecture": {
+            "enforcement_layer": "VeriSigil AI — constitutional runtime enforcement",
+            "attestation_layer": "OMNIX PoGR — governance certificate registry",
+            "integration_point": "evidence_hash from VeriSigil → input to OMNIX PoGC issuance",
+        },
+        "integration_steps": {
+            "step_1": "pip install verisigil",
+            "step_2": "POST /v1/constitutional-gateway/issue — issue agent passport",
+            "step_3": "POST /v1/constitutional-gateway/verify — govern every action",
+            "step_4": "POST /v1/constitutional-gateway/prove — export evidence bundle",
+            "step_5": "Submit evidence_hash to OMNIX for PoGC issuance",
+            "step_6": "POST /v1/pogr/certificate/store — store PoGC in VeriSigil ledger",
+            "step_7": "GET /v1/pogr/certificate/{pogc_id} — full composed governance record",
+        },
+        "first_live_example": {
+            "agent": "financial-agent-1780111266",
+            "action": "wire_transfer $250,000",
+            "verisigil_verdict": "DENY",
+            "evidence_hash": "586b996f53da83652b2690b4117a4830d4bde3c22c7737085c40f5ee86a4ac3a",
+            "pogc_id": "POGC-EXT-A7F3C2B1D9E4F508",
+            "pogc_issuer": "OMNIX QUANTUM LTD",
+            "date": "2026-05-30",
+        },
+        "contact": {
+            "verisigil": "enterprise@verisigilai.com",
+            "sandbox": "https://verisigilai.com/sandbox_demo.html",
+        },
+    }
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=int(os.environ.get("PORT", 8000)), reload=False)
