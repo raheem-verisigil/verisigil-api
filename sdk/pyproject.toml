@@ -1,0 +1,14 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "verisigil"
+version = "1.0.0"
+description = "Constitutional Gateway SDK — Issue → Verify → Prove"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = ["httpx>=0.24.0"]
+
+[project.scripts]
+verisigil = "verisigil.demo:main"
