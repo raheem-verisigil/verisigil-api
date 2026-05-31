@@ -17006,7 +17006,7 @@ async def deployment_guide(x_api_key: Optional[str] = Header(None)):
             "ENTERPRISE": "99.95% uptime · $2,499/month",
             "GOVERNMENT": "99.99% uptime · Custom pricing",
         },
-        "support": "enterprise@verisigilai.com",
+        "support": "info@verisigilai.com",
     }
 
 
@@ -47273,7 +47273,7 @@ async def pogr_integration(x_api_key: Optional[str] = Header(None)):
             "date": "2026-05-30",
         },
         "contact": {
-            "verisigil": "enterprise@verisigilai.com",
+            "verisigil": "info@verisigilai.com",
             "sandbox": "https://verisigilai.com/sandbox_demo.html",
         },
     }
@@ -48713,7 +48713,7 @@ async def rate_limit_middleware(request, call_next):
                 "limit":       RATE_LIMIT_PER_MIN,
                 "window":      "60 seconds",
                 "retry_after": 60 - (int(time.time()) % 60),
-                "upgrade":     "Enterprise plan includes higher rate limits. Contact enterprise@verisigilai.com",
+                "upgrade":     "Enterprise plan includes higher rate limits. Contact info@verisigilai.com",
             }
         )
     return await call_next(request)
