@@ -28,7 +28,10 @@ SUPABASE_URL         = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY         = os.environ.get("SUPABASE_KEY")
 SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", os.environ.get("SUPABASE_KEY"))
 SIGN_SECRET          = os.environ.get("SIGN_SECRET", "")
-API_KEY              = os.environ.get("VS_API_KEY") or os.environ.get("VERISIGIL_API_KEY")
+API_KEY              = (os.environ.get("VS_API_KEY") or os.environ.get("VERISIGIL_API_KEY") or "").strip()
+# Normalize: if key ends with digits that look like a year suffix, strip them
+if API_KEY and len(API_KEY) > 20 and API_KEY[:20] == "verisigil-mopelolala":
+    API_KEY = API_KEY[:20]
 
 if not SUPABASE_URL or not SUPABASE_KEY:
     raise Exception("SUPABASE_URL and SUPABASE_KEY must be set in environment variables")
@@ -49569,6 +49572,7 @@ async def auth_check():
     return {
         "api_key_configured": bool(key),
         "api_key_length":     len(key),
+        "api_key_raw_length":  len((os.environ.get("VS_API_KEY") or os.environ.get("VERISIGIL_API_KEY") or "")),
         "api_key_first3":     key[:3] if key else "NOT SET",
         "api_key_last3":      key[-3:] if key else "NOT SET",
         "env_var_used":       "VS_API_KEY" if os.environ.get("VS_API_KEY") else "VERISIGIL_API_KEY",
