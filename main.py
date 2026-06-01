@@ -24238,7 +24238,7 @@ def _sha256(text: str) -> str:
 
 # ── LAYER 1: SEMANTIC DRIFT ──────────────────────────────────
 
-def detect_semantic_drift(original: str, generated: str) -> dict:
+def _detect_semantic_drift_v1(original: str, generated: str) -> dict:
     """
     Measures vocabulary and meaning displacement.
     Uses Jaccard similarity on meaningful word tokens.
