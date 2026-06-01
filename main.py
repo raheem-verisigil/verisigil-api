@@ -4348,7 +4348,7 @@ async def document_snapshot(
     })
     return snapshot
 
-@app.post("/v1/document/verify", tags=["Document Integrity"])
+@app.post("/v1/document/verify-legacy", tags=["Document Integrity"])
 async def document_verify(
     req:       DocumentVerifyRequest,
     x_api_key: Optional[str] = Header(None),
