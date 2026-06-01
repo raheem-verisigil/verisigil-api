@@ -451,27 +451,6 @@ def custom_openapi():
 
 app.openapi = custom_openapi
 
-# ── GLOBAL EXCEPTION HANDLER ─────────────────────────────────
-# Returns actual error detail instead of generic "Internal Server Error"
-# Critical for debugging production issues
-
-from fastapi.responses import JSONResponse
-from fastapi.exceptions import RequestValidationError
-
-@app.exception_handler(Exception)
-async def global_exception_handler(request, exc):
-    import traceback
-    if hasattr(exc, "status_code"):
-        return JSONResponse(
-            status_code=exc.status_code,
-            content={"detail": exc.detail if hasattr(exc, "detail") else str(exc)}
-        )
-    tb = traceback.format_exc()[-500:]
-    return JSONResponse(
-        status_code=500,
-        content={"detail": f"{type(exc).__name__}: {str(exc)[:300]}", "trace": tb}
-    )
-
 
 
 
@@ -49326,58 +49305,56 @@ async def document_verify_unified(
 
     Returns unified corruption score + governance decision.
     """
-    import traceback as _tb
-    try:
-        require_api_key(x_api_key, authorization)
+    require_api_key(x_api_key, authorization)
 
-        original  = req.original_text.strip()
-        generated = req.get_current()
-        doc_type  = req.document_type or req.context or "general"
+    original  = req.original_text.strip()
+    generated = req.get_current()
+    doc_type  = req.document_type or req.context or "general"
 
-        if not original or not generated:
+    if not original or not generated:
             raise HTTPException(400, "Both original_text and generated_text (or current_text) are required")
 
-        verify_id = f"SVERIFY-{_sha256(req.document_id + original)[:10].upper()}"
+    verify_id = f"SVERIFY-{_sha256(req.document_id + original)[:10].upper()}"
 
-        # Run all 4 detection layers
-        drift     = detect_semantic_drift(original, generated, doc_type, req.interaction_num)
-        # Normalise score key
-        if "score" not in drift: drift["score"] = drift.get("drift_score", 0.0)
-        mutation  = detect_clause_mutation(original, generated)
-        intent    = detect_intent_corruption(original, generated)
-        numerical = detect_numerical_inconsistency(original, generated)
+    # Run all 4 detection layers
+    drift     = detect_semantic_drift(original, generated, doc_type, req.interaction_num)
+    # Normalise score key
+    if "score" not in drift: drift["score"] = drift.get("drift_score", 0.0)
+    mutation  = detect_clause_mutation(original, generated)
+    intent    = detect_intent_corruption(original, generated)
+    numerical = detect_numerical_inconsistency(original, generated)
 
-        # Master corruption score
-        corruption_score = compute_corruption_score(drift, mutation, intent, numerical)
-        gov_decision     = governance_decision(corruption_score, req.consequence)
-        integrity_score  = round((1.0 - corruption_score) * 100, 1)
+    # Master corruption score
+    corruption_score = compute_corruption_score(drift, mutation, intent, numerical)
+    gov_decision     = governance_decision(corruption_score, req.consequence)
+    integrity_score  = round((1.0 - corruption_score) * 100, 1)
 
-        sev_order = {"CRITICAL":4,"HIGH":3,"MEDIUM":2,"LOW":1,"NONE":0}
-        overall_severity = max(
+    sev_order = {"CRITICAL":4,"HIGH":3,"MEDIUM":2,"LOW":1,"NONE":0}
+    overall_severity = max(
             [drift.get("severity","NONE"), mutation.get("severity","NONE"),
              intent.get("severity","NONE"), numerical.get("severity","NONE")],
             key=lambda s: sev_order.get(s, 0)
-        )
+    )
 
-        original_hash  = _sha256(original)
-        generated_hash = _sha256(generated)
+    original_hash  = _sha256(original)
+    generated_hash = _sha256(generated)
 
-        # Governance signature
-        gov_payload = {
+    # Governance signature
+    gov_payload = {
             "verify_id":       verify_id,
             "document_id":     req.document_id,
             "corruption_score":corruption_score,
             "decision":        gov_decision,
             "timestamp":       datetime.now(timezone.utc).isoformat(),
-        }
-        signature = sign_governance_payload(gov_payload)
+    }
+    signature = sign_governance_payload(gov_payload)
 
-        await log_event("semantic_verify", "DOCUMENT_VERIFIED", {
+    await log_event("semantic_verify", "DOCUMENT_VERIFIED", {
             "verify_id": verify_id, "corruption_score": corruption_score,
             "decision": gov_decision, "document_id": req.document_id
-        })
+    })
 
-        return {
+    return {
             "schema":            "VGS-SEMANTIC-VERIFY-v2",
             "verify_id":         verify_id,
             "document_id":       req.document_id,
@@ -49402,18 +49379,12 @@ async def document_verify_unified(
             "offline_verifiable": True,
             "verify_at":         "POST /v1/crypto/verify",
             "consequence_tier":  req.consequence,
-        }
+    }
 
 
 # ── LAYER 1: SEMANTIC DRIFT ────────────────────────────────
 
-    except HTTPException:
-        raise
-    except Exception as _e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error in document/verify: {type(_e).__name__}: {str(_e)[:300]}"
-        )
+
 @app.post("/v1/document/semantic-drift", tags=["Document Integrity — Deep Build"])
 async def document_semantic_drift_endpoint(
     req:       DriftScoreRequest,
