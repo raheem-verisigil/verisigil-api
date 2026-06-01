@@ -513,9 +513,12 @@ def require_api_key(x_api_key: Optional[str] = None,
         if token == valid:
             return
 
+    # Show exact comparison for debugging
+    recv_clean = clean(x_api_key) if x_api_key else ""
+    valid_clean = clean(API_KEY or "")
     raise HTTPException(
         status_code=401,
-        detail="Invalid API key. Check your credentials at verisigilai.com/auth"
+        detail=f"Auth failed: received_len={len(recv_clean)} expected_len={len(valid_clean)} first3_recv={recv_clean[:3]!r} first3_exp={valid_clean[:3]!r} match={recv_clean==valid_clean}"
     )
 
 
