@@ -479,26 +479,40 @@ def require_api_key(x_api_key: Optional[str] = None,
                     authorization: Optional[str] = None):
     """
     Checks x-api-key header OR Authorization: Bearer token.
-    Both x_api_key and authorization are injected by FastAPI
-    from request headers automatically.
+    Strips all whitespace and invisible characters before comparing.
     """
-    valid = API_KEY or ""
-    # x-api-key header (standard)
-    if x_api_key and x_api_key.strip() == valid:
-        return
-    # Authorization: Bearer <key> (Swagger UI)
+    import logging, unicodedata
+
+    def clean(s):
+        """Remove ALL whitespace and invisible unicode characters."""
+        if not s:
+            return ""
+        # Strip whitespace
+        s = s.strip()
+        # Remove any invisible unicode characters
+        s = "".join(c for c in s if not unicodedata.category(c).startswith("C"))
+        return s
+
+    valid = clean(API_KEY or "")
+
+    # x-api-key header
+    if x_api_key:
+        received = clean(x_api_key)
+        logging.warning(f"AUTH DEBUG: received={received!r} valid={valid!r} match={received==valid}")
+        if received == valid:
+            return
+
+    # Authorization: Bearer <key>
     if authorization:
-        token = authorization.strip()
+        token = clean(authorization)
         if token.startswith("Bearer "):
-            token = token[7:].strip()
+            token = clean(token[7:])
         if token == valid:
             return
-    # Debug: log what was received
-    import logging
-    logging.warning(f"Auth failed — x_api_key={'SET' if x_api_key else 'NONE'} auth={'SET' if authorization else 'NONE'} expected_len={len(valid)}")
+
     raise HTTPException(
         status_code=401,
-        detail=f"Invalid API key. Received x-api-key={'yes' if x_api_key else 'no'}, bearer={'yes' if authorization else 'no'}"
+        detail="Invalid API key. Check your credentials at verisigilai.com/auth"
     )
 
 
@@ -49542,6 +49556,23 @@ async def document_replay(
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
+
+
+@app.get("/v1/debug/auth-check", tags=["System"])
+async def auth_check():
+    """
+    Public endpoint — no auth required.
+    Shows whether VERISIGIL_API_KEY is configured in Railway.
+    Use this to confirm the env var is set before testing auth.
+    """
+    key = API_KEY or ""
+    return {
+        "api_key_configured": bool(key),
+        "api_key_length":     len(key),
+        "api_key_first3":     key[:3] if key else "NOT SET",
+        "api_key_last3":      key[-3:] if key else "NOT SET",
+        "note": "If configured, enter the full key in Swagger Authorize → x-api-key field"
+    }
 
 
 if __name__ == "__main__":
