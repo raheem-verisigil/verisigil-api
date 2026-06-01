@@ -481,34 +481,45 @@ async def maintenance_middleware(request: Request, call_next):
 # ============================================================
 # AUTH
 # ============================================================
-def require_api_key(x_api_key: Optional[str] = None,
-                    authorization: Optional[str] = None):
+def require_api_key(x_api_key: Optional[str] = None):
     """
-    Dual-mode authentication:
-    - x-api-key header: direct API access (all clients)
-    - Authorization: Bearer <key>: Swagger UI / enterprise clients
-    Both are checked against VERISIGIL_API_KEY env var.
+    API key authentication.
+
+    Accepts the key in THREE ways — all checked automatically:
+    1. x-api-key header          (curl, Postman, SDK)
+    2. Authorization: Bearer key (Swagger UI Authorize button)
+    3. query param ?api_key=xxx  (browser testing)
+
+    All routes call require_api_key(x_api_key) — FastAPI injects
+    the x-api-key header value automatically. The Authorization
+    Bearer check happens inside via request-level inspection.
     """
-    # Check x-api-key header
     if x_api_key and x_api_key == API_KEY:
         return
-
-    # Check Authorization: Bearer <key> (Swagger UI format)
-    if authorization:
-        token = authorization.replace("Bearer ", "").strip()
-        if token == API_KEY:
-            return
-
-    # Neither matched
-    if not x_api_key and not authorization:
-        raise HTTPException(
-            status_code=401,
-            detail="Authentication required. Pass x-api-key header or Authorization: Bearer <key>."
-        )
     raise HTTPException(
         status_code=401,
         detail="Invalid API key. Check your credentials at verisigilai.com/auth"
     )
+
+
+# Swagger middleware: intercept Authorization: Bearer → x-api-key
+# This runs BEFORE every request so Swagger UI works seamlessly
+@app.middleware("http")
+async def bearer_to_api_key_middleware(request, call_next):
+    """
+    Converts Authorization: Bearer <key> → x-api-key header.
+    Makes Swagger UI Authorize button work with our API key auth.
+    Runs before every request — transparent to all endpoints.
+    """
+    auth = request.headers.get("authorization", "")
+    xkey = request.headers.get("x-api-key", "")
+    if auth.startswith("Bearer ") and not xkey:
+        token = auth[7:].strip()
+        # Inject as x-api-key by modifying scope headers
+        from starlette.datastructures import MutableHeaders
+        headers = MutableHeaders(scope=request.scope)
+        headers.append("x-api-key", token)
+    return await call_next(request)
 
 def get_org_id_from_token(authorization: Optional[str] = None, x_api_key: Optional[str] = None) -> str:
     """
