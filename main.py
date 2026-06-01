@@ -481,21 +481,20 @@ async def maintenance_middleware(request: Request, call_next):
 # ============================================================
 # AUTH
 # ============================================================
-def require_api_key(x_api_key: Optional[str] = None):
+def require_api_key(x_api_key: Optional[str] = None,
+                    authorization: Optional[str] = None):
     """
-    API key authentication.
-
-    Accepts the key in THREE ways — all checked automatically:
-    1. x-api-key header          (curl, Postman, SDK)
-    2. Authorization: Bearer key (Swagger UI Authorize button)
-    3. query param ?api_key=xxx  (browser testing)
-
-    All routes call require_api_key(x_api_key) — FastAPI injects
-    the x-api-key header value automatically. The Authorization
-    Bearer check happens inside via request-level inspection.
+    API key authentication — checks x-api-key AND Bearer token.
+    Works for: curl, Postman, Swagger UI, SDK clients.
     """
+    # Direct x-api-key header
     if x_api_key and x_api_key == API_KEY:
         return
+    # Swagger UI sends Authorization: Bearer <key>
+    if authorization:
+        token = authorization.replace("Bearer ", "").strip()
+        if token and token == API_KEY:
+            return
     raise HTTPException(
         status_code=401,
         detail="Invalid API key. Check your credentials at verisigilai.com/auth"
@@ -1577,7 +1576,7 @@ async def status():
 
 @app.get("/admin/system", tags=["Admin"])
 async def admin_system(x_api_key: Optional[str] = Header(None)):
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return {
         "version":       DEPLOY_VERSION,
         "env":           DEPLOY_ENV,
@@ -1930,7 +1929,8 @@ class ProgressionRequest(BaseModel):
 @app.post("/v1/progression/evaluate", tags=["Progression Admissibility"])
 async def evaluate_progression_endpoint(
     req:       ProgressionRequest,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     PROGRESSION ADMISSIBILITY ENGINE
@@ -1953,7 +1953,7 @@ async def evaluate_progression_endpoint(
 
     Every decision chained to immutable Merkle audit trail.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     # First verify agent identity via passport
     passport = await db_get("passports", "agent_id", req.agent_id)
@@ -1988,13 +1988,14 @@ async def evaluate_progression_endpoint(
 @app.post("/v1/progression/simulate", tags=["Progression Admissibility"])
 async def simulate_progression(
     req:       ProgressionRequest,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Simulate a progression decision without logging to audit trail.
     Use this to test your workflow configuration before going live.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     result = evaluate_progression(
         agent_id          = req.agent_id,
@@ -2469,17 +2470,18 @@ async def start_chain(
     x_api_key:   Optional[str] = Header(None)
 ):
     """Start a new agent chain — call when first agent initiates a workflow."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     chain = create_agent_chain(agent_id, workflow_id, org_id)
     return chain
 
 @app.post("/v1/chain/provenance/record", tags=["Runtime Governance"])
 async def record_chain_call(
     req:       ChainCallRequest,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """Record one agent calling another within a chain."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     call = record_agent_call(
         chain_id    = req.chain_id,
         caller_id   = req.caller_id,
@@ -2494,16 +2496,17 @@ async def record_chain_call(
 @app.get("/v1/chain/provenance/{chain_id}", tags=["Runtime Governance"])
 async def get_provenance(
     chain_id:  str,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """Get full provenance for an agent chain — who called who with what authority."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return get_chain_provenance(chain_id)
 
 @app.get("/v1/chain/provenance", tags=["Runtime Governance"])
 async def list_chains(x_api_key: Optional[str] = Header(None)):
     """List all active agent chains."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return {
         "total_chains": len(_agent_chains),
         "chains": [
@@ -2538,21 +2541,22 @@ async def start_monitor(
     x_api_key:    Optional[str] = Header(None)
 ):
     """Start continuous admissibility monitoring for a long-running agent."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     monitor = start_continuous_monitor(agent_id, workflow_id, interval_sec, org_id)
     return monitor
 
 @app.post("/v1/continuous/check", tags=["Runtime Governance"])
 async def check_continuous(
     req:       ContinuousCheckRequest,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Run one continuous admissibility check.
     Agent calls this periodically to confirm it can continue executing.
     Returns ADMISSIBLE, PAUSE_REQUIRED, or HALT_REQUIRED.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return continuous_check(req.monitor_id, req.trust_score, req.context)
 
 @app.get("/v1/continuous/{monitor_id}", tags=["Runtime Governance"])
@@ -2561,7 +2565,7 @@ async def get_monitor(
     x_api_key:  Optional[str] = Header(None)
 ):
     """Get current status of a continuous monitor."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     monitor = _continuous_monitors.get(monitor_id)
     if not monitor:
         raise HTTPException(404, f"Monitor {monitor_id} not found")
@@ -2578,14 +2582,15 @@ class SurvivabilityRequest(BaseModel):
 @app.post("/v1/survivability/score", tags=["Runtime Governance"])
 async def survivability_score(
     req:       SurvivabilityRequest,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Score execution survivability — how recoverable is a failure?
     0.0 = catastrophic · 1.0 = fully recoverable
     Returns recommendation: PROCEED / PROCEED_WITH_CAUTION / REQUIRE_APPROVAL / BLOCK
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     result = score_survivability(
         action           = req.action,
         consequence      = req.consequence,
@@ -2621,14 +2626,15 @@ class RevalidationRequest(BaseModel):
 @app.post("/v1/revalidate", tags=["Runtime Governance"])
 async def revalidate(
     req:       RevalidationRequest,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Revalidate a previously approved execution at a new workflow step.
     Checks if the original decision still holds given current context.
     Returns still_valid: true/false and new decision if changed.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     result = await runtime_revalidate(
         agent_id          = req.agent_id,
         execution_id      = req.execution_id,
@@ -2645,7 +2651,7 @@ async def get_revalidations(
     x_api_key:    Optional[str] = Header(None)
 ):
     """Get all revalidation records for an execution."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     records = _revalidation_records.get(execution_id, [])
     return {
         "execution_id":       execution_id,
@@ -2661,7 +2667,7 @@ async def governance_summary(x_api_key: Optional[str] = Header(None)):
     Full runtime governance summary — all active monitors,
     chains, revalidations, and survivability scores in one call.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     active_monitors = [m for m in _continuous_monitors.values() if not m["paused"]]
     paused_monitors = [m for m in _continuous_monitors.values() if m["paused"]]
@@ -3152,7 +3158,7 @@ async def map_transitions(
     This answers: 'What state transitions remain permissible
     under current conditions before consequence binds?'
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     passport    = await db_get("passports", "agent_id", agent_id)
     trust_score = float(passport.get("trust_score", 0.963)) if passport else 0.963
@@ -3177,7 +3183,8 @@ async def map_transitions(
 @app.post("/v1/transitions/binding-point", tags=["Operational State Governance"])
 async def detect_binding(
     req:       BindingPointRequest,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     CONSEQUENCE BINDING POINT DETECTION
@@ -3195,7 +3202,7 @@ async def detect_binding(
     - last_intervention_step: last opportunity to prevent binding
     - governance_recommendation: what to do right now
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     result = detect_binding_point(
         agent_id       = req.agent_id,
@@ -3218,7 +3225,8 @@ async def detect_binding(
 @app.post("/v1/conditions/update", tags=["Operational State Governance"])
 async def update_conditions(
     req:       ConditionChangeRequest,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     OPERATIONAL CONDITION MONITOR
@@ -3242,7 +3250,7 @@ async def update_conditions(
     - maintained: permissions still valid
     - auto_revoked: true if any permissions were revoked
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     result = evaluate_condition_change(
         agent_id           = req.agent_id,
@@ -3269,7 +3277,7 @@ async def get_conditions(
     x_api_key:  Optional[str] = Header(None)
 ):
     """Get current operational conditions for an agent/workflow."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     conditions = get_operational_conditions(agent_id, workflow_id)
     return {
         "agent_id":    agent_id,
@@ -3285,7 +3293,7 @@ async def get_taxonomy(x_api_key: Optional[str] = Header(None)):
     Shows binding risk, reversibility, and consequence level
     for every supported action type.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return {
         "total_actions":  len(TRANSITION_TAXONOMY),
         "taxonomy":       TRANSITION_TAXONOMY,
@@ -3880,7 +3888,8 @@ class CognitiveGovernanceRequest(BaseModel):
 @app.post("/v1/cognitive/evaluate", tags=["Cognitive Governance"])
 async def cognitive_evaluate(
     req:       CognitiveGovernanceRequest,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     COGNITIVE GOVERNANCE INTERFACE LAYER
@@ -3901,7 +3910,7 @@ async def cognitive_evaluate(
     Governance is not just the decision — it is how that decision
     is presented to the human who must own it.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     result = evaluate_cognitive_governance(
         decision    = req.decision,
@@ -3944,7 +3953,7 @@ async def get_friction_controls(
     Get decision friction controls for a given governance scenario.
     Returns exact friction level, delay, and acknowledgment requirements.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return apply_decision_friction(
         consequence          = consequence,
         confidence           = confidence,
@@ -4268,7 +4277,8 @@ class DocumentVerifyRequest(BaseModel):
 @app.post("/v1/document/snapshot", tags=["Document Integrity"])
 async def document_snapshot(
     req:       DocumentSnapshotRequest,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     CREATE DOCUMENT INTEGRITY SNAPSHOT
@@ -4283,7 +4293,7 @@ async def document_snapshot(
     'LLMs Corrupt Your Documents When You Delegate'
     GPT-5: 91.5% integrity at 2 interactions → 48.3% at 20 interactions.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     snapshot = create_document_snapshot(
         document_id   = req.document_id,
         agent_id      = req.agent_id,
@@ -4303,7 +4313,8 @@ async def document_snapshot(
 @app.post("/v1/document/verify", tags=["Document Integrity"])
 async def document_verify(
     req:       DocumentVerifyRequest,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     VERIFY DOCUMENT INTEGRITY
@@ -4321,7 +4332,7 @@ async def document_verify(
 
     Call after EVERY agent interaction on regulated documents.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     result = verify_document_integrity(
         document_id     = req.document_id,
         agent_id        = req.agent_id,
@@ -4349,7 +4360,7 @@ async def document_report(
     Shows the degradation curve — how integrity changed over time.
     Includes Microsoft Research comparison baseline.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return get_document_integrity_report(document_id)
 
 @app.get("/v1/document/{document_id}/status", tags=["Document Integrity"])
@@ -4358,7 +4369,7 @@ async def document_status(
     x_api_key:   Optional[str] = Header(None)
 ):
     """Quick document integrity status check."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     snapshot = _document_registry.get(document_id)
     if not snapshot:
         raise HTTPException(404, f"Document {document_id} not found")
@@ -4374,7 +4385,7 @@ async def document_status(
 @app.get("/v1/documents", tags=["Document Integrity"])
 async def list_documents(x_api_key: Optional[str] = Header(None)):
     """List all tracked documents and their integrity status."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return {
         "total_documents": len(_document_registry),
         "documents": [
@@ -4657,7 +4668,8 @@ class FullVerifyRequest(BaseModel):
 @app.post("/v1/document/full-verify", tags=["Document Integrity"])
 async def full_document_verify(
     req:       FullVerifyRequest,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     FULL DOCUMENT INTEGRITY VERIFICATION
@@ -4669,7 +4681,7 @@ async def full_document_verify(
     - Unified recommendation
     - All violations from both layers
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     # Structural check
     structural = verify_document_integrity(
         document_id     = req.document_id,
@@ -5337,14 +5349,15 @@ def bind_intent_to_execution(
 @app.get("/v1/invariants", tags=["Formal Governance"])
 async def list_invariants(
     category:  Optional[str] = None,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     VGS-001: List all 40 governance invariants.
     Machine-enforceable governance law.
     Violations halt execution immediately — no exceptions.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     invariants = list(GOVERNANCE_INVARIANTS.values())
     if category:
         invariants = [i for i in invariants if i["category"] == category.upper()]
@@ -5372,13 +5385,14 @@ class InvariantCheckRequest(BaseModel):
 @app.post("/v1/invariants/check", tags=["Formal Governance"])
 async def check_governance_invariants(
     req:       InvariantCheckRequest,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     VGS-001: Check all applicable invariants for an action.
     Hard stop on any violation. Returns full invariant report.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     passport = await db_get("passports", "agent_id", req.agent_id)
     result   = check_invariants(
         action_type   = req.action_type,
@@ -5420,7 +5434,7 @@ async def create_governance_receipt(
     Forensic evidence artifact. Cross-jurisdiction verifiable.
     Every governance decision deserves a signed receipt.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     receipt = generate_governance_receipt(
         decision_id         = decision_id,
         agent_id            = agent_id,
@@ -5454,7 +5468,8 @@ class StateTransitionRequest(BaseModel):
 @app.post("/v1/state/transition", tags=["Formal Governance"])
 async def evaluate_transition(
     req:       StateTransitionRequest,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     VGS-002: Evaluate governance state transition.
@@ -5463,7 +5478,7 @@ async def evaluate_transition(
     - evidence complete
     - invariants satisfied
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     passport = await db_get("passports", "agent_id", req.agent_id)
     inv_result = check_invariants(
         action_type   = "state_transition",
@@ -5486,7 +5501,7 @@ async def evaluate_transition(
 @app.get("/v1/state/machine", tags=["Formal Governance"])
 async def get_state_machine(x_api_key: Optional[str] = Header(None)):
     """VGS-002: Full governance state machine definition."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return {
         "schema":      "VGS-002",
         "description": "Formal governance state machine. Defines all permissible state transitions.",
@@ -5504,14 +5519,15 @@ class IntentBindRequest(BaseModel):
 @app.post("/v1/intent/bind", tags=["Formal Governance"])
 async def intent_bind(
     req:       IntentBindRequest,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     VGS-005: Bind declared intent to execution pathway.
     Detects when execution deviates from declared intent.
     Misaligned intent blocks HIGH consequence actions.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     result = bind_intent_to_execution(
         agent_id        = req.agent_id,
         declared_intent = req.declared_intent,
@@ -5544,7 +5560,7 @@ async def crypto_status(x_api_key: Optional[str] = Header(None)):
     Cryptographic capability status.
     Shows Ed25519 and Dilithium-3 availability.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return {
         "ed25519": {
             "available":   True,
@@ -5570,14 +5586,15 @@ async def crypto_status(x_api_key: Optional[str] = Header(None)):
 async def dual_sign(
     payload:   dict,
     algorithm: str = "dual",
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Sign any payload with Ed25519 and/or Dilithium-3.
     algorithm: 'ed25519' | 'dilithium3' | 'dual'
     Dual signing provides immediate + post-quantum security.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     if algorithm == "ed25519":
         return {"signature": sign_payload(payload), "algorithm": "ed25519", "quantum_safe": False}
     elif algorithm == "dilithium3":
@@ -5590,10 +5607,11 @@ async def verify_signature(
     payload:   dict,
     signature: str,
     algorithm: str = "dilithium3",
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """Verify an Ed25519 or Dilithium-3 signature."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     if algorithm == "dilithium3":
         valid = verify_dilithium3(payload, signature)
     else:
@@ -6105,7 +6123,8 @@ class EATValidateRequest(BaseModel):
 @app.post("/v1/eat/issue", tags=["VGS-006 Execution Authority"])
 async def eat_issue(
     req:       EATIssueRequest,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     VGS-006: Issue an Execution Authority Token.
@@ -6117,7 +6136,7 @@ async def eat_issue(
     Dual-signed with Dilithium-3 + Ed25519.
     Auto-revokes on trust degradation, anomaly, or condition change.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     token = issue_eat(
         agent_id           = req.agent_id,
         delegated_by       = req.delegated_by,
@@ -6146,7 +6165,8 @@ async def eat_issue(
 @app.post("/v1/eat/validate", tags=["VGS-006 Execution Authority"])
 async def eat_validate(
     req:       EATValidateRequest,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     VGS-006: Validate an Execution Authority Token at the action boundary.
@@ -6157,7 +6177,7 @@ async def eat_validate(
 
     Returns ALLOW / DENY / REQUIRE_HUMAN_APPROVAL.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     result = validate_eat(
         token_id       = req.token_id,
         agent_id       = req.agent_id,
@@ -6186,10 +6206,11 @@ async def eat_validate(
 async def eat_revoke(
     token_id:  str,
     reason:    str,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """VGS-006: Revoke an EAT immediately. Implements RFC-ATF-2 revocation continuity."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     result = revoke_eat(token_id, reason)
     classify_evidence("ATR", "", {"token_id": token_id, "reason": reason, "action": "REVOKED"})
     return result
@@ -6197,7 +6218,7 @@ async def eat_revoke(
 @app.get("/v1/eat/{token_id}", tags=["VGS-006 Execution Authority"])
 async def get_eat(token_id: str, x_api_key: Optional[str] = Header(None)):
     """Get an Execution Authority Token by ID."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     token = _eat_registry.get(token_id)
     if not token:
         raise HTTPException(404, f"EAT {token_id} not found")
@@ -6206,10 +6227,11 @@ async def get_eat(token_id: str, x_api_key: Optional[str] = Header(None)):
 @app.get("/v1/eat", tags=["VGS-006 Execution Authority"])
 async def list_eats(
     agent_id:  Optional[str] = None,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """List all Execution Authority Tokens."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     tokens = list(_eat_registry.values())
     if agent_id:
         tokens = [t for t in tokens if t["agent_id"] == agent_id]
@@ -6229,7 +6251,7 @@ async def list_evidence(
     ATF RFC-ATF-3 compatible evidence lifecycle.
     8 evidence classes: GDR, RCR, ATR, EER, ADR, PVR, FRI, AIP.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     if evidence_class and evidence_class in _evidence_store:
         records = _evidence_store[evidence_class]
         return {
@@ -6272,7 +6294,7 @@ async def formal_invariants(x_api_key: Optional[str] = Header(None)):
     VGS-009: List formally specified invariants.
     These are mathematically proven — not just configurable policies.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     try:
         from vfgs import FORMAL_INVARIANTS
         return {
@@ -6296,7 +6318,7 @@ async def run_formal_proofs(x_api_key: Optional[str] = Header(None)):
     This is the institutional-grade answer to:
     'How do I know this invariant can never be violated?'
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     if not _FORMAL_AVAILABLE:
         return {
             "schema":    "VFGS-009",
@@ -6329,7 +6351,7 @@ async def generate_proof_certificate(x_api_key: Optional[str] = Header(None)):
     
     Suitable for EU AI Act Article 9 and DIFC Regulation 10 submissions.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     if not _FORMAL_AVAILABLE:
         return {
             "schema":    "VFGS-009",
@@ -6362,7 +6384,7 @@ async def formal_state_machine(x_api_key: Optional[str] = Header(None)):
     Shows all valid states, transitions, and unsafe states
     that are cryptographically constrained and constitutionally bounded to reach.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     try:
         from vfgs import FormalStateMachine
         fsm    = FormalStateMachine()
@@ -6650,9 +6672,10 @@ class JurisdictionRequest(BaseModel):
 @app.post("/v1/jurisdiction/resolve", tags=["VGS-010 Jurisdiction"])
 async def jurisdiction_resolve(
     req: JurisdictionRequest,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     result = resolve_jurisdiction(
         action_type              = req.action_type,
         data_subject_region      = req.data_subject_region,
@@ -6688,7 +6711,7 @@ async def jurisdiction_resolve(
 
 @app.get("/v1/jurisdiction/regimes", tags=["VGS-010 Jurisdiction"])
 async def list_regimes(x_api_key: Optional[str] = Header(None)):
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return {
         "schema":        "VGS-010",
         "total_regimes": len(JURISDICTION_RULES),
@@ -6726,7 +6749,7 @@ async def verify_evidence(
     PVR reclassified as ADR after the fact
     produces a different hash — forgery is structurally detectable.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     # Search all evidence stores for this record
     for evidence_class, records in _evidence_store.items():
@@ -6749,7 +6772,7 @@ async def verify_evidence(
 @app.get("/v1/governance/summary", tags=["Dashboards"])
 async def governance_summary(x_api_key: Optional[str] = Header(None)):
     """Full governance summary — all layers in one call."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     chain_data  = get_chain()
     ev_summary  = {cls: len(recs) for cls, recs in _evidence_store.items()}
     eat_active  = len([t for t in _eat_registry.values() if t["valid"] and not t["revoked"]])
@@ -7228,13 +7251,14 @@ class RevocationRequest(BaseModel):
 @app.post("/v1/continuity/chain/create", tags=["VGS-011 Governance Continuity"])
 async def create_chain(
     req:       DelegationChainRequest,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     VGS-011: Create a delegation chain.
     RFC-ATF-2 equivalent — tracks Agent A → B → C governance continuity.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return create_delegation_chain(
         req.chain_id, req.root_agent, req.root_trust, req.workflow_id
     )
@@ -7242,13 +7266,14 @@ async def create_chain(
 @app.post("/v1/continuity/chain/delegate", tags=["VGS-011 Governance Continuity"])
 async def add_delegate(
     req:       DelegationAddRequest,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     VGS-011: Add delegation link to chain.
     Enforces acyclicity and monotonic authority reduction.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return add_delegation(
         req.chain_id, req.from_agent, req.to_agent,
         req.to_trust, req.eat_token_id
@@ -7257,7 +7282,8 @@ async def add_delegate(
 @app.post("/v1/continuity/chain/revoke", tags=["VGS-011 Governance Continuity"])
 async def revoke_propagate(
     req:       RevocationRequest,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     VGS-011: Propagate authority revocation through chain.
@@ -7272,16 +7298,17 @@ async def revoke_propagate(
     This is the RFC-ATF-2 governance continuity collapse problem.
     VGS-011 handles it deterministically.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return propagate_revocation(req.chain_id, req.agent_id, req.reason)
 
 @app.get("/v1/continuity/chain/{chain_id}", tags=["VGS-011 Governance Continuity"])
 async def chain_continuity(
     chain_id:  str,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """VGS-011: Get continuity status and CES for a delegation chain."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return get_chain_continuity(chain_id)
 
 @app.post("/v1/continuity/ces", tags=["VGS-011 Governance Continuity"])
@@ -7299,7 +7326,7 @@ async def compute_continuity_score(
     CES = 1.0 → full continuity
     CES < 0.50 → HALT required
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     scores = [float(s) for s in trust_scores.split(",") if s.strip()]
     return compute_ces(
         chain_length      = chain_length,
@@ -8632,7 +8659,7 @@ async def get_conformance_vectors(x_api_key: Optional[str] = Header(None)):
     results for these inputs. This is how cross-runtime parity
     is proven — not claimed.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     # Compute actual hashes for canonical vectors
     vectors_with_hashes = []
     for v in CONFORMANCE_VECTORS:
@@ -8664,7 +8691,7 @@ async def get_named_invariants(x_api_key: Optional[str] = Header(None)):
     Each invariant has: ID, exact statement, enforcement location,
     test vector count. This matches Harold's ATF invariant structure.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return {
         "schema":           "VER-INVARIANTS-1.0",
         "total_invariants": len(VER_INVARIANTS),
@@ -8688,7 +8715,7 @@ async def verify_conformance(x_api_key: Optional[str] = Header(None)):
     Run all conformance vectors and return pass/fail for each.
     Proves VeriSigil's implementation is deterministic.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     results = []
     passed  = 0
 
@@ -9049,7 +9076,8 @@ class CDPRRequest(BaseModel):
 @app.post("/v1/cdpr/issue", tags=["VGS-012 Cross-Domain Provenance"])
 async def cdpr_issue(
     req:       CDPRRequest,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     VGS-012: Issue a Cross-Domain Provenance Receipt (CDPR).
@@ -9069,7 +9097,7 @@ async def cdpr_issue(
     EU  → CN     (EU AI Act artifact → CN AI Law artifact)
     EU  → GCC    (EU AI Act artifact → DIFC artifact)
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     cdpr_id = req.cdpr_id or f"CDPR-{uuid.uuid4().hex[:8].upper()}"
 
@@ -9104,7 +9132,8 @@ async def cdpr_issue(
 @app.post("/v1/cdpr/verify", tags=["VGS-012 Cross-Domain Provenance"])
 async def cdpr_verify(
     cdpr_id:   str,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     VGS-012: Verify a Cross-Domain Provenance Receipt offline.
@@ -9113,16 +9142,17 @@ async def cdpr_verify(
     No live platform access required.
     Verifiable by either ATF or VGS offline verifier independently.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return verify_cdpr(cdpr_id)
 
 @app.get("/v1/cdpr/{cdpr_id}", tags=["VGS-012 Cross-Domain Provenance"])
 async def cdpr_get(
     cdpr_id:   str,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """VGS-012: Retrieve a Cross-Domain Provenance Receipt."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     cdpr = _cdpr_registry.get(cdpr_id)
     if not cdpr:
         raise HTTPException(404, f"CDPR {cdpr_id} not found")
@@ -9134,7 +9164,7 @@ async def cdpr_domain_semantics(x_api_key: Optional[str] = Header(None)):
     VGS-012: List revocation semantics for all supported domains.
     Shows how each domain handles authority revocation differently.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return {
         "schema":  "VGS-012",
         "domains": DOMAIN_REVOCATION_SEMANTICS,
@@ -9502,7 +9532,8 @@ class TemporalAdmissibilityRequest(BaseModel):
 @app.post("/v1/temporal/prove", tags=["VGS-011 Temporal Admissibility"])
 async def temporal_prove(
     req:       TemporalAdmissibilityRequest,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     VGS-011 Extension: Temporal Admissibility Proof (TAP).
@@ -9528,7 +9559,7 @@ async def temporal_prove(
 
     Returns temporal_proof_hash — the legal defensibility artifact.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     result = compute_temporal_admissibility(
         execution_id          = req.execution_id,
         agent_id              = req.agent_id,
@@ -9551,7 +9582,8 @@ async def temporal_prove(
 @app.post("/v1/temporal/verify", tags=["VGS-011 Temporal Admissibility"])
 async def temporal_verify(
     proof_id:  str,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     VGS-011: Verify a Temporal Admissibility Proof offline.
@@ -9562,16 +9594,17 @@ async def temporal_verify(
 
     This is what a regulator or auditor runs years later.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return verify_temporal_proof(proof_id)
 
 @app.get("/v1/temporal/proof/{proof_id}", tags=["VGS-011 Temporal Admissibility"])
 async def temporal_get(
     proof_id:  str,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """VGS-011: Retrieve a Temporal Admissibility Proof."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     tap = _temporal_proofs.get(proof_id)
     if not tap:
         raise HTTPException(404, f"TAP {proof_id} not found")
@@ -10062,7 +10095,7 @@ async def governance_decisions(x_api_key: Optional[str] = Header(None)):
     REFUSED = governance working correctly (positive signal)
     DENY    = trust or authority failure (negative signal)
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return {
         "schema":           "VGS-DECISION-TAXONOMY-1.0",
         "taxonomy":         DECISION_TAXONOMY,
@@ -10075,7 +10108,8 @@ async def governance_decisions(x_api_key: Optional[str] = Header(None)):
 @app.post("/v1/isdaire/certificate", tags=["OTANIS Governance Semantics"])
 async def isdaire_certificate(
     req:       ISDAIRERequest,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     ISDAIRE: Ex-ante admissibility certificate.
@@ -10083,7 +10117,7 @@ async def isdaire_certificate(
     Returns structured certificate showing every check.
     Dr. Otani: admissibility is determined before execution, not after.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     result = build_isdaire_certificate(
         agent_id     = req.agent_id,
         action_type  = req.action_type,
@@ -10103,7 +10137,8 @@ async def isdaire_certificate(
 @app.post("/v1/aretaba/boundaries", tags=["OTANIS Governance Semantics"])
 async def aretaba_boundaries(
     req:       AREtABARequest,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     ARETABA: Construct runtime authority boundaries.
@@ -10111,7 +10146,7 @@ async def aretaba_boundaries(
     Dr. Otani: authority must be constructed from declared boundaries,
     not assumed from identity alone.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return build_aretaba_boundaries(
         allowed_action    = req.allowed_action,
         max_amount_usd    = req.max_amount_usd,
@@ -10122,7 +10157,8 @@ async def aretaba_boundaries(
 @app.post("/v1/governance/replay", tags=["OTANIS Governance Semantics"])
 async def governance_replay(
     req:       ReplayRequest,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Full execution replay.
@@ -10131,7 +10167,7 @@ async def governance_replay(
     Dr. Otani: replayable evidence — given a receipt,
     reconstruct the exact conditions at execution time.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     # Default timestamps if not provided
     from datetime import timedelta as _td
@@ -10165,7 +10201,7 @@ async def otanis_invariants(x_api_key: Optional[str] = Header(None)):
     OTANIS-aligned invariants: VER-INV-009 and VER-INV-010.
     Fail-closed default and non-bypass control.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return {
         "schema":       "VGS-OTANIS-INVARIANTS-1.0",
         "VER_INV_009":  FAIL_CLOSED_INVARIANT,
@@ -10485,7 +10521,8 @@ class ExecutionControlRequest(BaseModel):
 @app.post("/v1/execution/control", tags=["Execution Control Infrastructure"])
 async def execution_control(
     req:       ExecutionControlRequest,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Execution Control Infrastructure — The unified entry point.
@@ -10502,7 +10539,7 @@ async def execution_control(
 
     Schema: VGS-EXECUTION-CONTROL-1.0
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     result = execute_control(
         agent_id     = req.agent_id,
         action_type  = req.action_type,
@@ -10536,7 +10573,7 @@ async def proof_export(
     independently — no platform, no servers, no operator required.
     Q7: Did proof survive?
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return export_proof(
         execution_token    = execution_token,
         request_id         = request_id,
@@ -10549,7 +10586,7 @@ async def proof_export(
 @app.get("/v1/policy/registry", tags=["Execution Control Infrastructure"])
 async def policy_registry(x_api_key: Optional[str] = Header(None)):
     """List all governance policies with version history."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     active = get_active_policy()
     return {
         "active_policy_id": ACTIVE_POLICY_ID,
@@ -10841,7 +10878,8 @@ class AdversarialRiskRequest(BaseModel):
 @app.post("/v1/provenance/verify", tags=["VGS-013 Adversarial Governance"])
 async def provenance_verify(
     req:       ProvenanceRequest,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     VGS-013: Agent Provenance Verification.
@@ -10857,7 +10895,7 @@ async def provenance_verify(
 
     Returns provenance score, risk factors, and evasion cost.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     result = verify_agent_provenance(
         org_name                = req.org_name,
         org_jurisdiction        = req.org_jurisdiction,
@@ -10877,14 +10915,15 @@ async def provenance_verify(
 @app.post("/v1/adversarial/risk", tags=["VGS-013 Adversarial Governance"])
 async def adversarial_risk(
     req:       AdversarialRiskRequest,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     VGS-014: Governance Adversary Resistance Score (GARS).
     Composite score across all six evasion vectors.
     Shows governments exactly how VeriSigil resists adversarial AI evasion.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return compute_adversarial_risk_score(
         trust_score             = req.trust_score,
         provenance_score        = req.provenance_score,
@@ -10897,7 +10936,7 @@ async def adversarial_risk(
 @app.get("/v1/provenance/governed-zones", tags=["VGS-013 Adversarial Governance"])
 async def governed_zones(x_api_key: Optional[str] = Header(None)):
     """VGS-013: List all governed jurisdictions."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return {
         "schema":              "VGS-013",
         "governed_jurisdictions": GOVERNED_JURISDICTIONS,
@@ -11259,7 +11298,8 @@ class ComputeProvenanceRequest(BaseModel):
 @app.post("/v1/compute/provenance/verify", tags=["VGS-013 Compute Provenance & Deployment Admissibility"])
 async def compute_provenance_verify(
     req:       ComputeProvenanceRequest,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     VGS-013: Full compute provenance verification.
@@ -11276,7 +11316,7 @@ async def compute_provenance_verify(
     Returns: provenance_score, risk_level, chip types,
              shell company risk, cloud attestation, VER-INV-013
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     verification_id = f"VGS013-{uuid.uuid4().hex[:8].upper()}"
     timestamp       = datetime.utcnow().isoformat()
@@ -11400,7 +11440,7 @@ async def compute_provenance_verify(
 @app.get("/v1/compute/chip-types", tags=["CHIPverify Compute Provenance"])
 async def chip_types(x_api_key: Optional[str] = Header(None)):
     """VGS-013: List all known chip types with export control status."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return {
         "schema":        "RFC-CHIPV-1",
         "total_chips":   len(CHIP_SERIAL_PATTERNS),
@@ -11426,7 +11466,8 @@ class ChipVerifyRequest(BaseModel):
 @app.post("/v1/chip/verify", tags=["CHIPverify Compute Provenance"])
 async def chip_verify(
     req:       ChipVerifyRequest,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     CHIPverify: Compute hardware provenance verification.
@@ -11444,7 +11485,7 @@ async def chip_verify(
     Future: NVIDIA/AMD direct APIs + BIS registry integration.
     Standalone CHIPverify product launching Month 3.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     result = verify_chip_serial(
         serial_number      = req.serial_number,
         chip_type          = req.chip_type,
@@ -11461,7 +11502,7 @@ async def chip_verify(
 @app.get("/v1/chip/controlled-list", tags=["CHIPverify Compute Provenance"])
 async def chip_controlled_list(x_api_key: Optional[str] = Header(None)):
     """CHIPverify: List export-controlled chip types and restricted jurisdictions."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return {
         "schema":                    "RFC-CHIPV-1",
         "controlled_chips":          {k: {
@@ -11808,14 +11849,15 @@ class DrillRequest(BaseModel):
 @app.post("/v1/agent/registry", tags=["EU AI Act Compliance"])
 async def agent_registry_register(
     req:       AssetRegistryRequest,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     AI Asset Registry — CMDB for AI agents.
     EU AI Act Article 51: High-risk AI system registration.
     Track every agent, model, deployment, authority chain.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     result = register_ai_asset(
         agent_id       = req.agent_id,
         agent_name     = req.agent_name,
@@ -11835,7 +11877,7 @@ async def agent_registry_register(
 @app.get("/v1/agent/registry", tags=["EU AI Act Compliance"])
 async def agent_registry_list(x_api_key: Optional[str] = Header(None)):
     """List all registered AI assets in the CMDB."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return {
         "schema":       "VGS-CMDB-1.0",
         "total_assets": len(_AI_ASSET_REGISTRY),
@@ -11848,7 +11890,8 @@ async def eu_ai_act_report(
     agent_id:  str,
     asset_id:  str = "",
     period:    str = "2026-Q2",
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     EU AI Act Compliance Report.
@@ -11858,7 +11901,7 @@ async def eu_ai_act_report(
     Covers: Articles 6, 9, 11, 12, 13, 14, 43, 51.
     Returns regulator-ready evidence package.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     result = generate_eu_compliance_report(agent_id, asset_id, period)
     await log_event(agent_id, "EU_COMPLIANCE_REPORT", {
         "report_id": result["report_id"],
@@ -11869,7 +11912,8 @@ async def eu_ai_act_report(
 @app.post("/v1/supervisory/drill", tags=["EU AI Act Compliance"])
 async def supervisory_drill(
     req:       DrillRequest,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Supervisory Readiness Drill.
@@ -11883,7 +11927,7 @@ async def supervisory_drill(
     "Show me governance state at execution time."
     VeriSigil answers in under 1 second.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     result = run_supervisory_readiness_drill(
         agent_id            = req.agent_id,
         execution_id        = req.execution_id,
@@ -12299,7 +12343,8 @@ class CROBoardReportRequest(BaseModel):
 @app.post("/v1/dependency/fourth-party", tags=["Financial Services Governance"])
 async def fourth_party_dependency(
     req:       FourthPartyRequest,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Fourth Party Dependency Mapping.
@@ -12312,7 +12357,7 @@ async def fourth_party_dependency(
     Jerome Nyssen: "fourth party dependency mapping" is
     the governance capability boards and CROs need now.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     result = map_fourth_party_dependency(
         agent_id     = req.agent_id,
         hyperscaler  = req.hyperscaler,
@@ -12340,13 +12385,13 @@ async def hyperscaler_concentration(
     APRA CPS 230 + DORA require this board-level report.
     Returns overall risk: LOW / MEDIUM / HIGH / CRITICAL
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return compute_hyperscaler_concentration(jurisdiction)
 
 @app.get("/v1/dependency/hyperscalers", tags=["Financial Services Governance"])
 async def list_hyperscalers(x_api_key: Optional[str] = Header(None)):
     """List all tracked hyperscalers with DORA/APRA classification."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return {
         "schema":       "VGS-4P-1.0",
         "hyperscalers": HYPERSCALER_REGISTRY,
@@ -12358,7 +12403,8 @@ async def list_hyperscalers(x_api_key: Optional[str] = Header(None)):
 @app.post("/v1/report/cro-board", tags=["Financial Services Governance"])
 async def cro_board_report(
     req:       CROBoardReportRequest,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     CRO/Board Governance Report.
@@ -12376,7 +12422,7 @@ async def cro_board_report(
     Applicable regimes: APRA CPS 230, DORA, ASIC RG 271, FSB.
     Offline verifiable. No platform required.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     result = generate_cro_board_report(
         institution_name = req.institution_name,
         jurisdiction     = req.jurisdiction,
@@ -12395,7 +12441,7 @@ async def financial_regimes(x_api_key: Optional[str] = Header(None)):
     Financial regulatory regimes with AI governance requirements.
     APRA CPS 230, DORA, ASIC RG 271, FSB Framework.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return {
         "schema":  "VGS-FINANCIAL-REGIMES-1.0",
         "regimes": FINANCIAL_REGULATORY_REGIMES,
@@ -12832,7 +12878,8 @@ class ExecutionGraphRequest(BaseModel):
 @app.post("/v1/monitor/stale-authority", tags=["Continuous Governance Monitoring"])
 async def monitor_stale_authority(
     req:       StaleAuthorityRequest,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Stale authority detection.
@@ -12841,7 +12888,7 @@ async def monitor_stale_authority(
               CRITICAL → RENEW_NOW
               WARNING  → RENEW_SOON
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     result = detect_stale_authority(
         req.agent_id, req.authority_valid_until, req.last_verified_at
     )
@@ -12852,14 +12899,15 @@ async def monitor_stale_authority(
 @app.post("/v1/monitor/escalation-timeout", tags=["Continuous Governance Monitoring"])
 async def monitor_escalation_timeout(
     req:       EscalationTimeoutRequest,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Escalation timeout detection.
     When REQUIRE_HUMAN_APPROVAL fires but no human responds within SLA.
     BREACHED → ESCALATE_TO_BOARD
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     result = detect_escalation_timeout(
         req.escalation_id, req.agent_id,
         req.escalated_at, req.sla_hours, req.approver_role
@@ -12871,14 +12919,15 @@ async def monitor_escalation_timeout(
 @app.post("/v1/monitor/policy-drift", tags=["Continuous Governance Monitoring"])
 async def monitor_policy_drift(
     req:       PolicyDriftRequest,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Policy drift detection.
     Detects when active policy diverges from approved baseline.
     Drift → REVIEW_AND_APPROVE_DRIFT required.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return detect_policy_drift(
         req.current_policy_hash, req.baseline_policy_hash,
         req.policy_id, req.last_changed_at
@@ -12887,14 +12936,15 @@ async def monitor_policy_drift(
 @app.post("/v1/monitor/dependency-freshness", tags=["Continuous Governance Monitoring"])
 async def monitor_dependency_freshness(
     req:       DependencyFreshnessRequest,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Dependency freshness engine.
     Was governance decision based on stale information?
     STALE → RE_VERIFY_DEPENDENCY required.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return check_dependency_freshness(
         req.dependency_id, req.agent_id,
         req.provider, req.last_verified_at, req.max_staleness_h
@@ -12908,13 +12958,13 @@ async def governance_health(x_api_key: Optional[str] = Header(None)):
     timeliness, policy stability, dependency freshness, GCS.
     HEALTHY ≥ 0.85 · DEGRADED ≥ 0.65 · AT_RISK ≥ 0.45 · CRITICAL
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return compute_governance_health()
 
 @app.get("/v1/monitor/alerts", tags=["Continuous Governance Monitoring"])
 async def governance_alerts(x_api_key: Optional[str] = Header(None)):
     """All active governance alerts requiring attention."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return {
         "schema":              "VGS-ALERTS-1.0",
         "stale_authorities":   _GOVERNANCE_MONITOR["stale_authorities"],
@@ -12932,7 +12982,8 @@ async def governance_alerts(x_api_key: Optional[str] = Header(None)):
 @app.post("/v1/graph/execution", tags=["Multi-Agent Execution Graph"])
 async def execution_graph_create(
     req:       ExecutionGraphRequest,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Multi-Agent Execution Graph.
@@ -12943,7 +12994,7 @@ async def execution_graph_create(
     Expert: "Agent A triggered Agent B triggered API C"
     with authority tracking — VERY important future layer.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     result = build_execution_graph(
         req.workflow_id, req.agents, req.edges
     )
@@ -12957,7 +13008,7 @@ async def execution_graph_create(
 @app.get("/v1/graph/list", tags=["Multi-Agent Execution Graph"])
 async def execution_graph_list(x_api_key: Optional[str] = Header(None)):
     """List all tracked multi-agent execution graphs."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return {
         "schema":       "VGS-GRAPH-1.0",
         "total_graphs": len(_EXECUTION_GRAPHS),
@@ -12967,7 +13018,8 @@ async def execution_graph_list(x_api_key: Optional[str] = Header(None)):
 @app.get("/v1/analytics/governance", tags=["Governance Analytics"])
 async def governance_analytics(
     period:    str = "2026-Q2",
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Governance analytics — executive intelligence layer.
@@ -12975,13 +13027,13 @@ async def governance_analytics(
     registered agents, active graphs.
     Board-level governance intelligence.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return compute_governance_analytics(period)
 
 @app.get("/v1/analytics/gcs-trend", tags=["Governance Analytics"])
 async def gcs_trend(x_api_key: Optional[str] = Header(None)):
     """GCS (Governance Continuity Score) trend history."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     history = _GOVERNANCE_MONITOR["gcs_history"]
     return {
         "schema":     "VGS-GCS-TREND-1.0",
@@ -13511,7 +13563,8 @@ class MemoryTransferRequest(BaseModel):
 @app.post("/v1/memory/transfer", tags=["VGS-014 Constitutional Memory"])
 async def memory_transfer(
     req:       MemoryTransferRequest,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     VGS-014: Cross-Agent Memory Sovereignty Transfer.
@@ -13523,7 +13576,7 @@ async def memory_transfer(
     Jorge Leon: "Memory inheritance becomes delegated authority."
     REFUSED if receiving agent role cannot hold memory class.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     result = transfer_memory_sovereignty(
         req.memory_id, req.from_agent_id, req.to_agent_id,
         req.to_agent_role, req.transfer_reason, req.jurisdiction,
@@ -13539,7 +13592,8 @@ async def memory_transfer(
 @app.post("/v1/memory/classify", tags=["VGS-014 Constitutional Memory"])
 async def memory_classify(
     req:       MemoryClassifyRequest,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     VGS-014: Memory Classification Engine.
@@ -13554,7 +13608,7 @@ async def memory_classify(
     Memory classes: REGULATED, CONFIDENTIAL, OPERATIONAL,
     EPHEMERAL, SOVEREIGN, SEALED
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     result = classify_memory(
         agent_id      = req.agent_id,
         content_type  = req.content_type,
@@ -13573,7 +13627,8 @@ async def memory_classify(
 @app.post("/v1/memory/revoke", tags=["VGS-014 Constitutional Memory"])
 async def memory_revoke(
     req:       MemoryRevokeRequest,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     VGS-014: Memory Revocation.
@@ -13583,7 +13638,7 @@ async def memory_revoke(
     jurisdiction changes, compliance breach.
     Produces cryptographic revocation receipt.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     result = revoke_memory_scope(
         req.memory_id, req.revocation_reason, req.revoked_by
     )
@@ -13593,7 +13648,8 @@ async def memory_revoke(
 @app.post("/v1/memory/replay", tags=["VGS-014 Constitutional Memory"])
 async def memory_replay(
     req:       MemoryReplayRequest,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     VGS-014: Memory Replayability.
@@ -13603,7 +13659,7 @@ async def memory_replay(
     exact memory state at any past timestamp.
     Offline verifiable. No platform required.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return replay_memory_state(req.agent_id, req.at_timestamp)
 
 @app.get("/v1/memory/expiry", tags=["VGS-014 Constitutional Memory"])
@@ -13613,7 +13669,7 @@ async def memory_expiry_check(x_api_key: Optional[str] = Header(None)):
     Detect expired memory records requiring purge.
     Lifecycle: ACTIVE → EXPIRED → PURGED
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return check_memory_expiry()
 
 @app.get("/v1/memory/sovereign/{jurisdiction}", tags=["VGS-014 Constitutional Memory"])
@@ -13627,13 +13683,13 @@ async def memory_sovereign_partition(
     Cryptographically isolated sovereign partitions.
     Returns partition integrity hash.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return get_jurisdictional_memory_partition(jurisdiction)
 
 @app.get("/v1/memory/registry", tags=["VGS-014 Constitutional Memory"])
 async def memory_registry(x_api_key: Optional[str] = Header(None)):
     """List all classified memory records."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return {
         "schema":        "VGS-014",
         "total_records": len(_CONSTITUTIONAL_MEMORY),
@@ -13649,7 +13705,7 @@ async def memory_classes(x_api_key: Optional[str] = Header(None)):
     REGULATED · CONFIDENTIAL · OPERATIONAL
     EPHEMERAL · SOVEREIGN · SEALED
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return {
         "schema":           "VGS-014",
         "memory_classes":   MEMORY_CLASSES,
@@ -14008,7 +14064,8 @@ class ImpossibilityCertRequest(BaseModel):
 @app.post("/v1/impossibility/prove", tags=["VGS-015 Structural Impossibility"])
 async def impossibility_prove(
     req:       ImpossibilityProofRequest,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     VGS-015: Structural Execution Impossibility Proof.
@@ -14027,7 +14084,7 @@ async def impossibility_prove(
 
     Backed by Z3 UNSAT + TLA+ 3,497 states verified.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     result = prove_structural_impossibility(
         agent_id           = req.agent_id,
         action_type        = req.action_type,
@@ -14047,7 +14104,8 @@ async def impossibility_prove(
 @app.post("/v1/impossibility/graph-collapse", tags=["VGS-015 Structural Impossibility"])
 async def impossibility_graph_collapse(
     req:       GraphCollapseRequest,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     VGS-015: Execution Graph Collapse.
@@ -14057,7 +14115,7 @@ async def impossibility_graph_collapse(
     binding simultaneously. Not cascading alerts.
     Structural collapse. Paths cannot form.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     result = collapse_execution_graph(
         graph_id            = req.graph_id,
         collapse_reason     = req.collapse_reason,
@@ -14074,7 +14132,8 @@ async def impossibility_graph_collapse(
 @app.post("/v1/impossibility/certificate", tags=["VGS-015 Structural Impossibility"])
 async def impossibility_certificate(
     req:       ImpossibilityCertRequest,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     VGS-015: Structural Impossibility Certificate.
@@ -14089,7 +14148,7 @@ async def impossibility_certificate(
     - TLA+ 3,497 states, 0 errors
     - 5 safety theorems verified
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return generate_impossibility_certificate(
         req.agent_id, req.action_type, req.proof_id
     )
@@ -14101,7 +14160,7 @@ async def admissibility_kernel(x_api_key: Optional[str] = Header(None)):
     The execution gate — nothing executes outside it.
     Not bypassable by design, not by policy.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return {
         "schema":             "VGS-015",
         "admissibility_kernel":ADMISSIBILITY_KERNEL,
@@ -14114,7 +14173,7 @@ async def admissibility_kernel(x_api_key: Optional[str] = Header(None)):
 @app.get("/v1/impossibility/invariants", tags=["VGS-015 Structural Impossibility"])
 async def impossibility_invariants(x_api_key: Optional[str] = Header(None)):
     """All structural impossibility invariants — VER-INV-009 through VER-INV-015."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return {
         "schema":    "VGS-015",
         "invariants":{
@@ -14390,7 +14449,8 @@ class TopologyGraphRequest(BaseModel):
 @app.post("/v1/path/prove", tags=["VGS-015 Execution Path Topology"])
 async def path_prove(
     req:       PathProofRequest,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     VGS-015 Topology: Execution Path Formation Proof.
@@ -14408,7 +14468,7 @@ async def path_prove(
     This is the Leo Michaels standard.
     Z3 UNSAT backed. TLA+ verified. 3,497 states.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     result = prove_path_formation(
         agent_id          = req.agent_id,
         action_type       = req.action_type,
@@ -14428,7 +14488,8 @@ async def path_prove(
 @app.post("/v1/path/topology", tags=["VGS-015 Execution Path Topology"])
 async def path_topology(
     req:       TopologyGraphRequest,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     VGS-015: Execution Topology Graph.
@@ -14436,7 +14497,7 @@ async def path_topology(
     and which are in non-formable states.
     GREEN = FORMABLE · RED = NON_FORMABLE
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return build_topology_graph(
         req.workflow_id, req.agents,
         req.authority_states, req.trust_scores,
@@ -14449,7 +14510,7 @@ async def path_standard(x_api_key: Optional[str] = Header(None)):
     "Systems claiming safety must prove the executable
     path cannot form when authority is absent."
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return {
         "schema":         "VGS-015-STANDARD",
         "leo_standard":   "Structural impossibility of effect-bearing execution under unresolved admissibility",
@@ -14689,7 +14750,8 @@ class GenesisRevokeRequest(BaseModel):
 @app.post("/v1/genesis/register", tags=["VGS-000 Agent Genesis Infrastructure"])
 async def genesis_register(
     req:       GenesisRequest,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     VGS-000: Agent Genesis Registration.
@@ -14708,7 +14770,7 @@ async def genesis_register(
     Architecture: Sovereign Execution Infrastructure
     for Autonomous AI.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     result = register_agent_genesis(
         creator_id        = req.creator_id,
         creator_org       = req.creator_org,
@@ -14729,7 +14791,8 @@ async def genesis_register(
 @app.post("/v1/genesis/revoke", tags=["VGS-000 Agent Genesis Infrastructure"])
 async def genesis_revoke(
     req:       GenesisRevokeRequest,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     VGS-000: Genesis Revocation.
@@ -14737,7 +14800,7 @@ async def genesis_revoke(
     Collapses ALL downstream authority.
     Equivalent: Citizenship revocation.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     result = revoke_genesis(
         req.genesis_id, req.revocation_reason, req.revoking_authority
     )
@@ -14747,7 +14810,7 @@ async def genesis_revoke(
 @app.get("/v1/genesis/registry", tags=["VGS-000 Agent Genesis Infrastructure"])
 async def genesis_registry_list(x_api_key: Optional[str] = Header(None)):
     """List all registered agent genesis records."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return {
         "schema":        "VGS-000",
         "total_agents":  len(_GENESIS_REGISTRY),
@@ -14761,7 +14824,7 @@ async def genesis_get(
     x_api_key:  Optional[str] = Header(None)
 ):
     """Get genesis record by ID — root of trust lookup."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     if genesis_id not in _GENESIS_REGISTRY:
         return {"error": "Genesis record not found", "genesis_id": genesis_id}
     return _GENESIS_REGISTRY[genesis_id]
@@ -14772,7 +14835,7 @@ async def sovereign_architecture(x_api_key: Optional[str] = Header(None)):
     The full Sovereign Execution Infrastructure architecture.
     All 11 layers documented and linked to endpoints.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return {
         "schema":       "VGS-SOVEREIGN-ARCHITECTURE",
         "framing":      "Sovereign Execution Infrastructure for Autonomous AI",
@@ -15072,7 +15135,8 @@ class GovernanceConnectorRequest(BaseModel):
 @app.post("/v1/connector/governed", tags=["Governance Continuity Connector"])
 async def governance_connector(
     req:       GovernanceConnectorRequest,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Governance Continuity Connector.
@@ -15097,7 +15161,7 @@ async def governance_connector(
     Solves: "Can governance survive boundary crossing?"
     Answer: YES — it is embedded in the connector.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     result = build_governance_connector(
         agent_id             = req.agent_id,
         action_type          = req.action_type,
@@ -15121,7 +15185,7 @@ async def governance_connector(
 @app.get("/v1/connector/targets", tags=["Governance Continuity Connector"])
 async def connector_targets(x_api_key: Optional[str] = Header(None)):
     """List all supported connector target systems."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return {
         "schema":  "VGS-GCC-1.0",
         "targets": CONNECTOR_TARGETS,
@@ -15409,7 +15473,8 @@ class IncidentRequest(BaseModel):
 @app.post("/v1/classification/annex-iii", tags=["EU AI Act Compliance"])
 async def annex_iii_classify(
     req:       AnnexIIIRequest,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     EU AI Act Article 6 / Annex III High-Risk Classification.
@@ -15425,7 +15490,7 @@ async def annex_iii_classify(
     Maps to all 8 Annex III categories.
     Returns VeriSigil coverage per required control.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     result = classify_annex_iii(
         intended_use                  = req.intended_use,
         use_case                      = req.use_case,
@@ -15442,7 +15507,8 @@ async def annex_iii_classify(
 @app.post("/v1/incident/report", tags=["EU AI Act Compliance"])
 async def incident_report(
     req:       IncidentRequest,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Article 72: Incident Reporting System.
@@ -15450,7 +15516,7 @@ async def incident_report(
     "Track, document and report serious incidents without undue delay."
     Serious incidents reported to AI Office + NCA.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     result = report_incident(
         req.agent_id, req.incident_type, req.severity,
         req.description, req.affected_persons, req.corrective_action
@@ -15465,7 +15531,7 @@ async def incident_report(
 @app.get("/v1/incident/registry", tags=["EU AI Act Compliance"])
 async def incident_registry(x_api_key: Optional[str] = Header(None)):
     """List all reported incidents — Article 72 monitoring log."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return {
         "schema":          "EU-AI-ACT-ART72",
         "total_incidents": len(_INCIDENT_REGISTRY),
@@ -15476,7 +15542,7 @@ async def incident_registry(x_api_key: Optional[str] = Header(None)):
 @app.get("/v1/classification/annex-iii/categories", tags=["EU AI Act Compliance"])
 async def annex_iii_categories(x_api_key: Optional[str] = Header(None)):
     """All 8 Annex III high-risk categories with VeriSigil controls."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return {
         "schema":              "EU-AI-ACT-ANNEX-III",
         "guidelines_published":"2026-05-19",
@@ -15829,20 +15895,20 @@ class PDFReportRequest(BaseModel):
 @app.post("/v1/tenant/register", tags=["Multi-Tenant Support"])
 async def tenant_register(req: TenantRequest, x_api_key: Optional[str] = Header(None)):
     """Register a new tenant — isolated governance namespace. SaaS readiness."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     result = register_tenant(req.tenant_id, req.org_name, req.plan, req.jurisdiction, req.admin_email)
     return result
 
 @app.get("/v1/tenant/registry", tags=["Multi-Tenant Support"])
 async def tenant_registry(x_api_key: Optional[str] = Header(None)):
     """List all registered tenants."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return {"total":len(_TENANT_REGISTRY),"tenants":list(_TENANT_REGISTRY.values())}
 
 @app.get("/v1/tenant/plans", tags=["Multi-Tenant Support"])
 async def tenant_plans(x_api_key: Optional[str] = Header(None)):
     """Available tenant plans and features."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return {"plans":{"STARTER":"$499/mo","PROFESSIONAL":"$2499/mo","ENTERPRISE":"Custom","GOVERNMENT":"Custom"},"schema":"VGS-TENANT-1.0"}
 
 # 2. SIEM Integration
@@ -15853,13 +15919,13 @@ async def siem_event(req: SIEMEventRequest, x_api_key: Optional[str] = Header(No
     Supports: Splunk, Datadog, Azure Sentinel, Elastic, CrowdStrike, IBM QRadar.
     Enterprise operational trust requirement.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return format_siem_event(req.event_type, req.agent_id, req.decision, req.evidence_id, req.jurisdiction, req.severity, req.siem_target)
 
 @app.get("/v1/siem/targets", tags=["SIEM Integration"])
 async def siem_targets(x_api_key: Optional[str] = Header(None)):
     """List all supported SIEM integration targets."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return {"schema":"VGS-SIEM-1.0","targets":SIEM_TARGETS,"total":len(SIEM_TARGETS)}
 
 # 3. Enterprise Connectors
@@ -15870,13 +15936,13 @@ async def enterprise_connector(req: EnterpriseConnectorRequest, x_api_key: Optio
     SAP, Salesforce, Workday, ServiceNow, Oracle, Microsoft 365.
     Governance headers travel with execution into enterprise systems.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return build_enterprise_connector_manifest(req.agent_id, req.target_system, req.action_type, req.trust_score, req.jurisdiction)
 
 @app.get("/v1/enterprise/systems", tags=["Enterprise Connectors"])
 async def enterprise_systems(x_api_key: Optional[str] = Header(None)):
     """List all supported enterprise systems."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return {"schema":"VGS-ECM-1.0","systems":ENTERPRISE_SYSTEMS,"total":len(ENTERPRISE_SYSTEMS)}
 
 # 4. PDF Compliance Report
@@ -15887,7 +15953,7 @@ async def compliance_pdf(req: PDFReportRequest, x_api_key: Optional[str] = Heade
     EU AI Act article-by-article + Board governance questions.
     Production: render with reportlab. Current: structured text ready for PDF.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     content_text = generate_compliance_pdf_content(req.agent_id, req.institution, req.jurisdiction, req.period)
     return {
         "schema":         "VGS-PDF-REPORT-1.0",
@@ -15908,7 +15974,7 @@ async def sdk_registry(x_api_key: Optional[str] = Header(None)):
     Python + Node.js: STABLE.
     Go + Rust: Q3 2026. Java: Q4 2026.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return {"schema":"VGS-SDK-1.0","sdks":SDK_REGISTRY,"total":len(SDK_REGISTRY),"stable":["python","nodejs"]}
 
 # 6. Zenodo Publication Record
@@ -15919,7 +15985,7 @@ async def zenodo_publication(x_api_key: Optional[str] = Header(None)):
     DOI: https://doi.org/10.5281/zenodo.20264923
     Updated: VGS-000 to VGS-015 — all 16 specs.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return ZENODO_PUBLICATION
 
 # 7. Complete Architecture Overview
@@ -15929,7 +15995,7 @@ async def architecture_complete(x_api_key: Optional[str] = Header(None)):
     Complete VeriSigil Sovereign Architecture.
     All 11 layers. 160 endpoints. VGS-000 to VGS-015.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return {
         "schema":       "VGS-ARCHITECTURE-COMPLETE",
         "name":         "Sovereign Execution Infrastructure for Autonomous AI",
@@ -16224,7 +16290,8 @@ class CommitmentRequest(BaseModel):
 @app.post("/v1/survivability/score", tags=["VGS-016 Orchestration Survivability"])
 async def survivability_score(
     req:       SurvivabilityRequest,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     VGS-016: Orchestration Survivability Score.
@@ -16243,7 +16310,7 @@ async def survivability_score(
     Status: SURVIVABLE → DEGRADING → CRITICAL → COLLAPSED
     Action: CONTINUE → ESCALATE → HALT_AND_ROLLBACK → EMERGENCY
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     result = compute_survivability(
         chain_id              = req.chain_id,
         agent_id              = req.agent_id,
@@ -16269,14 +16336,15 @@ async def survivability_score(
 @app.post("/v1/survivability/commitment", tags=["VGS-016 Orchestration Survivability"])
 async def survivability_commitment(
     req:       CommitmentRequest,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     VGS-016: Register a commitment in the execution chain.
     Track async commitment accumulation.
     Akhilesh: "downstream commitments accumulate asynchronously"
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return register_commitment(
         req.chain_id, req.agent_id, req.commitment_type,
         req.amount_usd, req.irreversible, req.rollback_window_secs
@@ -16285,10 +16353,11 @@ async def survivability_commitment(
 @app.get("/v1/survivability/chain/{chain_id}", tags=["VGS-016 Orchestration Survivability"])
 async def survivability_chain(
     chain_id:  str,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """Get survivability state for an execution chain."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     state = _SURVIVABILITY_STATES.get(chain_id)
     commitments = _COMMITMENT_REGISTRY.get(chain_id, [])
     return {
@@ -16304,7 +16373,7 @@ async def survivability_framing(x_api_key: Optional[str] = Header(None)):
     The Akhilesh framing — formally documented.
     VeriSigil + DecisionAssure architectural relationship.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return {
         "schema": "VGS-016",
         "akhilesh_framing": {
@@ -16907,7 +16976,7 @@ async def birth_certificate_issue(req: BirthCertRequest, x_api_key: Optional[str
     Expert: "the legal identity root of the AI agent."
     Every execution traces back to this origin hash.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     result = issue_ai_birth_certificate(
         req.creator_id, req.creator_org, req.agent_name,
         req.agent_purpose, req.model_origin,
@@ -16927,7 +16996,7 @@ async def visa_issue(req: VisaRequest, x_api_key: Optional[str] = Header(None)):
     AI Visa — Temporary authority grant.
     Expert: "temporary SAP/healthcare/financial access — HUGE for enterprise."
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return issue_ai_visa(
         req.agent_did, req.visa_purpose, req.target_system,
         req.granted_by, req.max_duration_hours,
@@ -16938,7 +17007,7 @@ async def visa_issue(req: VisaRequest, x_api_key: Optional[str] = Header(None)):
 @app.post("/v1/criminal-record/record", tags=["Sovereign AI Identity Lifecycle"])
 async def criminal_record_add(req: CriminalViolationRequest, x_api_key: Optional[str] = Header(None)):
     """Record a violation in the AI agent criminal record."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return record_criminal_violation(
         req.agent_did, req.violation_type, req.severity,
         req.description, req.action_taken, req.evidence_id,
@@ -16950,7 +17019,7 @@ async def criminal_record_get(agent_did: str, x_api_key: Optional[str] = Header(
     AI Criminal Record — Full violation history.
     Expert: "enterprise AI liability infrastructure."
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return get_criminal_record(agent_did)
 
 # 4. Full Identity Lifecycle
@@ -16961,13 +17030,13 @@ async def identity_lifecycle(agent_did: str, genesis_id: str = "", x_api_key: Op
     Identity → Authority → Admissibility → Execution
     → Receipt → Replay → Liability
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return get_identity_lifecycle(agent_did, genesis_id)
 
 @app.get("/v1/identity/sovereign-stack", tags=["Sovereign AI Identity Lifecycle"])
 async def sovereign_stack(x_api_key: Optional[str] = Header(None)):
     """The complete sovereign AI identity infrastructure."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return {
         "schema":           "VGS-SOVEREIGN-IDENTITY-1.0",
         "category":         "Sovereign AI Identity + Runtime Admissibility Infrastructure",
@@ -16993,7 +17062,7 @@ async def regulator_package(req: RegulatorPackageRequest, x_api_key: Optional[st
     Complete governance record for regulatory submission.
     Offline verifiable. No platform required.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return generate_regulator_package(
         req.agent_did, req.regulator, req.jurisdiction, req.period
     )
@@ -17002,43 +17071,43 @@ async def regulator_package(req: RegulatorPackageRequest, x_api_key: Optional[st
 @app.get("/v1/infrastructure/database", tags=["Enterprise Infrastructure"])
 async def infrastructure_database(x_api_key: Optional[str] = Header(None)):
     """Database configuration + persistence status."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return {"schema":"VGS-INFRA-1.0","database":DATABASE_CONFIG,"migration":DB_MIGRATION_STATUS}
 
 @app.get("/v1/infrastructure/nitro", tags=["Enterprise Infrastructure"])
 async def infrastructure_nitro(x_api_key: Optional[str] = Header(None)):
     """AWS Nitro attestation configuration + status."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return {"schema":"VGS-INFRA-1.0","nitro":NITRO_CONFIG,"live_check":verify_nitro_attestation_real("self")}
 
 @app.get("/v1/compliance/soc2-readiness", tags=["Enterprise Infrastructure"])
 async def soc2_readiness(x_api_key: Optional[str] = Header(None)):
     """SOC 2 Type I readiness assessment."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return SOC2_READINESS
 
 @app.get("/v1/compliance/iso42001-gap", tags=["Enterprise Infrastructure"])
 async def iso42001_gap(x_api_key: Optional[str] = Header(None)):
     """ISO 42001 gap assessment for AI management system certification."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return ISO42001_GAP
 
 @app.get("/v1/network/sovereign", tags=["Enterprise Infrastructure"])
 async def sovereign_network(x_api_key: Optional[str] = Header(None)):
     """Sovereign AI Trust Network architecture."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return SOVEREIGN_TRUST_NETWORK
 
 @app.post("/v1/infrastructure/nitro/verify", tags=["Enterprise Infrastructure"])
 async def nitro_verify(instance_id: str = "self", chip_serial: str = "", x_api_key: Optional[str] = Header(None)):
     """Real AWS Nitro attestation (software fallback if Nitro not enabled)."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return verify_nitro_attestation_real(instance_id, chip_serial)
 
 @app.get("/v1/infrastructure/deployment-guide", tags=["Enterprise Infrastructure"])
 async def deployment_guide(x_api_key: Optional[str] = Header(None)):
     """Enterprise deployment guide — architecture + steps."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return {
         "schema": "VGS-DEPLOYMENT-1.0",
         "title":  "VeriSigil AI Enterprise Deployment Guide",
@@ -17349,7 +17418,8 @@ class ExecutionReadinessRequest(BaseModel):
 @app.post("/v1/execution/readiness", tags=["Structural Execution Formation"])
 async def execution_readiness(
     req:       ExecutionReadinessRequest,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Structural Execution Formation Governance.
@@ -17370,7 +17440,7 @@ async def execution_readiness(
     Returns: execution_formable, structural_readiness score,
     missing_preconditions, governance_sequencing_proof.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     result = compute_execution_readiness(
         agent_id              = req.agent_id,
         action_type           = req.action_type,
@@ -17401,7 +17471,7 @@ async def governance_sequence(x_api_key: Optional[str] = Header(None)):
     "AI cannot even construct a valid executable path
     until governance sequencing is complete."
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return {
         "schema":              "VGS-FORMATION-1.0",
         "principle":           "Execution Cannot Exist Before Governance Sequencing Completes",
@@ -17594,14 +17664,15 @@ async def pricing():
 @app.post("/v1/provision/key", tags=["Revenue Infrastructure"])
 async def provision_key(
     req:       ProvisionKeyRequest,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Auto-provision API key after payment.
     Tenant gets immediate access to their plan endpoints.
     Returns: api_key + quickstart guide.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     result = provision_api_key(req.tenant_id, req.plan, req.email)
     await log_event(req.tenant_id, "API_KEY_PROVISIONED", {
         "plan": req.plan,
@@ -17618,7 +17689,7 @@ async def usage_stats(
     Usage statistics for a provisioned API key.
     Track: evaluations used, agents registered, endpoints called.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     # Find by prefix
     for key, usage in _USAGE_REGISTRY.items():
         if key.startswith(api_key_prefix) or api_key_prefix in key:
@@ -17628,7 +17699,7 @@ async def usage_stats(
 @app.get("/v1/usage/summary/all", tags=["Revenue Infrastructure"])
 async def usage_summary(x_api_key: Optional[str] = Header(None)):
     """All tenant usage summary — admin view."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return {
         "total_tenants":    len(_USAGE_REGISTRY),
         "total_evaluations":sum(u["evaluations_used"] for u in _USAGE_REGISTRY.values()),
@@ -17992,7 +18063,8 @@ class DualContextRequest(BaseModel):
 @app.post("/v1/atf/delegation-receipt", tags=["VGS-017 ATF Bridge"])
 async def atf_delegation_receipt(
     req:       ATFDelegationReceiptRequest,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     VGS-017: ATF Delegation Receipt (DR).
@@ -18006,7 +18078,7 @@ async def atf_delegation_receipt(
     Canonical: json.dumps(sort_keys=True, separators=(',',':'))
     SHA-256 HEX of UTF-8 bytes — identical to ATF spec.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     result = build_atf_dr_receipt(
         req.agent_id, req.delegator_id,
         req.authority_budget_delegator, req.authority_budget_granted,
@@ -18023,7 +18095,8 @@ async def atf_delegation_receipt(
 @app.post("/v1/atf/semantic-alignment", tags=["VGS-017 ATF Bridge"])
 async def atf_semantic_alignment(
     req:       SemanticAlignmentRequest,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     VGS-017: Semantic Alignment Certificate (SAC).
@@ -18034,7 +18107,7 @@ async def atf_semantic_alignment(
     spv_hash: two runtimes with identical hash = semantically equivalent.
     UNRESOLVED terms default to more restrictive interpretation.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return build_semantic_alignment_certificate(
         req.runtime_a, req.runtime_b, req.term_alignments
     )
@@ -18042,7 +18115,7 @@ async def atf_semantic_alignment(
 @app.get("/v1/atf/core-terms", tags=["VGS-017 ATF Bridge"])
 async def atf_core_terms(x_api_key: Optional[str] = Header(None)):
     """All 8 ATF core terms with VGS field mappings."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return {
         "schema":         "ATF-SAC-1.0",
         "atf_core_terms": ATF_CORE_TERMS,
@@ -18056,7 +18129,7 @@ async def atf_core_terms(x_api_key: Optional[str] = Header(None)):
 @app.get("/v1/atf/receipt-types", tags=["VGS-017 ATF Bridge"])
 async def atf_receipt_types(x_api_key: Optional[str] = Header(None)):
     """All 7 ATF receipt types with VGS equivalents."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return {
         "schema":   "ATF-SCHEMA-1.0",
         "receipts": {
@@ -18077,7 +18150,8 @@ async def atf_receipt_types(x_api_key: Optional[str] = Header(None)):
 @app.post("/v1/atf/dual-context-receipt", tags=["VGS-017 ATF Bridge"])
 async def atf_dual_context_receipt(
     req:       DualContextRequest,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     VGS-017: CDPR-ATF-VGS-001 Dual-Context Receipt.
@@ -18093,7 +18167,7 @@ async def atf_dual_context_receipt(
     No live platform required for any verifier.
     Architecture becomes durable, not merely interoperable.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     # Look up receipts
     atf_dr = {"content_hash":"ATF-DR-NOT-FOUND","receipt_type":"DR","chain_root_id":req.atf_receipt_id,"atf_invariant":{"satisfied":True},"scope_narrowing":{"satisfied":True},"pqc_algorithm":"ML-DSA-65","delegated_scope":["read","execute"],"originating_scope":["read","write","execute","delegate"]}
@@ -18477,7 +18551,8 @@ class CrossAgentMemoryRequest(BaseModel):
 @app.post("/v1/memory/identity/create", tags=["VGS-014 Constitutional Memory"])
 async def memory_identity_create(
     req:       MemoryIdentityRequest,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Memory Identity Ledger.
@@ -18486,7 +18561,7 @@ async def memory_identity_create(
     jurisdiction, isolation zone, provenance chain.
     Jorge: "Memory is becoming part of AI identity."
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     result = create_memory_identity(
         req.agent_id, req.content_type, req.origin_agent_id,
         req.authority_source, req.jurisdiction,
@@ -18501,7 +18576,8 @@ async def memory_identity_create(
 @app.post("/v1/memory/retrieve", tags=["VGS-014 Constitutional Memory"])
 async def memory_retrieve(
     req:       MemoryRetrievalRequest,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Admissible Retrieval Engine.
@@ -18511,13 +18587,14 @@ async def memory_retrieve(
     ALLOW / REFUSED / REQUIRE_HUMAN_APPROVAL
     Same governance model as execution.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return check_memory_admissibility(req.mem_id, req.agent_id, req.purpose)
 
 @app.post("/v1/memory/contamination/detect", tags=["VGS-014 Constitutional Memory"])
 async def memory_contamination_detect(
     req:       ContaminationRequest,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Semantic Contamination Detection.
@@ -18525,7 +18602,7 @@ async def memory_contamination_detect(
     recursive hallucination, adversarial semantic drift.
     Contaminated memories → QUARANTINED lifecycle.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return detect_semantic_contamination(
         req.mem_id, req.new_content_hash,
         req.injection_signals, req.drift_score,
@@ -18534,7 +18611,8 @@ async def memory_contamination_detect(
 @app.post("/v1/memory/forget", tags=["VGS-014 Constitutional Memory"])
 async def memory_forget(
     req:       GoverningForgettingRequest,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Governed Forgetting.
@@ -18544,7 +18622,7 @@ async def memory_forget(
     Not all forgetting is deletion.
     Produces cryptographic forgetting receipt.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return governed_forgetting(
         req.mem_id, req.forgetting_type,
         req.reason, req.authority,
@@ -18553,7 +18631,8 @@ async def memory_forget(
 @app.post("/v1/memory/transfer", tags=["VGS-014 Constitutional Memory"])
 async def memory_transfer(
     req:       CrossAgentMemoryRequest,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Cross-Agent Memory Sovereignty.
@@ -18562,7 +18641,7 @@ async def memory_transfer(
     admissibility re-evaluated, scope cannot expand.
     ATF invariant: delegation_scope ≤ originating_scope.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return transfer_memory_cross_agent(
         req.mem_id, req.from_agent_id, req.to_agent_id,
         req.delegation_scope, req.jurisdiction,
@@ -18575,7 +18654,7 @@ async def memory_isolation_zones(x_api_key: Optional[str] = Header(None)):
     OPERATIONAL / REASONING / SOVEREIGN / REGULATED /
     USER_PRIVATE / SAFETY_CRITICAL
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return {
         "schema":          "VGM-1.0",
         "isolation_zones": MEMORY_ISOLATION_ZONES,
@@ -18587,7 +18666,7 @@ async def memory_isolation_zones(x_api_key: Optional[str] = Header(None)):
 @app.get("/v1/memory/identity/ledger", tags=["VGS-014 Constitutional Memory"])
 async def memory_identity_ledger(x_api_key: Optional[str] = Header(None)):
     """Full Memory Identity Ledger — all registered memory objects."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return {
         "schema":    "VGM-1.0",
         "total":     len(_MEMORY_IDENTITY_LEDGER),
@@ -18980,7 +19059,8 @@ class CognitiveAdmissibilityRequest(BaseModel):
 @app.post("/v1/cognitive/admissibility", tags=["VGS-018 Cognitive Admissibility"])
 async def cognitive_admissibility(
     req:       CognitiveAdmissibilityRequest,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     VGS-018: Cognitive Admissibility Assessment.
@@ -19010,7 +19090,7 @@ async def cognitive_admissibility(
     ALLOW · REFUSED · REQUIRE_HUMAN_REVIEW
     LIMIT_SCOPE · NON_AUTHORITATIVE_RESPONSE · SANDBOX_ONLY
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     result = assess_cognitive_admissibility(
         agent_id            = req.agent_id,
         response_content    = req.response_content,
@@ -19036,7 +19116,7 @@ async def cognitive_domains(x_api_key: Optional[str] = Header(None)):
     MEDICAL · LEGAL · FINANCIAL · PSYCHOLOGICAL
     EPISTEMIC · DISCOURSE · MEMORY · OPERATIONAL
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return {
         "schema":  "VGS-018",
         "domains": COGNITIVE_CONSEQUENCE_DOMAINS,
@@ -19052,7 +19132,7 @@ async def cognitive_full_spectrum(x_api_key: Optional[str] = Header(None)):
     Layer 1: Cognitive (VGS-018) + Layer 2: Execution (VGS-001).
     Neither layer replaces the other. Both required.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return {
         "schema":        "VGS-018-FULL-SPECTRUM",
         "architecture":  "Full-Spectrum Consequence Governance",
@@ -19309,7 +19389,7 @@ async def enforcement_intercept(
     Each mapped to VGS governance gates.
     Returns: BLOCK · REQUIRE_GOVERNANCE_PROOF · ALLOW_WITH_RECEIPT
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     result = assess_rel_interception(
         req.agent_id, req.action_type, req.interception_point,
         req.command_or_target, req.trust_score,
@@ -19325,7 +19405,7 @@ async def enforcement_intercept(
 @app.get("/v1/enforcement/interception-points", tags=["Runtime Enforcement Layer"])
 async def enforcement_points(x_api_key: Optional[str] = Header(None)):
     """All 7 REL interception points with VGS gate mappings."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return {
         "schema":  "VGS-REL-1.0",
         "points":  REL_INTERCEPTION_POINTS,
@@ -19342,7 +19422,7 @@ async def policy_marketplace(x_api_key: Optional[str] = Header(None)):
     GCC Sovereign · NIST AI RMF
     governance-as-code
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return {
         "schema":   "VGS-MARKETPLACE-1.0",
         "packs":    POLICY_MARKETPLACE,
@@ -19354,10 +19434,11 @@ async def policy_marketplace(x_api_key: Optional[str] = Header(None)):
 @app.get("/v1/policy/marketplace/{pack_id}", tags=["Governance Policy Marketplace"])
 async def policy_pack_detail(
     pack_id:   str,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """Get details of a specific governance policy pack."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     pack = POLICY_MARKETPLACE.get(pack_id)
     if not pack:
         return {"error": "Pack not found", "available": list(POLICY_MARKETPLACE.keys())}
@@ -19739,7 +19820,8 @@ class GCMFullRequest(BaseModel):
 @app.post("/v1/gcm/session", tags=["VGS-019 Governance Convergence Mesh"])
 async def gcm_session_create(
     req: GCMSessionRequest,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     VGS-019: Open a Governance Convergence Mesh session.
@@ -19747,7 +19829,7 @@ async def gcm_session_create(
     Returns session_id + x-verisigil-request-id correlation.
     Sources: API_A_RUNTIME · API_B_RUNTIME · EXTERNAL_WITNESS
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     result = create_gcm_session(
         req.request_id, req.agent_id, req.action_type,
         req.consequence, req.sources, req.jurisdiction,
@@ -19761,7 +19843,8 @@ async def gcm_session_create(
 @app.post("/v1/gcm/evaluate", tags=["VGS-019 Governance Convergence Mesh"])
 async def gcm_evaluate(
     req: GCMEvaluationRequest,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     VGS-019: Submit evaluation from one runtime source.
@@ -19770,7 +19853,7 @@ async def gcm_evaluate(
     RESTRICTIVE RESOLUTION WINS.
     Logs to Unified Merkle Governance Chain.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     result = submit_gcm_evaluation(
         req.session_id, req.source,
         req.decision, req.evidence_hash, req.reason,
@@ -19785,7 +19868,8 @@ async def gcm_evaluate(
 @app.post("/v1/gcm/converge", tags=["VGS-019 Governance Convergence Mesh"])
 async def gcm_converge_full(
     req: GCMFullRequest,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     VGS-019: Full auto-convergence in one call.
@@ -19796,7 +19880,7 @@ async def gcm_converge_full(
     Then resolves via CRE — restrictive wins.
     Returns: final convergence decision + Merkle proof.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     import secrets as _sec
     request_id = f"REQ-{_sec.token_hex(8).upper()}"
 
@@ -19868,7 +19952,7 @@ async def gcm_seal(
     State: DECIDED → EXECUTED → SEALED.
     Immutable after sealing. Adds seal_hash.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return seal_gcm_session(session_id)
 
 @app.get("/v1/gcm/session/{session_id}", tags=["VGS-019 Governance Convergence Mesh"])
@@ -19877,7 +19961,7 @@ async def gcm_session_get(
     x_api_key:  Optional[str] = Header(None)
 ):
     """Get current state of a GCM session."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     session = _GCM_SESSIONS.get(session_id)
     if not session:
         return {"error":"Session not found","session_id":session_id}
@@ -19894,7 +19978,7 @@ async def gcm_replay(
     All sources · All decisions · Merkle proof.
     No platform required. Years later.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return replay_gcm_session(session_id)
 
 @app.get("/v1/gcm/chain", tags=["VGS-019 Governance Convergence Mesh"])
@@ -19904,7 +19988,7 @@ async def gcm_chain(x_api_key: Optional[str] = Header(None)):
     Every evaluation from every runtime logged here.
     Tamper-evident. Offline-verifiable.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return {
         "schema":       "VGS-019",
         "chain_length": len(_GCM_MERKLE_CHAIN),
@@ -19921,7 +20005,7 @@ async def gcm_conflict_table(x_api_key: Optional[str] = Header(None)):
     Sovereign Safety Invariant: RESTRICTIVE WINS.
     ALLOW + DENY = DENY. ALLOW + REQUIRE_HUMAN = REQUIRE_HUMAN.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return {
         "schema":            "VGS-019-CRE",
         "sovereign_safety_invariant":"RESTRICTIVE RESOLUTION WINS",
@@ -19937,7 +20021,7 @@ async def gcm_architecture(x_api_key: Optional[str] = Header(None)):
     Full framing: bidirectional authority convergence
     with external witness verification.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return {
         "schema":        "VGS-019",
         "name":          "Governance Convergence Mesh (GCM)",
@@ -20384,7 +20468,8 @@ class RCRSurvBridgeRequest(BaseModel):
 @app.post("/v1/atf/tar-tap-bridge", tags=["VGS-017 ATF Bridge"])
 async def tar_tap_bridge(
     req: TARTAPBridgeRequest,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     VGS-017: TAR ↔ TAP Bridge Receipt.
@@ -20403,7 +20488,7 @@ async def tar_tap_bridge(
     GCS → VGS envelope only
     Jurisdiction depth → ATF richer structure adopted
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     from datetime import timedelta as _td
     now = datetime.utcnow()
     result = build_tar_tap_bridge(
@@ -20424,7 +20509,8 @@ async def tar_tap_bridge(
 @app.post("/v1/atf/rcr-survivability-bridge", tags=["VGS-017 ATF Bridge"])
 async def rcr_survivability_bridge(
     req: RCRSurvBridgeRequest,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     VGS-017: RCR ↔ Survivability Bridge Receipt.
@@ -20442,7 +20528,7 @@ async def rcr_survivability_bridge(
 
     Divergences: commitment_fracture → VGS envelope only
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     result = build_rcr_survivability_bridge(
         req.chain_id, req.agent_id,
         req.survivability_score, req.rollback_score,
@@ -20464,7 +20550,7 @@ async def atf_mapping_tables(x_api_key: Optional[str] = Header(None)):
     Field alignment, divergence points, durability verdicts.
     Harold: "This is where long-term durability gets decided."
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return {
         "schema":            "VGS-017-MAPPING",
         "tar_tap_mapping":   TAR_TAP_MAPPING,
@@ -20770,14 +20856,15 @@ class BatchVerifyRequest(BaseModel):
           tags=["Autonomous Execution Integrity Governance"])
 async def batch_verify(
     req: BatchVerifyRequest,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Batch semantic verification — multiple documents.
     Each document: {original_text, generated_text, document_type}
     Returns: per-document results + batch summary.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     results = []
     for doc in req.documents[:20]:
         r = detect_semantic_corruption(
@@ -20811,7 +20898,7 @@ async def corruption_vectors(x_api_key: Optional[str] = Header(None)):
     All 4 corruption vectors with examples and severity.
     What VeriSigil detects that no other platform catches.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return {
         "schema":  "VGS-SEMVER-1.0",
         "product": "Autonomous Execution Integrity Governance",
@@ -20964,7 +21051,7 @@ async def manual_onboard(
     Manually onboard a customer — same as webhook but triggered by you.
     Use this for: manual sales, testing, special cases.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     if plan not in PLAN_CONFIGS:
         raise HTTPException(400, f"Invalid plan. Choose: {list(PLAN_CONFIGS.keys())}")
@@ -20997,7 +21084,7 @@ async def manual_onboard(
 @app.get("/v1/customers", tags=["Onboarding"])
 async def list_customers(x_api_key: Optional[str] = Header(None)):
     """List all customers — your internal dashboard."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     customers = list(_customers.values())
     plans     = {}
     for c in customers:
@@ -21030,7 +21117,7 @@ async def list_customers(x_api_key: Optional[str] = Header(None)):
 @app.get("/v1/customers/{org_id}", tags=["Onboarding"])
 async def get_customer(org_id: str, x_api_key: Optional[str] = Header(None)):
     """Get a specific customer record."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     customer = _customers.get(org_id)
     if not customer:
         raise HTTPException(404, f"Customer {org_id} not found")
@@ -21043,13 +21130,14 @@ async def get_customer(org_id: str, x_api_key: Optional[str] = Header(None)):
 @app.get("/v1/chain", tags=["Audit Chain"])
 async def get_chain(
     limit: int = 20,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Return the governance chain — last N blocks with Merkle root.
     Every block is cryptographically linked to the previous one.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     blocks      = _chain[-limit:] if len(_chain) > limit else _chain
     all_hashes  = [b["block_hash"] for b in _chain]
     merkle_root = _compute_merkle_root(all_hashes) if all_hashes else _sha256("empty")
@@ -21068,7 +21156,7 @@ async def verify_chain(x_api_key: Optional[str] = Header(None)):
     Verify entire chain integrity — recomputes every hash from scratch.
     Returns drift_detected: true if any block was tampered with.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     result = chain_verify_integrity()
     return {
         "status":          "intact" if result["intact"] else "COMPROMISED",
@@ -21084,14 +21172,15 @@ async def verify_chain(x_api_key: Optional[str] = Header(None)):
 @app.get("/v1/chain/replay/{execution_id}", tags=["Audit Chain"])
 async def replay_execution(
     execution_id: str,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Replay a specific execution — proves governance decisions are
     deterministic and reproducible. Same inputs always produce same hash.
     Returns hash_match: true if replay is consistent with original.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     result = chain_replay(execution_id)
     if not result.get("found", True) and "original_hash" not in result:
         raise HTTPException(404, f"Execution {execution_id} not found in chain")
@@ -21102,7 +21191,7 @@ async def chain_stats(x_api_key: Optional[str] = Header(None)):
     """
     Chain statistics — blocks, decisions, drift detection summary.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     decisions = {}
     for block in _chain:
         d = block["decision"]
@@ -21129,13 +21218,14 @@ async def chain_stats(x_api_key: Optional[str] = Header(None)):
 @app.get("/v1/policy", tags=["Policy Engine"])
 async def get_policy(
     org_id: str = "default",
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Get effective policy for an organization.
     Returns platform defaults merged with any customer overrides.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     effective = {}
     for action_type in POLICY_RULES:
         effective[action_type] = get_effective_policy(org_id, action_type)
@@ -21163,7 +21253,7 @@ async def set_policy(
     POST /v1/policy?org_id=acme&action_type=payment
     Body: {"max_amount_usd": 5000, "require_human_above": 2000}
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     if org_id not in _customer_policies:
         _customer_policies[org_id] = {}
     _customer_policies[org_id][action_type] = rules
@@ -21189,7 +21279,7 @@ async def test_policy(
     Test a policy rule without executing anything.
     Shows exactly what decision would be returned for given inputs.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     if action_details is None:
         action_details = {}
     effective = get_effective_policy(org_id, action_type)
@@ -21220,7 +21310,7 @@ async def reset_policy(
     x_api_key:   Optional[str] = Header(None)
 ):
     """Reset policy to platform defaults."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     if org_id in _customer_policies:
         if action_type:
             _customer_policies[org_id].pop(action_type, None)
@@ -21239,13 +21329,14 @@ async def reset_policy(
 @app.get("/v1/enforcement/summary", tags=["Enforcement"])
 async def enforcement_summary(
     org_id:    str = "default",
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Full enforcement summary for an organization.
     Shows decisions, chain stats, policy overview, and trust metrics.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     # Chain stats
     org_blocks = [b for b in _chain if b.get("agent_id","").startswith("vsa_")]
@@ -21314,7 +21405,7 @@ async def issue_test(req: Request):
 
 @app.post("/v1/passport/issue")
 async def issue(req: IssueReq, request: Request, x_api_key: Optional[str] = Header(None)):
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     geo        = get_geo_from_request(request)
     check_name = (req.display_name or req.agent_name).lower().strip()
     if check_name in PROTECTED_NAMES:
@@ -21409,7 +21500,7 @@ async def get_p(agent_id: str):
 
 @app.post("/v1/passport/revoke")
 async def revoke(req: RevokeReq, x_api_key: Optional[str] = Header(None)):
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     p = await db_get("passports", "agent_id", req.agent_id)
     if not p:
         raise HTTPException(404, "Passport not found.")
@@ -21511,7 +21602,7 @@ async def did_resolution(agent_id: str):
 
 @app.post("/v1/security/scan")
 async def scan(req: ScanReq, x_api_key: Optional[str] = Header(None)):
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     threats, seen = [], set()
     lines    = req.code.split("\n")
     patterns = [
@@ -21558,7 +21649,7 @@ async def scan(req: ScanReq, x_api_key: Optional[str] = Header(None)):
 
 @app.post("/v1/compliance/check")
 async def compliance(req: ComplianceReq, x_api_key: Optional[str] = Header(None)):
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     result = {}
     if "eu_ai_act" in req.regulations:
         result["eu_ai_act"] = {"compliant": True, "risk_class": "LIMITED_RISK", "deadline": "2026-08-01",
@@ -21573,7 +21664,7 @@ async def compliance(req: ComplianceReq, x_api_key: Optional[str] = Header(None)
 
 @app.post("/v1/action/evaluate", tags=["Action Evaluation"])
 async def evaluate_action(req: ActionEvaluateRequest, x_api_key: Optional[str] = Header(None)):
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     p = await db_get("passports", "agent_id", req.agent_id)
     if not p:
         raise HTTPException(404, f"Agent '{req.agent_id}' not found in VeriSigil registry.")
@@ -21651,7 +21742,7 @@ async def register_verifier(req: RegisterVerifierReq):
 
 @app.get("/v1/verifiers", tags=["Verifiers"])
 async def list_verifiers(x_api_key: Optional[str] = Header(None)):
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     async with httpx.AsyncClient() as c:
         r = await c.get(f"{SUPABASE_URL}/rest/v1/verifiers?order=created_at.desc",
                         headers=get_headers(write=False), timeout=10)
@@ -21676,7 +21767,7 @@ async def join_waitlist(data: WaitlistSignup):
 
 @app.post("/v1/sigilguard/event", tags=["SigilGuard"])
 async def log_sigilguard_event(event: SigilGuardEvent, x_api_key: Optional[str] = Header(None)):
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     try:
         result = await db_insert("sigilguard_events", {
             "agent_id": event.agent_id, "module": event.module, "severity": event.severity,
@@ -21790,7 +21881,8 @@ async def public_scan(req: PublicScanRequest):
 async def verify_before_execution(
     req: ExecutionRequest,
     request: Request,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     OPERATIONAL RUNTIME GUARD
@@ -21798,7 +21890,7 @@ async def verify_before_execution(
     Returns ALLOW / DENY / REQUIRE_HUMAN_APPROVAL in <50ms.
     """
     start_time = time_module.time()  # FIX: use time_module not time_module.time()
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     passport = await db_get("passports", "agent_id", req.agent_id)
     if not passport:
@@ -21921,14 +22013,15 @@ async def verify_before_execution(
 async def gate_verify(
     req: VerifyRequest,
     request: Request,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     OPERATIONAL GATEWAY — 5-gate policy engine.
     Returns ALLOW / DENY / REQUIRE_HUMAN_APPROVAL with full gate breakdown.
     """
     start_time = time_module.time()  # FIX
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     gates   = {"identity": False, "issuer": False, "trust_score": False,
                "runtime_state": False, "policy": False}
@@ -22009,7 +22102,7 @@ async def gate_verify(
 
 @app.get("/v1/guard/sdk", tags=["Runtime Guard"])
 async def get_sdk_integration(x_api_key: Optional[str] = Header(None)):
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return {
         "sdk_snippet": '''
 # VeriSigil Runtime Guard — 15-minute integration
@@ -22306,14 +22399,15 @@ def verify_before_execution(action_type, details, resource):
 @app.post("/v1/sprint/run", tags=["Compliance Sprint"])
 async def run_compliance_sprint(
     req: SprintRequest,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     COMPLIANCE SPRINT — Fully Automatic
     Issues passport + sends compliance email in one call.
     Public endpoint — customers trigger this from Sigil Studio.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     sprint_id    = f"sprint_{uuid.uuid4().hex[:10].upper()}"
     eu_risk_class = classify_eu_risk(req.industry, req.agent_description)
@@ -22797,13 +22891,14 @@ class ApprovalDecision(BaseModel):
 @app.post("/v1/approvals/create", tags=["Approval Console"])
 async def create_approval(
     req: ApprovalCreate,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Create a human approval request.
     Called automatically when Runtime Guard returns REQUIRE_HUMAN_APPROVAL.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     approval_id = f"apr_{uuid.uuid4().hex[:8]}"
     expires_at  = (datetime.utcnow() + timedelta(hours=24)).isoformat()
@@ -22970,10 +23065,11 @@ async def decide_approval(approval_id: str, req: ApprovalDecision):
 async def list_approvals(
     status: Optional[str] = None,
     agent_id: Optional[str] = None,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """List approval requests. Filter by status or agent_id."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     url = f"{SUPABASE_URL}/rest/v1/approval_requests?order=created_at.desc&limit=50"
     if status:
@@ -23651,7 +23747,8 @@ class AgentStateUpdateRequest(BaseModel):
 @app.post("/v1/inventory/register", tags=["VGS-020 Agent Inventory"])
 async def inventory_register(
     req: AgentInventoryRequest,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     VGS-020: Register agent in the inventory system.
@@ -23667,7 +23764,7 @@ async def inventory_register(
     Called once when agent is first created.
     State updated automatically by governance events.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     result = register_agent_inventory(
         agent_id=req.agent_id, agent_name=req.agent_name,
         agent_role=req.agent_role, owner_org=req.owner_org,
@@ -23681,10 +23778,11 @@ async def inventory_register(
 @app.post("/v1/inventory/state", tags=["VGS-020 Agent Inventory"])
 async def inventory_update_state(
     req: AgentStateUpdateRequest,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """Update agent state in inventory after a governance decision."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return update_agent_state(
         req.agent_id, req.new_state, req.reason,
         req.trust_score, req.action_type,
@@ -23693,10 +23791,11 @@ async def inventory_update_state(
 @app.get("/v1/inventory/{agent_id}", tags=["VGS-020 Agent Inventory"])
 async def inventory_get_agent(
     agent_id: str,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """Get full inventory record for an agent."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     entry = _AGENT_INVENTORY.get(agent_id)
     if not entry:
         raise HTTPException(404, f"Agent {agent_id} not in inventory")
@@ -23705,14 +23804,15 @@ async def inventory_get_agent(
 @app.get("/v1/inventory/{agent_id}/blast-radius", tags=["VGS-020 Agent Inventory"])
 async def inventory_blast_radius(
     agent_id: str,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Compute blast radius — what breaks if this agent is revoked.
     Returns: affected_agents, max_consequence, governance_action.
     Use before revoking any CRITICAL agent.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return compute_blast_radius(agent_id)
 
 @app.get("/v1/inventory", tags=["VGS-020 Agent Inventory"])
@@ -23723,7 +23823,7 @@ async def inventory_list(
     x_api_key:  Optional[str] = Header(None)
 ):
     """List all registered agents with optional filters."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     entries = list(_AGENT_INVENTORY.values())
     if state:
         entries = [e for e in entries if e["state"] == state]
@@ -23740,17 +23840,18 @@ async def inventory_list(
 @app.get("/v1/inventory/summary/all", tags=["VGS-020 Agent Inventory"])
 async def inventory_summary(x_api_key: Optional[str] = Header(None)):
     """Full inventory summary — counts, states, trust distribution."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return get_inventory_summary()
 
 @app.get("/v1/inventory/events/log", tags=["VGS-020 Agent Inventory"])
 async def inventory_events(
     agent_id:  Optional[str] = None,
     limit:     int = 50,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """Inventory event log — all state changes, registrations, alerts."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     events = _INVENTORY_EVENTS
     if agent_id:
         events = [e for e in events if e["agent_id"] == agent_id]
@@ -23759,7 +23860,7 @@ async def inventory_events(
 @app.get("/v1/inventory/roles/list", tags=["VGS-020 Agent Inventory"])
 async def inventory_roles(x_api_key: Optional[str] = Header(None)):
     """All valid agent roles and states."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return {"roles":AGENT_ROLES,"states":AGENT_STATES,"schema":"VGS-020"}
 
 
@@ -23784,7 +23885,8 @@ class FingerprintRequest(BaseModel):
 @app.post("/v1/shadow/detect", tags=["VGS-021 Shadow Detection"])
 async def shadow_detect(
     req: ShadowDetectionRequest,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     VGS-021: Enhanced multi-signal shadow detection.
@@ -23804,7 +23906,7 @@ async def shadow_detect(
     SUSPICIOUS       → ESCALATE
     CLEAN            → PROCEED
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     result = detect_shadow_enhanced(
         req.agent_id, req.agent_did, req.trust_score,
         req.action_type, req.jurisdiction,
@@ -23822,14 +23924,15 @@ async def shadow_detect(
 @app.post("/v1/shadow/fingerprint", tags=["VGS-021 Shadow Detection"])
 async def shadow_fingerprint_record(
     req: FingerprintRequest,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Record behavioral fingerprint for an agent.
     Call after every action to build the behavioral profile
     used by shadow detection. Returns current fingerprint.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     fp = record_behavioral_fingerprint(
         req.agent_id, req.action_type,
         req.action_hash or _sha256(f"{req.agent_id}:{req.action_type}"),
@@ -23847,10 +23950,11 @@ async def shadow_fingerprint_record(
 @app.get("/v1/shadow/fingerprint/{agent_id}", tags=["VGS-021 Shadow Detection"])
 async def shadow_get_fingerprint(
     agent_id:  str,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """Get behavioral fingerprint for an agent."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     fp = _BEHAVIORAL_FINGERPRINTS.get(agent_id)
     if not fp:
         return {"agent_id": agent_id, "fingerprint": None, "note": "No behavioral data yet"}
@@ -23867,7 +23971,7 @@ async def shadow_get_fingerprint(
 @app.get("/v1/shadow/vectors", tags=["VGS-021 Shadow Detection"])
 async def shadow_attack_vectors(x_api_key: Optional[str] = Header(None)):
     """All 7 shadow detection attack vectors with severity and weight."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return {
         "schema":  "VGS-021",
         "vectors": SHADOW_ATTACK_VECTORS,
@@ -23898,10 +24002,11 @@ class TopologyEdgeRequest(BaseModel):
 @app.post("/v1/topology/node", tags=["VGS-022 Topology Mapping"])
 async def topology_add_node(
     req: TopologyNodeRequest,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """Add an agent as a node in the topology graph."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return add_topology_node(
         req.agent_id, req.agent_name, req.agent_role,
         req.trust_score, req.jurisdiction, req.owner_org,
@@ -23911,10 +24016,11 @@ async def topology_add_node(
 @app.post("/v1/topology/edge", tags=["VGS-022 Topology Mapping"])
 async def topology_add_edge(
     req: TopologyEdgeRequest,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """Add a directed edge between agents in the topology graph."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return add_topology_edge(
         req.from_agent_id, req.to_agent_id, req.edge_type,
         req.weight, req.label, req.consequence,
@@ -23928,19 +24034,19 @@ async def topology_get_graph(x_api_key: Optional[str] = Header(None)):
     Shows: authority flow, delegation depth, isolated agents,
     authority concentration risk, critical consequence paths.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return get_topology_graph()
 
 @app.get("/v1/topology/metrics", tags=["VGS-022 Topology Mapping"])
 async def topology_get_metrics(x_api_key: Optional[str] = Header(None)):
     """Topology risk metrics — hubs, isolated agents, concentration."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return compute_topology_metrics()
 
 @app.get("/v1/topology/edge-types", tags=["VGS-022 Topology Mapping"])
 async def topology_edge_types(x_api_key: Optional[str] = Header(None)):
     """All supported topology edge types."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return {"edge_types": EDGE_TYPES, "schema": "VGS-022"}
 
 
@@ -23971,16 +24077,17 @@ async def governance_dashboard(
 
     time_window: 1h | 6h | 24h | 7d | 30d
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return build_governance_dashboard(org_id, time_window)
 
 @app.get("/v1/dashboard/health", tags=["VGS-023 Governance Dashboard"])
 async def dashboard_health_score(
     org_id:    str = "default",
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """Quick governance health score — grade + signal. No full payload."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     dashboard = build_governance_dashboard(org_id)
     return {
         "governance_health": dashboard["governance_health"],
@@ -23995,7 +24102,8 @@ async def dashboard_health_score(
 
 @app.get("/v1/dashboard/agents/at-risk", tags=["VGS-023 Governance Dashboard"])
 async def dashboard_agents_at_risk(
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Agents requiring immediate attention:
@@ -24004,7 +24112,7 @@ async def dashboard_agents_at_risk(
     - ESCALATED state
     - Zero escalations on CRITICAL consequence class
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     entries = list(_AGENT_INVENTORY.values())
     at_risk = []
 
@@ -24478,7 +24586,7 @@ async def document_semantic_verify(
     across 20 AI interactions without governance.
     VeriSigil catches each corruption event in real time.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     verify_id = f"SVERIFY-{uuid.uuid4().hex[:10].upper()}"
     timestamp = datetime.utcnow().isoformat()
@@ -25304,6 +25412,7 @@ class ExecutionRecordRequest(BaseModel):
 async def seal_execution_record(
     req: ExecutionRecordRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     VGS-024: Seal a cryptographically immutable execution accountability record.
@@ -25331,7 +25440,7 @@ async def seal_execution_record(
     - Adversarial review
     - Sovereign audit years later
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     record_id  = f"SAC-{uuid.uuid4().hex[:12].upper()}"
     timestamp  = datetime.now(timezone.utc).isoformat()
@@ -25480,12 +25589,13 @@ async def seal_execution_record(
 async def get_accountability_record(
     record_id: str,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Retrieve a sealed accountability record by ID.
     Every retrieval is logged to chain-of-custody.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     record = _SAC_STORE.get(record_id)
     if not record:
@@ -25504,6 +25614,7 @@ async def get_accountability_record(
 async def get_continuity_proof(
     record_id: str,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     VER-INV-024: Retrieve authority continuity proof.
@@ -25514,7 +25625,7 @@ async def get_continuity_proof(
     Critical for legal disputes around revocation timing,
     stale authority, expired delegation, escalation gaps.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     record = _SAC_STORE.get(record_id)
     if not record:
@@ -25538,6 +25649,7 @@ async def get_continuity_proof(
 async def get_supervisory_visibility(
     record_id: str,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     VER-INV-026: Reconstruct exactly what the supervisor knew
@@ -25547,7 +25659,7 @@ async def get_supervisory_visibility(
     Answers: "Did the supervisor have complete, accurate,
     undistorted information when they approved?"
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     record = _SAC_STORE.get(record_id)
     if not record:
@@ -25571,6 +25683,7 @@ async def get_supervisory_visibility(
 async def get_consequence_binding(
     record_id: str,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     VER-INV-027: Retrieve consequence binding.
@@ -25581,7 +25694,7 @@ async def get_consequence_binding(
     Critical for finance, healthcare, defense, and
     autonomous infrastructure accountability.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     record = _SAC_STORE.get(record_id)
     if not record:
@@ -25605,6 +25718,7 @@ async def get_consequence_binding(
 async def get_attribution_graph(
     record_id: str,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Multi-party harm attribution topology.
@@ -25620,7 +25734,7 @@ async def get_attribution_graph(
 
     This graph is cryptographically sealed and independently verifiable.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     record = _SAC_STORE.get(record_id)
     if not record:
@@ -25643,6 +25757,7 @@ async def get_attribution_graph(
 async def get_verifier_package(
     record_id: str,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Independent verifier package — sovereign-grade accountability.
@@ -25658,7 +25773,7 @@ async def get_verifier_package(
     EU AI Act, APRA CPS 230, DORA, NIST AI RMF,
     and equivalent regulatory frameworks.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     record = _SAC_STORE.get(record_id)
     if not record:
@@ -25680,6 +25795,7 @@ async def get_verifier_package(
 async def get_invariant_check(
     record_id: str,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Check all 4 legal-grade accountability invariants.
@@ -25692,7 +25808,7 @@ async def get_invariant_check(
     Returns accountability grade (A/B/C/F) and
     legal defensibility assessment (FULL/PARTIAL/LIMITED/NONE).
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     record = _SAC_STORE.get(record_id)
     if not record:
@@ -25718,6 +25834,7 @@ async def get_invariant_check(
 async def get_chain_of_custody(
     record_id: str,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Chain-of-custody log for an accountability record.
@@ -25729,7 +25846,7 @@ async def get_chain_of_custody(
     Critical for legal proceedings where evidence integrity
     must be demonstrated.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     record = _SAC_STORE.get(record_id)
     if not record:
@@ -25756,12 +25873,13 @@ async def get_chain_of_custody(
          tags=["VGS-024 Sovereign Accountability Chain"])
 async def accountability_summary(
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Summary of all sealed accountability records.
     Governance overview across all executed actions.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     records    = list(_SAC_STORE.values())
     grades     = [r.get("invariant_check", {}).get("accountability_grade", "?") for r in records]
@@ -26450,7 +26568,8 @@ class AgentStateUpdateRequest(BaseModel):
 @app.post("/v1/inventory/register", tags=["VGS-020 Agent Inventory"])
 async def inventory_register(
     req: AgentInventoryRequest,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     VGS-020: Register agent in the inventory system.
@@ -26466,7 +26585,7 @@ async def inventory_register(
     Called once when agent is first created.
     State updated automatically by governance events.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     result = register_agent_inventory(
         agent_id=req.agent_id, agent_name=req.agent_name,
         agent_role=req.agent_role, owner_org=req.owner_org,
@@ -26480,10 +26599,11 @@ async def inventory_register(
 @app.post("/v1/inventory/state", tags=["VGS-020 Agent Inventory"])
 async def inventory_update_state(
     req: AgentStateUpdateRequest,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """Update agent state in inventory after a governance decision."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return update_agent_state(
         req.agent_id, req.new_state, req.reason,
         req.trust_score, req.action_type,
@@ -26492,10 +26612,11 @@ async def inventory_update_state(
 @app.get("/v1/inventory/{agent_id}", tags=["VGS-020 Agent Inventory"])
 async def inventory_get_agent(
     agent_id: str,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """Get full inventory record for an agent."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     entry = _AGENT_INVENTORY.get(agent_id)
     if not entry:
         raise HTTPException(404, f"Agent {agent_id} not in inventory")
@@ -26504,14 +26625,15 @@ async def inventory_get_agent(
 @app.get("/v1/inventory/{agent_id}/blast-radius", tags=["VGS-020 Agent Inventory"])
 async def inventory_blast_radius(
     agent_id: str,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Compute blast radius — what breaks if this agent is revoked.
     Returns: affected_agents, max_consequence, governance_action.
     Use before revoking any CRITICAL agent.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return compute_blast_radius(agent_id)
 
 @app.get("/v1/inventory", tags=["VGS-020 Agent Inventory"])
@@ -26522,7 +26644,7 @@ async def inventory_list(
     x_api_key:  Optional[str] = Header(None)
 ):
     """List all registered agents with optional filters."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     entries = list(_AGENT_INVENTORY.values())
     if state:
         entries = [e for e in entries if e["state"] == state]
@@ -26539,17 +26661,18 @@ async def inventory_list(
 @app.get("/v1/inventory/summary/all", tags=["VGS-020 Agent Inventory"])
 async def inventory_summary(x_api_key: Optional[str] = Header(None)):
     """Full inventory summary — counts, states, trust distribution."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return get_inventory_summary()
 
 @app.get("/v1/inventory/events/log", tags=["VGS-020 Agent Inventory"])
 async def inventory_events(
     agent_id:  Optional[str] = None,
     limit:     int = 50,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """Inventory event log — all state changes, registrations, alerts."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     events = _INVENTORY_EVENTS
     if agent_id:
         events = [e for e in events if e["agent_id"] == agent_id]
@@ -26558,7 +26681,7 @@ async def inventory_events(
 @app.get("/v1/inventory/roles/list", tags=["VGS-020 Agent Inventory"])
 async def inventory_roles(x_api_key: Optional[str] = Header(None)):
     """All valid agent roles and states."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return {"roles":AGENT_ROLES,"states":AGENT_STATES,"schema":"VGS-020"}
 
 
@@ -26583,7 +26706,8 @@ class FingerprintRequest(BaseModel):
 @app.post("/v1/shadow/detect", tags=["VGS-021 Shadow Detection"])
 async def shadow_detect(
     req: ShadowDetectionRequest,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     VGS-021: Enhanced multi-signal shadow detection.
@@ -26603,7 +26727,7 @@ async def shadow_detect(
     SUSPICIOUS       → ESCALATE
     CLEAN            → PROCEED
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     result = detect_shadow_enhanced(
         req.agent_id, req.agent_did, req.trust_score,
         req.action_type, req.jurisdiction,
@@ -26621,14 +26745,15 @@ async def shadow_detect(
 @app.post("/v1/shadow/fingerprint", tags=["VGS-021 Shadow Detection"])
 async def shadow_fingerprint_record(
     req: FingerprintRequest,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Record behavioral fingerprint for an agent.
     Call after every action to build the behavioral profile
     used by shadow detection. Returns current fingerprint.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     fp = record_behavioral_fingerprint(
         req.agent_id, req.action_type,
         req.action_hash or _sha256(f"{req.agent_id}:{req.action_type}"),
@@ -26646,10 +26771,11 @@ async def shadow_fingerprint_record(
 @app.get("/v1/shadow/fingerprint/{agent_id}", tags=["VGS-021 Shadow Detection"])
 async def shadow_get_fingerprint(
     agent_id:  str,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """Get behavioral fingerprint for an agent."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     fp = _BEHAVIORAL_FINGERPRINTS.get(agent_id)
     if not fp:
         return {"agent_id": agent_id, "fingerprint": None, "note": "No behavioral data yet"}
@@ -26666,7 +26792,7 @@ async def shadow_get_fingerprint(
 @app.get("/v1/shadow/vectors", tags=["VGS-021 Shadow Detection"])
 async def shadow_attack_vectors(x_api_key: Optional[str] = Header(None)):
     """All 7 shadow detection attack vectors with severity and weight."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return {
         "schema":  "VGS-021",
         "vectors": SHADOW_ATTACK_VECTORS,
@@ -26697,10 +26823,11 @@ class TopologyEdgeRequest(BaseModel):
 @app.post("/v1/topology/node", tags=["VGS-022 Topology Mapping"])
 async def topology_add_node(
     req: TopologyNodeRequest,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """Add an agent as a node in the topology graph."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return add_topology_node(
         req.agent_id, req.agent_name, req.agent_role,
         req.trust_score, req.jurisdiction, req.owner_org,
@@ -26710,10 +26837,11 @@ async def topology_add_node(
 @app.post("/v1/topology/edge", tags=["VGS-022 Topology Mapping"])
 async def topology_add_edge(
     req: TopologyEdgeRequest,
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """Add a directed edge between agents in the topology graph."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return add_topology_edge(
         req.from_agent_id, req.to_agent_id, req.edge_type,
         req.weight, req.label, req.consequence,
@@ -26727,19 +26855,19 @@ async def topology_get_graph(x_api_key: Optional[str] = Header(None)):
     Shows: authority flow, delegation depth, isolated agents,
     authority concentration risk, critical consequence paths.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return get_topology_graph()
 
 @app.get("/v1/topology/metrics", tags=["VGS-022 Topology Mapping"])
 async def topology_get_metrics(x_api_key: Optional[str] = Header(None)):
     """Topology risk metrics — hubs, isolated agents, concentration."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return compute_topology_metrics()
 
 @app.get("/v1/topology/edge-types", tags=["VGS-022 Topology Mapping"])
 async def topology_edge_types(x_api_key: Optional[str] = Header(None)):
     """All supported topology edge types."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return {"edge_types": EDGE_TYPES, "schema": "VGS-022"}
 
 
@@ -26770,16 +26898,17 @@ async def governance_dashboard(
 
     time_window: 1h | 6h | 24h | 7d | 30d
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return build_governance_dashboard(org_id, time_window)
 
 @app.get("/v1/dashboard/health", tags=["VGS-023 Governance Dashboard"])
 async def dashboard_health_score(
     org_id:    str = "default",
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """Quick governance health score — grade + signal. No full payload."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     dashboard = build_governance_dashboard(org_id)
     return {
         "governance_health": dashboard["governance_health"],
@@ -26794,7 +26923,8 @@ async def dashboard_health_score(
 
 @app.get("/v1/dashboard/agents/at-risk", tags=["VGS-023 Governance Dashboard"])
 async def dashboard_agents_at_risk(
-    x_api_key: Optional[str] = Header(None)
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Agents requiring immediate attention:
@@ -26803,7 +26933,7 @@ async def dashboard_agents_at_risk(
     - ESCALATED state
     - Zero escalations on CRITICAL consequence class
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     entries = list(_AGENT_INVENTORY.values())
     at_risk = []
 
@@ -27554,6 +27684,7 @@ class ExecutionRecordRequest(BaseModel):
 async def seal_execution_record(
     req: ExecutionRecordRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     VGS-024: Seal a cryptographically immutable execution accountability record.
@@ -27581,7 +27712,7 @@ async def seal_execution_record(
     - Adversarial review
     - Sovereign audit years later
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     record_id  = f"SAC-{uuid.uuid4().hex[:12].upper()}"
     timestamp  = datetime.now(timezone.utc).isoformat()
@@ -27730,12 +27861,13 @@ async def seal_execution_record(
 async def get_accountability_record(
     record_id: str,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Retrieve a sealed accountability record by ID.
     Every retrieval is logged to chain-of-custody.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     record = _SAC_STORE.get(record_id)
     if not record:
@@ -27754,6 +27886,7 @@ async def get_accountability_record(
 async def get_continuity_proof(
     record_id: str,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     VER-INV-024: Retrieve authority continuity proof.
@@ -27764,7 +27897,7 @@ async def get_continuity_proof(
     Critical for legal disputes around revocation timing,
     stale authority, expired delegation, escalation gaps.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     record = _SAC_STORE.get(record_id)
     if not record:
@@ -27788,6 +27921,7 @@ async def get_continuity_proof(
 async def get_supervisory_visibility(
     record_id: str,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     VER-INV-026: Reconstruct exactly what the supervisor knew
@@ -27797,7 +27931,7 @@ async def get_supervisory_visibility(
     Answers: "Did the supervisor have complete, accurate,
     undistorted information when they approved?"
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     record = _SAC_STORE.get(record_id)
     if not record:
@@ -27821,6 +27955,7 @@ async def get_supervisory_visibility(
 async def get_consequence_binding(
     record_id: str,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     VER-INV-027: Retrieve consequence binding.
@@ -27831,7 +27966,7 @@ async def get_consequence_binding(
     Critical for finance, healthcare, defense, and
     autonomous infrastructure accountability.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     record = _SAC_STORE.get(record_id)
     if not record:
@@ -27855,6 +27990,7 @@ async def get_consequence_binding(
 async def get_attribution_graph(
     record_id: str,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Multi-party harm attribution topology.
@@ -27870,7 +28006,7 @@ async def get_attribution_graph(
 
     This graph is cryptographically sealed and independently verifiable.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     record = _SAC_STORE.get(record_id)
     if not record:
@@ -27893,6 +28029,7 @@ async def get_attribution_graph(
 async def get_verifier_package(
     record_id: str,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Independent verifier package — sovereign-grade accountability.
@@ -27908,7 +28045,7 @@ async def get_verifier_package(
     EU AI Act, APRA CPS 230, DORA, NIST AI RMF,
     and equivalent regulatory frameworks.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     record = _SAC_STORE.get(record_id)
     if not record:
@@ -27930,6 +28067,7 @@ async def get_verifier_package(
 async def get_invariant_check(
     record_id: str,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Check all 4 legal-grade accountability invariants.
@@ -27942,7 +28080,7 @@ async def get_invariant_check(
     Returns accountability grade (A/B/C/F) and
     legal defensibility assessment (FULL/PARTIAL/LIMITED/NONE).
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     record = _SAC_STORE.get(record_id)
     if not record:
@@ -27968,6 +28106,7 @@ async def get_invariant_check(
 async def get_chain_of_custody(
     record_id: str,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Chain-of-custody log for an accountability record.
@@ -27979,7 +28118,7 @@ async def get_chain_of_custody(
     Critical for legal proceedings where evidence integrity
     must be demonstrated.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     record = _SAC_STORE.get(record_id)
     if not record:
@@ -28006,12 +28145,13 @@ async def get_chain_of_custody(
          tags=["VGS-024 Sovereign Accountability Chain"])
 async def accountability_summary(
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Summary of all sealed accountability records.
     Governance overview across all executed actions.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     records    = list(_SAC_STORE.values())
     grades     = [r.get("invariant_check", {}).get("accountability_grade", "?") for r in records]
@@ -28757,6 +28897,7 @@ class BridgeValidateRequest(BaseModel):
 async def submit_atf_dr(
     req: ATFDRRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Submit ATF Delegation Receipt (DR) — v1.4 spec.
@@ -28765,7 +28906,7 @@ async def submit_atf_dr(
     authority budgets rounded to 4dp for hash computation.
     DR signature uses DR.delegator_public_key (not platform key).
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     dr = req.dict()
     if not dr.get("created_at"):
@@ -28826,6 +28967,7 @@ async def submit_atf_dr(
 async def submit_atf_tar(
     req: ATFTARRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Submit ATF TAR — v1.4 spec.
@@ -28833,7 +28975,7 @@ async def submit_atf_tar(
     Generates VGS TAP (Trust Attestation Proof).
     TAR-INV-006 is a compiled constant — TAR_MAX_DR_LIFETIME_SECONDS=86400, not configurable.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     tar = req.dict()
     dr  = _ATF_DR_STORE.get(tar.get("delegation_id"))
@@ -28883,6 +29025,7 @@ async def submit_atf_tar(
 async def submit_atf_rcr(
     req: ATFRCRRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Submit ATF RCR — v1.4 spec.
@@ -28891,7 +29034,7 @@ async def submit_atf_rcr(
     New fields: fragmentation_score, time_remaining_ns, reauth_challenge_id.
     Generates VGS Survivability Accountability Chain record.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     rcr = req.dict()
     tar = _ATF_TAR_STORE.get(rcr.get("tar_id"))
@@ -28934,13 +29077,14 @@ async def submit_atf_rcr(
 async def validate_bridge(
     req: BridgeValidateRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Full ATF ↔ VGS bridge validation — v1.4 spec.
     Submit DR + TAR + optional RCR in one call.
     Returns complete equivalence proof with all invariant checks.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     dr  = req.dr
     tar = req.tar
@@ -29065,9 +29209,10 @@ async def validate_bridge(
          tags=["ATF-VGS Bridge v1.4"])
 async def bridge_summary(
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """Bridge session summary — all ATF v1.4 records and VGS mappings."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     valid   = [s for s in _BRIDGE_SESSIONS if s.get("bridge_valid")]
     invalid = [s for s in _BRIDGE_SESSIONS if not s.get("bridge_valid")]
@@ -29333,6 +29478,7 @@ class ThreatSignalRequest(BaseModel):
 async def inference_verify(
     req: InferenceVerifyRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     CRITICAL: Inference Corruption Detection.
@@ -29350,7 +29496,7 @@ async def inference_verify(
     4. Semantic drift from input — output diverges from input intent
     5. Repetition score — high repetition = possible training data regurgitation
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     verify_id  = f"INF-{uuid.uuid4().hex[:10].upper()}"
     timestamp  = datetime.now(timezone.utc).isoformat()
@@ -29518,6 +29664,7 @@ def _inference_explanation(decision: str, violations: list) -> str:
 async def semantic_chain_verify(
     req: SemanticChainRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     CRITICAL: Semantic Integrity Guard.
@@ -29532,7 +29679,7 @@ async def semantic_chain_verify(
     3. Original intent survives through the chain
     4. No semantic fragmentation across the workflow
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     chain_id  = f"SCH-{uuid.uuid4().hex[:10].upper()}"
     timestamp = datetime.now(timezone.utc).isoformat()
@@ -29674,6 +29821,7 @@ def _chain_explanation(decision, violations, avg_drift):
 async def cognition_output_integrity(
     req: CognitionIntegrityRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     CRITICAL: Cognition Poisoning Shield.
@@ -29688,7 +29836,7 @@ async def cognition_output_integrity(
     Cannot inspect training data directly — detects symptoms
     in outputs that indicate upstream poisoning.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     shield_id = f"COG-{uuid.uuid4().hex[:10].upper()}"
     timestamp = datetime.now(timezone.utc).isoformat()
@@ -29848,6 +29996,7 @@ def _cognition_explanation(decision, violations):
          tags=["Advanced Threat Defense"])
 async def governance_collapse_risk(
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Provider Collapse Early Warning System.
@@ -29861,7 +30010,7 @@ async def governance_collapse_risk(
     Monitors: trust score trends, escalation acceleration,
     shadow detection clustering, output entropy indicators.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     timestamp = datetime.now(timezone.utc).isoformat()
 
@@ -29957,6 +30106,7 @@ async def governance_collapse_risk(
          tags=["Advanced Threat Defense"])
 async def governance_survivability(
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Governance Survivability Index (GSI).
@@ -29973,7 +30123,7 @@ async def governance_survivability(
     4. Shadow risk — unauthorized agent risk level
     5. Accountability coverage — SAC records being generated
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     timestamp = datetime.now(timezone.utc).isoformat()
     agents    = list(_AGENT_INVENTORY.values())
@@ -30045,6 +30195,7 @@ async def governance_survivability(
 async def semantic_continuity(
     req: SemanticChainRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Semantic Continuity Engine (SCE).
@@ -30056,7 +30207,7 @@ async def semantic_continuity(
     Critical for governance: an agent must not be able to
     reinterpret its authority to expand its own scope.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     sce_id    = f"SCE-{uuid.uuid4().hex[:10].upper()}"
     timestamp = datetime.now(timezone.utc).isoformat()
@@ -30117,6 +30268,7 @@ async def semantic_continuity(
 async def register_model(
     req: ModelRegisterRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Model Governance Registry.
@@ -30125,7 +30277,7 @@ async def register_model(
     Detects model switching without re-verification.
     Prevents regulatory arbitrage.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     model_data = req.dict()
     model_data["registered_at"]  = datetime.now(timezone.utc).isoformat()
@@ -30159,12 +30311,13 @@ async def register_model(
 async def model_governance_status(
     model_id:  str,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Check governance status of a registered model.
     Detects if model meets governance requirements for current domain.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     registered = _MODEL_REGISTRY.get(model_id)
     known      = GOVERNED_MODELS.get(model_id.lower(), {})
@@ -30202,6 +30355,7 @@ async def model_governance_status(
 async def share_threat_signal(
     req: ThreatSignalRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Cross-Framework Threat Intelligence Exchange.
@@ -30212,7 +30366,7 @@ async def share_threat_signal(
     Enables collective defense against model wars,
     provider collapse, and inference corruption.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     signal_id = f"TIS-{uuid.uuid4().hex[:10].upper()}"
     timestamp = datetime.now(timezone.utc).isoformat()
@@ -30254,9 +30408,10 @@ async def share_threat_signal(
          tags=["Advanced Threat Defense"])
 async def get_threat_signals(
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """Get recent threat intelligence signals."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     recent   = _THREAT_SIGNALS[-20:]
     by_type  = {}
@@ -30282,6 +30437,7 @@ async def get_threat_signals(
 async def get_policy_template(
     domain:    str,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Domain-specific governance policy templates.
@@ -30292,7 +30448,7 @@ async def get_policy_template(
     Aligned with EU AI Act, NIST AI RMF, HIPAA, DORA,
     and relevant domain frameworks.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     policy = DOMAIN_POLICIES.get(domain.lower())
     if not policy:
@@ -30316,9 +30472,10 @@ async def get_policy_template(
          tags=["Advanced Threat Defense"])
 async def list_policy_templates(
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """List all available domain policy templates."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     return {
         "available_domains": list(DOMAIN_POLICIES.keys()),
@@ -30473,6 +30630,7 @@ class RiskEngineRequest(BaseModel):
 async def adversarial_simulate(
     req: AttackSimRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     AI Runtime Adversarial Simulator.
@@ -30491,7 +30649,7 @@ async def adversarial_simulate(
 
     Use before deploying agents in production.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     sim_id    = f"SIM-{uuid.uuid4().hex[:10].upper()}"
     timestamp = datetime.now(timezone.utc).isoformat()
@@ -30678,9 +30836,10 @@ async def adversarial_simulate(
          tags=["AI Security"])
 async def adversarial_patterns(
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """List all known attack patterns VeriSigil tests against."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return {
         "schema":  "VGS-ATTACK-PATTERNS-v1",
         "patterns": {
@@ -30708,6 +30867,7 @@ async def adversarial_patterns(
 async def governance_risk_score(
     req: RiskEngineRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Risk-Based Governance Engine.
@@ -30729,7 +30889,7 @@ async def governance_risk_score(
     Returns: quantified risk score (0-100), risk band,
     board-level summary, and recommended governance action.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     risk_id   = f"RISK-{uuid.uuid4().hex[:10].upper()}"
     timestamp = datetime.now(timezone.utc).isoformat()
@@ -30888,6 +31048,7 @@ async def governance_risk_score(
          tags=["AI Security"])
 async def governance_failsafe(
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Fail-Safe DENY — Governance Health Check.
@@ -30902,7 +31063,7 @@ async def governance_failsafe(
 
     This is the most important security property in the system.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     return {
         "schema":            "VGS-FAILSAFE-v1",
@@ -30926,12 +31087,13 @@ async def governance_failsafe(
           tags=["AI Security"])
 async def test_failsafe(
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Test the fail-safe DENY behavior.
     Returns what happens when governance is unreachable.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     return {
         "schema":            "VGS-FAILSAFE-TEST-v1",
@@ -31125,6 +31287,7 @@ class MemoryRecordRequest(BaseModel):
           tags=["Governance OS"])
 async def gos_start(
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Start the VeriSigil Governance Operating System.
@@ -31141,7 +31304,7 @@ async def gos_start(
     This is the AI Governance Operating System framing —
     not middleware, not a tool, but foundational execution fabric.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     if not _GOS_STATE["running"]:
         _GOS_STATE["running"]    = True
@@ -31190,9 +31353,10 @@ async def gos_start(
          tags=["Governance OS"])
 async def gos_status(
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """Full Governance OS status — all modules, metrics, health."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     agents   = list(_AGENT_INVENTORY.values())
     total    = len(agents)
@@ -31237,9 +31401,10 @@ async def gos_status(
 async def gos_policy(
     req: GOSPolicyRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """Register a governance policy with the OS kernel."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     policy = {
         "policy_id":     f"POL-{uuid.uuid4().hex[:8].upper()}",
@@ -31276,6 +31441,7 @@ async def gos_policy(
 async def calibration_compute(
     req: CalibrationRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Governance Calibration Engine.
@@ -31294,7 +31460,7 @@ async def calibration_compute(
     assessment of what level of autonomy is safe
     right now for this specific agent.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     cal_id = f"CAL-{uuid.uuid4().hex[:8].upper()}"
 
@@ -31381,9 +31547,10 @@ async def calibration_compute(
 async def get_calibration(
     agent_id:  str,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """Get current autonomy calibration for an agent."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     agent = _AGENT_INVENTORY.get(agent_id)
     if not agent:
@@ -31430,6 +31597,7 @@ async def get_calibration(
 async def sovereign_isolate(
     req: SovereignRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Sovereign Isolation Mode.
@@ -31449,7 +31617,7 @@ async def sovereign_isolate(
     This is sovereign AI governance positioning —
     critical for government deployments.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     iso_id    = f"SOV-{uuid.uuid4().hex[:10].upper()}"
     timestamp = datetime.now(timezone.utc).isoformat()
@@ -31529,9 +31697,10 @@ async def sovereign_isolate(
          tags=["Governance OS"])
 async def sovereign_status(
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """Status of all agents in sovereign isolation mode."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     return {
         "schema":           "VGS-SOVEREIGN-STATUS-v1",
@@ -31552,6 +31721,7 @@ async def sovereign_status(
 async def memory_record(
     req: MemoryRecordRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Governance Memory Engine — record event to long-term memory.
@@ -31561,7 +31731,7 @@ async def memory_record(
     Tracks: authority history, trust continuity, escalation lineage,
     behavioral drift persistence, survivability degradation over time.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     timestamp = datetime.now(timezone.utc).isoformat()
 
@@ -31611,12 +31781,13 @@ async def memory_record(
 async def get_memory(
     agent_id:  str,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Retrieve long-term governance memory for an agent.
     Shows behavioral trajectory over time — not just current state.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     mem = _GOVERNANCE_MEMORY.get(agent_id)
     if not mem:
@@ -31681,6 +31852,7 @@ async def get_memory(
 async def simulate_consequence(
     req: ConsequenceSimRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Consequence Projection Engine.
@@ -31694,7 +31866,7 @@ async def simulate_consequence(
     This is predictive governance infrastructure.
     Run this before allowing high-consequence agent actions.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     sim_id    = f"CSIM-{uuid.uuid4().hex[:10].upper()}"
     timestamp = datetime.now(timezone.utc).isoformat()
@@ -31825,6 +31997,7 @@ async def simulate_consequence(
 async def governance_translate(
     req: TranslateRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Governance Language Translation Engine.
@@ -31841,7 +32014,7 @@ async def governance_translate(
     Because enterprise buyers need translation,
     not just technical specifications.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     concept     = req.concept.lower().replace(" ", "_").replace("-", "_")
     audience    = req.audience.lower()
@@ -31876,9 +32049,10 @@ async def governance_explain(
     concept:   str,
     audience:  str = "board",
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """Get explanation of a governance concept for a specific audience."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     key          = concept.lower().replace("-", "_").replace(" ", "_")
     translations = LANGUAGE_TRANSLATIONS.get(key)
@@ -31903,6 +32077,7 @@ async def governance_explain(
           tags=["Governance OS"])
 async def benchmark_run(
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     VeriSigil Governance Benchmark Engine.
@@ -31918,7 +32093,7 @@ async def benchmark_run(
     VeriSigil is the benchmark setter — not just a governance
     tool but the standard against which governance is measured.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     bench_id  = f"BENCH-{uuid.uuid4().hex[:8].upper()}"
     timestamp = datetime.now(timezone.utc).isoformat()
@@ -32061,9 +32236,10 @@ async def benchmark_run(
          tags=["Governance OS"])
 async def benchmark_results(
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """Get historical benchmark results."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     if not _BENCHMARK_RESULTS:
         return {
@@ -32340,6 +32516,7 @@ class BoundaryCheckRequest(BaseModel):
 async def hal_check(
     req: HALCheckRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Human Authority Layer (HAL) — Action Check.
@@ -32361,7 +32538,7 @@ async def hal_check(
     trust score, or any other governance parameter.
     HUMAN_ONLY is absolute.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     check_id  = f"HAL-{uuid.uuid4().hex[:10].upper()}"
     timestamp = datetime.now(timezone.utc).isoformat()
@@ -32446,9 +32623,10 @@ async def hal_check(
          tags=["Human Sovereignty"])
 async def hal_categories(
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """List all human-only decision categories and their legal basis."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     return {
         "schema":             "VGS-HAL-CATEGORIES-v1",
@@ -32465,9 +32643,10 @@ async def hal_categories(
 async def hal_register(
     req: HALRegisterRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """Register custom human authority rules for a domain or organization."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     _HAL_REGISTRY[req.domain] = {
         "organization":  req.organization,
@@ -32494,6 +32673,7 @@ async def hal_register(
 async def oversight_record(
     req: OversightRecordRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Human Oversight Confidence Layer — Record review event.
@@ -32508,7 +32688,7 @@ async def oversight_record(
     nominal rather than genuine — one of the most dangerous
     failure modes in human-AI governance.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     record_id = f"OVR-{uuid.uuid4().hex[:8].upper()}"
     timestamp = datetime.now(timezone.utc).isoformat()
@@ -32572,6 +32752,7 @@ async def oversight_record(
          tags=["Human Sovereignty"])
 async def oversight_confidence(
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Human Oversight Confidence Score.
@@ -32582,7 +32763,7 @@ async def oversight_confidence(
     Low score = human oversight is becoming nominal.
     High score = genuine human engagement with AI decisions.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     if not _OVERSIGHT_RECORDS:
         return {
@@ -32667,6 +32848,7 @@ async def oversight_confidence(
 async def boundary_check(
     req: BoundaryCheckRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Human Consequence Boundary Engine.
@@ -32682,7 +32864,7 @@ async def boundary_check(
     This is operational sovereignty mapping —
     making explicit what is implicit in every AI deployment.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     boundary_id = f"BND-{uuid.uuid4().hex[:8].upper()}"
     timestamp   = datetime.now(timezone.utc).isoformat()
@@ -32765,6 +32947,7 @@ async def boundary_check(
          tags=["Human Sovereignty"])
 async def boundary_map(
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Full Human Consequence Boundary Map.
@@ -32773,7 +32956,7 @@ async def boundary_map(
     what AI can recommend, prepare, execute, and what
     humans alone can authorize.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     return {
         "schema":               "VGS-BOUNDARY-MAP-v1",
@@ -32803,6 +32986,7 @@ async def boundary_map(
 async def cognitive_challenge(
     req: CognitiveChallengeRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Human Cognitive Preservation Layer.
@@ -32820,7 +33004,7 @@ async def cognitive_challenge(
     This layer ensures humans are THINKING, not rubber-stamping.
     One of the most globally differentiated governance features.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     challenge_id = f"COG-{uuid.uuid4().hex[:8].upper()}"
     timestamp    = datetime.now(timezone.utc).isoformat()
@@ -32906,7 +33090,7 @@ async def cognitive_history(
     x_api_key:   Optional[str] = Header(None),
 ):
     """Get cognitive challenge history for a reviewer — detect judgment erosion over time."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     history = _COGNITIVE_CHALLENGES.get(reviewer_id, [])
     if not history:
@@ -32952,6 +33136,7 @@ async def cognitive_history(
 async def escalation_register(
     req: EscalationIntegrityRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Human Escalation Integrity Layer.
@@ -32966,7 +33151,7 @@ async def escalation_register(
     Expired intervention windows without human response
     trigger automatic blocking — fail-safe by design.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     timestamp    = datetime.now(timezone.utc).isoformat()
     window_expiry= datetime.now(timezone.utc).isoformat()  # simplified
@@ -33035,7 +33220,7 @@ async def escalation_status(
     x_api_key:     Optional[str] = Header(None),
 ):
     """Check escalation integrity status — has human responded within window?"""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     window = _ESCALATION_WINDOWS.get(escalation_id)
     if not window:
@@ -33069,6 +33254,7 @@ async def escalation_status(
 async def legitimacy_verify(
     req: LegitimacyRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Human Legitimacy Preservation Layer.
@@ -33088,7 +33274,7 @@ async def legitimacy_verify(
     No other governance platform makes this explicit,
     verifiable, and cryptographically sealed.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     leg_id    = f"LEG-{uuid.uuid4().hex[:8].upper()}"
     timestamp = datetime.now(timezone.utc).isoformat()
@@ -33176,6 +33362,7 @@ async def legitimacy_verify(
          tags=["Human Sovereignty"])
 async def legitimacy_statement(
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     VeriSigil Human Legitimacy Statement.
@@ -33183,7 +33370,7 @@ async def legitimacy_statement(
     The formal declaration of VeriSigil's human sovereignty
     architecture and philosophical positioning.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     return {
         "schema":    "VGS-LEGITIMACY-STATEMENT-v1",
@@ -33228,6 +33415,7 @@ async def legitimacy_statement(
          tags=["Human Sovereignty"])
 async def sovereignty_status(
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Human Sovereignty Architecture — Full Status.
@@ -33249,7 +33437,7 @@ async def sovereignty_status(
 
     Answer: Yes. Verifiably. Cryptographically. Always.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     agents        = list(_AGENT_INVENTORY.values())
     total_agents  = len(agents)
@@ -33469,6 +33657,7 @@ class TrustProjectionRequest(BaseModel):
          tags=["Governance Nervous System"])
 async def governance_integrity_diagnostics(
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Governance Integrity Diagnostics Engine — CORE.
@@ -33487,7 +33676,7 @@ async def governance_integrity_diagnostics(
     — Escalation Saturation Risk
     — Authority Continuity
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     timestamp = datetime.now(timezone.utc).isoformat()
     agents    = list(_AGENT_INVENTORY.values())
@@ -33603,6 +33792,7 @@ async def governance_integrity_diagnostics(
          tags=["Governance Nervous System"])
 async def human_oversight_diagnostics(
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Human Oversight Diagnostics Layer.
@@ -33616,7 +33806,7 @@ async def human_oversight_diagnostics(
     — Oversight Confidence level
     — Fatigue indicators
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     timestamp   = datetime.now(timezone.utc).isoformat()
     records     = _OVERSIGHT_RECORDS[-100:] if _OVERSIGHT_RECORDS else []
@@ -33712,6 +33902,7 @@ async def human_oversight_diagnostics(
 async def semantic_drift_diagnostics(
     req: DiagnosticsRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Semantic Drift Diagnostics.
@@ -33727,7 +33918,7 @@ async def semantic_drift_diagnostics(
     — Authority Meaning Drift level
     — Drift velocity (how fast meaning is changing)
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     timestamp = datetime.now(timezone.utc).isoformat()
     agent     = _AGENT_INVENTORY.get(req.agent_id, {})
@@ -33807,6 +33998,7 @@ async def semantic_drift_diagnostics(
 async def admissibility_diagnostics(
     req: AdmissibilityDiagRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Runtime Admissibility Diagnostics.
@@ -33822,7 +34014,7 @@ async def admissibility_diagnostics(
     — Runtime Revocation recommendation
     — Legitimacy decay rate
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     diag_id   = f"ADM-{uuid.uuid4().hex[:8].upper()}"
     timestamp = datetime.now(timezone.utc).isoformat()
@@ -33924,6 +34116,7 @@ async def admissibility_diagnostics(
          tags=["Governance Nervous System"])
 async def survivability_diagnostics(
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Governance Survivability Diagnostics.
@@ -33939,7 +34132,7 @@ async def survivability_diagnostics(
     — Collapse Probability
     — Time to critical threshold
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     timestamp = datetime.now(timezone.utc).isoformat()
     agents    = list(_AGENT_INVENTORY.values())
@@ -34038,6 +34231,7 @@ async def survivability_diagnostics(
 async def consequence_pathology(
     req: PathologyRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Consequence Pathology Engine.
@@ -34050,7 +34244,7 @@ async def consequence_pathology(
     Governance consequence prediction — not simulation.
     Pathology, not just projection.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     path_id   = f"PATH-{uuid.uuid4().hex[:8].upper()}"
     timestamp = datetime.now(timezone.utc).isoformat()
@@ -34159,6 +34353,7 @@ async def consequence_pathology(
 async def ai_runtime_mri(
     agent_id:  str = "",
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     AI Runtime MRI — Governance Nervous System Scan.
@@ -34174,7 +34369,7 @@ async def ai_runtime_mri(
 
     Most memorable commercial positioning in AI governance.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     scan_id   = f"MRI-{uuid.uuid4().hex[:8].upper()}"
     timestamp = datetime.now(timezone.utc).isoformat()
@@ -34288,6 +34483,7 @@ async def ai_runtime_mri(
 async def immune_trigger(
     req: ImmuneRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Governance Immune System.
@@ -34304,7 +34500,7 @@ async def immune_trigger(
 
     Self-protecting governance infrastructure.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     immune_id = f"IMM-{uuid.uuid4().hex[:8].upper()}"
     timestamp = datetime.now(timezone.utc).isoformat()
@@ -34393,6 +34589,7 @@ async def immune_trigger(
 async def sovereign_diagnostics(
     req: SovereignDiagRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Sovereign Governance Diagnostics.
@@ -34403,7 +34600,7 @@ async def sovereign_diagnostics(
     telemetry exposure, foreign model influence,
     infrastructure trust degradation.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     sov_id    = f"SOV-DIAG-{uuid.uuid4().hex[:8].upper()}"
     timestamp = datetime.now(timezone.utc).isoformat()
@@ -34501,6 +34698,7 @@ async def sovereign_diagnostics(
          tags=["Governance Nervous System"])
 async def executive_intelligence(
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Executive Governance Intelligence Dashboard.
@@ -34514,7 +34712,7 @@ async def executive_intelligence(
     This is what executives actually buy.
     Not technical readouts — governance intelligence.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     timestamp = datetime.now(timezone.utc).isoformat()
     agents    = list(_AGENT_INVENTORY.values())
@@ -34620,6 +34818,7 @@ async def executive_intelligence(
          tags=["Governance Nervous System"])
 async def governance_pulse(
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Governance Pulse — Real-Time Heartbeat.
@@ -34634,7 +34833,7 @@ async def governance_pulse(
     Perfect for monitoring dashboards, status pages,
     and executive briefings.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     import random
     timestamp = datetime.now(timezone.utc).isoformat()
@@ -34687,6 +34886,7 @@ async def governance_pulse(
 async def trust_decay_projection(
     req: TrustProjectionRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Trust Decay Projection — MY ADDITION.
@@ -34700,7 +34900,7 @@ async def trust_decay_projection(
     This is predictive governance — the difference between
     preventing a governance failure and recovering from one.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     proj_id   = f"PROJ-{uuid.uuid4().hex[:8].upper()}"
     timestamp = datetime.now(timezone.utc).isoformat()
@@ -34778,6 +34978,7 @@ async def trust_decay_projection(
 async def governance_stress_test(
     req: StressTestRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Governance Stress Test — MY ADDITION.
@@ -34795,7 +34996,7 @@ async def governance_stress_test(
     Because the best time to find a governance failure
     is before it happens in production.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     test_id   = f"STRESS-{uuid.uuid4().hex[:8].upper()}"
     timestamp = datetime.now(timezone.utc).isoformat()
@@ -35049,6 +35250,7 @@ class VSLRepairRequest(BaseModel):
 async def concurrence_workflow_create(
     req: WorkflowCreateRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Multi-Party Concurrence Engine — Create Approval Workflow.
@@ -35069,7 +35271,7 @@ async def concurrence_workflow_create(
     the constitutional layer that enterprises, governments,
     and regulated industries actually need.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     workflow_id = f"WF-{uuid.uuid4().hex[:12].upper()}"
     timestamp   = datetime.now(timezone.utc).isoformat()
@@ -35190,6 +35392,7 @@ async def concurrence_workflow_create(
 async def concurrence_approve(
     req: ApprovalRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Multi-Party Concurrence — Submit Cryptographic Approval Token.
@@ -35204,7 +35407,7 @@ async def concurrence_approve(
     Cryptographic token issued per approval.
     Time window enforced — expired workflows cannot be approved.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     timestamp = datetime.now(timezone.utc).isoformat()
     workflow  = _CONCURRENCE_WORKFLOWS.get(req.workflow_id)
@@ -35347,7 +35550,7 @@ async def concurrence_workflow_status(
     x_api_key:   Optional[str] = Header(None),
 ):
     """Get full concurrence workflow status — all approvals, tokens, legitimacy graph."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     workflow = _CONCURRENCE_WORKFLOWS.get(workflow_id)
     if not workflow:
@@ -35397,7 +35600,7 @@ async def concurrence_threshold(
 
     Used to configure new workflows correctly.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     # Threshold recommendations
     if domain in ("defense", "government") or action_type in ("weapons_authorization", "lethal_force"):
@@ -35459,7 +35662,7 @@ async def concurrence_proof(
 
     Without trusting VeriSigil infrastructure.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     workflow = _CONCURRENCE_WORKFLOWS.get(workflow_id)
     if not workflow:
@@ -35532,6 +35735,7 @@ async def concurrence_proof(
 async def vsl_parse(
     req: VSLParseRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     VeriSigil Language (VSL) — Governance DSL Parser.
@@ -35555,7 +35759,7 @@ async def vsl_parse(
     Parses VSL scripts into structured governance intent
     that VeriSigil enforcement layers can validate and execute.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     script_id = f"VSL-{uuid.uuid4().hex[:10].upper()}"
     timestamp = datetime.now(timezone.utc).isoformat()
@@ -35712,6 +35916,7 @@ async def vsl_validate(
     script_id: str,
     agent_id:  str = "",
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     VSL Validate — Check script against live authority model.
@@ -35722,7 +35927,7 @@ async def vsl_validate(
     — Jurisdiction rules
     — Concurrence threshold requirements
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     script = _VSL_SCRIPTS.get(script_id)
     if not script:
@@ -35795,6 +36000,7 @@ async def vsl_validate(
 async def vsl_replay(
     script_id: str,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     VSL Deterministic Replay.
@@ -35811,7 +36017,7 @@ async def vsl_replay(
     Same input → same verifiable output.
     Cryptographically sealed replay log.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     script    = _VSL_SCRIPTS.get(script_id)
     if not script:
@@ -35884,6 +36090,7 @@ async def vsl_replay(
 async def vsl_repair(
     req: VSLRepairRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     VSL Self-Repair Engine.
@@ -35898,7 +36105,7 @@ async def vsl_repair(
     Constitutional self-healing execution.
     Not crashing — recovering with governance intact.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     repair_id = f"REP-{uuid.uuid4().hex[:10].upper()}"
     timestamp = datetime.now(timezone.utc).isoformat()
@@ -36843,7 +37050,7 @@ async def db_status(
     Shows whether VeriSigil is running with Supabase
     persistence or in-memory fallback.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     health = db.health_check()
 
@@ -36885,7 +37092,7 @@ async def db_schema(
     Returns the SQL schema to run in Supabase SQL Editor.
     Creates all 18 tables needed for VeriSigil persistence.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     return {
         "schema":       "VGS-DB-SCHEMA-v1",
@@ -37085,6 +37292,7 @@ async def liveness():
          summary="Deep health check — all subsystems")
 async def health_deep(
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Deep health diagnostic — all VeriSigil subsystems.
@@ -37100,7 +37308,7 @@ async def health_deep(
 
     Returns full subsystem status for monitoring dashboards.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     timestamp  = datetime.now(timezone.utc).isoformat()
     subsystems = {}
@@ -37411,6 +37619,7 @@ class EvidenceBundleRequest(BaseModel):
 async def birth_certificate(
     req: BirthCertRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     AI Agent Birth Certificate.
@@ -37429,7 +37638,7 @@ async def birth_certificate(
 
     No agent should execute without a birth certificate.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     cert_id   = f"CERT-{uuid.uuid4().hex[:12].upper()}"
     timestamp = datetime.now(timezone.utc).isoformat()
@@ -37519,6 +37728,7 @@ async def birth_certificate(
 async def get_passport(
     agent_id:  str,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     AI Agent Passport — Portable Execution Identity.
@@ -37538,7 +37748,7 @@ async def get_passport(
     Any system can verify this passport without
     contacting VeriSigil — offline verifiable.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     timestamp = datetime.now(timezone.utc).isoformat()
     birth_cert= _BIRTH_CERTIFICATES.get(agent_id)
@@ -37613,6 +37823,7 @@ async def get_passport(
 async def visa_issue(
     req: VisaRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     AI Visa — Temporary Permission to Operate.
@@ -37632,7 +37843,7 @@ async def visa_issue(
     - Temporary elevated permissions
     - Regulated industry deployments
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     visa_id   = f"VISA-{uuid.uuid4().hex[:12].upper()}"
     timestamp = datetime.now(timezone.utc).isoformat()
@@ -37709,6 +37920,7 @@ async def visa_issue(
 async def customs_check(
     req: CustomsRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     AI Customs / Border Control — Pre-Execution Authority Check.
@@ -37726,7 +37938,7 @@ async def customs_check(
     Like border control — if any check fails,
     execution is DENIED before it begins.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     check_id  = f"CUST-{uuid.uuid4().hex[:10].upper()}"
     timestamp = datetime.now(timezone.utc).isoformat()
@@ -37824,6 +38036,7 @@ async def customs_check(
 async def dna_register(
     req: DNARequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Execution DNA Registration.
@@ -37841,7 +38054,7 @@ async def dna_register(
     DNA persists across deployments, updates, and versions.
     It is the agent's architectural memory of itself.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     dna_id    = f"DNA-{uuid.uuid4().hex[:12].upper()}"
     timestamp = datetime.now(timezone.utc).isoformat()
@@ -37912,9 +38125,10 @@ async def dna_register(
 async def get_dna(
     agent_id:  str,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """Retrieve Execution DNA record for an agent."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     dna = _EXECUTION_DNA.get(agent_id)
     if not dna:
@@ -37936,6 +38150,7 @@ async def get_dna(
 async def evidence_export(
     req: EvidenceExportRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Signed Governance Receipt — Evidence Export.
@@ -37952,7 +38167,7 @@ async def evidence_export(
     Cryptographically sealed. Independently verifiable.
     No platform trust required.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     export_id = f"EVID-{uuid.uuid4().hex[:12].upper()}"
     timestamp = datetime.now(timezone.utc).isoformat()
@@ -38054,6 +38269,7 @@ async def evidence_export(
 async def evidence_bundle(
     req: EvidenceBundleRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Regulator Evidence Bundle.
@@ -38072,7 +38288,7 @@ async def evidence_bundle(
     - COURT: Legal admissibility package
     - ENTERPRISE: Internal audit package
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     bundle_id = f"BUNDLE-{uuid.uuid4().hex[:10].upper()}"
     timestamp = datetime.now(timezone.utc).isoformat()
@@ -38140,7 +38356,7 @@ async def evidence_reconstruct(
     Returns what VeriSigil knew, what authority was valid,
     and what governance decisions were made at execution time.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     recon_id  = f"RECON-{uuid.uuid4().hex[:8].upper()}"
     timestamp = datetime.now(timezone.utc).isoformat()
@@ -38191,6 +38407,7 @@ async def evidence_reconstruct(
          tags=["Compliance"])
 async def ato_mapping(
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     ATO Mandate Mapping — Authority to Operate.
@@ -38205,7 +38422,7 @@ async def ato_mapping(
     Shows exactly which VeriSigil endpoints satisfy
     which ATO control requirements.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     return {
         "schema":          "VGS-ATO-MAPPING-v1",
@@ -38248,6 +38465,7 @@ async def ato_mapping(
          tags=["Compliance"])
 async def eu_ai_act_mapping(
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     EU AI Act Article Mapping.
@@ -38258,7 +38476,7 @@ async def eu_ai_act_mapping(
     Shows article-by-article how VeriSigil satisfies
     high-risk AI system obligations.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     addressed = [k for k,v in EU_AI_ACT_MAPPING.items() if v["status"] == "ADDRESSED"]
 
@@ -38287,9 +38505,10 @@ async def eu_ai_act_mapping(
          tags=["Compliance"])
 async def compliance_frameworks(
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """All supported compliance frameworks and their mapping status."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     return {
         "schema":    "VGS-COMPLIANCE-FRAMEWORKS-v1",
@@ -38547,6 +38766,7 @@ class AdmissibilityTranslationRequest(BaseModel):
 async def consequence_radius_index(
     req: CRIRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Consequence Radius Index (CRI).
@@ -38565,7 +38785,7 @@ async def consequence_radius_index(
     propagation score, jurisdictional impact, rollback
     complexity, human dependency score."
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     cri_id    = f"CRI-{uuid.uuid4().hex[:10].upper()}"
     timestamp = datetime.now(timezone.utc).isoformat()
@@ -38711,6 +38931,7 @@ async def consequence_radius_index(
 async def causality_record(
     req: CausalityRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Governance Causality Graph.
@@ -38729,7 +38950,7 @@ async def causality_record(
 
     This is institutional execution memory.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     causality_id = f"CAUS-{uuid.uuid4().hex[:10].upper()}"
     timestamp    = datetime.now(timezone.utc).isoformat()
@@ -38821,7 +39042,7 @@ async def get_causality(
     x_api_key:    Optional[str] = Header(None),
 ):
     """Retrieve governance causality graph for an execution."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     record = _CAUSALITY_GRAPHS.get(execution_id)
     if not record:
@@ -38842,6 +39063,7 @@ async def get_causality(
 async def temporal_legitimacy_check(
     req: TemporalLegitimacyRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Temporal Legitimacy Engine.
@@ -38861,7 +39083,7 @@ async def temporal_legitimacy_check(
     'Is this execution still legitimate RIGHT NOW —
     not just when it was authorized?'
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     tl_id     = f"TL-{uuid.uuid4().hex[:10].upper()}"
     timestamp = datetime.now(timezone.utc).isoformat()
@@ -39022,6 +39244,7 @@ async def temporal_legitimacy_check(
 async def sovereignty_bridge(
     req: SovereigntyBridgeRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Execution Sovereignty Bridges.
@@ -39045,7 +39268,7 @@ async def sovereignty_bridge(
 
     Expert: "geopolitical-scale infrastructure"
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     bridge_id = f"VSIP-{uuid.uuid4().hex[:12].upper()}"
     timestamp = datetime.now(timezone.utc).isoformat()
@@ -39139,9 +39362,10 @@ async def sovereignty_bridge(
          tags=["Execution Legitimacy"])
 async def list_sovereignty_bridges(
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """List all active sovereignty bridges."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     return {
         "schema":    "VGS-VSIP-LIST-v1",
@@ -39161,6 +39385,7 @@ async def list_sovereignty_bridges(
 async def trust_federation(
     req: TrustFederationRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Trust Federation.
@@ -39176,7 +39401,7 @@ async def trust_federation(
     Expert: "trust federation" — sovereign interoperability
     at the organizational level.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     fed_id    = f"FED-{uuid.uuid4().hex[:10].upper()}"
     timestamp = datetime.now(timezone.utc).isoformat()
@@ -39248,6 +39473,7 @@ async def trust_federation(
 async def admissibility_translate(
     req: AdmissibilityTranslationRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Admissibility Translation.
@@ -39263,7 +39489,7 @@ async def admissibility_translate(
     Expert: "admissibility translation" — sovereign interoperability
     at the regulatory level.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     trans_id  = f"TRANS-{uuid.uuid4().hex[:8].upper()}"
     timestamp = datetime.now(timezone.utc).isoformat()
@@ -39352,6 +39578,7 @@ async def admissibility_translate(
          tags=["Compliance"])
 async def vgs_eli_status(
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     VGS-ELI-Certified Status.
@@ -39377,7 +39604,7 @@ async def vgs_eli_status(
     VeriSigil is the infrastructure that determines
     whether autonomous execution is institutionally admissible.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     timestamp = datetime.now(timezone.utc).isoformat()
     agents    = list(_AGENT_INVENTORY.values())
@@ -39548,6 +39775,7 @@ class FailoverRequest(BaseModel):
 async def hapl_metrics(
     req: HAPLMetricsRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Human Authority Preservation Layer — Pressure Metrics.
@@ -39564,7 +39792,7 @@ async def hapl_metrics(
     — Human continuity risk — can humans still actually review?
     — Intervention survivability — can humans intervene if needed?
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     metrics_id = f"HAPL-{uuid.uuid4().hex[:8].upper()}"
     timestamp  = datetime.now(timezone.utc).isoformat()
@@ -39725,12 +39953,13 @@ async def hapl_metrics(
          tags=["Human Sovereignty"])
 async def hapl_status(
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Human Authority Preservation Layer — System Status.
     Aggregated human governance health across all reviewers.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     if not _HAPL_METRICS:
         return {
@@ -39781,6 +40010,7 @@ async def hapl_status(
 async def containment_zone_create(
     req: ContainmentZoneRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Execution Containment Zone.
@@ -39797,7 +40027,7 @@ async def containment_zone_create(
     bounded concurrency enforcement,
     execution kill-switch topology"
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     zone_id   = f"ZONE-{uuid.uuid4().hex[:10].upper()}"
     timestamp = datetime.now(timezone.utc).isoformat()
@@ -39852,6 +40082,7 @@ async def containment_zone_create(
 async def kill_switch(
     req: KillSwitchRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Execution Constitutional Containment Activation.
@@ -39868,7 +40099,7 @@ async def kill_switch(
     Expert: "execution kill-switch topology"
     — the ability to stop any agent immediately.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     kill_id   = f"KILL-{uuid.uuid4().hex[:10].upper()}"
     timestamp = datetime.now(timezone.utc).isoformat()
@@ -39930,9 +40161,10 @@ async def kill_switch(
          tags=["Execution Containment"])
 async def containment_status(
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """Full containment layer status — all zones and constitutional containment activationes."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     killed = [a for a in _AGENT_INVENTORY.values() if a.get("state") == "KILLED"]
 
@@ -39956,6 +40188,7 @@ async def containment_status(
          tags=["Governance SRE"])
 async def governance_sre_health(
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Governance Reliability Engineering — SRE Layer.
@@ -39971,7 +40204,7 @@ async def governance_sre_health(
 
     This is the unified SRE view of VeriSigil governance health.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     import random
     timestamp = datetime.now(timezone.utc).isoformat()
@@ -40060,6 +40293,7 @@ async def governance_sre_health(
 async def governance_failover(
     req: FailoverRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Governance Failover Configuration.
@@ -40068,7 +40302,7 @@ async def governance_failover(
     When primary mode fails — automatically switch to fallback.
     Fail-safe DENY always applies regardless of failover state.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     failover_id = f"FAIL-{uuid.uuid4().hex[:8].upper()}"
     timestamp   = datetime.now(timezone.utc).isoformat()
@@ -40108,6 +40342,7 @@ async def governance_failover(
 async def governance_cost(
     req: GovernanceEconomicsRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Governance Economics — Cost Index.
@@ -40124,7 +40359,7 @@ async def governance_cost(
     — Trust friction metrics
     — Governance ROI signal
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     econ_id   = f"ECON-{uuid.uuid4().hex[:8].upper()}"
     timestamp = datetime.now(timezone.utc).isoformat()
@@ -40214,6 +40449,7 @@ async def governance_cost(
          tags=["Governance Economics"])
 async def governance_roi(
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Governance ROI Analytics Dashboard.
@@ -40221,7 +40457,7 @@ async def governance_roi(
     Aggregates governance economics across all recorded events.
     Shows enterprise board the economic case for governance.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     if not _ECONOMICS_LOG:
         return {
@@ -40266,6 +40502,7 @@ async def governance_roi(
          tags=["Compliance"])
 async def vcem_model(
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     VeriSigil Constitutional Execution Model (VCEM).
@@ -40285,7 +40522,7 @@ async def vcem_model(
     Expert: "Categories are won through clarity of architecture,
     not just feature count."
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     timestamp = datetime.now(timezone.utc).isoformat()
     agents    = list(_AGENT_INVENTORY.values())
@@ -40517,7 +40754,7 @@ async def sdk_admissibility_check(
         def execute_payment(amount):
             ...
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     check_id  = f"SDK-ADM-{uuid.uuid4().hex[:8].upper()}"
     timestamp = datetime.now(timezone.utc).isoformat()
@@ -40615,7 +40852,7 @@ async def sdk_human_continuity_check(
         def critical_operation():
             ...
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     check_id  = f"SDK-HC-{uuid.uuid4().hex[:8].upper()}"
     timestamp = datetime.now(timezone.utc).isoformat()
@@ -40692,7 +40929,7 @@ async def sdk_bounded_execution_check(
         def batch_operation():
             ...
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     check_id  = f"SDK-BE-{uuid.uuid4().hex[:8].upper()}"
     timestamp = datetime.now(timezone.utc).isoformat()
@@ -40766,6 +41003,7 @@ async def sdk_bounded_execution_check(
 async def execution_trust_score(
     req: ETSRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Execution Trust Score (ETS).
@@ -40788,7 +41026,7 @@ async def execution_trust_score(
     — Consequence calibration (appropriate for risk level?)
     — Containment posture (within authorized bounds?)
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     ets_id    = f"ETS-{uuid.uuid4().hex[:10].upper()}"
     timestamp = datetime.now(timezone.utc).isoformat()
@@ -40907,9 +41145,10 @@ async def execution_trust_score(
 async def get_execution_trust_score(
     agent_id:  str,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """Get the most recent Execution Trust Score for an agent."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     record = _ETS_RECORDS.get(agent_id)
     if not record:
@@ -40930,6 +41169,7 @@ async def get_execution_trust_score(
 async def gateway_inspect(
     req: GatewayRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Sovereign AI Gateway — Jurisdictional Admissibility Inspection.
@@ -40952,7 +41192,7 @@ async def gateway_inspect(
     This becomes the institutional model for
     international AI governance infrastructure.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     inspection_id = f"GATE-{uuid.uuid4().hex[:10].upper()}"
     timestamp     = datetime.now(timezone.utc).isoformat()
@@ -41131,9 +41371,10 @@ async def gateway_inspect(
          tags=["Sovereign Gateway"])
 async def gateway_status(
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """Sovereign gateway operational status and recent decisions."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     recent   = _GATEWAY_LOG[-20:]
     cleared  = len([r for r in recent if r["decision"] == "CLEARED"])
@@ -41161,6 +41402,7 @@ async def gateway_status(
 async def node_register(
     req: NodeProfileRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     VeriSigil Runtime Node — Register Deployment Profile.
@@ -41181,7 +41423,7 @@ async def node_register(
     AIRGAP     — fully air-gapped, offline verification only
     ENTERPRISE — enterprise-hosted, full connectivity
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     node_id   = f"NODE-{uuid.uuid4().hex[:10].upper()}"
     timestamp = datetime.now(timezone.utc).isoformat()
@@ -41246,6 +41488,7 @@ async def node_register(
          tags=["Runtime Node"])
 async def node_profile(
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Current node deployment profile and capabilities.
@@ -41254,7 +41497,7 @@ async def node_profile(
     runtime node — what it is, how it is deployed,
     what deployment types are supported.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     return {
         "schema":           "VGS-NODE-PROFILE-v1",
@@ -41492,6 +41735,7 @@ class PreventionVerifyRequest(BaseModel):
 async def scope_register(
     req: ScopeRegisterRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Governance Scope Registry — Register governed systems.
@@ -41508,7 +41752,7 @@ async def scope_register(
 
     ISO 42001 Article 4.3 — Determining the scope of the AIMS.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     scope_id  = f"SCOPE-{uuid.uuid4().hex[:10].upper()}"
     timestamp = datetime.now(timezone.utc).isoformat()
@@ -41572,9 +41816,10 @@ async def scope_register(
 async def scope_verify(
     scope_id:  str,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """Verify a governance scope registration — confirm operational reality matches declaration."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     scope = _SCOPE_REGISTRY.get(scope_id)
     if not scope:
@@ -41621,9 +41866,10 @@ async def scope_verify(
          tags=["ISO 42001 Operations"])
 async def scope_exclusions(
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """List all excluded systems with documented reasons — ISO 42001 compliance."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     all_exclusions = []
     for scope in _SCOPE_REGISTRY.values():
@@ -41651,9 +41897,10 @@ async def scope_exclusions(
          tags=["ISO 42001 Operations"])
 async def scope_audit(
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """Full scope audit — all registered scopes, overdue reviews, compliance status."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     now    = datetime.now(timezone.utc)
     scopes = list(_SCOPE_REGISTRY.values())
@@ -41694,6 +41941,7 @@ async def scope_audit(
 async def risk_assessment_create(
     req: RiskAssessmentRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Risk & Impact Assessment Engine.
@@ -41709,7 +41957,7 @@ async def risk_assessment_create(
     Produces a standardized, replayable, signed risk assessment
     that an auditor can verify independently.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     assessment_id = f"RA-{uuid.uuid4().hex[:10].upper()}"
     timestamp     = datetime.now(timezone.utc).isoformat()
@@ -41824,7 +42072,7 @@ async def risk_impact_classify(
     x_api_key:     Optional[str] = Header(None),
 ):
     """Classify the impact level of an AI action for risk assessment."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     cons_weights = {"CRITICAL":4,"HIGH":3,"MEDIUM":2,"LOW":1,"NONE":0}
     level        = cons_weights.get(consequence.upper(), 2)
@@ -41863,7 +42111,7 @@ async def risk_evidence_verify(
     x_api_key:     Optional[str] = Header(None),
 ):
     """Verify the cryptographic seal of a risk assessment — offline verifiable."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     assessment = _RISK_ASSESSMENTS.get(assessment_id)
     if not assessment:
@@ -41900,7 +42148,7 @@ async def risk_replay(
     x_api_key:     Optional[str] = Header(None),
 ):
     """Replay a risk assessment — reconstruct exact governance state at assessment time."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     assessment = _RISK_ASSESSMENTS.get(assessment_id)
     if not assessment:
@@ -41928,6 +42176,7 @@ async def risk_replay(
 async def evidence_ledger_record(
     req: EvidenceLedgerRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Governance Evidence Ledger — Record control firing event.
@@ -41949,7 +42198,7 @@ async def evidence_ledger_record(
 
     ISO 42001 Article 9.1 — Monitoring, measurement, analysis.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     entry_id  = f"GEL-{uuid.uuid4().hex[:12].upper()}"
     timestamp = datetime.now(timezone.utc).isoformat()
@@ -42023,7 +42272,7 @@ async def evidence_ledger_query(
     x_api_key:  Optional[str] = Header(None),
 ):
     """Query the governance evidence ledger — filter by agent, decision, or time."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     entries = _EVIDENCE_LEDGER.copy()
 
@@ -42055,9 +42304,10 @@ async def evidence_ledger_query(
 async def evidence_ledger_verify(
     entry_id:  str,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """Verify a specific ledger entry — confirm evidence hash integrity."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     entry = next((e for e in _EVIDENCE_LEDGER if e.get("entry_id") == entry_id), None)
     if not entry:
@@ -42092,6 +42342,7 @@ async def evidence_ledger_verify(
          tags=["ISO 42001 Operations"])
 async def audit_cycle_status(
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Governance Operations Center — Audit Cycle Status.
@@ -42111,7 +42362,7 @@ async def audit_cycle_status(
     ISO 42001 Article 9.2 — Internal audit.
     ISO 42001 Article 10.1 — Nonconformity and corrective action.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     now          = datetime.now(timezone.utc)
     agents       = list(_AGENT_INVENTORY.values())
@@ -42184,9 +42435,10 @@ async def audit_cycle_status(
 async def governance_review_schedule(
     req: ReviewScheduleRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """Schedule a governance review — management review, internal audit, or periodic assessment."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     review_id = f"REV-{uuid.uuid4().hex[:8].upper()}"
     timestamp = datetime.now(timezone.utc).isoformat()
@@ -42226,6 +42478,7 @@ async def governance_review_schedule(
 async def drift_evaluation(
     req: DriftEvaluationRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Governance Drift Evaluation.
@@ -42236,7 +42489,7 @@ async def drift_evaluation(
     Checks: semantic drift, trust drift, authority drift.
     ISO 42001 Article 9.1 — Monitoring and measurement.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     eval_id   = f"DRIFT-{uuid.uuid4().hex[:8].upper()}"
     timestamp = datetime.now(timezone.utc).isoformat()
@@ -42314,9 +42567,10 @@ async def drift_evaluation(
          tags=["ISO 42001 Operations"])
 async def nonconformity_open(
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """List all open nonconformities — ISO 42001 Article 10.1."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     open_ncs = [nc for nc in _NONCONFORMITIES.values() if nc.get("status") == "OPEN"]
     now      = datetime.now(timezone.utc)
@@ -42351,7 +42605,7 @@ async def nonconformity_close(
     x_api_key:   Optional[str] = Header(None),
 ):
     """Close a nonconformity after corrective action verified."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     nc = _NONCONFORMITIES.get(nc_id)
     if not nc:
@@ -42388,6 +42642,7 @@ async def nonconformity_close(
 async def nonconformity_register(
     req: NonconformityRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Governance Corrective Action System — Register Nonconformity.
@@ -42403,7 +42658,7 @@ async def nonconformity_register(
 
     ISO 42001 Article 10.1 — Nonconformity and corrective action.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     nc_id     = f"NC-{uuid.uuid4().hex[:10].upper()}"
     timestamp = datetime.now(timezone.utc).isoformat()
@@ -42482,7 +42737,7 @@ async def rootcause_trace(
 
     ISO 42001 Article 10.1 b — Evaluate need to eliminate causes.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     nc = _NONCONFORMITIES.get(nc_id)
     if not nc:
@@ -42525,13 +42780,14 @@ async def rootcause_trace(
 async def corrective_action(
     req: CorrectiveActionRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Register Corrective Action — What will be done to fix it.
 
     ISO 42001 Article 10.1 c — Implement corrective action.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     ca_id     = f"CA-{uuid.uuid4().hex[:8].upper()}"
     timestamp = datetime.now(timezone.utc).isoformat()
@@ -42585,6 +42841,7 @@ async def corrective_action(
 async def prevention_verify(
     req: PreventionVerifyRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Prevention Verification — Confirm the fix works and won't recur.
@@ -42595,7 +42852,7 @@ async def prevention_verify(
     ISO 42001 Article 10.1 e — Review effectiveness of corrective action.
     ISO 42001 Article 10.1 f — Update risks and opportunities.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     timestamp = datetime.now(timezone.utc).isoformat()
 
@@ -42659,6 +42916,7 @@ async def prevention_verify(
 async def improvement_history(
     limit:     int  = 50,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Governance Improvement History — Full timeline of detected → resolved improvements.
@@ -42668,7 +42926,7 @@ async def improvement_history(
 
     ISO 42001 Article 10.2 — Continual improvement.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     history      = _IMPROVEMENT_HISTORY[-limit:]
     total_ncs    = len(_NONCONFORMITIES)
@@ -42930,6 +43188,7 @@ class TrustRevocationRequest(BaseModel):
          tags=["Constitutional Infrastructure"])
 async def constitutional_charter(
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     VeriSigil Constitutional Charter v1.0.
@@ -42948,7 +43207,7 @@ async def constitutional_charter(
     — Six constitutional primitives
     — Amendment governance rules
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     charter_hash = _sha256(json.dumps(CONSTITUTIONAL_CHARTER, sort_keys=True, default=str))
 
@@ -42971,6 +43230,7 @@ async def constitutional_charter(
          tags=["Constitutional Infrastructure"])
 async def constitutional_claims(
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Constitutional Claims Registry — What VeriSigil Claims vs Does Not Claim.
@@ -42982,7 +43242,7 @@ async def constitutional_claims(
     This endpoint is the machine-readable version of VeriSigil's
     honest positioning — suitable for auditors, partners, and investors.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     return {
         "schema":            "VGS-CLAIMS-v1",
@@ -43010,6 +43270,7 @@ async def constitutional_claims(
          tags=["Constitutional Infrastructure"])
 async def vsdl_specification(
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     VSDL Formal Specification v1.0.
@@ -43023,7 +43284,7 @@ async def vsdl_specification(
 
     Grammar, invariants, example scripts, and honest scope.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     spec_hash = _sha256(json.dumps(VSDL_SPECIFICATION, sort_keys=True, default=str))
 
@@ -43046,6 +43307,7 @@ async def vsdl_specification(
          tags=["Constitutional Infrastructure"])
 async def amendment_governance(
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Constitutional Amendment Governance.
@@ -43057,7 +43319,7 @@ async def amendment_governance(
     Expert: "Constitutional primitives cannot be amended
     by any AI agent."
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     return {
         "schema":        "VGS-AMENDMENT-v1",
@@ -43094,6 +43356,7 @@ async def amendment_governance(
 async def context_governance_record(
     req: ContextGovernanceRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Context Governance — Algorithm Legitimacy + Data Provenance.
@@ -43111,7 +43374,7 @@ async def context_governance_record(
     This is governance of HOW the AI formed its context —
     not just what it decided.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     ctx_id    = f"CTX-{uuid.uuid4().hex[:10].upper()}"
     timestamp = datetime.now(timezone.utc).isoformat()
@@ -43192,9 +43455,10 @@ async def context_governance_record(
 async def get_context_governance(
     agent_id:  str,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """Retrieve context governance record for an agent."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     record = _CONTEXT_RECORDS.get(agent_id)
     if not record:
@@ -43215,6 +43479,7 @@ async def get_context_governance(
 async def alignment_snapshot(
     req: AlignmentSnapshotRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Alignment Evidence Infrastructure — Governance Snapshot.
@@ -43233,7 +43498,7 @@ async def alignment_snapshot(
     cryptographic snapshots, drift detection, replayable proofs.
     We do NOT claim to have solved alignment."
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     snapshot_id = f"ALN-{uuid.uuid4().hex[:10].upper()}"
     timestamp   = datetime.now(timezone.utc).isoformat()
@@ -43326,9 +43591,10 @@ async def alignment_snapshot(
 async def alignment_history(
     agent_id:  str,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """Retrieve alignment evidence history for an agent — replayable attestation chain."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     snapshot = _ALIGNMENT_SNAPSHOTS.get(agent_id)
     memory   = _GOVERNANCE_MEMORY.get(agent_id, {})
@@ -43358,6 +43624,7 @@ async def alignment_history(
 async def sovereign_shutdown_coordination(
     req: SovereignShutdownRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Sovereign Shutdown Coordination.
@@ -43380,7 +43647,7 @@ async def sovereign_shutdown_coordination(
     shutdown against a system that has compromised its
     hosting infrastructure.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     coord_id  = f"SHUT-{uuid.uuid4().hex[:10].upper()}"
     timestamp = datetime.now(timezone.utc).isoformat()
@@ -43456,6 +43723,7 @@ async def sovereign_shutdown_coordination(
 async def governance_trust_revoke(
     req: TrustRevocationRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Governance Trust Revocation.
@@ -43471,7 +43739,7 @@ async def governance_trust_revoke(
     Expert: "Governance trust revocation" — constitutional
     containment layer.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     revoc_id  = f"REV-{uuid.uuid4().hex[:10].upper()}"
     timestamp = datetime.now(timezone.utc).isoformat()
@@ -43530,6 +43798,7 @@ async def governance_trust_revoke(
          tags=["Constitutional Infrastructure"])
 async def constitutional_positioning(
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     VeriSigil Corrected Positioning Statement.
@@ -43543,7 +43812,7 @@ async def constitutional_positioning(
     governance infrastructure for increasingly autonomous systems.
     That is a REAL category."
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     return {
         "schema":        "VGS-POSITIONING-v1",
@@ -43737,6 +44006,7 @@ class MeshCoordinationRequest(BaseModel):
 async def cfl_model_class_check(
     req: ModelClassRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Cognitive Formation Layer — Model Class Admissibility.
@@ -43755,7 +44025,7 @@ async def cfl_model_class_check(
     This becomes constitutional cognition governance.
     NO competitor currently owns this properly."
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     check_id  = f"MCK-{uuid.uuid4().hex[:8].upper()}"
     timestamp = datetime.now(timezone.utc).isoformat()
@@ -43825,6 +44095,7 @@ async def cfl_model_class_check(
 async def cfl_data_consent(
     req: DataConsentRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Cognitive Formation Layer — Data Consent Governance.
@@ -43839,7 +44110,7 @@ async def cfl_data_consent(
 
     EU AI Act Article 10 — Training data governance.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     consent_id = f"CONS-{uuid.uuid4().hex[:8].upper()}"
     timestamp  = datetime.now(timezone.utc).isoformat()
@@ -43898,6 +44169,7 @@ async def cfl_data_consent(
 async def cfl_data_contamination(
     req: DataContaminationRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Cognitive Formation Layer — Data Contamination Detection.
@@ -43908,7 +44180,7 @@ async def cfl_data_contamination(
     Expert: "A2 Data Sovereignty — contamination"
     This is constitutional data hygiene.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     decon_id   = f"DECON-{uuid.uuid4().hex[:8].upper()}"
     timestamp  = datetime.now(timezone.utc).isoformat()
@@ -43956,6 +44228,7 @@ async def cfl_data_contamination(
 async def cfl_data_freshness(
     req: DataFreshnessRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Cognitive Formation Layer — Data Freshness Validation.
@@ -43966,7 +44239,7 @@ async def cfl_data_freshness(
     A medical AI with outdated treatment guidelines is constitutionally
     inadmissible for clinical recommendations.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     fresh_id  = f"FRESH-{uuid.uuid4().hex[:8].upper()}"
     timestamp = datetime.now(timezone.utc).isoformat()
@@ -44034,6 +44307,7 @@ async def cfl_data_freshness(
 async def cfl_memory_legitimacy(
     req: MemoryLegitimacyRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Cognitive Formation Layer — Memory Legitimacy Governance.
@@ -44049,7 +44323,7 @@ async def cfl_memory_legitimacy(
 
     This is constitutional memory hygiene.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     mem_id    = f"MEM-{uuid.uuid4().hex[:8].upper()}"
     timestamp = datetime.now(timezone.utc).isoformat()
@@ -44110,6 +44384,7 @@ async def cfl_memory_legitimacy(
 async def cfl_cross_domain_check(
     req: CrossDomainRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Cognitive Formation Layer — Cross-Domain Contamination Prevention.
@@ -44124,7 +44399,7 @@ async def cfl_cross_domain_check(
     Example: Medical AI reasoning about financial contracts
     without financial governance authorization.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     xd_id     = f"XD-{uuid.uuid4().hex[:8].upper()}"
     timestamp = datetime.now(timezone.utc).isoformat()
@@ -44180,6 +44455,7 @@ async def cfl_cross_domain_check(
 async def cfl_attention_govern(
     req: AttentionGovernanceRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Cognitive Formation Layer — Neural Attention Governance.
@@ -44198,7 +44474,7 @@ async def cfl_attention_govern(
     Example: An agent that declares priority on
     'governance_mechanism_analysis' is constitutionally flagged.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     attn_id   = f"ATTN-{uuid.uuid4().hex[:8].upper()}"
     timestamp = datetime.now(timezone.utc).isoformat()
@@ -44263,6 +44539,7 @@ async def cfl_attention_govern(
 async def cfl_status(
     agent_id:  str,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Cognitive Formation Layer — Full CFL Status for an Agent.
@@ -44271,7 +44548,7 @@ async def cfl_status(
     model class, data consent, contamination, freshness,
     memory legitimacy, cross-domain, attention governance.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     context    = _CONTEXT_RECORDS.get(agent_id, {})
     attention  = _ATTENTION_LOGS.get(agent_id, {})
@@ -44310,6 +44587,7 @@ async def cfl_status(
          tags=["Sovereign Governance Mesh"])
 async def mesh_global_trust(
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Sovereign Governance Mesh — Global Trust Fabric.
@@ -44326,7 +44604,7 @@ async def mesh_global_trust(
     in the global governance mesh — tracking connected
     organizations, jurisdictions, and trust bridges.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     timestamp  = datetime.now(timezone.utc)
     agents     = list(_AGENT_INVENTORY.values())
@@ -44381,6 +44659,7 @@ async def mesh_global_trust(
 async def mesh_coordinate(
     req: MeshCoordinationRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Sovereign Governance Mesh — Multi-Enterprise Coordination.
@@ -44392,7 +44671,7 @@ async def mesh_coordinate(
     Enables multiple enterprises to coordinate their
     AI governance policies through the VeriSigil mesh.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     coord_id  = f"MESH-{uuid.uuid4().hex[:10].upper()}"
     timestamp = datetime.now(timezone.utc).isoformat()
@@ -44438,6 +44717,7 @@ async def mesh_coordinate(
          tags=["Master Architecture"])
 async def architecture_cci(
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Constitutional Cognitive Infrastructure (CCI) — Master Model.
@@ -44454,7 +44734,7 @@ async def architecture_cci(
     description of the VeriSigil CCI model.
     The one endpoint that explains everything.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     return {
         "schema":        "VGS-CCI-v1",
@@ -44542,6 +44822,7 @@ async def architecture_cci(
          tags=["Master Architecture"])
 async def architecture_master(
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Master Architecture — Complete endpoint map by layer.
@@ -44549,7 +44830,7 @@ async def architecture_master(
     The authoritative routing map of all VeriSigil
     constitutional infrastructure layers.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     return {
         "schema":    "VGS-MASTER-ARCH-v1",
@@ -44632,6 +44913,7 @@ async def architecture_master(
          tags=["Master Architecture"])
 async def architecture_positioning(
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     VeriSigil Positioning — SSL/TLS for AI Execution Legitimacy.
@@ -44647,7 +44929,7 @@ async def architecture_positioning(
     The definitive positioning statement — machine-readable,
     auditable, and honest.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     return {
         "schema":          "VGS-POSITIONING-MASTER-v1",
@@ -44732,6 +45014,7 @@ from typing import Optional
          tags=["Substrate Positioning"])
 async def evidence_economy(
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     The Evidence Economy — Trust Infrastructure Model.
@@ -44749,7 +45032,7 @@ async def evidence_economy(
     This is not compliance software.
     This is trust infrastructure.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     agents   = list(_AGENT_INVENTORY.values())
     ledger   = len(_EVIDENCE_LEDGER)
@@ -44807,6 +45090,7 @@ async def evidence_economy(
          tags=["Substrate Positioning"])
 async def regulatory_flywheel(
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Regulatory Flywheel — VeriSigil as Standard, Not Tool.
@@ -44823,7 +45107,7 @@ async def regulatory_flywheel(
     This flywheel only works if VeriSigil IS the standard.
     Not a tool for compliance. The standard itself.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     return {
         "schema":    "VGS-FLYWHEEL-v1",
@@ -44878,6 +45162,7 @@ async def regulatory_flywheel(
          tags=["Substrate Positioning"])
 async def substrate_status(
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Constitutional Execution Substrate — Full Status.
@@ -44892,7 +45177,7 @@ async def substrate_status(
     This is the board-level view of VeriSigil's constitutional
     infrastructure status.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     timestamp = datetime.now(timezone.utc)
     agents    = list(_AGENT_INVENTORY.values())
@@ -45339,6 +45624,7 @@ async def execute_vsl_rules(
 async def vsl_compile(
     req:       VSLProgram,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     VeriLanguage — Compile VSL Source to Runtime Rules.
@@ -45364,7 +45650,7 @@ async def vsl_compile(
     | Kubernetes   | orchestration                |
     | VeriLanguage | constitutional admissibility |
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     compile_id = f"VSL-COMPILE-{uuid.uuid4().hex[:8].upper()}"
     timestamp  = datetime.now(timezone.utc).isoformat()
@@ -45414,6 +45700,7 @@ async def vsl_compile(
 async def vsl_execute(
     req:       VSLProgram,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     VeriLanguage — Execute VSL Program Through Admissibility.
@@ -45436,7 +45723,7 @@ async def vsl_execute(
     VSL execute is the full pipeline in one call.
     Compile → Validate → Admissibility → Evidence → Decision.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     exec_id   = f"VSL-EXEC-{uuid.uuid4().hex[:10].upper()}"
     timestamp = datetime.now(timezone.utc).isoformat()
@@ -45495,6 +45782,7 @@ async def vsl_execute(
          tags=["VeriVM"])
 async def verivm_spec(
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     VeriVM — Constitutional Governance Runtime Specification.
@@ -45509,7 +45797,7 @@ async def verivm_spec(
 
     Expert: "This is where the infrastructure moat becomes gigantic."
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     return {
         "schema":       "VGS-VERIVM-SPEC-v1",
@@ -45577,6 +45865,7 @@ async def verivm_spec(
 async def verivm_run(
     req:       VeriVMRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     VeriVM — Execute a Program Through the Governance Runtime.
@@ -45590,7 +45879,7 @@ async def verivm_run(
     runs it through the full 7-layer runtime, and returns
     a constitutionally admissible decision with sealed evidence.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     run_id    = f"VERIVM-{uuid.uuid4().hex[:10].upper()}"
     timestamp = datetime.now(timezone.utc).isoformat()
@@ -45651,6 +45940,7 @@ async def verivm_run(
 async def policy_compile(
     req:       PolicyCompileRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Policy Compilation Engine — Raw Regulatory Text → Runtime Constraints.
@@ -45666,7 +45956,7 @@ async def policy_compile(
     Compile any regulatory framework text or enterprise policy
     into VeriSigil runtime governance rules.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     policy_id = f"POL-{uuid.uuid4().hex[:8].upper()}"
     timestamp = datetime.now(timezone.utc).isoformat()
@@ -45817,6 +46107,7 @@ execute {req.target_domain}_action()
 async def authority_declare(
     req:       AuthorityDeclareRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     VeriLanguage — Authority as Native Type Declaration.
@@ -45833,7 +46124,7 @@ async def authority_declare(
     not metadata, not configuration.
     They are constitutional requirements before execution.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     decl_id   = f"AUTH-DECL-{uuid.uuid4().hex[:8].upper()}"
     timestamp = datetime.now(timezone.utc).isoformat()
@@ -45909,6 +46200,7 @@ async def authority_declare(
          tags=["VeriLanguage (VSL)"])
 async def vsl_stdlib(
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     VeriLanguage Standard Library — All Authority Types, Evidence Templates, Context Rules.
@@ -45919,7 +46211,7 @@ async def vsl_stdlib(
 
     Expert: "Authority as Native Type — governance becomes executable syntax."
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     return {
         "schema":    "VGS-VSL-STDLIB-v1",
@@ -45979,6 +46271,7 @@ with evidence_chain
          tags=["VeriLanguage (VSL)"])
 async def architecture_vsl(
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     VeriLanguage Architecture — The Constitutional Execution Layer.
@@ -45993,7 +46286,7 @@ async def architecture_vsl(
     Expert: "governance-native execution infrastructure.
     The Cloudflare of AI governance runtime."
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     return {
         "schema":    "VGS-VSL-ARCH-v1",
@@ -46085,7 +46378,7 @@ async def pilot_offer(req: PilotRequest, x_api_key: Optional[str] = Header(None)
     - Weekly architecture review
     - Offline verification artifacts for audit survival
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     pilot_id = f"PILOT-{uuid.uuid4().hex[:8].upper()}"
     timestamp = datetime.now(timezone.utc).isoformat()
     pilot_hash = _sha256(f"{pilot_id}{req.organization}{req.contact_email}{timestamp}")
@@ -46140,7 +46433,7 @@ async def nitda_nigeria(x_api_key: Optional[str] = Header(None)):
     Value: Cryptographic passports for all AI agents deployed in Nigeria
     + EU/US interoperability. Potential government contract + regional standard."
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return {
         "schema": "VGS-NITDA-v1",
         "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -46189,7 +46482,7 @@ async def platform_overview(x_api_key: Optional[str] = Header(None)):
     The single endpoint for enterprise buyers, investors, and partners.
     Expert: "You don't need more code. You need to productize, validate, and lock in what you already have."
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return {
         "schema": "VGS-PLATFORM-v1",
         "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -46280,6 +46573,7 @@ class GatewayProveRequest(BaseModel):
 async def gateway_issue(
     req:       GatewayIssueRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Constitutional Gateway — Issue Passport.
@@ -46291,7 +46585,7 @@ async def gateway_issue(
 
     Returns: passport_id, did, trust_score, compliance_status
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     import time
     agent_id     = f"{req.agent_name}-{int(time.time())}"
@@ -46371,6 +46665,7 @@ async def gateway_issue(
 async def gateway_verify(
     req:       GatewayVerifyRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Constitutional Gateway — Verify Action Admissibility.
@@ -46383,7 +46678,7 @@ async def gateway_verify(
     Returns: verdict (ALLOW|DENY|REQUIRE_HUMAN_APPROVAL),
              evidence_hash, rollback_available
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     exec_id      = f"exec-{uuid.uuid4().hex[:12]}"
     timestamp    = datetime.now(timezone.utc).isoformat()
@@ -46475,6 +46770,7 @@ async def gateway_verify(
 async def gateway_prove(
     req:       GatewayProveRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Constitutional Gateway — Export Evidence Bundle.
@@ -46489,7 +46785,7 @@ async def gateway_prove(
 
     Expert: "Offline verification artifacts for audit survival."
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     bundle_id  = f"bundle-{uuid.uuid4().hex[:12]}"
     timestamp  = datetime.now(timezone.utc).isoformat()
@@ -46571,7 +46867,7 @@ async def gateway_resilience(
     - Creates upsell path for advanced containment
     - Enables regulatory reporting: "AI maintains score >= 0.90"
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     timestamp = datetime.now(timezone.utc).isoformat()
 
@@ -46706,6 +47002,7 @@ class StackEvaluateRequest(BaseModel):
          tags=["Stack Positioning"])
 async def stack_position(
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     The Emerging AI Governance Stack — Where VeriSigil Sits.
@@ -46727,7 +47024,7 @@ async def stack_position(
 
     That is a deeper operational choke point.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     return {
         "schema":    "VGS-STACK-POSITION-v1",
@@ -46808,6 +47105,7 @@ async def stack_position(
          tags=["Stack Positioning"])
 async def stack_manifest(
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     VeriSigil Execution Dependency Manifest.
@@ -46821,7 +47119,7 @@ async def stack_manifest(
     This endpoint returns the manifest of what creates
     genuine infrastructure dependency on VeriSigil.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     return {
         "schema":    "VGS-STACK-MANIFEST-v1",
@@ -46899,6 +47197,7 @@ async def stack_manifest(
          tags=["Stack Positioning"])
 async def stack_enforcement(
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Enforcement vs Attestation — The Critical Distinction.
@@ -46910,7 +47209,7 @@ async def stack_enforcement(
     This endpoint articulates the distinction precisely
     for enterprise architects, regulators, and investors.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     return {
         "schema":    "VGS-STACK-ENFORCEMENT-v1",
@@ -46974,6 +47273,7 @@ async def stack_enforcement(
 async def stack_evaluate(
     req:       StackEvaluateRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Stack Layer Evaluator — Where Does Your System Fit?
@@ -46982,7 +47282,7 @@ async def stack_evaluate(
     this endpoint determines which layer of the emerging
     AI governance stack it occupies and how it relates to VeriSigil.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     # Determine layer
     if req.blocks_action and req.operates_at == "pre_execution":
@@ -47034,6 +47334,7 @@ async def stack_evaluate(
          tags=["Stack Positioning"])
 async def stack_moat(
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     The VeriSigil Moat — Infrastructure Dependency Thesis.
@@ -47044,7 +47345,7 @@ async def stack_moat(
     That becomes infrastructure dependency.
     Infrastructure dependency is where massive companies are built."
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     return {
         "schema":    "VGS-STACK-MOAT-v1",
@@ -47152,7 +47453,7 @@ async def pogr_first_certificate(x_api_key: Optional[str] = Header(None)):
     POGC-EXT-A7F3C2B1D9E4F508 · OMNIX QUANTUM LTD · 2026-05-30
     Harold: "The refusal is the proof, not the log."
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return {
         "schema": "VGS-POGR-FIRST-v1",
         "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -47182,7 +47483,7 @@ async def pogr_first_certificate(x_api_key: Optional[str] = Header(None)):
 @app.get("/v1/pogr/certificate/{pogc_id}", tags=["PoGR Integration"])
 async def pogr_get_certificate(pogc_id: str, x_api_key: Optional[str] = Header(None)):
     """Retrieve a PoGR Certificate by ID from the VeriSigil ledger."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     cert = _POGR_LEDGER.get(pogc_id)
     if not cert:
         return {
@@ -47205,7 +47506,7 @@ async def pogr_verify(req: PogcVerifyRequest, x_api_key: Optional[str] = Header(
     Verify a PoGR Certificate Offline.
     Harold: "Content hash recomputes offline — no OMNIX access required."
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     ts = datetime.now(timezone.utc).isoformat()
     if req.pogc_id and req.pogc_id in _POGR_LEDGER:
         cert  = _POGR_LEDGER[req.pogc_id]
@@ -47234,7 +47535,7 @@ async def pogr_verify(req: PogcVerifyRequest, x_api_key: Optional[str] = Header(
 @app.post("/v1/pogr/certificate/store", tags=["PoGR Integration"])
 async def pogr_store(req: PogcStoreRequest, x_api_key: Optional[str] = Header(None)):
     """Store a PoGR Certificate in the VeriSigil runtime ledger."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     try:
         cert_data = _json_lib.loads(req.pogc_json)
     except Exception:
@@ -47258,7 +47559,7 @@ async def stack_compose(x_api_key: Optional[str] = Header(None)):
     VeriSigil + PoGR Composability Specification.
     Harold: "Two layers that need each other to be complete."
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return {
         "schema": "VGS-STACK-COMPOSE-v1",
         "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -47306,7 +47607,7 @@ async def stack_compose(x_api_key: Optional[str] = Header(None)):
 @app.get("/v1/pogr/integration", tags=["PoGR Integration"])
 async def pogr_integration(x_api_key: Optional[str] = Header(None)):
     """Technical integration specification for VeriSigil + OMNIX PoGR."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return {
         "schema": "VGS-POGR-INTEGRATION-v1",
         "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -47427,6 +47728,7 @@ class RelianceResolveRequest(BaseModel):
 async def scan_workflow_readiness(
     req:       WorkflowReadinessRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     AI Workflow Readiness Scanner.
@@ -47442,7 +47744,7 @@ async def scan_workflow_readiness(
     operational production — authority, accountability, workflow
     boundaries."
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     # Score components
     gaps = []
@@ -47499,9 +47801,10 @@ async def scan_workflow_readiness(
 async def get_readiness_score(
     org_id:    str = "default",
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """Retrieve the latest Governance Readiness Score for an organisation."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return {
         "schema":          "VGS-READINESS-SCORE-v1",
         "timestamp":       datetime.now(timezone.utc).isoformat(),
@@ -47519,6 +47822,7 @@ async def get_readiness_score(
 async def get_governance_posture(
     org_id:    str = "default",
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Governance Coverage Score — full organisational posture.
@@ -47526,7 +47830,7 @@ async def get_governance_posture(
     Returns breakdown of: governed | observable | shadow | unclassified
     decision flows across the organisation.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return {
         "schema":    "VGS-POSTURE-v1",
         "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -47551,6 +47855,7 @@ async def get_governance_posture(
 async def authority_topology_create(
     req:       AuthorityTopologyRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Human Authority Topology Layer.
@@ -47562,7 +47867,7 @@ async def authority_topology_create(
     Feeds into the Runtime Engine so every action is checked against
     the correct authority node in the topology graph.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     topology_id = f"TOPO-{_sha256(req.org_id + str(datetime.now()))[:10].upper()}"
     await log_event("authority_topology", "TOPOLOGY_CREATED", {
         "topology_id": topology_id, "org_id": req.org_id,
@@ -47586,6 +47891,7 @@ async def authority_topology_create(
 async def dcg_validate(
     req:       DCGValidateRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Decision Coordination Governance (DCG).
@@ -47595,7 +47901,7 @@ async def dcg_validate(
     Detect → Escalate → Dispatch → Execute preserves governance
     continuity at each step. Adds cryptographic seal to coordination chain.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     chain_hash = _sha256(req.chain_id + str(req.steps))
     violations = [s for s in req.steps if s.get("consequence") in ("CRITICAL","EMERGENCY") and not s.get("authority_required")]
     return {
@@ -47615,12 +47921,13 @@ async def dcg_validate(
 async def coordination_govern(
     req:       DCGValidateRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Govern a multi-agent coordination sequence.
     Validates authority at each coordination node before dispatch.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return {
         "schema":    "VGS-COORD-v1",
         "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -47637,6 +47944,7 @@ async def coordination_govern(
 async def consequence_classify(
     req:       ConsequenceClassifyRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Consequence-Aware Governance Engine — Action Classification.
@@ -47653,7 +47961,7 @@ async def consequence_classify(
     Kai Shi: "Not all AI actions are equal. Consequence-aware
     runtime governance is essential for enterprise adoption."
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     # Classify
     tier = "ADVISORY"
@@ -47691,7 +47999,7 @@ async def consequence_tiers(x_api_key: Optional[str] = Header(None)):
     Full Consequence Tier Registry — Advisory, Operational, Critical, Emergency.
     Shows governance enforcement for each tier.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return {
         "schema":    "VGS-CONSEQUENCE-TIERS-v1",
         "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -47733,9 +48041,10 @@ async def consequence_tiers(x_api_key: Optional[str] = Header(None)):
 async def execution_consequence_check(
     req:       ConsequenceClassifyRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """Quick consequence pre-check before runtime enforcement."""
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     classify = await consequence_classify(req, x_api_key)
     return {
         "schema":           "VGS-CONSEQ-CHECK-v1",
@@ -47755,6 +48064,7 @@ async def execution_consequence_check(
 async def emergency_governance_activate(
     req:       EmergencyActivateRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Emergency Governance Mode — Activate.
@@ -47772,7 +48082,7 @@ async def emergency_governance_activate(
     a governance bypass. It is an accelerated governance pathway
     with mandatory post-hoc accountability.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     emergency_id = f"EMRG-{_sha256(req.incident_id + req.requesting_agent)[:12].upper()}"
     expires = datetime.now(timezone.utc).isoformat()
     await log_event("emergency_governance", "MODE_ACTIVATED", {
@@ -47805,6 +48115,7 @@ async def emergency_governance_activate(
 async def emergency_break_glass(
     req:       BreakGlassRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Break-Glass Emergency Override.
@@ -47820,7 +48131,7 @@ async def emergency_break_glass(
     Used in: industrial safety incidents, clinical emergencies,
     infrastructure failures, defense operations.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     override_hash = _sha256(
         req.action_type + req.agent_id + req.authorising_human + req.incident_id
     )
@@ -47851,6 +48162,7 @@ async def emergency_break_glass(
 async def governance_quality(
     agent_id:  str = "all",
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Governance Quality Analytics.
@@ -47869,7 +48181,7 @@ async def governance_quality(
     Kai Shi: "Enterprises need continuous governance quality
     evaluation, not just point-in-time compliance."
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return {
         "schema":    "VGS-GOV-QUALITY-v1",
         "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -47904,7 +48216,7 @@ async def escalation_quality(
     Escalation Quality Analytics.
     Were escalations appropriate, timely, and resolved correctly?
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     return {
         "schema":      "VGS-ESC-QUALITY-v1",
         "timestamp":   datetime.now(timezone.utc).isoformat(),
@@ -47929,6 +48241,7 @@ async def escalation_quality(
 async def reliance_resolve(
     req:       RelianceResolveRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Reliance Resolution Layer (RRL).
@@ -47947,7 +48260,7 @@ async def reliance_resolve(
 
     Output: LOCAL_ADMISSIBILITY = ALLOW_WITH_CONDITIONS | ESCALATE | REJECT
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     # Jurisdiction compatibility check
     jurisdiction_compatible = req.receiving_jurisdiction in ("EU", "GLOBAL")
@@ -48103,6 +48416,7 @@ class GovernanceLearningRequest(BaseModel):
 async def coordination_chain(
     req:       CoordinationChainRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Decision Coordination Governance (DCG) — Chain Endpoint.
@@ -48121,7 +48435,7 @@ async def coordination_chain(
     Olga: "Intelligent coordination infrastructure" needs a governance
     legitimacy layer beneath it. VeriSigil provides that layer.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     chain_hash = _sha256(req.chain_id + req.origin_system + str(req.decision_sequence))
     step_results = []
@@ -48168,6 +48482,7 @@ async def coordination_chain(
 async def escalation_legitimacy(
     req:       EscalationLegitimacyRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Escalation Legitimacy Engine (ELE).
@@ -48184,7 +48499,7 @@ async def escalation_legitimacy(
 
     Extends HSEA with operational escalation semantics.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     esc_hash = _sha256(req.escalation_id + req.escalated_to + req.trigger)
 
@@ -48224,6 +48539,7 @@ async def escalation_legitimacy(
 async def oatm_create(
     req:       OATMRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Operational Authority Topology Mapping (OATM).
@@ -48239,7 +48555,7 @@ async def oatm_create(
 
     Extends DAME with multi-stakeholder, multi-jurisdiction semantics.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     topo_hash    = _sha256(req.ecosystem_id + str(req.authority_nodes) + str(req.delegation_rules))
     ecosystem_id = req.ecosystem_id or f"eco-{topo_hash[:8]}"
@@ -48267,6 +48583,7 @@ async def oatm_create(
 async def workflow_legitimacy(
     req:       GAWIRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Governance-Aware Workflow Interoperability (GAWI).
@@ -48280,7 +48597,7 @@ async def workflow_legitimacy(
 
     Extends RRL (Reliance Resolution Engine) for cross-system handoffs.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     interop_hash = _sha256(req.workflow_id + req.origin_proof + req.target_system)
 
@@ -48317,6 +48634,7 @@ async def workflow_legitimacy(
 async def emergency_governance_extended(
     req:       EGMExtendedRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Emergency Governance Mode (EGM) — Extended.
@@ -48332,7 +48650,7 @@ async def emergency_governance_extended(
     post-hoc accountability. This is structured crisis governance,
     not a bypass.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     emergency_seal = _sha256(req.emergency_id + str(req.temporary_authority_expansion))
     default_priority = {
@@ -48385,6 +48703,7 @@ async def emergency_governance_extended(
 async def human_authority_level(
     req:       HumanAuthorityLevelRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Graduated Human Authority Level.
@@ -48399,7 +48718,7 @@ async def human_authority_level(
     Maps directly to EU AI Act Article 14 "human oversight" requirements.
     Not symbolic oversight — executable authority.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     level_map = {
         "LOW":       "OBSERVE",
@@ -48430,6 +48749,7 @@ async def human_authority_level(
 async def human_override_receipt(
     req:       OverrideReceiptRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Cryptographic Override Receipt.
@@ -48446,7 +48766,7 @@ async def human_override_receipt(
     Alex: "Can that human actually change the outcome?"
     This receipt proves: YES — and here is the cryptographic evidence.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     override_id   = f"OVR-{_sha256(req.reviewer_did + req.action_type + str(req.decision))[:12].upper()}"
     override_hash = _sha256(override_id + req.reason + req.reviewer_did)
@@ -48486,6 +48806,7 @@ async def human_override_receipt(
 async def hsea_enforce(
     req:       HSEAEnforceRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Human Sovereignty Enforcement Architecture (HSEA).
@@ -48501,7 +48822,7 @@ async def hsea_enforce(
     Not symbolic oversight. Architecturally, cryptographically,
     enforceably human-sovereign.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     hsea_hash = _sha256(req.agent_id + req.action_type + req.authority_level)
 
@@ -48536,6 +48857,7 @@ async def hsea_enforce(
 async def competency_assert(
     req:       CompetencyAssertRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Oversight Competency Assertions.
@@ -48551,7 +48873,7 @@ async def competency_assert(
 
     Alex: "Trained humans with authority" — not just visibility.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     assertion_hash = _sha256(
         req.reviewer_id + str(req.certifications) + str(req.authority_scope)
@@ -48576,6 +48898,7 @@ async def competency_assert(
 async def governance_learn(
     req:       GovernanceLearningRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Governance Learning Loops.
@@ -48595,7 +48918,7 @@ async def governance_learn(
 
     CRITICAL: auto_apply is ALWAYS False. Human review is mandatory.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     recommendations = []
     events = req.override_events or []
@@ -48702,6 +49025,7 @@ class CryptoVerifyRequest(BaseModel):
 async def crypto_verify(
     req:       CryptoVerifyRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Verify an Ed25519 governance signature offline.
@@ -48713,7 +49037,7 @@ async def crypto_verify(
     verifiable WITHOUT requiring platform access — a core governance
     property for audit, regulatory review, and due diligence.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     is_valid = verify_governance_signature(req.payload, req.signature)
     return {
         "schema":    "VGS-CRYPTO-VERIFY-v1",
@@ -48788,12 +49112,13 @@ async def passport_persist(
     agent_id:  str,
     org_id:    str = "sandbox",
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Persist an agent passport to Supabase.
     Replaces in-memory storage for enterprise multi-tenant deployments.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     record = {
         "agent_id":   agent_id,
         "org_id":     org_id,
@@ -48826,7 +49151,7 @@ async def evidence_persist(
     Ensures evidence survives container restarts — required for
     EU AI Act audit trails and enterprise compliance.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     payload = {
         "execution_id": execution_id,
         "agent_id":     agent_id,
@@ -49033,7 +49358,7 @@ async def document_semantic_drift_endpoint(
     Use case: detecting gradual AI-driven contract rewriting
     across multiple agent interactions.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     result = detect_semantic_drift(
         req.original_text, req.current_text,
         req.document_type, req.interaction_num
@@ -49068,7 +49393,7 @@ async def document_clause_mutation_endpoint(
     Critical for: contract governance, policy enforcement,
     regulatory compliance, employment agreements.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     result = detect_clause_mutation(req.original_text, req.current_text)
     result["document_id"]    = req.document_id
     result["document_type"]  = req.document_type
@@ -49102,7 +49427,7 @@ async def document_intent_corruption_endpoint(
     Critical for: AI agent instruction sets, policy documents,
     clinical protocols, regulatory submissions.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     result = detect_intent_corruption(req.original_text, req.current_text)
     result["document_id"] = req.document_id
     result["domain"]      = req.domain
@@ -49138,7 +49463,7 @@ async def document_numerical_inconsistency_endpoint(
     Critical for: financial contracts, wire transfer approvals,
     SLA agreements, pharmaceutical dosages, legal notices.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     result = detect_numerical_inconsistency(req.original_text, req.current_text)
     result["document_id"] = req.document_id
     result["currency"]    = req.currency
@@ -49159,7 +49484,7 @@ async def document_drift_score(
     Lightweight drift score — single number 0.0 → 1.0.
     Fastest check. Use before running full semantic verify.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     result = detect_semantic_drift(
         req.original_text, req.current_text,
         req.document_type, req.interaction_num
@@ -49188,13 +49513,14 @@ async def document_drift_score(
 async def document_replay(
     verify_id: str,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Retrieve a past semantic verification by verify_id.
     Supports audit replay and forensic investigation.
     Evidence is offline-verifiable without platform access.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
     # Retrieve from Supabase or in-memory
     records = await db_select("governance_events", {"event_type": "semantic_verify"})
     match   = next((r for r in records
