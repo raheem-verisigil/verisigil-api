@@ -49223,23 +49223,38 @@ class SemanticVerifyRequest(BaseModel):
 class ClauseMutationRequest(BaseModel):
     document_id:   str = "doc-001"
     original_text: str
-    current_text:  str
+    current_text:  str = ""
+    generated_text: str = ""
     document_type: str = "legal_contract"
     agent_id:      str = "agent-001"
+
+    def get_current(self) -> str:
+        return (self.current_text or self.generated_text).strip()
+
 
 class IntentCorruptionRequest(BaseModel):
     document_id:   str = "doc-001"
     original_text: str
-    current_text:  str
+    current_text:  str = ""
+    generated_text: str = ""
     domain:        str = "governance"
     agent_id:      str = "agent-001"
+
+    def get_current(self) -> str:
+        return (self.current_text or self.generated_text).strip()
+
 
 class NumericalRequest(BaseModel):
     document_id:   str = "doc-001"
     original_text: str
-    current_text:  str
+    current_text:  str = ""
+    generated_text: str = ""
     currency:      str = "USD"
     agent_id:      str = "agent-001"
+
+    def get_current(self) -> str:
+        return (self.current_text or self.generated_text).strip()
+
 
 class DriftScoreRequest(BaseModel):
     document_id:    str = "doc-001"
@@ -49252,8 +49267,6 @@ class DriftScoreRequest(BaseModel):
     def get_current(self) -> str:
         return (self.current_text or self.generated_text).strip()
 
-
-# ── UNIFIED SEMANTIC VERIFY (patched with dual field support) ──
 
 @app.post("/v1/document/verify", tags=["Document Integrity — Deep Build"])
 async def document_verify_unified(
