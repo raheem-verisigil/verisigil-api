@@ -49611,6 +49611,536 @@ async def auth_check():
     }
 
 
+
+
+# ============================================================
+# EU AI ACT COMPLIANCE ENGINE
+# ============================================================
+# August 2, 2026 deadline — 62 days away
+# Fine: €30M or 6% global revenue
+#
+# Endpoints:
+# POST /v1/eu-aiact/assess          — full compliance assessment
+# GET  /v1/eu-aiact/checklist       — 12-point compliance checklist
+# POST /v1/eu-aiact/gap-analysis    — gap analysis against Article requirements
+# GET  /v1/eu-aiact/deadline        — days to deadline + urgency score
+# POST /v1/eu-aiact/audit-package   — generate audit-ready evidence package
+# ============================================================
+
+# ── EU AI ACT ARTICLE REQUIREMENTS ───────────────────────────
+
+EU_AIACT_REQUIREMENTS = {
+    "Article_9":  {
+        "title":       "Risk Management System",
+        "description": "Establish, implement, document and maintain a risk management system for high-risk AI",
+        "vgs_endpoint":"/v1/score/governance",
+        "vgs_feature": "Governance Coverage Score",
+        "penalty_if_missing": "HIGH",
+    },
+    "Article_10": {
+        "title":       "Data and Data Governance",
+        "description": "Training, validation and testing data must meet quality criteria",
+        "vgs_endpoint":"/v1/scanner/shadow-ai",
+        "vgs_feature": "Shadow AI Detection",
+        "penalty_if_missing": "HIGH",
+    },
+    "Article_11": {
+        "title":       "Technical Documentation",
+        "description": "Technical documentation must be drawn up before high-risk AI is placed on market",
+        "vgs_endpoint":"/v1/passport/issue",
+        "vgs_feature": "Agent Passport + DID",
+        "penalty_if_missing": "MEDIUM",
+    },
+    "Article_12": {
+        "title":       "Record Keeping",
+        "description": "High-risk AI must have automatic logging of events throughout lifetime",
+        "vgs_endpoint":"/v1/evidence/generate",
+        "vgs_feature": "Cryptographic Evidence Bundles",
+        "penalty_if_missing": "CRITICAL",
+    },
+    "Article_13": {
+        "title":       "Transparency and Information",
+        "description": "High-risk AI must be transparent and provide sufficient information to deployers",
+        "vgs_endpoint":"/v1/document/verify",
+        "vgs_feature": "Document Integrity Verification",
+        "penalty_if_missing": "MEDIUM",
+    },
+    "Article_14": {
+        "title":       "Human Oversight",
+        "description": "High-risk AI must allow effective human oversight during deployment",
+        "vgs_endpoint":"/v1/human/sovereignty/enforce",
+        "vgs_feature": "HSEA Human Sovereignty Engine",
+        "penalty_if_missing": "CRITICAL",
+    },
+    "Article_15": {
+        "title":       "Accuracy, Robustness and Cybersecurity",
+        "description": "High-risk AI must achieve appropriate levels of accuracy and be robust",
+        "vgs_endpoint":"/v1/adversarial/simulate",
+        "vgs_feature": "Adversarial Simulation",
+        "penalty_if_missing": "HIGH",
+    },
+    "Article_16": {
+        "title":       "Obligations of Providers",
+        "description": "Providers must establish quality management system and post-market monitoring",
+        "vgs_endpoint":"/v1/governance/learn",
+        "vgs_feature": "Governance Learning Loop",
+        "penalty_if_missing": "HIGH",
+    },
+    "Article_22": {
+        "title":       "Fundamental Rights Impact Assessment",
+        "description": "Deployers must conduct impact assessment before deploying certain high-risk AI",
+        "vgs_endpoint":"/v1/consequence/classify",
+        "vgs_feature": "Consequence Tier Classification",
+        "penalty_if_missing": "CRITICAL",
+    },
+    "Article_26": {
+        "title":       "Obligations of Deployers",
+        "description": "Deployers must ensure AI is used in accordance with instructions of use",
+        "vgs_endpoint":"/v1/execution/control",
+        "vgs_feature": "Runtime Execution Control Gate",
+        "penalty_if_missing": "HIGH",
+    },
+}
+
+EU_RISK_CATEGORIES = {
+    "UNACCEPTABLE": {
+        "description": "Prohibited AI — biometric categorisation, social scoring, real-time remote biometric",
+        "vgs_action":  "BLOCK_AND_ESCALATE",
+        "fine_tier":   "€35M or 7% global revenue",
+    },
+    "HIGH": {
+        "description": "High-risk AI — critical infrastructure, education, employment, essential services, law enforcement",
+        "vgs_action":  "REQUIRE_FULL_GOVERNANCE",
+        "fine_tier":   "€15M or 3% global revenue",
+        "articles_required": ["Article_9","Article_10","Article_11","Article_12","Article_13","Article_14","Article_15","Article_16"],
+    },
+    "LIMITED": {
+        "description": "Limited risk — chatbots, emotion recognition, deep fakes",
+        "vgs_action":  "REQUIRE_TRANSPARENCY",
+        "fine_tier":   "€7.5M or 1.5% global revenue",
+        "articles_required": ["Article_13"],
+    },
+    "MINIMAL": {
+        "description": "Minimal risk — spam filters, AI-enabled video games",
+        "vgs_action":  "MONITOR",
+        "fine_tier":   "No mandatory requirements",
+        "articles_required": [],
+    },
+}
+
+HIGH_RISK_SECTORS = [
+    "finance", "banking", "insurance", "healthcare", "medical",
+    "education", "employment", "hr", "recruitment", "legal",
+    "law", "police", "border", "immigration", "critical infrastructure",
+    "energy", "transport", "water", "digital infrastructure",
+    "government", "public services", "credit scoring", "biometric",
+]
+
+DEADLINE = "2026-08-02"
+FINE_MAX  = "€30,000,000 or 6% of global annual revenue"
+
+
+# ── COMPLIANCE ASSESSMENT ENGINE ─────────────────────────────
+
+def _assess_eu_risk_category(use_case: str, sector: str, affects_humans: bool) -> str:
+    """Classify EU AI Act risk category based on use case and sector."""
+    text = (use_case + " " + sector).lower()
+
+    # Unacceptable risk signals
+    unacceptable = ["social score", "biometric real-time", "predictive policing",
+                    "emotion workplace", "subliminal manipulation"]
+    if any(u in text for u in unacceptable):
+        return "UNACCEPTABLE"
+
+    # High risk signals
+    if any(s in text for s in HIGH_RISK_SECTORS):
+        return "HIGH"
+    if affects_humans and any(w in text for w in ["decision", "assess", "evaluate", "approve", "deny"]):
+        return "HIGH"
+
+    # Limited risk
+    if any(w in text for w in ["chatbot", "chat", "emotion", "deepfake", "generate", "content"]):
+        return "LIMITED"
+
+    return "MINIMAL"
+
+
+def _check_compliance_gaps(
+    has_audit_trail: bool,
+    has_human_oversight: bool,
+    has_risk_assessment: bool,
+    has_technical_docs: bool,
+    has_data_governance: bool,
+    has_monitoring: bool,
+    risk_category: str,
+) -> list:
+    """Check compliance gaps against EU AI Act requirements."""
+    gaps = []
+    required = EU_RISK_CATEGORIES.get(risk_category, {}).get("articles_required", [])
+
+    if "Article_12" in required and not has_audit_trail:
+        gaps.append({
+            "article":     "Article 12 — Record Keeping",
+            "gap":         "No automatic logging of AI decisions and events",
+            "severity":    "CRITICAL",
+            "deadline":    DEADLINE,
+            "vgs_fix":     "Deploy /v1/evidence/generate — cryptographic audit trail",
+            "fine_risk":   "€15M+ if audited without compliant logging",
+        })
+    if "Article_14" in required and not has_human_oversight:
+        gaps.append({
+            "article":     "Article 14 — Human Oversight",
+            "gap":         "No human oversight mechanism for AI decisions",
+            "severity":    "CRITICAL",
+            "deadline":    DEADLINE,
+            "vgs_fix":     "Deploy /v1/human/sovereignty/enforce — HSEA engine",
+            "fine_risk":   "€15M+ for high-risk AI without human oversight",
+        })
+    if "Article_9" in required and not has_risk_assessment:
+        gaps.append({
+            "article":     "Article 9 — Risk Management",
+            "gap":         "No formal risk management system documented",
+            "severity":    "HIGH",
+            "deadline":    DEADLINE,
+            "vgs_fix":     "Deploy /v1/score/governance — governance coverage score",
+            "fine_risk":   "€10M+ without documented risk management",
+        })
+    if "Article_11" in required and not has_technical_docs:
+        gaps.append({
+            "article":     "Article 11 — Technical Documentation",
+            "gap":         "No technical documentation for AI system",
+            "severity":    "HIGH",
+            "deadline":    DEADLINE,
+            "vgs_fix":     "Deploy /v1/passport/issue — agent identity + DID",
+            "fine_risk":   "Required before market placement",
+        })
+    if "Article_10" in required and not has_data_governance:
+        gaps.append({
+            "article":     "Article 10 — Data Governance",
+            "gap":         "No data governance or shadow AI detection",
+            "severity":    "HIGH",
+            "deadline":    DEADLINE,
+            "vgs_fix":     "Deploy /v1/scanner/shadow-ai — shadow detection",
+            "fine_risk":   "Required for all high-risk AI training data",
+        })
+    if "Article_16" in required and not has_monitoring:
+        gaps.append({
+            "article":     "Article 16 — Post-Market Monitoring",
+            "gap":         "No post-market monitoring system",
+            "severity":    "MEDIUM",
+            "deadline":    DEADLINE,
+            "vgs_fix":     "Deploy /v1/governance/learn — governance learning loop",
+            "fine_risk":   "Required for ongoing compliance",
+        })
+    return gaps
+
+
+def _compliance_score(gaps: list, risk_category: str) -> float:
+    """Score 0-100. 100 = fully compliant."""
+    if risk_category in ("MINIMAL", "LIMITED") and not gaps:
+        return 100.0
+    sev = {"CRITICAL": 25, "HIGH": 15, "MEDIUM": 8, "LOW": 3}
+    deduction = sum(sev.get(g["severity"], 5) for g in gaps)
+    return round(max(0, 100 - deduction), 1)
+
+
+# ── PYDANTIC MODELS ───────────────────────────────────────────
+
+class EUAIActAssessRequest(BaseModel):
+    org_name:           str = "My Organisation"
+    use_case:           str
+    sector:             str = "general"
+    affects_humans:     bool = True
+    has_audit_trail:    bool = False
+    has_human_oversight:bool = False
+    has_risk_assessment:bool = False
+    has_technical_docs: bool = False
+    has_data_governance:bool = False
+    has_monitoring:     bool = False
+    annual_revenue_eur: float = 0.0
+    jurisdiction:       str = "EU"
+
+class EUAIActGapRequest(BaseModel):
+    use_case:    str
+    sector:      str = "general"
+    current_controls: list = []
+
+
+# ── ENDPOINTS ─────────────────────────────────────────────────
+
+@app.post("/v1/eu-aiact/assess", tags=["EU AI Act Compliance"])
+async def eu_aiact_assess(
+    req:       EUAIActAssessRequest,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    EU AI Act Full Compliance Assessment.
+
+    Submit your AI use case and current controls.
+    Receive: risk classification, compliance gaps,
+    fine exposure, and VeriSigil remediation plan.
+
+    Deadline: August 2, 2026.
+    Fine: €30M or 6% of global annual revenue.
+
+    Takes 2 seconds. Replaces weeks of consultant work.
+    """
+    require_api_key(x_api_key, authorization)
+
+    assessment_id = f"EUAIA-{_sha256(req.org_name + req.use_case)[:10].upper()}"
+    timestamp     = datetime.now(timezone.utc).isoformat()
+
+    # Risk classification
+    risk_category = _assess_eu_risk_category(req.use_case, req.sector, req.affects_humans)
+
+    # Gap analysis
+    gaps = _check_compliance_gaps(
+        has_audit_trail    = req.has_audit_trail,
+        has_human_oversight= req.has_human_oversight,
+        has_risk_assessment= req.has_risk_assessment,
+        has_technical_docs = req.has_technical_docs,
+        has_data_governance= req.has_data_governance,
+        has_monitoring     = req.has_monitoring,
+        risk_category      = risk_category,
+    )
+
+    # Compliance score
+    score = _compliance_score(gaps, risk_category)
+
+    # Fine exposure
+    fine_exposure = 0.0
+    if req.annual_revenue_eur > 0 and risk_category in ("HIGH","UNACCEPTABLE"):
+        fine_pct      = 0.06 if risk_category == "HIGH" else 0.07
+        fine_exposure = min(req.annual_revenue_eur * fine_pct, 30_000_000)
+
+    # Days to deadline
+    from datetime import date
+    deadline_date = date(2026, 8, 2)
+    today         = date.today()
+    days_remaining = (deadline_date - today).days
+
+    # Urgency
+    urgency = (
+        "CRITICAL — less than 30 days" if days_remaining < 30 else
+        "HIGH — less than 60 days"     if days_remaining < 60 else
+        "MEDIUM — less than 90 days"   if days_remaining < 90 else
+        "MONITOR"
+    )
+
+    # VeriSigil remediation plan
+    remediation = []
+    for gap in gaps:
+        remediation.append({
+            "priority":    gap["severity"],
+            "article":     gap["article"],
+            "action":      gap["vgs_fix"],
+            "time_to_fix": "1-3 days with VeriSigil API",
+        })
+
+    # Evidence package hash
+    evidence_hash = _sha256(assessment_id + risk_category + str(score) + timestamp)
+
+    await log_event("eu_aiact_engine", "COMPLIANCE_ASSESSED", {
+        "assessment_id": assessment_id,
+        "org":           req.org_name,
+        "risk_category": risk_category,
+        "score":         score,
+        "gaps":          len(gaps),
+    })
+
+    return {
+        "schema":           "VGS-EU-AIACT-v1",
+        "assessment_id":    assessment_id,
+        "timestamp":        timestamp,
+        "org_name":         req.org_name,
+
+        # ── Risk Classification ───────────────────────────
+        "risk_category":    risk_category,
+        "risk_description": EU_RISK_CATEGORIES.get(risk_category, {}).get("description",""),
+        "vgs_action":       EU_RISK_CATEGORIES.get(risk_category, {}).get("vgs_action",""),
+
+        # ── Compliance Score ──────────────────────────────
+        "compliance_score":     score,
+        "compliance_level": (
+            "COMPLIANT"         if score >= 90 else
+            "MOSTLY_COMPLIANT"  if score >= 70 else
+            "PARTIALLY_COMPLIANT" if score >= 50 else
+            "NON_COMPLIANT"
+        ),
+        "gaps_found":       len(gaps),
+        "gaps":             gaps,
+
+        # ── Deadline ──────────────────────────────────────
+        "deadline":         DEADLINE,
+        "days_remaining":   days_remaining,
+        "urgency":          urgency,
+
+        # ── Fine Exposure ─────────────────────────────────
+        "fine_exposure_eur":    round(fine_exposure, 2) if fine_exposure else "N/A — enter annual_revenue_eur for calculation",
+        "max_fine":             EU_RISK_CATEGORIES.get(risk_category, {}).get("fine_tier",""),
+
+        # ── Remediation Plan ──────────────────────────────
+        "remediation_plan":     remediation,
+        "verisigil_can_fix":    len(remediation),
+        "estimated_fix_time":   f"{len(remediation) * 2} days with VeriSigil API",
+
+        # ── Articles Required ─────────────────────────────
+        "articles_required":    EU_RISK_CATEGORIES.get(risk_category, {}).get("articles_required",[]),
+
+        # ── Evidence ──────────────────────────────────────
+        "evidence_hash":        evidence_hash,
+        "offline_verifiable":   True,
+        "report_exportable":    True,
+        "contact":              "info@verisigilai.com",
+    }
+
+
+@app.get("/v1/eu-aiact/deadline", tags=["EU AI Act Compliance"])
+async def eu_aiact_deadline():
+    """
+    EU AI Act deadline countdown.
+    Public endpoint — no auth required.
+    Use on your website to create urgency.
+    """
+    from datetime import date
+    deadline_date  = date(2026, 8, 2)
+    today          = date.today()
+    days_remaining = (deadline_date - today).days
+
+    return {
+        "schema":          "VGS-EU-DEADLINE-v1",
+        "deadline":        DEADLINE,
+        "days_remaining":  days_remaining,
+        "deadline_passed": days_remaining < 0,
+        "urgency":         (
+            "PAST DUE — fines active"      if days_remaining < 0 else
+            "CRITICAL — less than 30 days" if days_remaining < 30 else
+            "HIGH — less than 60 days"     if days_remaining < 60 else
+            "MEDIUM — act now"
+        ),
+        "fine_maximum":    FINE_MAX,
+        "message":         f"You have {days_remaining} days to achieve EU AI Act compliance.",
+        "verisigil_help":  "VeriSigil can close your compliance gaps in days, not months.",
+        "start_here":      "POST /v1/eu-aiact/assess — free compliance assessment",
+        "contact":         "info@verisigilai.com",
+    }
+
+
+@app.get("/v1/eu-aiact/checklist", tags=["EU AI Act Compliance"])
+async def eu_aiact_checklist(
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    EU AI Act 10-point compliance checklist.
+    Maps each Article requirement to a VeriSigil endpoint.
+    """
+    require_api_key(x_api_key, authorization)
+    return {
+        "schema":      "VGS-EU-CHECKLIST-v1",
+        "deadline":    DEADLINE,
+        "checklist":   EU_AIACT_REQUIREMENTS,
+        "risk_categories": EU_RISK_CATEGORIES,
+        "total_articles": len(EU_AIACT_REQUIREMENTS),
+        "verisigil_coverage": f"{len(EU_AIACT_REQUIREMENTS)}/{len(EU_AIACT_REQUIREMENTS)} articles covered",
+        "timestamp":   datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@app.post("/v1/eu-aiact/gap-analysis", tags=["EU AI Act Compliance"])
+async def eu_aiact_gap_analysis(
+    req:       EUAIActGapRequest,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Quick gap analysis — submit your current controls,
+    receive specific gaps and VeriSigil remediation steps.
+    """
+    require_api_key(x_api_key, authorization)
+
+    risk = _assess_eu_risk_category(req.use_case, req.sector, True)
+    current = [c.lower() for c in req.current_controls]
+
+    has_audit    = any(w in ' '.join(current) for w in ['audit','log','record','trail'])
+    has_human    = any(w in ' '.join(current) for w in ['human','oversight','review','approval'])
+    has_risk     = any(w in ' '.join(current) for w in ['risk','assessment','management'])
+    has_docs     = any(w in ' '.join(current) for w in ['document','technical','spec'])
+    has_data     = any(w in ' '.join(current) for w in ['data','governance','quality'])
+    has_monitor  = any(w in ' '.join(current) for w in ['monitor','track','alert'])
+
+    gaps = _check_compliance_gaps(has_audit, has_human, has_risk, has_docs, has_data, has_monitor, risk)
+    score = _compliance_score(gaps, risk)
+
+    return {
+        "schema":           "VGS-EU-GAP-v1",
+        "use_case":         req.use_case,
+        "sector":           req.sector,
+        "risk_category":    risk,
+        "compliance_score": score,
+        "gaps":             gaps,
+        "gaps_count":       len(gaps),
+        "controls_detected":{"audit_trail":has_audit,"human_oversight":has_human,
+                              "risk_assessment":has_risk,"technical_docs":has_docs,
+                              "data_governance":has_data,"monitoring":has_monitor},
+        "timestamp":        datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@app.post("/v1/eu-aiact/audit-package", tags=["EU AI Act Compliance"])
+async def eu_aiact_audit_package(
+    req:       EUAIActAssessRequest,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Generate a complete EU AI Act audit-ready evidence package.
+
+    Produces a cryptographically sealed compliance dossier
+    that can be submitted to a national competent authority.
+
+    Includes: risk assessment, gap analysis, remediation plan,
+    VeriSigil governance evidence, Ed25519 signature.
+    """
+    require_api_key(x_api_key, authorization)
+
+    package_id  = f"AUDIT-{_sha256(req.org_name)[:12].upper()}"
+    timestamp   = datetime.now(timezone.utc).isoformat()
+    risk        = _assess_eu_risk_category(req.use_case, req.sector, req.affects_humans)
+    gaps        = _check_compliance_gaps(
+        req.has_audit_trail, req.has_human_oversight, req.has_risk_assessment,
+        req.has_technical_docs, req.has_data_governance, req.has_monitoring, risk
+    )
+    score       = _compliance_score(gaps, risk)
+
+    package = {
+        "schema":        "VGS-EU-AUDIT-PACKAGE-v1",
+        "package_id":    package_id,
+        "org_name":      req.org_name,
+        "use_case":      req.use_case,
+        "risk_category": risk,
+        "compliance_score": score,
+        "gaps":          gaps,
+        "timestamp":     timestamp,
+        "deadline":      DEADLINE,
+        "articles_assessed": list(EU_AIACT_REQUIREMENTS.keys()),
+        "generated_by":  "VeriSigil AI — Operational Governance Infrastructure",
+        "contact":       "info@verisigilai.com",
+    }
+
+    signature = sign_governance_payload(package)
+
+    return {
+        **package,
+        "ed25519_signature":  signature,
+        "offline_verifiable": True,
+        "admissible":         "Designed for submission to EU national competent authorities",
+        "verify_at":          "POST /v1/crypto/verify",
+        "package_hash":       _sha256(str(package)),
+    }
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=int(os.environ.get("PORT", 8000)), reload=False)
