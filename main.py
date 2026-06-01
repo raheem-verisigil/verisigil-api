@@ -49302,6 +49302,8 @@ async def document_verify_unified(
 
     # Run all 4 detection layers
     drift     = detect_semantic_drift(original, generated, doc_type, req.interaction_num)
+    # Normalise score key
+    if "score" not in drift: drift["score"] = drift.get("drift_score", 0.0)
     mutation  = detect_clause_mutation(original, generated)
     intent    = detect_intent_corruption(original, generated)
     numerical = detect_numerical_inconsistency(original, generated)
@@ -49511,11 +49513,18 @@ async def document_drift_score(
     Fastest check. Use before running full semantic verify.
     """
     require_api_key(x_api_key, authorization)
-    result = detect_semantic_drift(
-        req.original_text, req.get_current(),
-        req.document_type, req.interaction_num
-    )
-    score = result.get("score", 0.0)
+    original  = req.original_text.strip()
+    current   = req.get_current()
+
+    # Use the simple fast scorer directly
+    result = _detect_semantic_drift_v1(original, current)
+    score  = result.get("score", 0.0)
+
+    # Also pull from full analysis if available
+    if score == 0.0:
+        full = detect_semantic_drift(original, current, req.document_type, req.interaction_num)
+        score = full.get("drift_score", full.get("score", 0.0))
+
     return {
         "schema":      "VGS-DRIFT-SCORE-v1",
         "document_id": req.document_id,
