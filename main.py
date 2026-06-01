@@ -29,9 +29,6 @@ SUPABASE_KEY         = os.environ.get("SUPABASE_KEY")
 SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", os.environ.get("SUPABASE_KEY"))
 SIGN_SECRET          = os.environ.get("SIGN_SECRET", "")
 API_KEY              = (os.environ.get("VS_API_KEY") or os.environ.get("VERISIGIL_API_KEY") or "").strip()
-# Normalize: if key ends with digits that look like a year suffix, strip them
-if API_KEY and len(API_KEY) > 20 and API_KEY[:20] == "verisigil-mopelolala":
-    API_KEY = API_KEY[:20]
 
 if not SUPABASE_URL or not SUPABASE_KEY:
     raise Exception("SUPABASE_URL and SUPABASE_KEY must be set in environment variables")
@@ -482,43 +479,32 @@ def require_api_key(x_api_key: Optional[str] = None,
                     authorization: Optional[str] = None):
     """
     Checks x-api-key header OR Authorization: Bearer token.
-    Strips all whitespace and invisible characters before comparing.
+    Compares only alphanumeric + dash characters — ignores
+    any invisible or extra characters Railway may have added.
     """
-    import logging, unicodedata
+    import re as _re
 
-    def clean(s):
-        """Remove ALL whitespace and invisible unicode characters."""
+    def normalize(s):
         if not s:
             return ""
-        # Strip whitespace
-        s = s.strip()
-        # Remove any invisible unicode characters
-        s = "".join(c for c in s if not unicodedata.category(c).startswith("C"))
-        return s
+        # Keep only alphanumeric and dash characters
+        return _re.sub(r"[^a-zA-Z0-9\-]", "", s.strip())
 
-    valid = clean(API_KEY or "")
+    valid    = normalize(API_KEY or "")
+    received = normalize(x_api_key or "")
 
-    # x-api-key header
-    if x_api_key:
-        received = clean(x_api_key)
-        logging.warning(f"AUTH DEBUG: received={received!r} valid={valid!r} match={received==valid}")
-        if received == valid:
-            return
+    if received and received == valid:
+        return
 
     # Authorization: Bearer <key>
     if authorization:
-        token = clean(authorization)
-        if token.startswith("Bearer "):
-            token = clean(token[7:])
-        if token == valid:
+        bearer = normalize(authorization.replace("Bearer", "").strip())
+        if bearer == valid:
             return
 
-    # Show exact comparison for debugging
-    recv_clean = clean(x_api_key) if x_api_key else ""
-    valid_clean = clean(API_KEY or "")
     raise HTTPException(
         status_code=401,
-        detail=f"Auth failed: received_len={len(recv_clean)} expected_len={len(valid_clean)} first3_recv={recv_clean[:3]!r} first3_exp={valid_clean[:3]!r} match={recv_clean==valid_clean}"
+        detail=f"Auth failed: received={received!r} expected={valid!r} match={received==valid}"
     )
 
 
