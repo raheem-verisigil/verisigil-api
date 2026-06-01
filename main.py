@@ -24639,7 +24639,8 @@ async def document_semantic_verify(
         )
 
     # ── Run all 4 detection layers ────────────────────────────
-    drift     = detect_semantic_drift(original, generated)
+    drift     = detect_semantic_drift(original, generated, req.document_type or req.context or "general", req.interaction_num)
+    if "score" not in drift: drift["score"] = drift.get("drift_score", 0.0)
     mutation  = detect_clause_mutation(original, generated)
     intent    = detect_intent_corruption(original, generated)
     numerical = detect_numerical_inconsistency(original, generated)
@@ -49302,85 +49303,94 @@ async def document_verify_unified(
 
     Returns unified corruption score + governance decision.
     """
-    require_api_key(x_api_key, authorization)
+    import traceback as _tb
+    try:
+        require_api_key(x_api_key, authorization)
 
-    original  = req.original_text.strip()
-    generated = req.get_current()
-    doc_type  = req.document_type or req.context or "general"
+        original  = req.original_text.strip()
+        generated = req.get_current()
+        doc_type  = req.document_type or req.context or "general"
 
-    if not original or not generated:
-        raise HTTPException(400, "Both original_text and generated_text (or current_text) are required")
+        if not original or not generated:
+            raise HTTPException(400, "Both original_text and generated_text (or current_text) are required")
 
-    verify_id = f"SVERIFY-{_sha256(req.document_id + original)[:10].upper()}"
+        verify_id = f"SVERIFY-{_sha256(req.document_id + original)[:10].upper()}"
 
-    # Run all 4 detection layers
-    drift     = detect_semantic_drift(original, generated, doc_type, req.interaction_num)
-    # Normalise score key
-    if "score" not in drift: drift["score"] = drift.get("drift_score", 0.0)
-    mutation  = detect_clause_mutation(original, generated)
-    intent    = detect_intent_corruption(original, generated)
-    numerical = detect_numerical_inconsistency(original, generated)
+        # Run all 4 detection layers
+        drift     = detect_semantic_drift(original, generated, doc_type, req.interaction_num)
+        # Normalise score key
+        if "score" not in drift: drift["score"] = drift.get("drift_score", 0.0)
+        mutation  = detect_clause_mutation(original, generated)
+        intent    = detect_intent_corruption(original, generated)
+        numerical = detect_numerical_inconsistency(original, generated)
 
-    # Master corruption score
-    corruption_score = compute_corruption_score(drift, mutation, intent, numerical)
-    gov_decision     = governance_decision(corruption_score, req.consequence)
-    integrity_score  = round((1.0 - corruption_score) * 100, 1)
+        # Master corruption score
+        corruption_score = compute_corruption_score(drift, mutation, intent, numerical)
+        gov_decision     = governance_decision(corruption_score, req.consequence)
+        integrity_score  = round((1.0 - corruption_score) * 100, 1)
 
-    sev_order = {"CRITICAL":4,"HIGH":3,"MEDIUM":2,"LOW":1,"NONE":0}
-    overall_severity = max(
-        [drift.get("severity","NONE"), mutation.get("severity","NONE"),
-         intent.get("severity","NONE"), numerical.get("severity","NONE")],
-        key=lambda s: sev_order.get(s, 0)
-    )
+        sev_order = {"CRITICAL":4,"HIGH":3,"MEDIUM":2,"LOW":1,"NONE":0}
+        overall_severity = max(
+            [drift.get("severity","NONE"), mutation.get("severity","NONE"),
+             intent.get("severity","NONE"), numerical.get("severity","NONE")],
+            key=lambda s: sev_order.get(s, 0)
+        )
 
-    original_hash  = _sha256(original)
-    generated_hash = _sha256(generated)
+        original_hash  = _sha256(original)
+        generated_hash = _sha256(generated)
 
-    # Governance signature
-    gov_payload = {
-        "verify_id":       verify_id,
-        "document_id":     req.document_id,
-        "corruption_score":corruption_score,
-        "decision":        gov_decision,
-        "timestamp":       datetime.now(timezone.utc).isoformat(),
-    }
-    signature = sign_governance_payload(gov_payload)
+        # Governance signature
+        gov_payload = {
+            "verify_id":       verify_id,
+            "document_id":     req.document_id,
+            "corruption_score":corruption_score,
+            "decision":        gov_decision,
+            "timestamp":       datetime.now(timezone.utc).isoformat(),
+        }
+        signature = sign_governance_payload(gov_payload)
 
-    await log_event("semantic_verify", "DOCUMENT_VERIFIED", {
-        "verify_id": verify_id, "corruption_score": corruption_score,
-        "decision": gov_decision, "document_id": req.document_id
-    })
+        await log_event("semantic_verify", "DOCUMENT_VERIFIED", {
+            "verify_id": verify_id, "corruption_score": corruption_score,
+            "decision": gov_decision, "document_id": req.document_id
+        })
 
-    return {
-        "schema":            "VGS-SEMANTIC-VERIFY-v2",
-        "verify_id":         verify_id,
-        "document_id":       req.document_id,
-        "timestamp":         datetime.now(timezone.utc).isoformat(),
-        "integrity_score":   integrity_score,
-        "corruption_score":  round(corruption_score, 4),
-        "corruption_detected": corruption_score > 0.10,
-        "overall_severity":  overall_severity,
-        "governance_decision": gov_decision,
-        "detection_layers": {
-            "semantic_drift":          drift,
-            "clause_mutation":         mutation,
-            "intent_corruption":       intent,
-            "numerical_inconsistency": numerical,
-        },
-        "document_hashes": {
-            "original_hash":  original_hash,
-            "generated_hash": generated_hash,
-            "hashes_match":   original_hash == generated_hash,
-        },
-        "governance_signature": signature,
-        "offline_verifiable": True,
-        "verify_at":         "POST /v1/crypto/verify",
-        "consequence_tier":  req.consequence,
-    }
+        return {
+            "schema":            "VGS-SEMANTIC-VERIFY-v2",
+            "verify_id":         verify_id,
+            "document_id":       req.document_id,
+            "timestamp":         datetime.now(timezone.utc).isoformat(),
+            "integrity_score":   integrity_score,
+            "corruption_score":  round(corruption_score, 4),
+            "corruption_detected": corruption_score > 0.10,
+            "overall_severity":  overall_severity,
+            "governance_decision": gov_decision,
+            "detection_layers": {
+                "semantic_drift":          drift,
+                "clause_mutation":         mutation,
+                "intent_corruption":       intent,
+                "numerical_inconsistency": numerical,
+            },
+            "document_hashes": {
+                "original_hash":  original_hash,
+                "generated_hash": generated_hash,
+                "hashes_match":   original_hash == generated_hash,
+            },
+            "governance_signature": signature,
+            "offline_verifiable": True,
+            "verify_at":         "POST /v1/crypto/verify",
+            "consequence_tier":  req.consequence,
+        }
 
 
 # ── LAYER 1: SEMANTIC DRIFT ────────────────────────────────
 
+    except HTTPException:
+        raise
+    except Exception as _e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error in document/verify: {type(_e).__name__}: {str(_e)[:300]}"
+        )
 @app.post("/v1/document/semantic-drift", tags=["Document Integrity — Deep Build"])
 async def document_semantic_drift_endpoint(
     req:       DriftScoreRequest,
@@ -49400,10 +49410,7 @@ async def document_semantic_drift_endpoint(
     across multiple agent interactions.
     """
     require_api_key(x_api_key, authorization)
-    result = detect_semantic_drift(
-        req.original_text, req.get_current(),
-        req.document_type, req.interaction_num
-    )
+    result = detect_semantic_drift(req.original_text, req.get_current(), req.document_type or "general", req.interaction_num)
     result["document_id"]   = req.document_id
     result["schema"]        = "VGS-DRIFT-v1"
     result["timestamp"]     = datetime.now(timezone.utc).isoformat()
