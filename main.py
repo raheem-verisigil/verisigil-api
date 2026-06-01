@@ -424,6 +424,40 @@ app = FastAPI(
     docs_url="/docs",
 )
 
+
+# ── SWAGGER SECURITY SCHEME ──────────────────────────────────
+# Makes Swagger UI "Authorize" button send x-api-key header
+# correctly instead of Authorization: Bearer token
+
+def custom_openapi():
+    if app.openapi_schema:
+        return app.openapi_schema
+    from fastapi.openapi.utils import get_openapi
+    schema = get_openapi(
+        title=app.title,
+        version=app.version,
+        description=app.description,
+        routes=app.routes,
+    )
+    # Add x-api-key security scheme
+    schema["components"]["securitySchemes"] = {
+        "ApiKeyAuth": {
+            "type": "apiKey",
+            "in":   "header",
+            "name": "x-api-key",
+            "description": "Enter your VeriSigil API key. Get one at verisigilai.com/auth"
+        }
+    }
+    # Apply to all operations
+    for path in schema.get("paths", {}).values():
+        for operation in path.values():
+            operation["security"] = [{"ApiKeyAuth": []}]
+    app.openapi_schema = schema
+    return app.openapi_schema
+
+app.openapi = custom_openapi
+
+
 app.add_middleware(
     CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"]
 )
