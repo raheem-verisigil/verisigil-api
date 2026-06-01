@@ -411,6 +411,12 @@ def check_rate_limit(client_ip: str) -> bool:
 # ============================================================
 # APP SETUP
 # ============================================================
+from fastapi.security import APIKeyHeader, HTTPBearer
+from fastapi.openapi.utils import get_openapi
+
+_api_key_header = APIKeyHeader(name="x-api-key", auto_error=False)
+_bearer_scheme   = HTTPBearer(auto_error=False)
+
 app = FastAPI(
     title="VeriSigil AI — Constitutional Execution Substrate",
     description="Constitutional execution substrate for autonomous AI systems. Governs the formation, legitimacy, authority, cognition, and execution continuity of autonomous AI before actions become reality. 463 live endpoints. VGS-ELI-Certified. EU AI Act compliant.",
@@ -441,19 +447,29 @@ async def maintenance_middleware(request: Request, call_next):
 # ============================================================
 # AUTH
 # ============================================================
-def require_api_key(x_api_key: Optional[str] = None):
+def require_api_key(x_api_key: Optional[str] = None,
+                    authorization: Optional[str] = None):
     """
     Dual-mode authentication:
-    - API key (x-api-key header): sandbox, developer, partner access
-    - JWT Bearer token: enterprise multi-tenant access (Supabase Auth)
-    Both are validated. API key is checked against env var — never hardcoded.
+    - x-api-key header: direct API access (all clients)
+    - Authorization: Bearer <key>: Swagger UI / enterprise clients
+    Both are checked against VERISIGIL_API_KEY env var.
     """
+    # Check x-api-key header
     if x_api_key and x_api_key == API_KEY:
-        return  # Valid API key
-    if not x_api_key:
+        return
+
+    # Check Authorization: Bearer <key> (Swagger UI format)
+    if authorization:
+        token = authorization.replace("Bearer ", "").strip()
+        if token == API_KEY:
+            return
+
+    # Neither matched
+    if not x_api_key and not authorization:
         raise HTTPException(
             status_code=401,
-            detail="Authentication required. Pass x-api-key header or Authorization: Bearer <jwt_token>."
+            detail="Authentication required. Pass x-api-key header or Authorization: Bearer <key>."
         )
     raise HTTPException(
         status_code=401,
@@ -24382,10 +24398,11 @@ class DocumentVerifyRequest(BaseModel):
 
 # ── FASTAPI ENDPOINT ─────────────────────────────────────────
 
-@app.post("/v1/document/semantic-verify", tags=["Document Integrity"])
+@app.post("/v1/document/semantic-verify", tags=["Document Integrity — Deep Build"])
 async def document_semantic_verify(
-    req: DocumentVerifyRequest,
+    req: SemanticVerifyRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     /v1/document/semantic-verify
@@ -48859,6 +48876,7 @@ class DriftScoreRequest(BaseModel):
 async def document_verify_unified(
     req:       SemanticVerifyRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Unified Semantic Verify — Autonomous Execution Integrity Governance.
@@ -48875,7 +48893,7 @@ async def document_verify_unified(
 
     Returns unified corruption score + governance decision.
     """
-    require_api_key(x_api_key)
+    require_api_key(x_api_key, authorization)
 
     original  = req.original_text.strip()
     generated = (req.generated_text or req.current_text).strip()
@@ -48956,6 +48974,7 @@ async def document_verify_unified(
 async def document_semantic_drift_endpoint(
     req:       DriftScoreRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Semantic Drift Detection — Layer 1.
@@ -48989,6 +49008,7 @@ async def document_semantic_drift_endpoint(
 async def document_clause_mutation_endpoint(
     req:       ClauseMutationRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Clause Mutation Detection — Layer 2.
@@ -49023,6 +49043,7 @@ async def document_clause_mutation_endpoint(
 async def document_intent_corruption_endpoint(
     req:       IntentCorruptionRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Intent Corruption Detection — Layer 3.
@@ -49057,6 +49078,7 @@ async def document_intent_corruption_endpoint(
 async def document_numerical_inconsistency_endpoint(
     req:       NumericalRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Numerical Inconsistency Detection — Layer 4.
@@ -49086,6 +49108,7 @@ async def document_numerical_inconsistency_endpoint(
 async def document_drift_score(
     req:       DriftScoreRequest,
     x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Lightweight drift score — single number 0.0 → 1.0.
