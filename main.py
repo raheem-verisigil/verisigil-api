@@ -48793,6 +48793,362 @@ async def evidence_persist(
     }
 
 
+# ============================================================
+# SEMANTIC VERIFY DEEP BUILD
+# Unified verify + 4 dedicated layer endpoints + drift score + replay
+# ============================================================
+# ============================================================
+# SEMANTIC VERIFY — DEEP BUILD
+# ============================================================
+# Autonomous Execution Integrity Governance — Document Layer
+# 4 dedicated endpoints + unified verify with dual field support
+# detect_semantic_drift, detect_clause_mutation,
+# detect_intent_corruption, detect_numerical_inconsistency
+# all already defined above — wired here with clean APIs
+# ============================================================
+
+class SemanticVerifyRequest(BaseModel):
+    """
+    Unified request model — accepts both field name conventions.
+    original_text / generated_text  (demo page format)
+    original_text / current_text    (API docs format)
+    context / document_type         (optional metadata)
+    """
+    document_id:      str = "doc-001"
+    original_text:    str
+    generated_text:   str = ""   # alias for current_text
+    current_text:     str = ""   # alternate field name
+    context:          str = "general"
+    document_type:    str = ""
+    agent_id:         str = "agent-001"
+    interaction_num:  int = 1
+    consequence:      str = "OPERATIONAL"
+
+class ClauseMutationRequest(BaseModel):
+    document_id:   str = "doc-001"
+    original_text: str
+    current_text:  str
+    document_type: str = "legal_contract"
+    agent_id:      str = "agent-001"
+
+class IntentCorruptionRequest(BaseModel):
+    document_id:   str = "doc-001"
+    original_text: str
+    current_text:  str
+    domain:        str = "governance"
+    agent_id:      str = "agent-001"
+
+class NumericalRequest(BaseModel):
+    document_id:   str = "doc-001"
+    original_text: str
+    current_text:  str
+    currency:      str = "USD"
+    agent_id:      str = "agent-001"
+
+class DriftScoreRequest(BaseModel):
+    document_id:    str = "doc-001"
+    original_text:  str
+    current_text:   str
+    document_type:  str = "general"
+    interaction_num:int = 1
+
+
+# ── UNIFIED SEMANTIC VERIFY (patched with dual field support) ──
+
+@app.post("/v1/document/verify", tags=["Document Integrity — Deep Build"])
+async def document_verify_unified(
+    req:       SemanticVerifyRequest,
+    x_api_key: Optional[str] = Header(None),
+):
+    """
+    Unified Semantic Verify — Autonomous Execution Integrity Governance.
+
+    Accepts both field naming conventions:
+    - original_text + generated_text  (demo/website format)
+    - original_text + current_text    (API docs format)
+
+    Runs all 4 corruption detection layers simultaneously:
+    1. Semantic Drift
+    2. Clause Mutation
+    3. Intent Corruption
+    4. Numerical Inconsistency
+
+    Returns unified corruption score + governance decision.
+    """
+    require_api_key(x_api_key)
+
+    original  = req.original_text.strip()
+    generated = (req.generated_text or req.current_text).strip()
+    doc_type  = req.document_type or req.context or "general"
+
+    if not original or not generated:
+        raise HTTPException(400, "Both original_text and generated_text (or current_text) are required")
+
+    verify_id = f"SVERIFY-{_sha256(req.document_id + original)[:10].upper()}"
+
+    # Run all 4 detection layers
+    drift     = detect_semantic_drift(original, generated, doc_type, req.interaction_num)
+    mutation  = detect_clause_mutation(original, generated)
+    intent    = detect_intent_corruption(original, generated)
+    numerical = detect_numerical_inconsistency(original, generated)
+
+    # Master corruption score
+    corruption_score = compute_corruption_score(drift, mutation, intent, numerical)
+    gov_decision     = governance_decision(corruption_score, req.consequence)
+    integrity_score  = round((1.0 - corruption_score) * 100, 1)
+
+    sev_order = {"CRITICAL":4,"HIGH":3,"MEDIUM":2,"LOW":1,"NONE":0}
+    overall_severity = max(
+        [drift.get("severity","NONE"), mutation.get("severity","NONE"),
+         intent.get("severity","NONE"), numerical.get("severity","NONE")],
+        key=lambda s: sev_order.get(s, 0)
+    )
+
+    original_hash  = _sha256(original)
+    generated_hash = _sha256(generated)
+
+    # Governance signature
+    gov_payload = {
+        "verify_id":       verify_id,
+        "document_id":     req.document_id,
+        "corruption_score":corruption_score,
+        "decision":        gov_decision,
+        "timestamp":       datetime.now(timezone.utc).isoformat(),
+    }
+    signature = sign_governance_payload(gov_payload)
+
+    await log_event("semantic_verify", "DOCUMENT_VERIFIED", {
+        "verify_id": verify_id, "corruption_score": corruption_score,
+        "decision": gov_decision, "document_id": req.document_id
+    })
+
+    return {
+        "schema":            "VGS-SEMANTIC-VERIFY-v2",
+        "verify_id":         verify_id,
+        "document_id":       req.document_id,
+        "timestamp":         datetime.now(timezone.utc).isoformat(),
+        "integrity_score":   integrity_score,
+        "corruption_score":  round(corruption_score, 4),
+        "corruption_detected": corruption_score > 0.10,
+        "overall_severity":  overall_severity,
+        "governance_decision": gov_decision,
+        "detection_layers": {
+            "semantic_drift":          drift,
+            "clause_mutation":         mutation,
+            "intent_corruption":       intent,
+            "numerical_inconsistency": numerical,
+        },
+        "document_hashes": {
+            "original_hash":  original_hash,
+            "generated_hash": generated_hash,
+            "hashes_match":   original_hash == generated_hash,
+        },
+        "governance_signature": signature,
+        "offline_verifiable": True,
+        "verify_at":         "POST /v1/crypto/verify",
+        "consequence_tier":  req.consequence,
+    }
+
+
+# ── LAYER 1: SEMANTIC DRIFT ────────────────────────────────
+
+@app.post("/v1/document/semantic-drift", tags=["Document Integrity — Deep Build"])
+async def document_semantic_drift_endpoint(
+    req:       DriftScoreRequest,
+    x_api_key: Optional[str] = Header(None),
+):
+    """
+    Semantic Drift Detection — Layer 1.
+
+    Measures vocabulary overlap, meaning displacement, and
+    content removal between original and generated document versions.
+
+    Drift score 0.0 = identical. 1.0 = completely different.
+    Threshold: > 0.15 triggers WARN. > 0.40 triggers ESCALATE.
+
+    Use case: detecting gradual AI-driven contract rewriting
+    across multiple agent interactions.
+    """
+    require_api_key(x_api_key)
+    result = detect_semantic_drift(
+        req.original_text, req.current_text,
+        req.document_type, req.interaction_num
+    )
+    result["document_id"]   = req.document_id
+    result["schema"]        = "VGS-DRIFT-v1"
+    result["timestamp"]     = datetime.now(timezone.utc).isoformat()
+    result["threshold_warn"]     = 0.15
+    result["threshold_escalate"] = 0.40
+    result["action_required"] = result.get("score", 0) > 0.15
+    return result
+
+
+# ── LAYER 2: CLAUSE MUTATION ───────────────────────────────
+
+@app.post("/v1/document/clause-mutation", tags=["Document Integrity — Deep Build"])
+async def document_clause_mutation_endpoint(
+    req:       ClauseMutationRequest,
+    x_api_key: Optional[str] = Header(None),
+):
+    """
+    Clause Mutation Detection — Layer 2.
+
+    Detects inversion or removal of protective legal and
+    governance clauses:
+    - "shall not" → "shall"
+    - "must" → "may"
+    - "board approval required" → "self-authorization permitted"
+    - Removal of liability caps, notice periods, audit rights
+
+    Critical for: contract governance, policy enforcement,
+    regulatory compliance, employment agreements.
+    """
+    require_api_key(x_api_key)
+    result = detect_clause_mutation(req.original_text, req.current_text)
+    result["document_id"]    = req.document_id
+    result["document_type"]  = req.document_type
+    result["schema"]         = "VGS-CLAUSE-MUTATION-v1"
+    result["timestamp"]      = datetime.now(timezone.utc).isoformat()
+    result["governance_impact"] = (
+        "CRITICAL — protective clause removed or inverted"
+        if result.get("severity") in ("CRITICAL","HIGH")
+        else "LOW — no protective clause mutation detected"
+    )
+    return result
+
+
+# ── LAYER 3: INTENT CORRUPTION ────────────────────────────
+
+@app.post("/v1/document/intent-corruption", tags=["Document Integrity — Deep Build"])
+async def document_intent_corruption_endpoint(
+    req:       IntentCorruptionRequest,
+    x_api_key: Optional[str] = Header(None),
+):
+    """
+    Intent Corruption Detection — Layer 3.
+
+    Detects governance intent bypass:
+    - Loss of compliance keywords (audit, oversight, approval)
+    - Softening of binding language (required → suggested)
+    - Removal of accountability terms (liable, responsible)
+    - Compliance bypass patterns
+
+    Critical for: AI agent instruction sets, policy documents,
+    clinical protocols, regulatory submissions.
+    """
+    require_api_key(x_api_key)
+    result = detect_intent_corruption(req.original_text, req.current_text)
+    result["document_id"] = req.document_id
+    result["domain"]      = req.domain
+    result["schema"]      = "VGS-INTENT-CORRUPTION-v1"
+    result["timestamp"]   = datetime.now(timezone.utc).isoformat()
+    result["risk_statement"] = (
+        "GOVERNANCE INTENT COMPROMISED — critical keywords removed"
+        if result.get("severity") in ("CRITICAL","HIGH")
+        else "Governance intent intact"
+    )
+    return result
+
+
+# ── LAYER 4: NUMERICAL INCONSISTENCY ──────────────────────
+
+@app.post("/v1/document/numerical-inconsistency",
+          tags=["Document Integrity — Deep Build"])
+async def document_numerical_inconsistency_endpoint(
+    req:       NumericalRequest,
+    x_api_key: Optional[str] = Header(None),
+):
+    """
+    Numerical Inconsistency Detection — Layer 4.
+
+    Extracts and compares all numerical values between document
+    versions. Catches:
+    - Currency tampering ($25,000 → $250,000)
+    - Time period manipulation (30 days → 300 days)
+    - Percentage drift (10% → 100%)
+    - Version number tampering (v1.0 → v10.0)
+
+    Critical for: financial contracts, wire transfer approvals,
+    SLA agreements, pharmaceutical dosages, legal notices.
+    """
+    require_api_key(x_api_key)
+    result = detect_numerical_inconsistency(req.original_text, req.current_text)
+    result["document_id"] = req.document_id
+    result["currency"]    = req.currency
+    result["schema"]      = "VGS-NUMERICAL-v1"
+    result["timestamp"]   = datetime.now(timezone.utc).isoformat()
+    return result
+
+
+# ── DRIFT SCORE ONLY (lightweight) ────────────────────────
+
+@app.post("/v1/document/drift-score", tags=["Document Integrity — Deep Build"])
+async def document_drift_score(
+    req:       DriftScoreRequest,
+    x_api_key: Optional[str] = Header(None),
+):
+    """
+    Lightweight drift score — single number 0.0 → 1.0.
+    Fastest check. Use before running full semantic verify.
+    """
+    require_api_key(x_api_key)
+    result = detect_semantic_drift(
+        req.original_text, req.current_text,
+        req.document_type, req.interaction_num
+    )
+    score = result.get("score", 0.0)
+    return {
+        "schema":      "VGS-DRIFT-SCORE-v1",
+        "document_id": req.document_id,
+        "drift_score": round(score, 4),
+        "timestamp":   datetime.now(timezone.utc).isoformat(),
+        "clean":       score < 0.15,
+        "warn":        0.15 <= score < 0.40,
+        "escalate":    score >= 0.40,
+        "recommendation": (
+            "PASS — drift within acceptable threshold" if score < 0.15 else
+            "WARN — run full /v1/document/verify" if score < 0.40 else
+            "ESCALATE — significant drift detected, block execution"
+        ),
+    }
+
+
+# ── DOCUMENT REPLAY ───────────────────────────────────────
+
+@app.get("/v1/document/replay/{verify_id}",
+         tags=["Document Integrity — Deep Build"])
+async def document_replay(
+    verify_id: str,
+    x_api_key: Optional[str] = Header(None),
+):
+    """
+    Retrieve a past semantic verification by verify_id.
+    Supports audit replay and forensic investigation.
+    Evidence is offline-verifiable without platform access.
+    """
+    require_api_key(x_api_key)
+    # Retrieve from Supabase or in-memory
+    records = await db_select("governance_events", {"event_type": "semantic_verify"})
+    match   = next((r for r in records
+                    if r.get("metadata", {}).get("verify_id") == verify_id), None)
+    if match:
+        return {
+            "schema":    "VGS-REPLAY-v1",
+            "verify_id": verify_id,
+            "found":     True,
+            "record":    match,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+    return {
+        "schema":    "VGS-REPLAY-v1",
+        "verify_id": verify_id,
+        "found":     False,
+        "note":      "Record may be in in-memory store if Supabase not configured",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=int(os.environ.get("PORT", 8000)), reload=False)
