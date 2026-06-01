@@ -451,6 +451,29 @@ def custom_openapi():
 
 app.openapi = custom_openapi
 
+# ── GLOBAL EXCEPTION HANDLER ─────────────────────────────────
+# Returns actual error detail instead of generic "Internal Server Error"
+# Critical for debugging production issues
+
+from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request, exc):
+    import traceback
+    if hasattr(exc, "status_code"):
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"detail": exc.detail if hasattr(exc, "detail") else str(exc)}
+        )
+    tb = traceback.format_exc()[-500:]
+    return JSONResponse(
+        status_code=500,
+        content={"detail": f"{type(exc).__name__}: {str(exc)[:300]}", "trace": tb}
+    )
+
+
+
 
 app.add_middleware(
     CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"]
