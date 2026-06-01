@@ -411,12 +411,6 @@ def check_rate_limit(client_ip: str) -> bool:
 # ============================================================
 # APP SETUP
 # ============================================================
-from fastapi.security import APIKeyHeader, HTTPBearer
-from fastapi.openapi.utils import get_openapi
-
-_api_key_header = APIKeyHeader(name="x-api-key", auto_error=False)
-_bearer_scheme   = HTTPBearer(auto_error=False)
-
 app = FastAPI(
     title="VeriSigil AI — Constitutional Execution Substrate",
     description="Constitutional execution substrate for autonomous AI systems. Governs the formation, legitimacy, authority, cognition, and execution continuity of autonomous AI before actions become reality. 463 live endpoints. VGS-ELI-Certified. EU AI Act compliant.",
@@ -484,20 +478,27 @@ async def maintenance_middleware(request: Request, call_next):
 def require_api_key(x_api_key: Optional[str] = None,
                     authorization: Optional[str] = None):
     """
-    API key authentication — checks x-api-key AND Bearer token.
-    Works for: curl, Postman, Swagger UI, SDK clients.
+    Checks x-api-key header OR Authorization: Bearer token.
+    Both x_api_key and authorization are injected by FastAPI
+    from request headers automatically.
     """
-    # Direct x-api-key header
-    if x_api_key and x_api_key == API_KEY:
+    valid = API_KEY or ""
+    # x-api-key header (standard)
+    if x_api_key and x_api_key.strip() == valid:
         return
-    # Swagger UI sends Authorization: Bearer <key>
+    # Authorization: Bearer <key> (Swagger UI)
     if authorization:
-        token = authorization.replace("Bearer ", "").strip()
-        if token and token == API_KEY:
+        token = authorization.strip()
+        if token.startswith("Bearer "):
+            token = token[7:].strip()
+        if token == valid:
             return
+    # Debug: log what was received
+    import logging
+    logging.warning(f"Auth failed — x_api_key={'SET' if x_api_key else 'NONE'} auth={'SET' if authorization else 'NONE'} expected_len={len(valid)}")
     raise HTTPException(
         status_code=401,
-        detail="Invalid API key. Check your credentials at verisigilai.com/auth"
+        detail=f"Invalid API key. Received x-api-key={'yes' if x_api_key else 'no'}, bearer={'yes' if authorization else 'no'}"
     )
 
 
