@@ -24398,9 +24398,9 @@ class DocumentVerifyRequest(BaseModel):
 
 # ── FASTAPI ENDPOINT ─────────────────────────────────────────
 
-@app.post("/v1/document/semantic-verify", tags=["Document Integrity — Deep Build"])
+@app.post("/v1/document/semantic-verify", tags=["Document Integrity"])
 async def document_semantic_verify(
-    req: SemanticVerifyRequest,
+    req: DocumentVerifyRequest,
     x_api_key: Optional[str] = Header(None),
     authorization: Optional[str] = Header(None),
 ):
