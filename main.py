@@ -49218,19 +49218,21 @@ async def evidence_persist(
 class SemanticVerifyRequest(BaseModel):
     """
     Unified request model — accepts both field name conventions.
-    original_text / generated_text  (demo page format)
-    original_text / current_text    (API docs format)
-    context / document_type         (optional metadata)
+    Send EITHER generated_text OR current_text — both work.
     """
     document_id:      str = "doc-001"
     original_text:    str
-    generated_text:   str = ""   # alias for current_text
-    current_text:     str = ""   # alternate field name
+    generated_text:   str = ""
+    current_text:     str = ""
     context:          str = "general"
     document_type:    str = ""
     agent_id:         str = "agent-001"
     interaction_num:  int = 1
     consequence:      str = "OPERATIONAL"
+
+    def get_current(self) -> str:
+        """Return whichever of generated_text/current_text was provided."""
+        return (self.generated_text or self.current_text).strip()
 
 class ClauseMutationRequest(BaseModel):
     document_id:   str = "doc-001"
@@ -49256,9 +49258,13 @@ class NumericalRequest(BaseModel):
 class DriftScoreRequest(BaseModel):
     document_id:    str = "doc-001"
     original_text:  str
-    current_text:   str
+    current_text:   str = ""
+    generated_text: str = ""
     document_type:  str = "general"
     interaction_num:int = 1
+
+    def get_current(self) -> str:
+        return (self.current_text or self.generated_text).strip()
 
 
 # ── UNIFIED SEMANTIC VERIFY (patched with dual field support) ──
@@ -49287,7 +49293,7 @@ async def document_verify_unified(
     require_api_key(x_api_key, authorization)
 
     original  = req.original_text.strip()
-    generated = (req.generated_text or req.current_text).strip()
+    generated = req.get_current()
     doc_type  = req.document_type or req.context or "general"
 
     if not original or not generated:
@@ -49381,7 +49387,7 @@ async def document_semantic_drift_endpoint(
     """
     require_api_key(x_api_key, authorization)
     result = detect_semantic_drift(
-        req.original_text, req.current_text,
+        req.original_text, req.get_current(),
         req.document_type, req.interaction_num
     )
     result["document_id"]   = req.document_id
@@ -49507,7 +49513,7 @@ async def document_drift_score(
     """
     require_api_key(x_api_key, authorization)
     result = detect_semantic_drift(
-        req.original_text, req.current_text,
+        req.original_text, req.get_current(),
         req.document_type, req.interaction_num
     )
     score = result.get("score", 0.0)
