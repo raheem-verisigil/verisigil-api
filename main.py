@@ -4275,11 +4275,19 @@ class DocumentSnapshotRequest(BaseModel):
     org_id:        str  = "default"
 
 class DocumentVerifyRequest(BaseModel):
-    document_id:     str
-    agent_id:        str
-    current_content: str
+    document_id:     str = "doc-001"
+    agent_id:        str = "agent-001"
+    current_content: str = ""
+    original_text:   str = ""
+    generated_text:  str = ""
+    current_text:    str = ""
     current_fields:  dict = {}
     interaction_num: int  = 1
+    context:         str = "general"
+    consequence:     str = "OPERATIONAL"
+
+    def get_current(self) -> str:
+        return (self.current_content or self.generated_text or self.current_text).strip()
 
 @app.post("/v1/document/snapshot", tags=["Document Integrity"])
 async def document_snapshot(
@@ -24558,9 +24566,32 @@ class DocumentVerifyRequest(BaseModel):
 
 # ── FASTAPI ENDPOINT ─────────────────────────────────────────
 
+
+class SemanticVerifyRequest(BaseModel):
+    """
+    Unified request model — accepts both field name conventions.
+    Send EITHER generated_text OR current_text — both work.
+    """
+    document_id:      str = "doc-001"
+    original_text:    str
+    generated_text:   str = ""
+    current_text:     str = ""
+    context:          str = "general"
+    document_type:    str = ""
+    agent_id:         str = "agent-001"
+    interaction_num:  int = 1
+    consequence:      str = "OPERATIONAL"
+
+    def get_current(self) -> str:
+        return (self.generated_text or self.current_text).strip()
+
+    def get_current(self) -> str:
+        """Return whichever of generated_text/current_text was provided."""
+        return (self.generated_text or self.current_text).strip()
+
 @app.post("/v1/document/semantic-verify", tags=["Document Integrity"])
 async def document_semantic_verify(
-    req: DocumentVerifyRequest,
+    req: SemanticVerifyRequest,
     x_api_key: Optional[str] = Header(None),
     authorization: Optional[str] = Header(None),
 ):
@@ -24599,7 +24630,7 @@ async def document_semantic_verify(
     timestamp = datetime.utcnow().isoformat()
 
     original  = req.original_text.strip()
-    generated = req.generated_text.strip()
+    generated = req.get_current()
 
     if not original or not generated:
         raise HTTPException(
@@ -49201,24 +49232,6 @@ async def evidence_persist(
 # all already defined above — wired here with clean APIs
 # ============================================================
 
-class SemanticVerifyRequest(BaseModel):
-    """
-    Unified request model — accepts both field name conventions.
-    Send EITHER generated_text OR current_text — both work.
-    """
-    document_id:      str = "doc-001"
-    original_text:    str
-    generated_text:   str = ""
-    current_text:     str = ""
-    context:          str = "general"
-    document_type:    str = ""
-    agent_id:         str = "agent-001"
-    interaction_num:  int = 1
-    consequence:      str = "OPERATIONAL"
-
-    def get_current(self) -> str:
-        """Return whichever of generated_text/current_text was provided."""
-        return (self.generated_text or self.current_text).strip()
 
 class ClauseMutationRequest(BaseModel):
     document_id:   str = "doc-001"
