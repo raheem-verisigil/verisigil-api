@@ -481,53 +481,40 @@ def require_api_key(x_api_key: Optional[str] = None,
                     authorization: Optional[str] = None):
     """
     Checks x-api-key header OR Authorization: Bearer token.
-    Compares only alphanumeric + dash characters — ignores
-    any invisible or extra characters Railway may have added.
+    Accepts:
+      1. Production key  — VERISIGIL_API_KEY env var
+      2. Sandbox key     — SANDBOX_API_KEY env var (vs-sandbox-demo-2026)
+    Compares only alphanumeric + dash characters.
     """
     import re as _re
+    import os as _os
 
     def normalize(s):
         if not s:
             return ""
-        # Keep only alphanumeric and dash characters
         return _re.sub(r"[^a-zA-Z0-9\-]", "", s.strip())
 
-    valid    = normalize(API_KEY or "")
-    received = normalize(x_api_key or "")
+    # Valid keys — production + sandbox
+    valid_keys = set(filter(None, [
+        normalize(API_KEY or ""),
+        normalize(_os.environ.get("SANDBOX_API_KEY", "") or ""),
+    ]))
 
-    if received and received == valid:
+    received = normalize(x_api_key or "")
+    if received and received in valid_keys:
         return
 
     # Authorization: Bearer <key>
     if authorization:
         bearer = normalize(authorization.replace("Bearer", "").strip())
-        if bearer == valid:
+        if bearer in valid_keys:
             return
 
     raise HTTPException(
         status_code=401,
-        detail=f"Auth failed: received={received!r} expected={valid!r} match={received==valid}"
+        detail="Invalid or missing API key. Include x-api-key header."
     )
 
-
-# Swagger middleware: intercept Authorization: Bearer → x-api-key
-# This runs BEFORE every request so Swagger UI works seamlessly
-@app.middleware("http")
-async def bearer_to_api_key_middleware(request, call_next):
-    """
-    Converts Authorization: Bearer <key> → x-api-key header.
-    Makes Swagger UI Authorize button work with our API key auth.
-    Runs before every request — transparent to all endpoints.
-    """
-    auth = request.headers.get("authorization", "")
-    xkey = request.headers.get("x-api-key", "")
-    if auth.startswith("Bearer ") and not xkey:
-        token = auth[7:].strip()
-        # Inject as x-api-key by modifying scope headers
-        from starlette.datastructures import MutableHeaders
-        headers = MutableHeaders(scope=request.scope)
-        headers.append("x-api-key", token)
-    return await call_next(request)
 
 def get_org_id_from_token(authorization: Optional[str] = None, x_api_key: Optional[str] = None) -> str:
     """
