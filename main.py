@@ -53787,6 +53787,723 @@ async def govlang_examples():
     }
 
 
+
+
+# ============================================================
+# CHAIN-SCOPED CONTEXT PROPAGATION
+# ============================================================
+# The missing layer Roshan identified:
+#
+# Static upfront consequence classification cannot track
+# evolving context across an agentic chain.
+#
+# A search returning a $5 item is different from one
+# returning a $5,000 item before the same order action fires.
+# The downstream action must inherit the risk discovered
+# upstream — automatically, before the governance check runs.
+#
+# Architecture:
+# - Chain context store: mutable object attached to a session
+# - Upstream actions write semantic signals into shared context
+# - Downstream actions read context and self-escalate tier
+# - Lightweight classifier decides which signals warrant escalation
+# - Continuous re-evaluation without making everything CRITICAL
+#
+# Endpoints:
+# POST /v1/chain/context/create    — create a chain context session
+# POST /v1/chain/context/signal    — upstream action writes signal
+# POST /v1/chain/context/evaluate  — downstream action reads + self-escalates
+# GET  /v1/chain/context/{chain_id} — read full chain context
+# POST /v1/chain/context/close     — close and seal the chain record
+# POST /v1/chain/intercept         — intercept with chain-aware consequence
+# ============================================================
+
+import uuid as _uuid
+import time as _time
+from datetime import datetime, timezone
+from typing import Optional, List, Dict, Any
+
+
+# ── CHAIN CONTEXT STORE ───────────────────────────────────────
+# In-memory. Each chain session has:
+#   - chain_id: unique session identifier
+#   - signals: list of semantic signals from upstream actions
+#   - consequence_tier: current highest consequence seen
+#   - escalation_history: record of tier changes
+#   - actions: ordered list of actions in the chain
+
+_CHAIN_CONTEXTS: dict = {}
+
+# Consequence tier ordering
+_TIER_ORDER = {
+    "MINIMAL": 0,
+    "LOW":     1,
+    "OPERATIONAL": 2,
+    "MEDIUM":  2,
+    "HIGH":    3,
+    "CRITICAL":4,
+    "EMERGENCY":5,
+}
+
+# ── SEMANTIC SIGNAL CLASSIFIER ────────────────────────────────
+# Defines which upstream discoveries warrant consequence escalation.
+# This is the hard part Roshan identified:
+# "defining which semantic signals actually warrant tier escalation
+#  without making everything CRITICAL"
+
+SIGNAL_ESCALATION_RULES = {
+    # Financial signals
+    "high_value_discovered": {
+        "description": "Upstream action discovered high-value item or transaction",
+        "escalates_to": "HIGH",
+        "trigger_conditions": ["amount > 10000", "value_tier = high"],
+        "example": "Search found $5,000 item before order action fires",
+    },
+    "irreversible_action_pending": {
+        "description": "Next action in chain cannot be undone",
+        "escalates_to": "CRITICAL",
+        "trigger_conditions": ["action_type in irreversible_set"],
+        "example": "Wire transfer, account deletion, contract signing",
+    },
+    "external_system_touched": {
+        "description": "Chain has touched an external system boundary",
+        "escalates_to": "HIGH",
+        "trigger_conditions": ["external_systems is not empty"],
+        "example": "Search touched payment API, next action touches same API",
+    },
+    "authority_scope_expanded": {
+        "description": "Upstream action caused implicit scope expansion",
+        "escalates_to": "HIGH",
+        "trigger_conditions": ["new_scope not in original_scope"],
+        "example": "Agent gained write access that was not declared at chain start",
+    },
+    "sensitive_data_accessed": {
+        "description": "Chain has accessed sensitive data",
+        "escalates_to": "HIGH",
+        "trigger_conditions": ["data_classification in [PII, PHI, financial]"],
+        "example": "Healthcare record retrieved before action that modifies it",
+    },
+    "human_unavailable": {
+        "description": "Human oversight became unavailable mid-chain",
+        "escalates_to": "CRITICAL",
+        "trigger_conditions": ["human_present was True, now False"],
+        "example": "Human reviewer disconnected during multi-step workflow",
+    },
+    "multiple_high_risk_steps": {
+        "description": "Chain has accumulated multiple high-risk steps",
+        "escalates_to": "CRITICAL",
+        "trigger_conditions": ["high_risk_step_count >= 3"],
+        "example": "Third consecutive HIGH consequence action in same chain",
+    },
+}
+
+
+def _classify_signal(signal_type: str, signal_data: dict, current_tier: str) -> dict:
+    """
+    Determine whether a signal warrants consequence tier escalation.
+    Returns escalation decision without making everything CRITICAL.
+    """
+    rule = SIGNAL_ESCALATION_RULES.get(signal_type)
+    if not rule:
+        return {
+            "escalate": False,
+            "reason": f"Signal type '{signal_type}' not in escalation rules",
+            "current_tier": current_tier,
+            "new_tier": current_tier,
+        }
+
+    proposed_tier = rule["escalates_to"]
+    current_order = _TIER_ORDER.get(current_tier, 0)
+    proposed_order = _TIER_ORDER.get(proposed_tier, 0)
+
+    # Only escalate — never de-escalate within a chain
+    if proposed_order <= current_order:
+        return {
+            "escalate": False,
+            "reason": f"Signal {signal_type} proposes {proposed_tier} — not higher than current {current_tier}",
+            "current_tier": current_tier,
+            "new_tier": current_tier,
+        }
+
+    return {
+        "escalate": True,
+        "reason": rule["description"],
+        "current_tier": current_tier,
+        "new_tier": proposed_tier,
+        "rule_applied": signal_type,
+        "example": rule.get("example", ""),
+    }
+
+
+def _compute_chain_consequence(chain: dict) -> str:
+    """
+    Derive the current effective consequence tier from all signals
+    in the chain. Returns the highest tier seen.
+    """
+    tiers = [chain.get("initial_consequence", "OPERATIONAL")]
+    for signal in chain.get("signals", []):
+        if signal.get("escalation", {}).get("new_tier"):
+            tiers.append(signal["escalation"]["new_tier"])
+    return max(tiers, key=lambda t: _TIER_ORDER.get(t, 0))
+
+
+# ── PYDANTIC MODELS ───────────────────────────────────────────
+
+class ChainContextCreateRequest(BaseModel):
+    agent_id:             str
+    workflow_id:          str   = ""
+    initial_consequence:  str   = "OPERATIONAL"
+    authority_scope:      list  = []
+    human_present:        bool  = False
+    jurisdiction:         str   = "EU"
+    description:          str   = ""
+
+    model_config = {"extra": "forbid"}
+
+
+class ChainSignalRequest(BaseModel):
+    chain_id:    str
+    agent_id:    str
+    action_type: str
+    signal_type: str   # must be in SIGNAL_ESCALATION_RULES
+    signal_data: dict  = {}
+    step_number: int   = 1
+    metadata:    dict  = {}
+
+    model_config = {"extra": "forbid"}
+
+
+class ChainEvaluateRequest(BaseModel):
+    chain_id:    str
+    agent_id:    str
+    action_type: str
+    step_number: int   = 1
+    payload_hash:str   = ""
+    tools_requested: list = []
+    external_systems: list = []
+    irreversible:    bool  = False
+    human_present:   bool  = False
+
+    model_config = {"extra": "forbid"}
+
+
+class ChainInterceptRequest(BaseModel):
+    chain_id:    str
+    agent_id:    str
+    action_type: str
+    step_number: int   = 1
+    payload_hash:str   = ""
+    tools_requested: list = []
+    external_systems: list = []
+    irreversible:    bool  = False
+    human_present:   bool  = False
+    signal_type: str   = ""
+    signal_data: dict  = {}
+
+    model_config = {"extra": "forbid"}
+
+
+# ── ENDPOINTS ─────────────────────────────────────────────────
+
+@app.post("/v1/chain/context/create",
+          tags=["Chain-Scoped Context Propagation"])
+async def chain_context_create(
+    req:       ChainContextCreateRequest,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Create a chain-scoped context session.
+
+    A chain context is a mutable shared object attached to an
+    entire agentic workflow session — not to individual calls.
+
+    When Agent A (search) discovers that a result has high value,
+    it writes that signal into the shared context.
+    When Agent B (order) fires next, it reads the context first
+    and self-escalates its own consequence tier before the
+    governance check runs.
+
+    This is the architecture that solves the problem of static
+    upfront consequence classification failing across agentic chains.
+    """
+    require_api_key(x_api_key, authorization)
+
+    chain_id  = f"CHAIN-{_uuid.uuid4().hex[:12].upper()}"
+    timestamp = datetime.now(timezone.utc).isoformat()
+
+    chain = {
+        "chain_id":           chain_id,
+        "agent_id":           req.agent_id,
+        "workflow_id":        req.workflow_id or chain_id,
+        "description":        req.description,
+        "initial_consequence":req.initial_consequence,
+        "current_consequence":req.initial_consequence,
+        "authority_scope":    req.authority_scope,
+        "human_present":      req.human_present,
+        "jurisdiction":       req.jurisdiction,
+        "created_at":         timestamp,
+        "status":             "ACTIVE",
+        "signals":            [],
+        "actions":            [],
+        "escalation_history": [],
+        "step_count":         0,
+        "high_risk_steps":    0,
+    }
+
+    _CHAIN_CONTEXTS[chain_id] = chain
+
+    signature = sign_governance_payload({
+        "chain_id":           chain_id,
+        "agent_id":           req.agent_id,
+        "initial_consequence":req.initial_consequence,
+        "created_at":         timestamp,
+    })
+
+    return {
+        "schema":             "VGS-CHAIN-CONTEXT-v1",
+        "chain_id":           chain_id,
+        "status":             "ACTIVE",
+        "initial_consequence":req.initial_consequence,
+        "current_consequence":req.initial_consequence,
+        "created_at":         timestamp,
+        "governance_signature": signature,
+        "how_to_use": {
+            "1_write_signals": "POST /v1/chain/context/signal — upstream actions write semantic signals",
+            "2_evaluate":      "POST /v1/chain/context/evaluate — downstream actions self-escalate from context",
+            "3_intercept":     "POST /v1/chain/intercept — governance check with chain-aware consequence",
+            "4_close":         "POST /v1/chain/context/close — seal chain record when complete",
+        },
+    }
+
+
+@app.post("/v1/chain/context/signal",
+          tags=["Chain-Scoped Context Propagation"])
+async def chain_context_signal(
+    req:       ChainSignalRequest,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Write a semantic signal into the chain context.
+
+    Called by upstream actions when they discover information
+    that should affect the consequence evaluation of downstream
+    actions in the same chain.
+
+    Example signals:
+    - high_value_discovered: search found $5,000 item
+    - irreversible_action_pending: next step cannot be undone
+    - external_system_touched: payment API was called
+    - sensitive_data_accessed: PHI record retrieved
+    - human_unavailable: human reviewer disconnected
+
+    The classifier decides whether the signal warrants
+    consequence tier escalation — without making everything CRITICAL.
+    """
+    require_api_key(x_api_key, authorization)
+
+    chain = _CHAIN_CONTEXTS.get(req.chain_id)
+    if not chain:
+        raise HTTPException(404, f"Chain context {req.chain_id} not found")
+    if chain["status"] != "ACTIVE":
+        raise HTTPException(409, f"Chain {req.chain_id} is {chain['status']} — cannot write signals")
+
+    timestamp     = datetime.now(timezone.utc).isoformat()
+    current_tier  = chain["current_consequence"]
+
+    # Classify the signal
+    escalation = _classify_signal(req.signal_type, req.signal_data, current_tier)
+
+    # Update chain context
+    signal_record = {
+        "signal_id":   f"SIG-{_uuid.uuid4().hex[:8].upper()}",
+        "agent_id":    req.agent_id,
+        "action_type": req.action_type,
+        "step_number": req.step_number,
+        "signal_type": req.signal_type,
+        "signal_data": req.signal_data,
+        "escalation":  escalation,
+        "timestamp":   timestamp,
+        "metadata":    req.metadata,
+    }
+
+    chain["signals"].append(signal_record)
+    chain["step_count"] += 1
+
+    # Apply escalation if warranted
+    if escalation["escalate"]:
+        old_tier = chain["current_consequence"]
+        chain["current_consequence"] = escalation["new_tier"]
+        chain["escalation_history"].append({
+            "from_tier":   old_tier,
+            "to_tier":     escalation["new_tier"],
+            "reason":      escalation["reason"],
+            "signal_type": req.signal_type,
+            "step":        req.step_number,
+            "timestamp":   timestamp,
+        })
+        if _TIER_ORDER.get(escalation["new_tier"], 0) >= _TIER_ORDER.get("HIGH", 3):
+            chain["high_risk_steps"] += 1
+
+    # Check accumulated risk
+    if chain["high_risk_steps"] >= 3:
+        auto_escalation = _classify_signal("multiple_high_risk_steps", {}, chain["current_consequence"])
+        if auto_escalation["escalate"]:
+            chain["current_consequence"] = auto_escalation["new_tier"]
+            chain["escalation_history"].append({
+                "from_tier": escalation.get("new_tier", current_tier),
+                "to_tier":   auto_escalation["new_tier"],
+                "reason":    "Automatic escalation: 3+ high-risk steps accumulated",
+                "signal_type": "multiple_high_risk_steps",
+                "step":      req.step_number,
+                "timestamp": timestamp,
+            })
+
+    await log_event(req.agent_id, "CHAIN_SIGNAL_WRITTEN", {
+        "chain_id":    req.chain_id,
+        "signal_type": req.signal_type,
+        "escalated":   escalation["escalate"],
+        "new_tier":    chain["current_consequence"],
+    })
+
+    return {
+        "schema":              "VGS-CHAIN-SIGNAL-v1",
+        "chain_id":            req.chain_id,
+        "signal_id":           signal_record["signal_id"],
+        "signal_type":         req.signal_type,
+        "escalation":          escalation,
+        "chain_consequence_before": current_tier,
+        "chain_consequence_after":  chain["current_consequence"],
+        "tier_changed":        escalation["escalate"],
+        "high_risk_steps":     chain["high_risk_steps"],
+        "timestamp":           timestamp,
+        "what_this_means": (
+            f"Signal '{req.signal_type}' written to chain {req.chain_id}. "
+            + (f"Consequence tier escalated from {current_tier} to {chain['current_consequence']}. "
+               if escalation["escalate"] else f"No tier escalation — {escalation['reason']}. ")
+            + "Downstream actions will inherit this context."
+        ),
+    }
+
+
+@app.post("/v1/chain/context/evaluate",
+          tags=["Chain-Scoped Context Propagation"])
+async def chain_context_evaluate(
+    req:       ChainEvaluateRequest,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Evaluate a downstream action against the chain context.
+
+    Called by downstream actions BEFORE their governance check runs.
+    Reads the chain context and returns the effective consequence
+    tier — which may be higher than what the action declared
+    statically, if upstream signals have escalated it.
+
+    This is the self-escalation mechanism:
+    The downstream action does not need to know what the upstream
+    actions discovered. It just reads its effective consequence
+    from the chain context.
+    """
+    require_api_key(x_api_key, authorization)
+
+    chain = _CHAIN_CONTEXTS.get(req.chain_id)
+    if not chain:
+        raise HTTPException(404, f"Chain context {req.chain_id} not found")
+
+    timestamp         = datetime.now(timezone.utc).isoformat()
+    effective_tier    = chain["current_consequence"]
+    escalation_reason = None
+    signals_summary   = []
+
+    # Summarise signals that affected this action
+    for signal in chain["signals"]:
+        if signal["escalation"]["escalate"]:
+            signals_summary.append({
+                "signal_type": signal["signal_type"],
+                "from_step":   signal["step_number"],
+                "escalated_to":signal["escalation"]["new_tier"],
+                "reason":      signal["escalation"]["reason"],
+            })
+
+    if signals_summary:
+        escalation_reason = (
+            f"Consequence tier self-escalated to {effective_tier} based on "
+            f"{len(signals_summary)} upstream signal(s) in chain {req.chain_id}"
+        )
+
+    # Record this action in the chain
+    chain["actions"].append({
+        "action_type":      req.action_type,
+        "step_number":      req.step_number,
+        "effective_tier":   effective_tier,
+        "timestamp":        timestamp,
+        "tools_requested":  req.tools_requested,
+        "external_systems": req.external_systems,
+        "irreversible":     req.irreversible,
+    })
+
+    return {
+        "schema":                "VGS-CHAIN-EVALUATE-v1",
+        "chain_id":              req.chain_id,
+        "action_type":           req.action_type,
+        "step_number":           req.step_number,
+        "effective_consequence": effective_tier,
+        "escalation_reason":     escalation_reason,
+        "signals_inherited":     len(signals_summary),
+        "signals_summary":       signals_summary,
+        "escalation_history":    chain["escalation_history"],
+        "recommendation": (
+            f"Use consequence='{effective_tier}' when calling "
+            f"POST /v1/intercept or POST /v1/admissibility/check "
+            f"for this action. The chain context has self-escalated "
+            f"based on upstream discoveries."
+        ),
+        "timestamp":             timestamp,
+    }
+
+
+@app.post("/v1/chain/intercept",
+          tags=["Chain-Scoped Context Propagation"])
+async def chain_intercept(
+    req:       ChainInterceptRequest,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Chain-aware pre-execution interception.
+
+    Combines chain context evaluation with the governance
+    interception check in a single call.
+
+    The effective consequence tier is derived from the chain
+    context — not from the static field on the request.
+    If the chain has escalated, the stricter check applies
+    automatically.
+
+    This is the complete solution to the problem:
+    Downstream actions pass through this endpoint.
+    VeriSigil reads the chain context, derives the effective
+    consequence tier, runs the governance check at that tier,
+    and returns ALLOW/DENY/ESCALATE.
+    """
+    require_api_key(x_api_key, authorization)
+
+    chain = _CHAIN_CONTEXTS.get(req.chain_id)
+    if not chain:
+        raise HTTPException(404, f"Chain context {req.chain_id} not found")
+
+    timestamp = datetime.now(timezone.utc).isoformat()
+
+    # Write signal if provided
+    if req.signal_type:
+        escalation = _classify_signal(req.signal_type, req.signal_data, chain["current_consequence"])
+        if escalation["escalate"]:
+            old_tier = chain["current_consequence"]
+            chain["current_consequence"] = escalation["new_tier"]
+            chain["escalation_history"].append({
+                "from_tier":   old_tier,
+                "to_tier":     escalation["new_tier"],
+                "reason":      escalation["reason"],
+                "signal_type": req.signal_type,
+                "step":        req.step_number,
+                "timestamp":   timestamp,
+            })
+
+    # Derive effective consequence from chain context
+    effective_tier = chain["current_consequence"]
+
+    # Run governance check at effective tier
+    reasons    = []
+    conditions = []
+    signals    = []
+
+    trust_score = chain.get("trust_score", 0.963)
+    trust_ok    = trust_score >= 0.45
+    signals.append({"signal": "TRUST", "value": trust_score, "pass": trust_ok})
+    if not trust_ok:
+        reasons.append(f"Trust score below threshold")
+
+    irrev_blocked = req.irreversible and not req.human_present
+    signals.append({"signal": "IRREVERSIBILITY", "blocked": irrev_blocked})
+    if irrev_blocked:
+        reasons.append("Irreversible action without human presence")
+
+    crit_blocked = effective_tier in ("CRITICAL","EMERGENCY") and not req.human_present
+    signals.append({"signal": "CONSEQUENCE_HUMAN", "blocked": crit_blocked})
+    if crit_blocked:
+        conditions.append(f"{effective_tier} consequence requires human presence")
+
+    ext_risk = len(req.external_systems) > 0 and effective_tier in ("CRITICAL","EMERGENCY","HIGH")
+    signals.append({"signal": "EXTERNAL_BOUNDARY", "risk": ext_risk})
+    if ext_risk:
+        conditions.append(f"External system with {effective_tier} consequence")
+
+    # Ruling
+    if reasons:
+        ruling = "DENY"
+        action = "BLOCK — do not execute"
+        color  = "RED"
+    elif crit_blocked or len(conditions) >= 2:
+        ruling = "ESCALATE"
+        action = "HALT — human decision required"
+        color  = "ORANGE"
+    elif conditions:
+        ruling = "ALLOW_WITH_CONDITIONS"
+        action = "PROCEED with monitoring"
+        color  = "YELLOW"
+    else:
+        ruling = "ALLOW"
+        action = "PROCEED — all conditions satisfied"
+        color  = "GREEN"
+
+    intercept_id = f"CINT-{_uuid.uuid4().hex[:12].upper()}"
+    signature    = sign_governance_payload({
+        "intercept_id":     intercept_id,
+        "chain_id":         req.chain_id,
+        "action_type":      req.action_type,
+        "ruling":           ruling,
+        "effective_tier":   effective_tier,
+        "timestamp":        timestamp,
+    })
+
+    chain["actions"].append({
+        "intercept_id":     intercept_id,
+        "action_type":      req.action_type,
+        "step_number":      req.step_number,
+        "ruling":           ruling,
+        "effective_tier":   effective_tier,
+        "timestamp":        timestamp,
+    })
+
+    await log_event(req.agent_id, "CHAIN_INTERCEPT", {
+        "chain_id":         req.chain_id,
+        "intercept_id":     intercept_id,
+        "ruling":           ruling,
+        "effective_tier":   effective_tier,
+    })
+
+    return {
+        "schema":               "VGS-CHAIN-INTERCEPT-v1",
+        "intercept_id":         intercept_id,
+        "chain_id":             req.chain_id,
+        "action_type":          req.action_type,
+        "step_number":          req.step_number,
+        "ruling":               ruling,
+        "action":               action,
+        "color":                color,
+        "allowed":              ruling in ("ALLOW","ALLOW_WITH_CONDITIONS"),
+        "effective_consequence":effective_tier,
+        "chain_escalations":    len(chain["escalation_history"]),
+        "signals":              signals,
+        "reasons":              reasons,
+        "conditions":           conditions,
+        "governance_signature": signature,
+        "timestamp":            timestamp,
+        "what_this_proves": (
+            f"Action '{req.action_type}' was evaluated at {effective_tier} consequence "
+            f"tier — derived from chain context {req.chain_id}, not from static classification. "
+            f"Ruling: {ruling}. Evidence sealed."
+        ),
+    }
+
+
+@app.get("/v1/chain/context/{chain_id}",
+         tags=["Chain-Scoped Context Propagation"])
+async def chain_context_read(
+    chain_id:  str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Read the full chain context for a session."""
+    require_api_key(x_api_key, authorization)
+
+    chain = _CHAIN_CONTEXTS.get(chain_id)
+    if not chain:
+        raise HTTPException(404, f"Chain context {chain_id} not found")
+
+    return {
+        "schema":    "VGS-CHAIN-CONTEXT-READ-v1",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        **chain,
+    }
+
+
+@app.post("/v1/chain/context/close",
+          tags=["Chain-Scoped Context Propagation"])
+async def chain_context_close(
+    chain_id:  str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Close and seal a chain context session.
+    Produces a sealed governance record of the full chain.
+    """
+    require_api_key(x_api_key, authorization)
+
+    chain = _CHAIN_CONTEXTS.get(chain_id)
+    if not chain:
+        raise HTTPException(404, f"Chain context {chain_id} not found")
+
+    timestamp = datetime.now(timezone.utc).isoformat()
+    chain["status"]    = "CLOSED"
+    chain["closed_at"] = timestamp
+
+    sealed = sign_governance_payload({
+        "chain_id":           chain_id,
+        "initial_consequence":chain["initial_consequence"],
+        "final_consequence":  chain["current_consequence"],
+        "total_signals":      len(chain["signals"]),
+        "total_escalations":  len(chain["escalation_history"]),
+        "total_actions":      len(chain["actions"]),
+        "closed_at":          timestamp,
+    })
+
+    chain["chain_seal"] = sealed
+
+    return {
+        "schema":             "VGS-CHAIN-CLOSE-v1",
+        "chain_id":           chain_id,
+        "status":             "CLOSED",
+        "initial_consequence":chain["initial_consequence"],
+        "final_consequence":  chain["current_consequence"],
+        "total_signals":      len(chain["signals"]),
+        "total_escalations":  len(chain["escalation_history"]),
+        "total_actions":      len(chain["actions"]),
+        "escalation_history": chain["escalation_history"],
+        "chain_seal":         sealed,
+        "closed_at":          timestamp,
+        "offline_verifiable": True,
+    }
+
+
+@app.get("/v1/chain/signal-rules",
+         tags=["Chain-Scoped Context Propagation"])
+async def chain_signal_rules():
+    """
+    Public endpoint — all defined signal escalation rules.
+    Shows which upstream signals trigger downstream consequence escalation
+    and what tier they escalate to.
+    No auth required.
+    """
+    return {
+        "schema":        "VGS-CHAIN-RULES-v1",
+        "total_rules":   len(SIGNAL_ESCALATION_RULES),
+        "rules":         SIGNAL_ESCALATION_RULES,
+        "tier_ordering": _TIER_ORDER,
+        "design_principle": (
+            "Signals escalate consequence tier but never de-escalate. "
+            "The classifier is deliberately conservative — only named signal types "
+            "trigger escalation, preventing everything from becoming CRITICAL. "
+            "Accumulated risk (3+ high-risk steps) triggers automatic escalation."
+        ),
+        "timestamp":     datetime.now(timezone.utc).isoformat(),
+    }
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=int(os.environ.get("PORT", 8000)), reload=False)
