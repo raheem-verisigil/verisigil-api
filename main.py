@@ -15652,6 +15652,9 @@ def format_siem_event(
         "severity":     severity,
         "schema":       "VGS-SIEM-1.0",
         "zenodo_doi":   "https://doi.org/10.5281/zenodo.20264923",
+        "doctrine_doi": "https://doi.org/10.5281/zenodo.20627386",
+        "doctrine_title": "VeriSigil AI Governance Doctrine v1.0: Authority Verification, Consequence Governance, and Pre-Execution Admissibility for Autonomous AI Systems",
+        "doctrine_date": "2026-06-10",
     }
 
     # Format per SIEM target
