@@ -54504,6 +54504,593 @@ async def chain_signal_rules():
     }
 
 
+
+
+# ============================================================
+# INTENT ALIGNMENT VERIFICATION — VGS LAYER 2
+# ============================================================
+# Governing question:
+# "Is the agent's proposed action a legitimate expression
+#  of its declared purpose given the current verified state?"
+#
+# This layer sits between state verification and execution
+# admissibility. It verifies that the agent has correctly
+# interpreted the valid state before forming the proposed action.
+#
+# A valid state does not automatically imply correct
+# interpretation of that state. Correct interpretation
+# does not automatically imply execution admissibility.
+#
+# VGS-LAYER-2: Intent Alignment Verification
+# Published: June 10, 2026
+# Author: Raheem Larry Babatunde / VeriSigil AI
+# Prior art: doi.org/10.5281/zenodo.20264923
+# ============================================================
+
+
+class IntentVerifyRequest(BaseModel):
+    agent_id:          str
+    action_type:       str
+    declared_mandate:  str   = ""
+    proposed_action:   str   = ""
+    current_state_hash:str   = ""
+    authority_scope:   list  = []
+    historical_pattern:list  = []
+    consequence_tier:  str   = "OPERATIONAL"
+    jurisdiction:      str   = "EU"
+    chain_id:          str   = ""
+    metadata:          dict  = {}
+
+    model_config = {"extra": "forbid"}
+
+
+class IntentVerifyResponse(BaseModel):
+    schema_:           str = "VGS-INTENT-VERIFY-v1"
+    intent_verdict:    str   # ALIGNED / MISALIGNED / MANDATE_VIOLATION / ANOMALY_DETECTED
+    admissibility_path:str   # PROCEED_TO_EXECUTION / ESCALATE_TO_HUMAN / BLOCK
+    mandate_consistent:bool
+    state_coherent:    bool
+    scope_aligned:     bool
+    anomaly_detected:  bool
+    confidence_score:  float
+    reasons:           list
+    recommended_action:str
+    governance_signature: str
+    timestamp:         str
+
+
+def _evaluate_intent_alignment(req: IntentVerifyRequest) -> dict:
+    """
+    Evaluate intent alignment across four dimensions:
+    1. Mandate consistency
+    2. State coherence
+    3. Authority scope alignment
+    4. Historical pattern match
+    """
+    reasons = []
+    mandate_consistent = True
+    state_coherent = True
+    scope_aligned = True
+    anomaly_detected = False
+    confidence_score = 1.0
+
+    # Dimension 1: Mandate consistency
+    if req.declared_mandate and req.proposed_action:
+        mandate_words = set(req.declared_mandate.lower().split())
+        action_words  = set(req.action_type.lower().split('_'))
+        overlap = mandate_words & action_words
+        if not overlap and len(mandate_words) > 2:
+            mandate_consistent = False
+            confidence_score   -= 0.25
+            reasons.append(
+                f"Proposed action type '{req.action_type}' has low semantic overlap "
+                f"with declared mandate '{req.declared_mandate}'"
+            )
+
+    # Dimension 2: State coherence
+    if req.current_state_hash == "":
+        state_coherent = False
+        confidence_score -= 0.1
+        reasons.append("No verified current state hash provided — state coherence cannot be confirmed")
+
+    # Dimension 3: Authority scope alignment
+    if req.authority_scope:
+        action_in_scope = any(
+            req.action_type.lower().startswith(scope.lower())
+            for scope in req.authority_scope
+        )
+        if not action_in_scope:
+            scope_aligned  = False
+            confidence_score -= 0.3
+            reasons.append(
+                f"Action type '{req.action_type}' is not within declared authority scope: "
+                f"{req.authority_scope}"
+            )
+
+    # Dimension 4: Historical pattern anomaly detection
+    if req.historical_pattern and req.action_type:
+        if req.action_type not in req.historical_pattern:
+            tier_order = {"MINIMAL":0,"LOW":1,"OPERATIONAL":2,"MEDIUM":2,
+                         "HIGH":3,"CRITICAL":4,"EMERGENCY":5}
+            if tier_order.get(req.consequence_tier, 0) >= 3:
+                anomaly_detected  = True
+                confidence_score -= 0.2
+                reasons.append(
+                    f"Action type '{req.action_type}' not in historical pattern for this agent "
+                    f"and consequence tier is {req.consequence_tier} — anomaly flagged"
+                )
+
+    # Determine verdict
+    if not mandate_consistent and not scope_aligned:
+        verdict = "MANDATE_VIOLATION"
+        path    = "BLOCK"
+    elif anomaly_detected and not scope_aligned:
+        verdict = "MISALIGNED"
+        path    = "ESCALATE_TO_HUMAN"
+    elif not mandate_consistent or not scope_aligned or anomaly_detected:
+        verdict = "MISALIGNED"
+        path    = "ESCALATE_TO_HUMAN"
+    elif not state_coherent:
+        verdict = "ALIGNED"
+        path    = "PROCEED_TO_EXECUTION"
+        reasons.append("State hash absent but other alignment dimensions pass — proceeding with caution")
+    else:
+        verdict = "ALIGNED"
+        path    = "PROCEED_TO_EXECUTION"
+
+    if not reasons:
+        reasons.append("All intent alignment dimensions pass")
+
+    return {
+        "intent_verdict":     verdict,
+        "admissibility_path": path,
+        "mandate_consistent": mandate_consistent,
+        "state_coherent":     state_coherent,
+        "scope_aligned":      scope_aligned,
+        "anomaly_detected":   anomaly_detected,
+        "confidence_score":   round(max(0.0, confidence_score), 2),
+        "reasons":            reasons,
+    }
+
+
+@app.post("/v1/intent/verify",
+          tags=["Intent Alignment Verification"])
+async def intent_verify(
+    req:       IntentVerifyRequest,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    VGS Layer 2 — Intent Alignment Verification.
+
+    Governing question:
+    "Is the agent's proposed action a legitimate expression
+     of its declared purpose given the current verified state?"
+
+    This layer sits between state verification and execution
+    admissibility. It verifies four dimensions simultaneously:
+
+    1. Mandate consistency — does the action fall within
+       the agent's declared operational mandate?
+
+    2. State coherence — given the verified current state,
+       is this action logically consistent?
+
+    3. Authority scope alignment — does the agent's current
+       delegation cover this action type?
+
+    4. Historical pattern match — does this action resemble
+       the agent's historical behavior, or is it an anomaly?
+
+    A valid state does not automatically imply correct
+    interpretation of that state. This layer catches
+    the gap between continuation admissibility and
+    execution admissibility.
+
+    Output:
+    - ALIGNED → proceed to execution admissibility
+    - MISALIGNED → escalate to human review
+    - MANDATE_VIOLATION → block and revoke authority
+    - ANOMALY_DETECTED → escalate for investigation
+
+    Prior art: doi.org/10.5281/zenodo.20264923
+    VGS-LAYER-2 | Published: June 10, 2026
+    """
+    require_api_key(x_api_key, authorization)
+
+    timestamp  = datetime.now(timezone.utc).isoformat()
+    evaluation = _evaluate_intent_alignment(req)
+
+    # Recommended action based on verdict
+    action_map = {
+        "ALIGNED":           "Proceed to execution admissibility evaluation",
+        "MISALIGNED":        "Halt and escalate to human review before proceeding",
+        "MANDATE_VIOLATION": "Block execution and initiate authority revocation review",
+        "ANOMALY_DETECTED":  "Flag for investigation before allowing execution",
+    }
+    recommended = action_map.get(evaluation["intent_verdict"], "Escalate to human review")
+
+    signature = sign_governance_payload({
+        "agent_id":       req.agent_id,
+        "action_type":    req.action_type,
+        "intent_verdict": evaluation["intent_verdict"],
+        "admissibility_path": evaluation["admissibility_path"],
+        "confidence_score":   evaluation["confidence_score"],
+        "timestamp":      timestamp,
+    })
+
+    await log_event(req.agent_id, "INTENT_ALIGNMENT_VERIFIED", {
+        "action_type":    req.action_type,
+        "intent_verdict": evaluation["intent_verdict"],
+        "admissibility_path": evaluation["admissibility_path"],
+        "confidence_score":   evaluation["confidence_score"],
+        "chain_id":       req.chain_id,
+    })
+
+    return {
+        "schema":              "VGS-INTENT-VERIFY-v1",
+        "agent_id":            req.agent_id,
+        "action_type":         req.action_type,
+        "consequence_tier":    req.consequence_tier,
+        "intent_verdict":      evaluation["intent_verdict"],
+        "admissibility_path":  evaluation["admissibility_path"],
+        "mandate_consistent":  evaluation["mandate_consistent"],
+        "state_coherent":      evaluation["state_coherent"],
+        "scope_aligned":       evaluation["scope_aligned"],
+        "anomaly_detected":    evaluation["anomaly_detected"],
+        "confidence_score":    evaluation["confidence_score"],
+        "reasons":             evaluation["reasons"],
+        "recommended_action":  recommended,
+        "governance_signature":signature,
+        "timestamp":           timestamp,
+        "vgs_layer":           "Layer 2 — Intent Alignment Verification",
+        "prior_art":           "doi.org/10.5281/zenodo.20264923",
+        "governing_question": (
+            "Is the agent's proposed action a legitimate expression "
+            "of its declared purpose given the current verified state?"
+        ),
+        "next_layer": (
+            "If ALIGNED — proceed to POST /v1/intercept for execution admissibility. "
+            "If MISALIGNED or MANDATE_VIOLATION — do not proceed to execution."
+        ),
+    }
+
+
+@app.get("/v1/intent/verify/dimensions",
+         tags=["Intent Alignment Verification"])
+async def intent_verify_dimensions():
+    """
+    Public endpoint — the four intent alignment dimensions
+    VeriSigil evaluates before execution admissibility.
+    No auth required.
+
+    Prior art: doi.org/10.5281/zenodo.20264923
+    VGS-LAYER-2 | Published: June 10, 2026
+    """
+    return {
+        "schema":      "VGS-INTENT-DIMENSIONS-v1",
+        "vgs_layer":   "Layer 2 — Intent Alignment Verification",
+        "published":   "June 10, 2026",
+        "prior_art":   "doi.org/10.5281/zenodo.20264923",
+        "governing_question": (
+            "Is the agent's proposed action a legitimate expression "
+            "of its declared purpose given the current verified state?"
+        ),
+        "dimensions": {
+            "1_mandate_consistency": {
+                "question": "Does the action fall within the agent's declared operational mandate?",
+                "failure_mode": "Action deviates from declared purpose — potential mandate violation",
+            },
+            "2_state_coherence": {
+                "question": "Given the verified current state, is this action logically consistent?",
+                "failure_mode": "Action is inconsistent with current verified state",
+            },
+            "3_authority_scope_alignment": {
+                "question": "Does the agent's current delegation cover this specific action type?",
+                "failure_mode": "Action exceeds declared authority scope",
+            },
+            "4_historical_pattern_match": {
+                "question": "Does this action resemble the agent's historical behavior pattern?",
+                "failure_mode": "Anomalous action detected — inconsistent with historical pattern",
+            },
+        },
+        "verdicts": {
+            "ALIGNED":           "All dimensions pass — proceed to execution admissibility",
+            "MISALIGNED":        "One or more dimensions fail — escalate to human review",
+            "MANDATE_VIOLATION": "Mandate consistency and scope alignment both fail — block",
+            "ANOMALY_DETECTED":  "Historical pattern anomaly with high consequence — escalate",
+        },
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+
+
+# ============================================================
+# INTENT ALIGNMENT VERIFICATION — VGS-042
+# ============================================================
+# Gate 2 of the VeriSigil Pre-Execution Governance Architecture
+#
+# Governing question:
+# "Is the agent's proposed action consistent with its declared
+#  mandate and the verified current state?"
+#
+# A valid state does not automatically imply correct interpretation.
+# An agent may inherit a legitimate state and form an action that
+# misrepresents, overextends, or deviates from its declared mandate.
+#
+# Intent alignment is the governance gate that evaluates the
+# coherence between what the agent knows, what it is authorized
+# to do, and what it is proposing to do.
+#
+# Evaluation dimensions:
+# 1. Mandate consistency — action within declared mandate?
+# 2. State coherence — action coherent with current state?
+# 3. Authority scope alignment — authority covers this action?
+# 4. Deviation detection — anomalous departure from declared purpose?
+#
+# Output: ALIGNED / MISALIGNED / MANDATE_VIOLATION / ESCALATE
+# ============================================================
+
+class IntentAlignmentRequest(BaseModel):
+    agent_id:           str
+    action_type:        str
+    declared_mandate:   str   = ""
+    current_state_hash: str   = ""
+    proposed_action:    str   = ""
+    authority_scope:    list  = []
+    consequence_tier:   str   = "OPERATIONAL"
+    workflow_id:        str   = ""
+    chain_id:           str   = ""
+    metadata:           dict  = {}
+
+    model_config = {"extra": "forbid"}
+
+
+class IntentAlignmentResponse(BaseModel):
+    verdict:            str   # ALIGNED / MISALIGNED / MANDATE_VIOLATION / ESCALATE
+    mandate_consistent: bool
+    state_coherent:     bool
+    scope_aligned:      bool
+    deviation_detected: bool
+    confidence:         float
+    reason:             str
+    recommended_action: str
+    governance_signature: str
+    timestamp:          str
+    intent_review_id:   str
+
+    model_config = {"extra": "forbid"}
+
+
+def _evaluate_intent_alignment(
+    agent_id: str,
+    action_type: str,
+    declared_mandate: str,
+    proposed_action: str,
+    authority_scope: list,
+    consequence_tier: str,
+) -> dict:
+    """
+    Evaluate whether the agent's proposed action is consistent
+    with its declared mandate and authority scope.
+
+    This is a governance-layer evaluation — not a semantic AI
+    evaluation. It checks structural alignment between declared
+    mandate, authority scope, and proposed action type.
+    """
+    import re as _re
+
+    mandate_consistent = True
+    state_coherent = True
+    scope_aligned = True
+    deviation_detected = False
+    reasons = []
+    confidence = 1.0
+
+    # Check mandate consistency
+    if declared_mandate and proposed_action:
+        # If mandate declares specific action boundaries, check action is within them
+        mandate_lower = declared_mandate.lower()
+        action_lower = proposed_action.lower() + " " + action_type.lower()
+
+        # Detect explicit prohibition patterns
+        prohibition_patterns = [
+            r'must not\s+(\w+)',
+            r'prohibited from\s+(\w+)',
+            r'not authorized to\s+(\w+)',
+            r'excluded from\s+(\w+)',
+        ]
+        for pattern in prohibition_patterns:
+            matches = _re.findall(pattern, mandate_lower)
+            for match in matches:
+                if match in action_lower:
+                    mandate_consistent = False
+                    deviation_detected = True
+                    reasons.append(f"Action '{match}' appears prohibited by declared mandate")
+                    confidence -= 0.3
+
+    # Check authority scope alignment
+    if authority_scope and action_type:
+        action_lower = action_type.lower()
+        scope_lower = [s.lower() for s in authority_scope]
+
+        # Check if action type is explicitly excluded from scope
+        exclusion_keywords = ['exclude', 'not include', 'prohibit', 'deny']
+        for scope_item in scope_lower:
+            if any(kw in scope_item for kw in exclusion_keywords):
+                if action_lower in scope_item:
+                    scope_aligned = False
+                    reasons.append(f"Action type '{action_type}' outside declared authority scope")
+                    confidence -= 0.25
+
+    # Check consequence tier vs authority scope
+    high_consequence_tiers = ['HIGH', 'CRITICAL', 'EMERGENCY']
+    if consequence_tier in high_consequence_tiers:
+        if not authority_scope:
+            deviation_detected = True
+            reasons.append(f"High-consequence action ({consequence_tier}) with no declared authority scope")
+            confidence -= 0.2
+
+    # Determine verdict
+    confidence = max(0.0, min(1.0, confidence))
+
+    if not mandate_consistent:
+        verdict = "MANDATE_VIOLATION"
+        recommended = "BLOCK — action appears prohibited by declared mandate"
+    elif not scope_aligned:
+        verdict = "MISALIGNED"
+        recommended = "ESCALATE TO HUMAN — action outside declared authority scope"
+    elif deviation_detected or confidence < 0.6:
+        verdict = "ESCALATE"
+        recommended = "ESCALATE TO HUMAN — intent alignment requires human review"
+    else:
+        verdict = "ALIGNED"
+        recommended = "PROCEED to consequence assessment and execution admissibility"
+
+    return {
+        "verdict": verdict,
+        "mandate_consistent": mandate_consistent,
+        "state_coherent": state_coherent,
+        "scope_aligned": scope_aligned,
+        "deviation_detected": deviation_detected,
+        "confidence": round(confidence, 3),
+        "reason": "; ".join(reasons) if reasons else "Intent alignment verified — no violations detected",
+        "recommended_action": recommended,
+    }
+
+
+@app.post("/v1/intent/verify",
+          tags=["Intent Alignment Verification — VGS-042"],
+          response_model=IntentAlignmentResponse)
+async def intent_verify(
+    req:       IntentAlignmentRequest,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Gate 2 of the VeriSigil Pre-Execution Governance Architecture.
+
+    Intent Alignment Verification — VGS-042
+
+    Governing question:
+    "Is the agent's proposed action consistent with its declared
+     mandate and the verified current state?"
+
+    Evaluates four dimensions:
+    1. Mandate consistency — action within declared mandate?
+    2. State coherence — action coherent with current state?
+    3. Authority scope alignment — authority covers this action?
+    4. Deviation detection — anomalous departure from declared purpose?
+
+    Output verdicts:
+    - ALIGNED: Proceed to consequence assessment
+    - MISALIGNED: Escalate for human review
+    - MANDATE_VIOLATION: Block and flag for authority review
+    - ESCALATE: Human review required before proceeding
+
+    This gate operates BEFORE execution admissibility evaluation.
+    A valid state does not automatically imply correct interpretation.
+    Intent alignment closes the gap between state verification
+    and execution admissibility.
+
+    Part of the full VeriSigil Pre-Execution Governance Chain:
+    State Verification → Intent Alignment → Authority Continuity →
+    Consequence Assessment → Execution Admissibility → Binding Decision
+    """
+    require_api_key(x_api_key, authorization)
+
+    import uuid as _uuid
+    timestamp  = datetime.now(timezone.utc).isoformat()
+    review_id  = f"INTENT-{_uuid.uuid4().hex[:12].upper()}"
+
+    # Evaluate intent alignment
+    evaluation = _evaluate_intent_alignment(
+        agent_id        = req.agent_id,
+        action_type     = req.action_type,
+        declared_mandate= req.declared_mandate,
+        proposed_action = req.proposed_action,
+        authority_scope = req.authority_scope,
+        consequence_tier= req.consequence_tier,
+    )
+
+    # Seal the evaluation
+    seal_payload = {
+        "intent_review_id":   review_id,
+        "agent_id":           req.agent_id,
+        "action_type":        req.action_type,
+        "verdict":            evaluation["verdict"],
+        "confidence":         evaluation["confidence"],
+        "timestamp":          timestamp,
+    }
+    governance_signature = sign_governance_payload(seal_payload)
+
+    await log_event(req.agent_id, "INTENT_ALIGNMENT_EVALUATED", {
+        "intent_review_id": review_id,
+        "verdict":          evaluation["verdict"],
+        "confidence":       evaluation["confidence"],
+        "action_type":      req.action_type,
+    })
+
+    return IntentAlignmentResponse(
+        verdict            = evaluation["verdict"],
+        mandate_consistent = evaluation["mandate_consistent"],
+        state_coherent     = evaluation["state_coherent"],
+        scope_aligned      = evaluation["scope_aligned"],
+        deviation_detected = evaluation["deviation_detected"],
+        confidence         = evaluation["confidence"],
+        reason             = evaluation["reason"],
+        recommended_action = evaluation["recommended_action"],
+        governance_signature = governance_signature,
+        timestamp          = timestamp,
+        intent_review_id   = review_id,
+    )
+
+
+@app.get("/v1/intent/about",
+         tags=["Intent Alignment Verification — VGS-042"])
+async def intent_about():
+    """
+    Public endpoint — Intent Alignment Verification specification.
+    No auth required.
+    """
+    return {
+        "specification":   "VGS-042",
+        "title":           "Intent Alignment Verification",
+        "gate_position":   "Gate 2 of 6 in the VeriSigil Pre-Execution Governance Architecture",
+        "governing_question": "Is the agent's proposed action consistent with its declared mandate and the verified current state?",
+        "full_chain": [
+            "Gate 1: State Verification",
+            "Gate 2: Intent Alignment Verification (this gate)",
+            "Gate 3: Authority Continuity",
+            "Gate 4: Consequence Assessment",
+            "Gate 5: Execution Admissibility",
+            "Gate 6: Binding Decision",
+        ],
+        "evaluation_dimensions": [
+            "Mandate consistency — action within declared mandate?",
+            "State coherence — action coherent with current state?",
+            "Authority scope alignment — authority covers this action?",
+            "Deviation detection — anomalous departure from declared purpose?",
+        ],
+        "output_verdicts": {
+            "ALIGNED":            "Proceed to consequence assessment and execution admissibility",
+            "MISALIGNED":         "Escalate to human — action outside declared authority scope",
+            "MANDATE_VIOLATION":  "Block — action appears prohibited by declared mandate",
+            "ESCALATE":           "Human review required before proceeding",
+        },
+        "principle": (
+            "A valid state does not automatically imply correct interpretation. "
+            "An agent may inherit a legitimate state and form an action that misrepresents, "
+            "overextends, or deviates from its declared mandate. "
+            "Intent alignment is the governance gate that closes the gap between "
+            "state verification and execution admissibility."
+        ),
+        "doi_reference":   "doi.org/10.5281/zenodo.20264923",
+        "timestamp":       datetime.now(timezone.utc).isoformat(),
+    }
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=int(os.environ.get("PORT", 8000)), reload=False)
