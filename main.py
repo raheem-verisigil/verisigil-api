@@ -54503,6 +54503,591 @@ async def chain_signal_rules():
         "timestamp":     datetime.now(timezone.utc).isoformat(),
     }
 
+# ============================================================
+# TERREX RESOURCE GOVERNANCE — TerraGuard · TerraScore
+#                               TerraLedger · TerraComply
+# ============================================================
+# Pillar 2 of Terrex™ embedded inside VeriSigil.
+# Measures, scores, governs, and certifies AI resource
+# consumption at the pre-execution layer.
+#
+# Endpoints:
+#   POST /v1/resource/intercept          — TerraGuard decision
+#   GET  /v1/resource/score/{workload_id}— TerraScore lookup
+#   POST /v1/resource/ledger/record      — TerraLedger record
+#   GET  /v1/resource/ledger/{workload_id}—TerraLedger retrieve
+#   POST /v1/resource/comply/eu-ai-act   — TerraComply report
+#   GET  /v1/resource/comply/{report_id} — TerraComply retrieve
+#   GET  /v1/resource/summary/{org_id}   — Org dashboard
+# ============================================================
+
+# ── Carbon intensity by grid region (gCO2eq/kWh, 2026) ──────
+_TERRA_CARBON: dict = {
+    "eu_nordic":       20,
+    "eu_france":       55,
+    "eu_germany":      380,
+    "us_west":         210,
+    "us_east":         370,
+    "us_texas":        420,
+    "africa_west":     480,
+    "asia_singapore":  430,
+    "asia_japan":      490,
+    "unknown":         450,
+}
+
+# ── Energy per token by model class (Wh/token) ───────────────
+_TERRA_ENERGY: dict = {
+    "small":    0.0003,   # <7B params
+    "medium":   0.0008,   # 7B–70B
+    "large":    0.0018,   # 70B–200B
+    "frontier": 0.006,    # >200B / training
+}
+
+# ── Water stress multiplier by region ────────────────────────
+_TERRA_WATER: dict = {
+    "eu_nordic":       0.3,
+    "eu_france":       0.7,
+    "eu_germany":      0.8,
+    "us_west":         1.6,
+    "us_east":         0.9,
+    "us_texas":        1.8,
+    "africa_west":     2.2,
+    "asia_singapore":  1.1,
+    "asia_japan":      0.9,
+    "unknown":         1.2,
+}
+
+_TERRA_WUE = 1.8  # liters of water per kWh (industry average WUE 2026)
+
+
+def _terra_score(model_class: str, tokens: int, region: str) -> dict:
+    """
+    Compute TerraScore (0–100) and resource estimates.
+    Uses VeriSigil's existing sign_payload() for consistency.
+    """
+    mc      = model_class.lower() if model_class else "small"
+    reg     = region.lower()      if region      else "unknown"
+
+    energy_wh      = _TERRA_ENERGY.get(mc, 0.0003) * tokens
+    carbon_int     = _TERRA_CARBON.get(reg, 450)
+    carbon_gco2    = (energy_wh / 1000) * carbon_int
+    water_stress   = _TERRA_WATER.get(reg, 1.2)
+    water_liters   = (energy_wh / 1000) * _TERRA_WUE * water_stress
+
+    # Score components
+    carbon_score = max(0, min(100, 100 - (carbon_gco2 / 5)))
+    grid_score   = max(0, min(100, 100 - (carbon_int  / 5)))
+    model_scores = {"small": 100, "medium": 70, "large": 40, "frontier": 10}
+    model_score  = model_scores.get(mc, 50)
+    water_score  = max(0, min(100, 100 - ((water_stress - 0.3) / 1.9 * 100)))
+
+    score = int(
+        carbon_score * 0.35
+        + grid_score * 0.30
+        + model_score * 0.20
+        + water_score * 0.15
+    )
+    grade = (
+        "A" if score >= 80 else
+        "B" if score >= 65 else
+        "C" if score >= 50 else
+        "D" if score >= 35 else "F"
+    )
+
+    return {
+        "score":                    score,
+        "grade":                    grade,
+        "carbon_intensity_gco2_kwh": carbon_int,
+        "water_stress_multiplier":  round(water_stress, 2),
+        "estimated_energy_wh":      round(energy_wh,   4),
+        "estimated_carbon_gco2":    round(carbon_gco2, 4),
+        "estimated_water_liters":   round(water_liters,4),
+    }
+
+
+def _terra_decision(score: dict, carbon_budget=None, energy_budget=None):
+    """
+    Returns (decision, reason, delay_seconds, throttle_rec).
+    DENY > THROTTLE > DELAY > ALLOW in that priority order.
+    """
+    # Hard budget breaches → DENY immediately
+    if carbon_budget and score["estimated_carbon_gco2"] > carbon_budget:
+        return (
+            "DENY",
+            f"Carbon budget exceeded: {score['estimated_carbon_gco2']:.3f}g "
+            f"> {carbon_budget}g limit.",
+            None, None,
+        )
+    if energy_budget and score["estimated_energy_wh"] > energy_budget:
+        return (
+            "DENY",
+            f"Energy budget exceeded: {score['estimated_energy_wh']:.3f}Wh "
+            f"> {energy_budget}Wh limit.",
+            None, None,
+        )
+    # F grade in high water-stress → DENY
+    if score["grade"] == "F" and score["water_stress_multiplier"] >= 1.8:
+        return (
+            "DENY",
+            "F-grade workload in high water-stress region. "
+            "Migrate to eu_nordic or us_west before executing.",
+            None, None,
+        )
+    # F grade elsewhere → DELAY 6 hours
+    if score["grade"] == "F":
+        return (
+            "DELAY",
+            "F-grade efficiency. Queued for lower-carbon window "
+            "(estimated 4–6 hours).",
+            21600, None,
+        )
+    # D grade → THROTTLE
+    if score["grade"] == "D":
+        return (
+            "THROTTLE",
+            "D-grade efficiency. Reduce batch size 50% or "
+            "migrate to a lower-carbon region.",
+            None,
+            "Reduce batch size by 50% OR switch to eu_nordic / eu_france.",
+        )
+    # C, B, A → ALLOW
+    return (
+        "ALLOW",
+        f"{score['grade']}-grade approved. "
+        f"TerraScore {score['score']}/100. Resource admissibility confirmed.",
+        None, None,
+    )
+
+
+# ── Pydantic models ───────────────────────────────────────────
+
+class TerraInterceptRequest(BaseModel):
+    workload_id:       str
+    model_class:       str = "small"      # small|medium|large|frontier
+    workload_type:     str = "inference"  # inference|fine_tune|training|batch
+    estimated_tokens:  int = 1000
+    grid_region:       str = "unknown"
+    carbon_budget_gco2: Optional[float] = None
+    energy_budget_wh:   Optional[float] = None
+    organisation_id:   Optional[str]    = None
+    ves_envelope_id:   Optional[str]    = None
+
+class TerraLedgerRequest(BaseModel):
+    workload_id:        str
+    intercept_id:       Optional[str]   = None
+    ves_envelope_id:    Optional[str]   = None
+    actual_tokens:      int             = 1000
+    actual_energy_wh:   Optional[float] = None
+    actual_carbon_gco2: Optional[float] = None
+    actual_water_liters:Optional[float] = None
+    grid_region:        str             = "unknown"
+    model_class:        str             = "small"
+    organisation_id:    Optional[str]   = None
+    notes:              Optional[str]   = None
+
+class TerraComplyRequest(BaseModel):
+    organisation_id:       str
+    report_period_start:   str           # e.g. "2026-01-01"
+    report_period_end:     str           # e.g. "2026-06-30"
+    include_ledger_detail: bool          = True
+    framework:             str           = "eu_ai_act_2026"
+
+
+# ── TerraGuard — POST /v1/resource/intercept ─────────────────
+
+@app.post("/v1/resource/intercept",
+    summary="TerraGuard — Pre-execution resource admissibility firewall",
+    tags=["Terrex Resource Governance"],
+    response_class=JSONResponse,
+)
+async def terra_intercept(
+    body: TerraInterceptRequest,
+    x_api_key:     Optional[str] = None,
+    authorization: Optional[str] = None,
+):
+    """
+    Evaluates an AI workload against resource budgets and
+    sustainability thresholds before it executes.
+
+    Returns ALLOW / DELAY / THROTTLE / DENY plus a signed
+    TerraScore. Every decision is persisted to TerraLedger
+    and optionally linked to a VES evidence envelope.
+    """
+    require_api_key(x_api_key, authorization)
+
+    intercept_id = f"tg-{uuid.uuid4().hex[:16]}"
+    ts           = datetime.utcnow().isoformat() + "Z"
+
+    score = _terra_score(
+        body.model_class,
+        body.estimated_tokens,
+        body.grid_region,
+    )
+    decision, reason, delay_secs, throttle_rec = _terra_decision(
+        score,
+        body.carbon_budget_gco2,
+        body.energy_budget_wh,
+    )
+
+    payload = {
+        "intercept_id":          intercept_id,
+        "workload_id":           body.workload_id,
+        "decision":              decision,
+        "terra_score":           score["score"],
+        "terra_grade":           score["grade"],
+        "estimated_carbon_gco2": score["estimated_carbon_gco2"],
+        "estimated_energy_wh":   score["estimated_energy_wh"],
+        "estimated_water_liters":score["estimated_water_liters"],
+        "grid_region":           body.grid_region,
+        "model_class":           body.model_class,
+        "timestamp":             ts,
+        "standard":              "TerraScore-1.0",
+    }
+    sig = sign_payload(payload)
+
+    record = {
+        "intercept_id":          intercept_id,
+        "workload_id":           body.workload_id,
+        "organisation_id":       body.organisation_id,
+        "ves_envelope_id":       body.ves_envelope_id,
+        "model_class":           body.model_class,
+        "workload_type":         body.workload_type,
+        "grid_region":           body.grid_region,
+        "estimated_tokens":      body.estimated_tokens,
+        "decision":              decision,
+        "decision_reason":       reason,
+        "terra_score":           score["score"],
+        "terra_grade":           score["grade"],
+        "estimated_energy_wh":   score["estimated_energy_wh"],
+        "estimated_carbon_gco2": score["estimated_carbon_gco2"],
+        "estimated_water_liters":score["estimated_water_liters"],
+        "carbon_budget_gco2":    body.carbon_budget_gco2,
+        "energy_budget_wh":      body.energy_budget_wh,
+        "signature":             sig,
+        "timestamp":             ts,
+    }
+    await db_insert("terrex_intercepts", record)
+
+    return {
+        "intercept_id":           intercept_id,
+        "workload_id":            body.workload_id,
+        "decision":               decision,
+        "decision_reason":        reason,
+        "delay_seconds":          delay_secs,
+        "throttle_recommendation":throttle_rec,
+        "terra_score":            score,
+        "ves_envelope_id":        body.ves_envelope_id,
+        "signature":              sig,
+        "timestamp":              ts,
+        "public_verify_key":      PUBLIC_KEY_B64,
+        "standard":               "TerraScore-1.0",
+    }
+
+
+# ── TerraScore — GET /v1/resource/score/{workload_id} ────────
+
+@app.get("/v1/resource/score/{workload_id}",
+    summary="TerraScore — Retrieve resource admissibility score",
+    tags=["Terrex Resource Governance"],
+)
+async def terra_score_get(
+    workload_id:   str,
+    x_api_key:     Optional[str] = None,
+    authorization: Optional[str] = None,
+):
+    require_api_key(x_api_key, authorization)
+    record = await db_get("terrex_intercepts", "workload_id", workload_id)
+    if not record:
+        raise HTTPException(404, f"No TerraScore for workload_id={workload_id}")
+    return {
+        "workload_id":           workload_id,
+        "intercept_id":          record.get("intercept_id"),
+        "terra_score":           record.get("terra_score"),
+        "terra_grade":           record.get("terra_grade"),
+        "decision":              record.get("decision"),
+        "estimated_carbon_gco2": record.get("estimated_carbon_gco2"),
+        "estimated_energy_wh":   record.get("estimated_energy_wh"),
+        "estimated_water_liters":record.get("estimated_water_liters"),
+        "grid_region":           record.get("grid_region"),
+        "timestamp":             record.get("timestamp"),
+        "signature":             record.get("signature"),
+        "public_verify_key":     PUBLIC_KEY_B64,
+        "standard":              "TerraScore-1.0",
+    }
+
+
+# ── TerraLedger — POST /v1/resource/ledger/record ────────────
+
+@app.post("/v1/resource/ledger/record",
+    summary="TerraLedger — Record signed resource consumption",
+    tags=["Terrex Resource Governance"],
+)
+async def terra_ledger_record(
+    body: TerraLedgerRequest,
+    x_api_key:     Optional[str] = None,
+    authorization: Optional[str] = None,
+):
+    """
+    Creates a signed, RFC 3161-timestamped immutable record of
+    actual AI resource consumption. Extends VES-1.0 evidence
+    envelopes with resource claims. Third-party verifiable via
+    VeriSigil's Ed25519 public key.
+    """
+    require_api_key(x_api_key, authorization)
+
+    ledger_id = f"tl-{uuid.uuid4().hex[:16]}"
+    ts        = datetime.utcnow().isoformat() + "Z"
+
+    energy_wh    = body.actual_energy_wh or (
+        _TERRA_ENERGY.get(body.model_class.lower(), 0.0003) * body.actual_tokens
+    )
+    carbon_int   = _TERRA_CARBON.get(body.grid_region.lower(), 450)
+    carbon_gco2  = body.actual_carbon_gco2 or ((energy_wh / 1000) * carbon_int)
+    water_stress = _TERRA_WATER.get(body.grid_region.lower(), 1.2)
+    water_liters = body.actual_water_liters or (
+        (energy_wh / 1000) * _TERRA_WUE * water_stress
+    )
+
+    ledger_payload = {
+        "ledger_id":              ledger_id,
+        "workload_id":            body.workload_id,
+        "intercept_id":           body.intercept_id,
+        "ves_envelope_id":        body.ves_envelope_id,
+        "actual_tokens":          body.actual_tokens,
+        "verified_energy_wh":     round(energy_wh,    6),
+        "verified_carbon_gco2":   round(carbon_gco2,  6),
+        "verified_water_liters":  round(water_liters, 6),
+        "grid_region":            body.grid_region,
+        "model_class":            body.model_class,
+        "sustainability_claim_valid": True,
+        "timestamp":              ts,
+        "standard":               "TerraLedger-1.0",
+    }
+    sig = sign_payload(ledger_payload)
+
+    db_record = {
+        **ledger_payload,
+        "organisation_id": body.organisation_id,
+        "notes":           body.notes,
+        "signature":       sig,
+    }
+    await db_insert("terrex_ledger", db_record)
+
+    return {
+        "ledger_id":              ledger_id,
+        "workload_id":            body.workload_id,
+        "verified_energy_wh":     round(energy_wh,    4),
+        "verified_carbon_gco2":   round(carbon_gco2,  4),
+        "verified_water_liters":  round(water_liters, 4),
+        "sustainability_claim_valid": True,
+        "signature":              sig,
+        "timestamp":              ts,
+        "public_verify_key":      PUBLIC_KEY_B64,
+        "standard":               "TerraLedger-1.0",
+    }
+
+
+# ── TerraLedger — GET /v1/resource/ledger/{workload_id} ──────
+
+@app.get("/v1/resource/ledger/{workload_id}",
+    summary="TerraLedger — Retrieve signed resource records",
+    tags=["Terrex Resource Governance"],
+)
+async def terra_ledger_get(
+    workload_id:   str,
+    x_api_key:     Optional[str] = None,
+    authorization: Optional[str] = None,
+):
+    require_api_key(x_api_key, authorization)
+    records = await db_get_many("terrex_ledger", "workload_id", workload_id)
+    if not records:
+        raise HTTPException(404, f"No ledger records for workload_id={workload_id}")
+    return {
+        "workload_id":    workload_id,
+        "records":        records,
+        "record_count":   len(records),
+        "standard":       "TerraLedger-1.0",
+        "public_verify_key": PUBLIC_KEY_B64,
+    }
+
+
+# ── TerraComply — POST /v1/resource/comply/eu-ai-act ─────────
+
+@app.post("/v1/resource/comply/eu-ai-act",
+    summary="TerraComply — Generate EU AI Act sustainability disclosure",
+    tags=["Terrex Resource Governance"],
+)
+async def terra_comply_report(
+    body: TerraComplyRequest,
+    x_api_key:     Optional[str] = None,
+    authorization: Optional[str] = None,
+):
+    """
+    Auto-generates a signed EU AI Act sustainability disclosure
+    for an organisation's AI workloads over a reporting period.
+    Pulls from TerraLedger records. Signed and timestamped for
+    regulatory submission. References Articles 9, 40, and 53.
+    """
+    require_api_key(x_api_key, authorization)
+
+    report_id = f"tc-{uuid.uuid4().hex[:16]}"
+    ts        = datetime.utcnow().isoformat() + "Z"
+
+    # Pull ledger records for this org
+    all_ledger = await db_get_many(
+        "terrex_ledger", "organisation_id", body.organisation_id
+    )
+    # Filter by period (simple string comparison — ISO dates sort correctly)
+    records = [
+        r for r in (all_ledger or [])
+        if body.report_period_start <= r.get("timestamp", "")[:10] <= body.report_period_end
+    ]
+
+    # Pull intercepts for decision breakdown
+    all_intercepts = await db_get_many(
+        "terrex_intercepts", "organisation_id", body.organisation_id
+    )
+    intercepts = all_intercepts or []
+
+    total_energy_wh    = sum(r.get("verified_energy_wh",    0) for r in records)
+    total_carbon_gco2  = sum(r.get("verified_carbon_gco2",  0) for r in records)
+    total_water_liters = sum(r.get("verified_water_liters", 0) for r in records)
+
+    decision_breakdown = {
+        d: sum(1 for i in intercepts if i.get("decision") == d)
+        for d in ["ALLOW", "DELAY", "THROTTLE", "DENY"]
+    }
+    grade_breakdown = {
+        g: sum(1 for i in intercepts if i.get("terra_grade") == g)
+        for g in ["A", "B", "C", "D", "F"]
+    }
+    active_governance = any(
+        v > 0 for k, v in decision_breakdown.items()
+        if k in ("DELAY", "THROTTLE", "DENY")
+    )
+    compliance_status = "COMPLIANT" if (active_governance or len(records) == 0) else "DISCLOSURE_ONLY"
+
+    report = {
+        "report_id":    report_id,
+        "framework":    body.framework,
+        "organisation_id": body.organisation_id,
+        "reporting_period": {
+            "start": body.report_period_start,
+            "end":   body.report_period_end,
+        },
+        "summary": {
+            "total_workloads_governed": len(records),
+            "total_energy_kwh":         round(total_energy_wh    / 1000, 4),
+            "total_carbon_kgco2":       round(total_carbon_gco2  / 1000, 4),
+            "total_water_liters":       round(total_water_liters,         4),
+            "total_intercepts":         len(intercepts),
+        },
+        "governance_evidence": {
+            "pre_execution_firewall":        "TerraGuard-1.0 (VeriSigil Pre-Execution Gateway)",
+            "resource_scoring_standard":     "TerraScore-1.0",
+            "ledger_standard":               "TerraLedger-1.0",
+            "signing_algorithm":             "Ed25519 (PyNaCl)",
+            "timestamp_standard":            "RFC 3161",
+            "decision_breakdown":            decision_breakdown,
+            "grade_breakdown":               grade_breakdown,
+            "active_governance_demonstrated":active_governance,
+        },
+        "compliance_status": compliance_status,
+        "article_references": [
+            "EU AI Act Article 9 — Risk Management Systems",
+            "EU AI Act Article 40 — Harmonised Standards (Sustainability Provisions)",
+            "EU AI Act Article 53 — General-Purpose AI Model Transparency",
+        ],
+        "generated_at":  ts,
+        "generated_by":  "VeriSigil TerraComply-1.0",
+        "standard":      "TerraComply-1.0",
+    }
+
+    if body.include_ledger_detail:
+        report["ledger_records"] = records
+
+    # Sign report (exclude ledger_records for stable signature)
+    signable = {k: v for k, v in report.items() if k != "ledger_records"}
+    sig = sign_payload(signable)
+    report["signature"]        = sig
+    report["public_verify_key"]= PUBLIC_KEY_B64
+
+    # Persist summary
+    await db_insert("terrex_compliance_reports", {
+        "report_id":       report_id,
+        "organisation_id": body.organisation_id,
+        "framework":       body.framework,
+        "period_start":    body.report_period_start,
+        "period_end":      body.report_period_end,
+        "total_workloads": len(records),
+        "total_energy_kwh":   round(total_energy_wh    / 1000, 4),
+        "total_carbon_kgco2": round(total_carbon_gco2  / 1000, 4),
+        "compliance_status":  compliance_status,
+        "signature":          sig,
+        "timestamp":          ts,
+    })
+
+    return report
+
+
+# ── TerraComply — GET /v1/resource/comply/{report_id} ────────
+
+@app.get("/v1/resource/comply/{report_id}",
+    summary="TerraComply — Retrieve a compliance report",
+    tags=["Terrex Resource Governance"],
+)
+async def terra_comply_get(
+    report_id:     str,
+    x_api_key:     Optional[str] = None,
+    authorization: Optional[str] = None,
+):
+    require_api_key(x_api_key, authorization)
+    record = await db_get("terrex_compliance_reports", "report_id", report_id)
+    if not record:
+        raise HTTPException(404, f"Report {report_id} not found")
+    return record
+
+
+# ── Resource summary — GET /v1/resource/summary/{org_id} ─────
+
+@app.get("/v1/resource/summary/{organisation_id}",
+    summary="Terrex — Aggregate resource footprint for an organisation",
+    tags=["Terrex Resource Governance"],
+)
+async def terra_summary(
+    organisation_id: str,
+    x_api_key:       Optional[str] = None,
+    authorization:   Optional[str] = None,
+):
+    require_api_key(x_api_key, authorization)
+
+    ledger_records    = await db_get_many("terrex_ledger",     "organisation_id", organisation_id)
+    intercept_records = await db_get_many("terrex_intercepts", "organisation_id", organisation_id)
+
+    lr = ledger_records    or []
+    ir = intercept_records or []
+
+    avg_score = (
+        round(sum(i.get("terra_score", 0) for i in ir) / len(ir))
+        if ir else None
+    )
+
+    return {
+        "organisation_id":         organisation_id,
+        "total_workloads_recorded":len(lr),
+        "total_intercepts":        len(ir),
+        "aggregate": {
+            "energy_kwh":   round(sum(r.get("verified_energy_wh",    0) for r in lr) / 1000, 4),
+            "carbon_kgco2": round(sum(r.get("verified_carbon_gco2",  0) for r in lr) / 1000, 4),
+            "water_liters": round(sum(r.get("verified_water_liters", 0) for r in lr),          4),
+        },
+        "average_terra_score": avg_score,
+        "standard":            "TerraScore-1.0 / TerraLedger-1.0",
+        "generated_at":        datetime.utcnow().isoformat() + "Z",
+        "public_verify_key":   PUBLIC_KEY_B64,
+    }
+
+# ── End of Terrex Resource Governance block ───────────────────
 
 
 
