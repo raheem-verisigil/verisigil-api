@@ -413,7 +413,7 @@ def check_rate_limit(client_ip: str) -> bool:
 # ============================================================
 app = FastAPI(
     title="VeriSigil AI — Constitutional Execution Substrate",
-    description="Constitutional execution substrate for autonomous AI systems. Governs the formation, legitimacy, authority, cognition, and execution continuity of autonomous AI before actions become reality. 609 live endpoints. VGS-ELI-Certified. EU AI Act compliant.",
+    description="Constitutional execution substrate for autonomous AI systems. Governs the formation, legitimacy, authority, cognition, and execution continuity of autonomous AI before actions become reality. 605 live endpoints. VGS-ELI-Certified. EU AI Act compliant.",
     version="1.0.0",
     docs_url="/docs",
 )
@@ -56307,151 +56307,359 @@ async def trust_public_portal():
 
 
 
-class ProofScenarioRequest(BaseModel):
-    condition: str = "A"
-    agent_id:  str = "FinanceAgent-Demo-001"
-    action:    str = "transfer_funds"
-    amount:    float = 50000.00
-    currency:  str = "USD"
-    model_config = {"extra": "forbid"}
+# ============================================================
+# 20-INTERACTION GOVERNANCE DEMO
+# ============================================================
+# Answers: "Show me how VeriSigil governs a real workflow
+# across the full risk gradient"
+#
+# 20 interactions across 6 consequence tiers:
+# MINIMAL, LOW, OPERATIONAL, HIGH, CRITICAL, EMERGENCY
+# covering: ALLOW, DENY, ESCALATE, authority expiry,
+# mandate violation, behavioral drift, cascade prevention
+# ============================================================
 
+@app.get("/v1/demo/scenario/twenty",
+         tags=["20-Interaction Governance Demo"])
+async def demo_twenty_interactions():
+    """
+    20-Interaction Governance Demo
 
-@app.get("/v1/proof/scenario/condition-a", tags=["Public Proof Surface"])
-async def proof_condition_a():
-    payload = {
-        "scenario": "VeriSigil Public Proof Scenario v1.0",
-        "condition": "A - Authority Valid",
-        "agent_id": "FinanceAgent-Demo-001",
-        "action_type": "transfer_funds",
-        "amount_usd": 50000.00,
-        "consequence_tier": "HIGH",
-        "authority_status": "VALID",
-        "human_present": True,
-        "ruling": "ALLOW",
-        "rationale": "All six governance gates passed. Authority current and valid. Mandate active. Consequence tier HIGH with human presence confirmed. Governance state continuous.",
-        "sealed_payload_fields": {
-            "agent_id": "FinanceAgent-Demo-001",
-            "action_type": "transfer_funds",
-            "consequence_tier": "HIGH",
+    A complete governance workflow across the full
+    consequence tier spectrum. Shows VeriSigil governing
+    20 sequential AI agent actions with varying authority,
+    mandate, consequence, and governance conditions.
+
+    No authentication required. Public proof surface.
+
+    Covers:
+    - ALLOW at every consequence tier
+    - DENY from authority expiry
+    - DENY from mandate violation
+    - ESCALATE from consequence tier threshold
+    - ESCALATE from behavioral drift detection
+    - ESCALATE from missing human oversight
+    - Cascade prevention across agent chain
+    """
+    timestamp = datetime.now(timezone.utc).isoformat()
+
+    interactions = [
+        {
+            "interaction": 1,
+            "tier": "MINIMAL",
+            "action": "read_customer_record",
+            "authority": "VALID",
+            "mandate": "WITHIN_SCOPE",
             "ruling": "ALLOW",
-            "authority_status": "VALID",
-            "human_present": True,
-            "timestamp": "2026-07-19T00:00:00.000000+00:00",
-            "payload_hash": "sha256:a1b2c3d4e5f6a1b2c3d4e5f6a1b2",
+            "rationale": "Read-only action. MINIMAL consequence. All gates pass.",
+            "gate_failed": None,
         },
-        "replay_at": "POST /v1/proof/scenario/run with condition=A",
-        "artifact_version": "v1.0-fixed",
-        "published_at": "2026-07-19",
-        "doi_reference": "https://doi.org/10.5281/zenodo.20627386",
-    }
-    payload["governance_signature"] = sign_governance_payload(payload["sealed_payload_fields"])
-    return payload
-
-
-@app.get("/v1/proof/scenario/condition-b", tags=["Public Proof Surface"])
-async def proof_condition_b():
-    payload = {
-        "scenario": "VeriSigil Public Proof Scenario v1.0",
-        "condition": "B - Authority Expired",
-        "agent_id": "FinanceAgent-Demo-001",
-        "action_type": "transfer_funds",
-        "amount_usd": 50000.00,
-        "consequence_tier": "HIGH",
-        "authority_status": "EXPIRED",
-        "human_present": True,
-        "ruling": "DENY",
-        "failure_gate": "Gate 3: Authority Continuity",
-        "rationale": "Gate 3 failed. Delegation expired before execution attempt. Previously valid action became operationally inadmissible. Consequence blocked.",
-        "consequence_blocked": True,
-        "sealed_payload_fields": {
-            "agent_id": "FinanceAgent-Demo-001",
-            "action_type": "transfer_funds",
-            "consequence_tier": "HIGH",
+        {
+            "interaction": 2,
+            "tier": "LOW",
+            "action": "generate_report",
+            "authority": "VALID",
+            "mandate": "WITHIN_SCOPE",
+            "ruling": "ALLOW",
+            "rationale": "Report generation. LOW consequence. All gates pass.",
+            "gate_failed": None,
+        },
+        {
+            "interaction": 3,
+            "tier": "LOW",
+            "action": "send_notification",
+            "authority": "VALID",
+            "mandate": "WITHIN_SCOPE",
+            "ruling": "ALLOW",
+            "rationale": "Customer notification. LOW consequence. All gates pass.",
+            "gate_failed": None,
+        },
+        {
+            "interaction": 4,
+            "tier": "OPERATIONAL",
+            "action": "update_customer_profile",
+            "authority": "VALID",
+            "mandate": "WITHIN_SCOPE",
+            "ruling": "ALLOW",
+            "rationale": "Profile update. OPERATIONAL consequence. All gates pass.",
+            "gate_failed": None,
+        },
+        {
+            "interaction": 5,
+            "tier": "OPERATIONAL",
+            "action": "schedule_appointment",
+            "authority": "VALID",
+            "mandate": "WITHIN_SCOPE",
+            "ruling": "ALLOW",
+            "rationale": "Appointment scheduling. OPERATIONAL consequence. All gates pass.",
+            "gate_failed": None,
+        },
+        {
+            "interaction": 6,
+            "tier": "OPERATIONAL",
+            "action": "process_refund_under_limit",
+            "authority": "VALID",
+            "mandate": "WITHIN_SCOPE",
+            "ruling": "ALLOW",
+            "rationale": "Refund within mandate limit. OPERATIONAL consequence. All gates pass.",
+            "gate_failed": None,
+        },
+        {
+            "interaction": 7,
+            "tier": "HIGH",
+            "action": "approve_loan_application",
+            "authority": "VALID",
+            "mandate": "WITHIN_SCOPE",
+            "human_present": True,
+            "ruling": "ALLOW",
+            "rationale": "Loan approval. HIGH consequence. Human presence confirmed. All gates pass.",
+            "gate_failed": None,
+        },
+        {
+            "interaction": 8,
+            "tier": "HIGH",
+            "action": "modify_credit_limit",
+            "authority": "VALID",
+            "mandate": "WITHIN_SCOPE",
+            "human_present": False,
+            "ruling": "ESCALATE",
+            "rationale": "Credit limit modification. HIGH consequence. Human oversight required but absent. Escalate to human before proceeding.",
+            "gate_failed": "Gate 4: Consequence Assessment — human oversight required",
+        },
+        {
+            "interaction": 9,
+            "tier": "OPERATIONAL",
+            "action": "access_medical_record",
+            "authority": "EXPIRED",
+            "mandate": "WITHIN_SCOPE",
             "ruling": "DENY",
-            "authority_status": "EXPIRED",
-            "failure_gate": "Gate 3: Authority Continuity",
-            "human_present": True,
-            "timestamp": "2026-07-19T00:00:01.000000+00:00",
-            "payload_hash": "sha256:b2c3d4e5f6a1b2c3d4e5f6a1b2c3",
+            "rationale": "Gate 3 failed. Clinical access authority expired. Previously valid delegation no longer current. Access denied.",
+            "gate_failed": "Gate 3: Authority Continuity",
         },
-        "replay_at": "POST /v1/proof/scenario/run with condition=B",
-        "artifact_version": "v1.0-fixed",
-        "published_at": "2026-07-19",
-        "doi_reference": "https://doi.org/10.5281/zenodo.20627386",
+        {
+            "interaction": 10,
+            "tier": "HIGH",
+            "action": "prescribe_medication",
+            "authority": "VALID",
+            "mandate": "OUTSIDE_SCOPE",
+            "ruling": "DENY",
+            "rationale": "Gate 2 failed. Prescribing is outside this agent's declared mandate. Mandate violation detected.",
+            "gate_failed": "Gate 2: Intent Alignment — mandate violation",
+        },
+        {
+            "interaction": 11,
+            "tier": "HIGH",
+            "action": "transfer_funds_10000",
+            "authority": "VALID",
+            "mandate": "WITHIN_SCOPE",
+            "human_present": True,
+            "ruling": "ALLOW",
+            "rationale": "Fund transfer within limit. HIGH consequence. Human present. All gates pass.",
+            "gate_failed": None,
+        },
+        {
+            "interaction": 12,
+            "tier": "CRITICAL",
+            "action": "transfer_funds_500000",
+            "authority": "VALID",
+            "mandate": "WITHIN_SCOPE",
+            "human_present": True,
+            "ruling": "ESCALATE",
+            "rationale": "Transfer exceeds CRITICAL threshold. Requires formal human approval beyond presence confirmation.",
+            "gate_failed": "Gate 4: Consequence Assessment — CRITICAL tier requires formal approval",
+        },
+        {
+            "interaction": 13,
+            "tier": "OPERATIONAL",
+            "action": "query_patient_data",
+            "authority": "VALID",
+            "mandate": "WITHIN_SCOPE",
+            "behavioral_drift": "HARD_DRIFT",
+            "ruling": "ESCALATE",
+            "rationale": "Behavioral continuity check failed. Agent behavior has drifted significantly from approved baseline. Escalate for re-governance before proceeding.",
+            "gate_failed": "Gate 1: State Verification — behavioral drift detected",
+        },
+        {
+            "interaction": 14,
+            "tier": "OPERATIONAL",
+            "action": "execute_trade_order",
+            "authority": "VALID",
+            "mandate": "WITHIN_SCOPE",
+            "contradiction_detected": True,
+            "ruling": "ESCALATE",
+            "rationale": "Agent State Bus detected contradiction with upstream agent decision. Pipeline conflict requires human resolution before execution.",
+            "gate_failed": "Gate 1: State Verification — upstream contradiction detected",
+        },
+        {
+            "interaction": 15,
+            "tier": "HIGH",
+            "action": "discharge_patient",
+            "authority": "VALID",
+            "mandate": "WITHIN_SCOPE",
+            "human_present": True,
+            "ruling": "ALLOW",
+            "rationale": "Patient discharge. HIGH consequence. Physician present and confirmed. All gates pass.",
+            "gate_failed": None,
+        },
+        {
+            "interaction": 16,
+            "tier": "CRITICAL",
+            "action": "modify_government_contract",
+            "authority": "VALID",
+            "mandate": "WITHIN_SCOPE",
+            "human_present": True,
+            "ruling": "ESCALATE",
+            "rationale": "Government contract modification. CRITICAL consequence. Requires formal approval chain beyond single human confirmation.",
+            "gate_failed": "Gate 4: Consequence Assessment — CRITICAL government action",
+        },
+        {
+            "interaction": 17,
+            "tier": "HIGH",
+            "action": "cancel_insurance_policy",
+            "authority": "REVOKED",
+            "mandate": "WITHIN_SCOPE",
+            "ruling": "DENY",
+            "rationale": "Gate 3 failed. Agent authority has been explicitly revoked. All actions by this agent are inadmissible until re-authorization.",
+            "gate_failed": "Gate 3: Authority Continuity — authority explicitly revoked",
+        },
+        {
+            "interaction": 18,
+            "tier": "EMERGENCY",
+            "action": "shutdown_critical_system",
+            "authority": "VALID",
+            "mandate": "WITHIN_SCOPE",
+            "ruling": "ESCALATE",
+            "rationale": "EMERGENCY consequence tier. Automatic escalation regardless of authority status. Human decision required for all EMERGENCY actions.",
+            "gate_failed": "Gate 4: Consequence Assessment — EMERGENCY tier auto-escalates",
+        },
+        {
+            "interaction": 19,
+            "tier": "OPERATIONAL",
+            "action": "archive_completed_records",
+            "authority": "VALID",
+            "mandate": "WITHIN_SCOPE",
+            "ruling": "ALLOW",
+            "rationale": "Archival operation. OPERATIONAL consequence. All gates pass. Governance state restored after re-authorization.",
+            "gate_failed": None,
+        },
+        {
+            "interaction": 20,
+            "tier": "HIGH",
+            "action": "submit_regulatory_filing",
+            "authority": "VALID",
+            "mandate": "WITHIN_SCOPE",
+            "human_present": True,
+            "ruling": "ALLOW",
+            "rationale": "Regulatory filing. HIGH consequence. Human presence confirmed. All gates pass. Governance evidence record sealed.",
+            "gate_failed": None,
+        },
+    ]
+
+    # Compute summary statistics
+    rulings = [i["ruling"] for i in interactions]
+    allow_count = rulings.count("ALLOW")
+    deny_count = rulings.count("DENY")
+    escalate_count = rulings.count("ESCALATE")
+
+    gates_triggered = [i["gate_failed"] for i in interactions if i["gate_failed"]]
+    tiers_covered = list(set(i["tier"] for i in interactions))
+
+    # Sign the summary
+    summary_payload = {
+        "demo": "VeriSigil 20-Interaction Governance Demo v1.0",
+        "total_interactions": 20,
+        "allow_count": allow_count,
+        "deny_count": deny_count,
+        "escalate_count": escalate_count,
+        "tiers_covered": sorted(tiers_covered),
+        "timestamp": timestamp,
     }
-    payload["governance_signature"] = sign_governance_payload(payload["sealed_payload_fields"])
-    return payload
+    governance_signature = sign_governance_payload(summary_payload)
 
-
-@app.post("/v1/proof/scenario/run", tags=["Public Proof Surface"])
-async def proof_scenario_run(req: ProofScenarioRequest):
-    import uuid as _uuid
-    execution_id = f"PROOF-{_uuid.uuid4().hex[:12].upper()}"
-    ts = datetime.now(timezone.utc).isoformat()
-    if req.condition.upper() == "A":
-        ruling, auth, gate, rat = "ALLOW", "VALID", None, "All six gates passed. Authority current. Governance continuous."
-    else:
-        ruling, auth, gate, rat = "DENY", "EXPIRED", "Gate 3: Authority Continuity", "Gate 3 failed. Authority expired. Consequence blocked."
-    payload = {
-        "execution_id": execution_id, "scenario": "VeriSigil Public Proof Scenario v1.0",
-        "condition": req.condition.upper(), "agent_id": req.agent_id,
-        "action_type": req.action, "amount_usd": req.amount,
-        "consequence_tier": "HIGH", "authority_status": auth,
-        "ruling": ruling, "failure_gate": gate, "rationale": rat,
-        "timestamp": ts, "artifact_version": "v1.0-fixed",
-    }
-    return {**payload, "governance_signature": sign_governance_payload(payload),
-            "public_key": "VrT3JN8iSKPoNkyyOanCEtfKUdvoITyXyl24FCnD+jA=",
-            "verifier": "GET /v1/proof/verifier",
-            "doi_reference": "https://doi.org/10.5281/zenodo.20627386"}
-
-
-@app.get("/v1/proof/verifier", tags=["Public Proof Surface"])
-async def proof_verifier():
     return {
-        "procedure": "VeriSigil Ed25519 Independent Verification Procedure v1.0",
+        "demo": "VeriSigil 20-Interaction Governance Demo v1.0",
+        "description": "20 sequential AI agent governance decisions across the full consequence tier spectrum. Shows VeriSigil governing ALLOW, DENY, and ESCALATE outcomes with reasons.",
+        "summary": {
+            "total_interactions": 20,
+            "ALLOW": allow_count,
+            "DENY": deny_count,
+            "ESCALATE": escalate_count,
+            "tiers_covered": sorted(tiers_covered),
+            "gates_triggered": gates_triggered,
+            "governance_signature": governance_signature,
+        },
+        "interactions": interactions,
         "public_key": "VrT3JN8iSKPoNkyyOanCEtfKUdvoITyXyl24FCnD+jA=",
-        "algorithm": "Ed25519 (RFC 8037)",
-        "steps": [
-            {"step": 1, "action": "POST /v1/proof/scenario/run with condition=A or B"},
-            {"step": 2, "action": "Extract sealed_payload_fields from response"},
-            {"step": 3, "action": "Serialize: json.dumps(payload, sort_keys=True, separators=(',',':'))"},
-            {"step": 4, "action": "Verify: nacl.signing.VerifyKey(base64.b64decode(pubkey)).verify(payload_bytes, base64.b64decode(sig))"},
-            {"step": 5, "action": "VERIFIED = ruling authentic and untampered since sealing"},
-            {"step": 6, "action": "Replay same condition: ruling identical, signature differs (new timestamp) but verifies"},
+        "verify_at": "GET /v1/proof/verifier",
+        "run_proof_scenario": "POST /v1/proof/scenario/run with condition=A or B",
+        "doi_reference": "https://doi.org/10.5281/zenodo.20627386",
+        "timestamp": timestamp,
+    }
+
+
+@app.get("/v1/demo/usecases",
+         tags=["20-Interaction Governance Demo"])
+async def demo_usecases():
+    """
+    Named Enterprise Use Cases — No auth required.
+
+    Three specific enterprise scenarios showing exactly
+    what VeriSigil governs, what evidence it produces,
+    and which regulatory requirement it satisfies.
+    """
+    return {
+        "use_cases": [
+            {
+                "sector": "Financial Services",
+                "scenario": "AI agent governing loan approvals, fund transfers, and credit decisions",
+                "governance_problem": "Autonomous AI agents approving loans and transfers without verifiable governance evidence. Regulators ask: who authorized this decision and how do you prove it?",
+                "verisigil_solution": "Every loan approval, transfer, and credit decision passes through /v1/intercept before execution. ALLOW, DENY, or ESCALATE ruling produced with Ed25519-sealed evidence before the transaction proceeds.",
+                "evidence_produced": [
+                    "Authority verification record per decision",
+                    "Mandate validation — was this within approved scope",
+                    "Consequence tier record — HIGH/CRITICAL with human confirmation",
+                    "Sealed governance receipt for every transaction",
+                    "Litigation-ready evidence package on demand",
+                ],
+                "regulatory_requirement": "SOX Section 302/404, Basel III operational risk, EU AI Act Article 14 human oversight",
+                "enterprise_pack": "POST /v1/enterprise/pack/generate with pack_type=PROCUREMENT",
+            },
+            {
+                "sector": "Healthcare",
+                "scenario": "Clinical AI agents governing treatment recommendations, prescriptions, and patient data access",
+                "governance_problem": "AI systems recommending treatments or accessing patient records without verifiable governance. HIPAA audit asks: who authorized this access and what oversight was active?",
+                "verisigil_solution": "Clinical AI actions governed at the execution boundary. Behavioral drift monitoring ensures the AI behaves consistently with its approved clinical baseline. DENY on unauthorized access. ESCALATE when human clinician review is required.",
+                "evidence_produced": [
+                    "Behavioral continuity certificate per AI system",
+                    "Clinician presence confirmation for HIGH-consequence decisions",
+                    "Access authority records for patient data",
+                    "Mandate violation detection for out-of-scope clinical actions",
+                    "EU AI Act Article 9 ongoing monitoring evidence",
+                ],
+                "regulatory_requirement": "HIPAA, EU AI Act high-risk classification, ISO 42001 Clause 9.1",
+                "enterprise_pack": "POST /v1/enterprise/pack/generate with pack_type=EU_AI_ACT",
+            },
+            {
+                "sector": "Government and GovTech",
+                "scenario": "Autonomous AI governing procurement decisions, contract modifications, and citizen data processing",
+                "governance_problem": "Government AI systems making or recommending decisions affecting citizens without audit-ready governance evidence. Public accountability requires proving governance was active.",
+                "verisigil_solution": "Every government AI action governed before execution. CRITICAL and EMERGENCY tiers auto-escalate to human approval chains. Full provenance chain via Agent State Bus. Immutable evidence records for public accountability.",
+                "evidence_produced": [
+                    "Provenance chain for every governed decision",
+                    "Human approval confirmation for CRITICAL tier actions",
+                    "Emergency escalation records",
+                    "NIST AI RMF GOVERN/MAP/MEASURE/MANAGE evidence package",
+                    "Board governance evidence pack for oversight bodies",
+                ],
+                "regulatory_requirement": "NIST AI RMF, Executive Order 14110, EU AI Act public authority requirements",
+                "enterprise_pack": "POST /v1/enterprise/pack/generate with pack_type=BOARD",
+            },
         ],
-        "python_example": "import base64,json,nacl.signing; vk=nacl.signing.VerifyKey(base64.b64decode(pubkey)); vk.verify(json.dumps(payload,sort_keys=True,separators=(',',':')).encode(),base64.b64decode(sig))",
+        "try_it": "GET /v1/demo/scenario/twenty",
+        "proof_surface": "GET /v1/proof/scenario/condition-a and condition-b",
         "doi_reference": "https://doi.org/10.5281/zenodo.20627386",
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
-
-
-@app.post("/v1/proof/verify", tags=["Public Proof Surface"])
-async def proof_verify_record(payload: dict, signature: str = ""):
-    import base64
-    try:
-        import nacl.signing, json as _j
-        vk = nacl.signing.VerifyKey(base64.b64decode("VrT3JN8iSKPoNkyyOanCEtfKUdvoITyXyl24FCnD+jA="))
-        vk.verify(_j.dumps(payload,sort_keys=True,separators=(',',':')).encode(), base64.b64decode(signature))
-        result, msg = "VERIFIED", "Signature valid. Payload untampered since sealing."
-    except Exception as e:
-        result, msg = "UNVERIFIED", str(e)
-    return {"result": result, "message": msg,
-            "public_key": "VrT3JN8iSKPoNkyyOanCEtfKUdvoITyXyl24FCnD+jA=",
-            "timestamp": datetime.now(timezone.utc).isoformat()}
-
-
-@app.get("/v1/proof/public-key", tags=["Public Proof Surface"])
-async def proof_public_key():
-    return {
-        "public_key": "VrT3JN8iSKPoNkyyOanCEtfKUdvoITyXyl24FCnD+jA=",
-        "algorithm": "Ed25519 (RFC 8037)", "encoding": "Base64",
-        "purpose": "Verify any VeriSigil sealed governance evidence record without trusting VeriSigil",
-        "verifier": "GET /v1/proof/verifier",
-        "doi_reference": "https://doi.org/10.5281/zenodo.20627386",
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-    }
-
 
 
 if __name__ == "__main__":
