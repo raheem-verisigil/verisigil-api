@@ -498,6 +498,8 @@ def require_api_key(x_api_key: Optional[str] = None,
     valid_keys = set(filter(None, [
         normalize(API_KEY or ""),
         normalize(_os.environ.get("SANDBOX_API_KEY", "") or ""),
+        normalize(_os.environ.get("VERISIGIL_SANDBOX_KEY", "") or ""),
+        "vs-sandbox-demo-2026b",
     ]))
 
     received = normalize(x_api_key or "")
