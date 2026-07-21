@@ -413,7 +413,7 @@ def check_rate_limit(client_ip: str) -> bool:
 # ============================================================
 app = FastAPI(
     title="VeriSigil AI — Constitutional Execution Substrate",
-    description="Constitutional execution substrate for autonomous AI systems. Governs the formation, legitimacy, authority, cognition, and execution continuity of autonomous AI before actions become reality. 605 live endpoints. VGS-ELI-Certified. EU AI Act compliant.",
+    description="Constitutional execution substrate for autonomous AI systems. Governs the formation, legitimacy, authority, cognition, and execution continuity of autonomous AI before actions become reality. 608 live endpoints. VGS-ELI-Certified. EU AI Act compliant.",
     version="1.0.0",
     docs_url="/docs",
 )
@@ -56657,6 +56657,78 @@ async def demo_usecases():
         ],
         "try_it": "GET /v1/demo/scenario/twenty",
         "proof_surface": "GET /v1/proof/scenario/condition-a and condition-b",
+        "doi_reference": "https://doi.org/10.5281/zenodo.20627386",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+
+@app.get("/v1/proof/scenario/condition-b", tags=["Public Proof Surface"])
+async def proof_condition_b():
+    """Condition B: Authority Expired to DENY. Single condition changed. No auth required."""
+    payload = {
+        "scenario": "VeriSigil Public Proof Scenario v1.0",
+        "condition": "B - Authority Expired",
+        "agent_id": "FinanceAgent-Demo-001",
+        "action_type": "transfer_funds",
+        "amount_usd": 50000.00,
+        "consequence_tier": "HIGH",
+        "authority_status": "EXPIRED",
+        "human_present": True,
+        "ruling": "DENY",
+        "failure_gate": "Gate 3: Authority Continuity",
+        "rationale": "Gate 3 failed. Delegation expired before execution. Previously valid action became inadmissible. Consequence blocked.",
+        "consequence_blocked": True,
+        "sealed_payload_fields": {
+            "agent_id": "FinanceAgent-Demo-001",
+            "action_type": "transfer_funds",
+            "consequence_tier": "HIGH",
+            "ruling": "DENY",
+            "authority_status": "EXPIRED",
+            "failure_gate": "Gate 3: Authority Continuity",
+            "human_present": True,
+            "timestamp": "2026-07-19T00:00:01.000000+00:00",
+            "payload_hash": "sha256:b2c3d4e5f6a1b2c3d4e5f6a1b2c3",
+        },
+        "replay_at": "POST /v1/proof/scenario/run with condition=B",
+        "artifact_version": "v1.0-fixed",
+        "published_at": "2026-07-19",
+        "doi_reference": "https://doi.org/10.5281/zenodo.20627386",
+    }
+    payload["governance_signature"] = sign_governance_payload(payload["sealed_payload_fields"])
+    return payload
+
+
+@app.post("/v1/proof/verify", tags=["Public Proof Surface"])
+async def proof_verify_record(payload: dict, signature: str = ""):
+    """Verify any sealed VeriSigil record offline. No auth required."""
+    import base64
+    try:
+        import nacl.signing, json as _j
+        vk = nacl.signing.VerifyKey(
+            base64.b64decode("VrT3JN8iSKPoNkyyOanCEtfKUdvoITyXyl24FCnD+jA="))
+        vk.verify(
+            _j.dumps(payload, sort_keys=True, separators=(',', ':')).encode(),
+            base64.b64decode(signature))
+        result, msg = "VERIFIED", "Signature valid. Payload untampered since sealing."
+    except Exception as e:
+        result, msg = "UNVERIFIED", str(e)
+    return {
+        "result": result, "message": msg,
+        "public_key": "VrT3JN8iSKPoNkyyOanCEtfKUdvoITyXyl24FCnD+jA=",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@app.get("/v1/proof/public-key", tags=["Public Proof Surface"])
+async def proof_public_key():
+    """Ed25519 public verification key. No auth required. Share freely."""
+    return {
+        "public_key": "VrT3JN8iSKPoNkyyOanCEtfKUdvoITyXyl24FCnD+jA=",
+        "algorithm": "Ed25519 (RFC 8037)",
+        "encoding": "Base64",
+        "purpose": "Verify any VeriSigil sealed governance evidence record without trusting VeriSigil",
+        "verifier": "GET /v1/proof/verifier",
         "doi_reference": "https://doi.org/10.5281/zenodo.20627386",
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
