@@ -498,8 +498,6 @@ def require_api_key(x_api_key: Optional[str] = None,
     valid_keys = set(filter(None, [
         normalize(API_KEY or ""),
         normalize(_os.environ.get("SANDBOX_API_KEY", "") or ""),
-        normalize(_os.environ.get("VERISIGIL_SANDBOX_KEY", "") or ""),
-        "vs-sandbox-demo-2026b",
     ]))
 
     received = normalize(x_api_key or "")
@@ -52554,6 +52552,20 @@ def _run_intercept(req: InterceptRequest) -> dict:
         ruling = "ESCALATE"
         action = "HALT — escalate to human before execution"
         color  = "ORANGE"
+
+        # ── Autonomous agent upgrade: ESCALATE → DENY ────────
+        # If no human is present and consequence is CRITICAL or EMERGENCY,
+        # there is no human available to receive the escalation.
+        # A block that waits indefinitely is not governed — upgrade to DENY.
+        if not req.human_present and req.consequence in ("CRITICAL", "EMERGENCY"):
+            ruling = "DENY"
+            action = "BLOCK — no human available to receive escalation at this consequence tier"
+            color  = "RED"
+            reasons.append(
+                f"Autonomous agent DENY: {req.consequence} consequence with no human present — "
+                "ESCALATE upgraded to DENY. No operator available to authorise continuation."
+            )
+
     elif conditions:
         ruling = "ALLOW_WITH_CONDITIONS"
         action = "PROCEED with conditions — log closely"
