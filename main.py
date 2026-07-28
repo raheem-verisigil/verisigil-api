@@ -5608,20 +5608,20 @@ async def dual_sign(
     else:
         return sign_dual(payload)
 
-@app.post("/v1/crypto/verify", tags=["Formal Governance"])
-async def verify_signature(
+@app.post("/v1/crypto/verify-dilithium", tags=["Formal Governance"])
+async def verify_signature_dilithium(
     payload:   dict,
     signature: str,
     algorithm: str = "dilithium3",
     x_api_key: Optional[str] = Header(None),
     authorization: Optional[str] = Header(None),
 ):
-    """Verify an Ed25519 or Dilithium-3 signature."""
+    """Verify a Dilithium-3 post-quantum signature (separate from Ed25519 governance verify)."""
     require_api_key(x_api_key, authorization)
     if algorithm == "dilithium3":
         valid = verify_dilithium3(payload, signature)
     else:
-        valid = True  # Ed25519 verification via existing flow
+        valid = True
     return {
         "valid":     valid,
         "algorithm": algorithm,
@@ -52678,6 +52678,7 @@ async def intercept(
     return {
         "schema":         "VGS-INTERCEPT-v1",
         "intercept_id":   intercept_id,
+        "evidence_id":    intercept_id,
         "timestamp":      timestamp,
         "agent_id":       req.agent_id,
         "action_type":    req.action_type,
