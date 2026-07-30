@@ -56740,15 +56740,33 @@ async def proof_verify_record(payload: dict, signature: str = ""):
 @app.get("/v1/proof/public-key", tags=["Public Proof Surface"])
 async def proof_public_key():
     """Ed25519 public verification key. No auth required. Share freely."""
+    # Return the actual runtime key used by sign_governance_payload
+    actual_pubkey = base64.b64encode(bytes(_VERIFY_KEY)).decode()
     return {
-        "public_key": "VrT3JN8iSKPoNkyyOanCEtfKUdvoITyXyl24FCnD+jA=",
+        "public_key": actual_pubkey,
         "algorithm": "Ed25519 (RFC 8037)",
         "encoding": "Base64",
         "purpose": "Verify any VeriSigil sealed governance evidence record without trusting VeriSigil",
         "verifier": "GET /v1/proof/verifier",
         "doi_reference": "https://doi.org/10.5281/zenodo.20627386",
         "timestamp": datetime.now(timezone.utc).isoformat(),
+        "key_source": "ED25519_SIGNING_KEY_B64 environment variable",
     }
+
+
+@app.get("/v1/proof/key-diagnostic", tags=["Public Proof Surface"])
+async def proof_key_diagnostic():
+    """Diagnostic: shows both runtime key systems so signing key ambiguity can be resolved."""
+    sign_secret_pubkey = base64.b64encode(bytes(VERIFY_KEY)).decode()
+    env_key_pubkey = base64.b64encode(bytes(_VERIFY_KEY)).decode()
+    return {
+        "sign_governance_payload_key": env_key_pubkey,
+        "sign_payload_key": sign_secret_pubkey,
+        "keys_match": sign_secret_pubkey == env_key_pubkey,
+        "intercept_uses": "sign_governance_payload -> sign_governance_payload_key",
+        "note": "intercept receipts are signed with sign_governance_payload_key",
+    }
+
 
 
 if __name__ == "__main__":
