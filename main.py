@@ -58351,7 +58351,8 @@ async def content_govern(
     require_api_key(x_api_key, authorization)
 
     ts = datetime.now(timezone.utc).isoformat()
-    content_id = f"CGR-{hashlib.sha256(f'{req.get(\"agent_id\",\"\")}{ts}'.encode()).hexdigest()[:12].upper()}"
+    _hash_src = (req.get("agent_id", "") + ts).encode()
+    content_id = "CGR-" + hashlib.sha256(_hash_src).hexdigest()[:12].upper()
 
     agent_id = req.get("agent_id", "")
     content_type = req.get("content_type", "")  # image, video, audio, text, synthetic_media
