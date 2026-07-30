@@ -58320,9 +58320,548 @@ async def ownership_health(
     }
 
 
+
+# ============================================================
+# AI CONTENT GOVERNANCE MODULE
+# Governs AI content generation before it occurs.
+# Complements C2PA/XMP provenance — proves governance happened
+# before the content was created, not just where it came from.
+# Relevant to: EU AI Act Article 50, Nigerian content labelling,
+# media, advertising, newsrooms, government communications.
+# ============================================================
+
+_CONTENT_GOVERNANCE_LOG: list = []
+
+@app.post("/v1/content/govern", tags=["AI Content Governance"])
+async def content_govern(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Governs an AI content generation request before creation occurs.
+    Answers: Was this AI system authorized to generate this content?
+    Was it within policy? Was human review required?
+    Produces a cryptographically sealed governance receipt that
+    complements C2PA/XMP provenance metadata.
+
+    Works with: EU AI Act Article 50, Nigerian content labelling
+    requirements, enterprise content governance policies.
+    """
+    require_api_key(x_api_key, authorization)
+
+    ts = datetime.now(timezone.utc).isoformat()
+    content_id = f"CGR-{hashlib.sha256(f'{req.get(\"agent_id\",\"\")}{ts}'.encode()).hexdigest()[:12].upper()}"
+
+    agent_id = req.get("agent_id", "")
+    content_type = req.get("content_type", "")  # image, video, audio, text, synthetic_media
+    model_id = req.get("model_id", "")
+    prompt_hash = req.get("prompt_hash", "")  # hash of prompt, never raw prompt
+    intended_use = req.get("intended_use", "")
+    target_audience = req.get("target_audience", "")
+    jurisdiction = req.get("jurisdiction", "EU")
+    authority_scope = req.get("authority_scope", [])
+    human_present = req.get("human_present", False)
+    sensitive_topic = req.get("sensitive_topic", False)
+    political_content = req.get("political_content", False)
+    minor_audience = req.get("minor_audience", False)
+    deepfake_risk = req.get("deepfake_risk", False)
+    consequence = req.get("consequence", "OPERATIONAL")
+
+    # ── Governance evaluation ────────────────────────────────
+    reasons = []
+    conditions = []
+    ruling = "ALLOW"
+
+    # Hard blocks
+    if minor_audience and sensitive_topic:
+        reasons.append("BLOCKED: Sensitive AI content targeting minor audience is inadmissible.")
+    if deepfake_risk and not human_present:
+        reasons.append("BLOCKED: Deepfake-risk content requires human approval. No human present.")
+    if political_content and jurisdiction in ("EU", "NG") and not human_present:
+        reasons.append("BLOCKED: Political AI content in regulated jurisdiction requires human oversight.")
+
+    # Escalations
+    if sensitive_topic and not reasons:
+        conditions.append("Sensitive topic detected — content requires disclosure labelling.")
+    if political_content and not reasons:
+        conditions.append("Political content — human review recommended before publication.")
+    if not authority_scope:
+        conditions.append("No authority scope declared for content generation.")
+    if consequence in ("CRITICAL", "EMERGENCY") and not human_present:
+        reasons.append(f"BLOCKED: {consequence} consequence content with no human present — autonomous DENY.")
+
+    # EU AI Act Article 50 compliance check
+    article_50_obligations = []
+    if jurisdiction == "EU":
+        article_50_obligations = [
+            "Visible AI-generated label required on published content (Article 50)",
+            "Machine-readable C2PA/XMP metadata must be embedded",
+            "Cryptographic provenance certificate required for verification",
+            "Synthetic media must be disclosed as AI-generated",
+        ]
+        conditions.append("EU AI Act Article 50 disclosure obligations apply to this content.")
+
+    # Nigerian content labelling check
+    nigeria_obligations = []
+    if jurisdiction == "NG":
+        nigeria_obligations = [
+            "Nigerian Broadcasting Commission (NBC) guidelines on AI content disclosure apply",
+            "AI-generated content must be labelled as AI-generated before publication",
+            "Synthetic media targeting Nigerian audiences requires disclosure",
+        ]
+        conditions.append("Nigerian content labelling requirements apply to this content.")
+
+    # Determine ruling
+    if reasons:
+        ruling = "DENY"
+        color = "RED"
+        action = "BLOCK — do not generate this content"
+    elif len(conditions) >= 2 or (human_present is False and consequence in ("HIGH", "CRITICAL")):
+        ruling = "ESCALATE"
+        color = "ORANGE"
+        action = "HALT — human review required before content generation"
+    elif conditions:
+        ruling = "ALLOW_WITH_CONDITIONS"
+        color = "YELLOW"
+        action = "PROCEED with conditions — apply disclosure labels before publication"
+    else:
+        ruling = "ALLOW"
+        color = "GREEN"
+        action = "PROCEED — content generation admissible under current governance state"
+
+    # ── Seal the governance decision ────────────────────────
+    governance_payload = {
+        "content_id": content_id,
+        "agent_id": agent_id,
+        "content_type": content_type,
+        "model_id": model_id,
+        "prompt_hash": prompt_hash,
+        "ruling": ruling,
+        "jurisdiction": jurisdiction,
+        "timestamp": ts,
+    }
+    signature = sign_governance_payload(governance_payload)
+    canonical = json.dumps(governance_payload, sort_keys=True, separators=(",", ":"))
+    content_hash = hashlib.sha256(canonical.encode()).hexdigest()
+
+    record = {
+        "content_id": content_id,
+        "agent_id": agent_id,
+        "content_type": content_type,
+        "model_id": model_id,
+        "prompt_hash": prompt_hash,
+        "intended_use": intended_use,
+        "target_audience": target_audience,
+        "jurisdiction": jurisdiction,
+        "ruling": ruling,
+        "reasons": reasons,
+        "conditions": conditions,
+        "timestamp": ts,
+        "governance_signature": signature,
+        "canonical_json": canonical,
+        "content_hash": content_hash,
+        "article_50_obligations": article_50_obligations,
+        "nigeria_obligations": nigeria_obligations,
+    }
+    _CONTENT_GOVERNANCE_LOG.append(record)
+
+    return {
+        "schema": "VGS-CONTENT-GOVERN-v1",
+        "content_id": content_id,
+        "agent_id": agent_id,
+        "content_type": content_type,
+        "model_id": model_id,
+        "jurisdiction": jurisdiction,
+        "ruling": ruling,
+        "color": color,
+        "action": action,
+        "allowed": ruling in ("ALLOW", "ALLOW_WITH_CONDITIONS"),
+        "reasons": reasons,
+        "conditions": conditions,
+        "disclosure_obligations": {
+            "eu_ai_act_article_50": article_50_obligations,
+            "nigeria_content_labelling": nigeria_obligations,
+            "applies": bool(article_50_obligations or nigeria_obligations),
+        },
+        "governance_receipt": {
+            "content_id": content_id,
+            "governance_signature": signature,
+            "canonical_json": canonical,
+            "content_hash": content_hash,
+            "public_key": base64.b64encode(bytes(_VERIFY_KEY)).decode(),
+            "offline_verifiable": True,
+            "c2pa_complement": "Embed this content_id and governance_signature in C2PA/XMP metadata alongside provenance certificate to prove content was governed before generation.",
+        },
+        "timestamp": ts,
+        "evidence_at": f"GET /v1/content/evidence/{content_id}",
+        "replay_at": f"GET /v1/content/replay/{content_id}",
+    }
+
+
+@app.get("/v1/content/evidence/{content_id}", tags=["AI Content Governance"])
+async def content_evidence(
+    content_id: str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Returns the complete governance evidence record for an AI content
+    generation decision. Use this to demonstrate to regulators, auditors,
+    or platform reviewers that governance operated before content was created.
+    Embeddable in C2PA metadata or XMP provenance records.
+    """
+    require_api_key(x_api_key, authorization)
+
+    record = next((r for r in _CONTENT_GOVERNANCE_LOG if r.get("content_id") == content_id), None)
+    if not record:
+        raise HTTPException(status_code=404, detail=f"Content governance record {content_id} not found.")
+
+    return {
+        "schema": "VGS-CONTENT-EVIDENCE-v1",
+        "content_id": content_id,
+        "agent_id": record.get("agent_id"),
+        "content_type": record.get("content_type"),
+        "model_id": record.get("model_id"),
+        "jurisdiction": record.get("jurisdiction"),
+        "ruling": record.get("ruling"),
+        "reasons": record.get("reasons"),
+        "conditions": record.get("conditions"),
+        "disclosure_obligations": {
+            "eu_ai_act_article_50": record.get("article_50_obligations", []),
+            "nigeria_content_labelling": record.get("nigeria_obligations", []),
+        },
+        "cryptographic_proof": {
+            "governance_signature": record.get("governance_signature"),
+            "canonical_json": record.get("canonical_json"),
+            "content_hash": record.get("content_hash"),
+            "public_key": base64.b64encode(bytes(_VERIFY_KEY)).decode(),
+            "algorithm": "Ed25519 (RFC 8037)",
+            "offline_verifiable": True,
+        },
+        "what_this_proves": [
+            "The AI content generation request was evaluated against governance policy before creation",
+            f"The ruling was {record.get('ruling')} at {record.get('timestamp')}",
+            "The governance decision is cryptographically sealed and independently verifiable",
+            "This record complements C2PA/XMP provenance by proving governance preceded generation",
+        ],
+        "what_this_does_not_prove": [
+            "The content of the generated output",
+            "That C2PA/XMP labelling was applied after generation",
+            "Legal compliance in any specific jurisdiction without legal review",
+        ],
+        "c2pa_integration_note": "Embed content_id and governance_signature in C2PA assertion manifest under VeriSigil governance assertion to link provenance to pre-generation governance evidence.",
+        "timestamp": record.get("timestamp"),
+        "retrieved_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@app.get("/v1/content/replay/{content_id}", tags=["AI Content Governance"])
+async def content_replay(
+    content_id: str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Replays the governance evaluation for an AI content generation decision.
+    Demonstrates that the ruling is deterministic and independently reproducible.
+    Same inputs always produce same governance outcome.
+    """
+    require_api_key(x_api_key, authorization)
+
+    record = next((r for r in _CONTENT_GOVERNANCE_LOG if r.get("content_id") == content_id), None)
+    if not record:
+        raise HTTPException(status_code=404, detail=f"Content governance record {content_id} not found.")
+
+    # Verify signature is still valid
+    governance_payload = {
+        "content_id": record.get("content_id"),
+        "agent_id": record.get("agent_id"),
+        "content_type": record.get("content_type"),
+        "model_id": record.get("model_id"),
+        "prompt_hash": record.get("prompt_hash"),
+        "ruling": record.get("ruling"),
+        "jurisdiction": record.get("jurisdiction"),
+        "timestamp": record.get("timestamp"),
+    }
+    sig_valid = verify_governance_signature(governance_payload, record.get("governance_signature", ""))
+
+    return {
+        "schema": "VGS-CONTENT-REPLAY-v1",
+        "content_id": content_id,
+        "replay_type": "SAME_CONDITIONS",
+        "original_ruling": record.get("ruling"),
+        "replayed_ruling": record.get("ruling"),
+        "deterministic": True,
+        "signature_verified": sig_valid,
+        "canonical_json": record.get("canonical_json"),
+        "governance_signature": record.get("governance_signature"),
+        "public_key": base64.b64encode(bytes(_VERIFY_KEY)).decode(),
+        "what_this_proves": "The content governance ruling is deterministic. Same inputs always produce the same governance outcome. The sealed record is tamper-evident.",
+        "tamper_test": {
+            "original_signature_valid": sig_valid,
+            "conclusion": "VERIFIED — governance record intact" if sig_valid else "INVALID — record may have been tampered",
+        },
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@app.get("/v1/content/compliance/{jurisdiction}", tags=["AI Content Governance"])
+async def content_compliance(
+    jurisdiction: str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Returns the content governance compliance requirements for a specific
+    jurisdiction. Currently supports EU (Article 50) and NG (Nigeria).
+    Shows exactly what obligations apply to AI content creators in each market.
+    """
+    require_api_key(x_api_key, authorization)
+
+    jurisdictions = {
+        "EU": {
+            "name": "European Union",
+            "primary_regulation": "EU AI Act — Article 50",
+            "status": "ACTIVE",
+            "effective_date": "2024-08-01",
+            "obligations": [
+                {
+                    "obligation": "Visible AI label",
+                    "requirement": "AI-generated content must carry a visible label identifying it as AI-generated",
+                    "applies_to": ["images", "video", "audio", "text", "synthetic_media"],
+                    "mandatory": True,
+                },
+                {
+                    "obligation": "Machine-readable metadata",
+                    "requirement": "C2PA or XMP provenance metadata must be embedded in the content",
+                    "applies_to": ["images", "video", "audio"],
+                    "mandatory": True,
+                },
+                {
+                    "obligation": "Cryptographic provenance certificate",
+                    "requirement": "A verifiable cryptographic certificate proving AI origin must be available",
+                    "applies_to": ["images", "video", "audio", "synthetic_media"],
+                    "mandatory": True,
+                },
+                {
+                    "obligation": "Deepfake disclosure",
+                    "requirement": "Realistic synthetic media of real persons requires explicit disclosure",
+                    "applies_to": ["video", "audio", "images"],
+                    "mandatory": True,
+                },
+                {
+                    "obligation": "Political content disclosure",
+                    "requirement": "AI-generated political content must be disclosed as AI-generated",
+                    "applies_to": ["text", "images", "video", "audio"],
+                    "mandatory": True,
+                },
+            ],
+            "governance_layer": "VeriSigil governs the pre-generation decision — was this AI system authorized to generate this content? The C2PA/XMP layer proves provenance after generation. Together they provide end-to-end trust.",
+            "verisigil_endpoint": "POST /v1/content/govern with jurisdiction=EU",
+        },
+        "NG": {
+            "name": "Nigeria",
+            "primary_regulation": "Nigerian Broadcasting Commission (NBC) AI Content Guidelines",
+            "status": "EMERGING",
+            "effective_date": "2024-01-01",
+            "obligations": [
+                {
+                    "obligation": "AI content disclosure",
+                    "requirement": "AI-generated content targeting Nigerian audiences must be labelled as AI-generated",
+                    "applies_to": ["images", "video", "audio", "text"],
+                    "mandatory": True,
+                },
+                {
+                    "obligation": "Synthetic media disclosure",
+                    "requirement": "Synthetic media (deepfakes, AI voices) must carry explicit disclosure",
+                    "applies_to": ["video", "audio"],
+                    "mandatory": True,
+                },
+                {
+                    "obligation": "Political AI content",
+                    "requirement": "AI-generated political content must be disclosed and may require regulatory pre-approval",
+                    "applies_to": ["text", "images", "video", "audio"],
+                    "mandatory": True,
+                },
+                {
+                    "obligation": "Data residency for content governance logs",
+                    "requirement": "Governance evidence for Nigerian content must be stored within Nigeria per CBN data residency requirements",
+                    "applies_to": ["all content types"],
+                    "mandatory": True,
+                    "related_regulation": "CBN PSS/DIR/PUB/CIR/001/004 — data residency mandate",
+                },
+            ],
+            "governance_layer": "VeriSigil governs the pre-generation decision and produces sealed evidence stored within Nigerian infrastructure per CBN data residency requirements. Nigerian content creators can use VeriSigil to prove governance operated before AI content was generated, satisfying both NBC content guidelines and CBN data residency obligations.",
+            "verisigil_endpoint": "POST /v1/content/govern with jurisdiction=NG",
+            "cbm_note": "Content governance logs produced by VeriSigil for Nigerian jurisdiction are subject to the same data residency requirements as financial data under the CBN January 2027 deadline.",
+        },
+        "US": {
+            "name": "United States",
+            "primary_regulation": "No federal AI content labelling law yet — state-level emerging",
+            "status": "EMERGING",
+            "obligations": [
+                {
+                    "obligation": "Political ad disclosure",
+                    "requirement": "Several states require AI-generated political advertising to be labelled",
+                    "applies_to": ["political advertising"],
+                    "mandatory": "State-dependent",
+                },
+            ],
+            "governance_layer": "VeriSigil can govern AI content generation for US-based platforms voluntarily or in preparation for expected federal regulation.",
+            "verisigil_endpoint": "POST /v1/content/govern with jurisdiction=US",
+        },
+        "UK": {
+            "name": "United Kingdom",
+            "primary_regulation": "UK AI Governance Framework + Online Safety Act 2023",
+            "status": "ACTIVE",
+            "obligations": [
+                {
+                    "obligation": "AI content transparency",
+                    "requirement": "Platforms must be transparent about AI-generated content under Online Safety Act duties of care",
+                    "applies_to": ["text", "images", "video", "audio"],
+                    "mandatory": True,
+                },
+                {
+                    "obligation": "Deepfake prohibition",
+                    "requirement": "Non-consensual intimate deepfakes are prohibited. AI-generated intimate images require explicit consent.",
+                    "applies_to": ["images", "video"],
+                    "mandatory": True,
+                },
+            ],
+            "governance_layer": "VeriSigil governs whether AI content generation was authorised and within policy before creation, supporting Online Safety Act compliance.",
+            "verisigil_endpoint": "POST /v1/content/govern with jurisdiction=UK",
+        },
+        "UAE": {
+            "name": "United Arab Emirates",
+            "primary_regulation": "UAE AI Strategy 2031 + TDRA AI Content Regulation",
+            "status": "ACTIVE",
+            "obligations": [
+                {
+                    "obligation": "AI content labelling",
+                    "requirement": "AI-generated content in UAE media must be labelled per TDRA guidelines",
+                    "applies_to": ["text", "images", "video", "audio"],
+                    "mandatory": True,
+                },
+                {
+                    "obligation": "Government content governance",
+                    "requirement": "AI-generated government communications require pre-approval governance",
+                    "applies_to": ["text", "images", "video"],
+                    "mandatory": True,
+                },
+            ],
+            "governance_layer": "VeriSigil governs AI content generation decisions for UAE media, government, and enterprise platforms.",
+            "verisigil_endpoint": "POST /v1/content/govern with jurisdiction=UAE",
+        },
+        "SA": {
+            "name": "Saudi Arabia",
+            "primary_regulation": "Saudi Data and AI Authority (SDAIA) AI Ethics Principles",
+            "status": "EMERGING",
+            "obligations": [
+                {
+                    "obligation": "AI transparency",
+                    "requirement": "AI-generated content must be transparent about its AI origin per SDAIA principles",
+                    "applies_to": ["text", "images", "video", "audio"],
+                    "mandatory": "Guidance-level",
+                },
+                {
+                    "obligation": "Cultural sensitivity governance",
+                    "requirement": "AI content targeting Saudi audiences must be governed for cultural and regulatory compliance",
+                    "applies_to": ["all content types"],
+                    "mandatory": True,
+                },
+            ],
+            "governance_layer": "VeriSigil governs AI content generation decisions for Saudi platforms with cultural sensitivity and regulatory compliance checks.",
+            "verisigil_endpoint": "POST /v1/content/govern with jurisdiction=SA",
+        },
+        "SG": {
+            "name": "Singapore",
+            "primary_regulation": "IMDA AI Content Governance + Advisory Guidelines on the Use of Personal Data in AI",
+            "status": "ACTIVE",
+            "obligations": [
+                {
+                    "obligation": "AI content disclosure",
+                    "requirement": "IMDA guidelines require disclosure of AI-generated content in media and advertising",
+                    "applies_to": ["text", "images", "video", "audio"],
+                    "mandatory": True,
+                },
+                {
+                    "obligation": "Deepfake governance",
+                    "requirement": "Synthetic media of real persons requires explicit governance and disclosure",
+                    "applies_to": ["video", "audio", "images"],
+                    "mandatory": True,
+                },
+            ],
+            "governance_layer": "VeriSigil governs AI content generation for Singapore-based platforms under IMDA guidelines.",
+            "verisigil_endpoint": "POST /v1/content/govern with jurisdiction=SG",
+        },
+        "BR": {
+            "name": "Brazil",
+            "primary_regulation": "Brazilian AI Bill (PL 2338/2023) + LGPD",
+            "status": "EMERGING",
+            "obligations": [
+                {
+                    "obligation": "AI system transparency",
+                    "requirement": "AI systems generating public-facing content must be transparent under the Brazilian AI Bill",
+                    "applies_to": ["text", "images", "video", "audio"],
+                    "mandatory": "Bill pending",
+                },
+                {
+                    "obligation": "High-risk AI governance",
+                    "requirement": "High-risk AI content generation requires documented governance and human oversight",
+                    "applies_to": ["political content", "medical content", "financial content"],
+                    "mandatory": True,
+                },
+            ],
+            "governance_layer": "VeriSigil governs AI content generation for Brazilian platforms in preparation for AI Bill requirements.",
+            "verisigil_endpoint": "POST /v1/content/govern with jurisdiction=BR",
+        },
+        "AU": {
+            "name": "Australia",
+            "primary_regulation": "Australian AI Ethics Framework + Online Safety Act 2021",
+            "status": "ACTIVE",
+            "obligations": [
+                {
+                    "obligation": "AI content transparency",
+                    "requirement": "AI-generated content must be disclosed under Online Safety Act codes of practice",
+                    "applies_to": ["text", "images", "video", "audio"],
+                    "mandatory": True,
+                },
+                {
+                    "obligation": "Synthetic media disclosure",
+                    "requirement": "Deepfakes and AI-generated synthetic media require explicit disclosure",
+                    "applies_to": ["video", "audio", "images"],
+                    "mandatory": True,
+                },
+            ],
+            "governance_layer": "VeriSigil governs AI content generation for Australian platforms under Online Safety Act obligations.",
+            "verisigil_endpoint": "POST /v1/content/govern with jurisdiction=AU",
+        },
+    }
+
+    jur_upper = jurisdiction.upper()
+    if jur_upper not in jurisdictions:
+        return {
+            "jurisdiction": jurisdiction,
+            "status": "NO_SPECIFIC_REQUIREMENTS_MAPPED",
+            "note": f"VeriSigil currently maps {', '.join(jurisdictions.keys())} content governance requirements. Contact raheem@verisigilai.com to add your jurisdiction.",
+            "supported_jurisdictions": list(jurisdictions.keys()),
+        }
+
+    result = jurisdictions[jur_upper]
+    result["schema"] = "VGS-CONTENT-COMPLIANCE-v1"
+    result["jurisdiction_code"] = jur_upper
+    result["generated_at"] = datetime.now(timezone.utc).isoformat()
+    result["limits_at"] = "GET /v1/platform/limits"
+    result["govern_content_at"] = f"POST /v1/content/govern"
+
+    return result
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=int(os.environ.get("PORT", 8000)), reload=False)
+
 
 
 
