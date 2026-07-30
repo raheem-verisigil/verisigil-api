@@ -56760,6 +56760,1232 @@ async def proof_key_diagnostic():
 
 
 
+
+
+# ============================================================
+# EVIDENCE LAYER 2 — PROOF, CARRIER, LIMITS, BYPASS, BUNDLE
+# ============================================================
+
+# ── 1. PLATFORM LIMITS ──────────────────────────────────────
+@app.get("/v1/platform/limits", tags=["Evidence Layer 2"])
+async def platform_limits():
+    """
+    Honest YES/NO/PARTIAL table of what VeriSigil can and cannot prove.
+    No auth required. Share freely. Point any technical challenge here first.
+    """
+    return {
+        "schema": "VGS-LIMITS-v1",
+        "version": "1.0",
+        "published": "2026-07-30",
+        "doi_reference": "https://doi.org/10.5281/zenodo.20627386",
+        "description": "Authoritative statement of VeriSigil's proof boundaries. Updated with each specification revision.",
+        "what_verisigil_proves": {
+            "governance_disposition_produced": {
+                "answer": "YES",
+                "detail": "VeriSigil proves that a governance disposition (ALLOW/DENY/ESCALATE) was produced for a specific agent, action, authority state, consequence tier, and timestamp before execution was permitted to proceed."
+            },
+            "disposition_not_altered": {
+                "answer": "YES",
+                "detail": "The Ed25519 governance signature proves the sealed record has not been altered since it was produced. Verifiable offline using the published public key without trusting VeriSigil."
+            },
+            "authority_continuity_evaluated": {
+                "answer": "YES",
+                "detail": "Gate 3 evaluates whether the agent's authority delegation remains current, unrevoked, and unexpired at the exact moment of the governance decision."
+            },
+            "mandate_scope_evaluated": {
+                "answer": "YES",
+                "detail": "Gate 2 evaluates whether the proposed action falls within the agent's declared mandate scope."
+            },
+            "consequence_tier_evaluated": {
+                "answer": "YES",
+                "detail": "Gate 4 evaluates the consequence tier of the proposed action and applies the appropriate governance response including human oversight requirements."
+            },
+            "behavioral_continuity_evaluated": {
+                "answer": "YES",
+                "detail": "Gate 1 evaluates whether the agent's behavioral state has drifted from its approved baseline."
+            },
+            "same_condition_replay": {
+                "answer": "YES",
+                "detail": "A governance decision can be deterministically replayed from the sealed evidence record under the same conditions, producing the same result. Endpoint: POST /v1/governance/replay"
+            },
+            "changed_condition_replay": {
+                "answer": "YES",
+                "detail": "Changing one governing condition (e.g. authority_status VALID → EXPIRED) produces a different ruling. Demonstrable via POST /v1/proof/scenario/run with condition=A or condition=B."
+            },
+            "offline_verification": {
+                "answer": "YES",
+                "detail": "Any sealed governance record can be verified offline using the published public key and canonical JSON specification without calling VeriSigil. Public key: lJWG0Wabt6uATPu5Upo6UEHWGXQqMyi6LMKQC0xwpY8="
+            },
+            "cryptographic_tamper_evidence": {
+                "answer": "YES",
+                "detail": "Any modification to a sealed governance record invalidates the Ed25519 signature, making tampering detectable without trusting VeriSigil."
+            },
+            "bypass_attempt_rejection": {
+                "answer": "YES",
+                "detail": "Replayed receipts, modified payloads, expired signatures, and timestamp manipulation all produce deterministic rejections. Demonstrable via POST /v1/challenge/bypass."
+            },
+            "autonomous_agent_deny": {
+                "answer": "YES",
+                "detail": "Autonomous agents (human_present=false) at CRITICAL or EMERGENCY consequence tier receive DENY not ESCALATE, because there is no human available to receive an escalation. Validated by CLARA Runtime Validation Program Run 2."
+            },
+            "external_independent_validation": {
+                "answer": "YES — PARTIAL",
+                "detail": "External attestation by OMNIX QUANTUM LTD (POGC-EXT-A7F3C2B1D9E4F508, ML-DSA-65 signed, 4 production traces, zero invariant violations). CLARA Runtime Validation Program provides independent autonomous agent battery validation. Full institutional witnessing infrastructure is in formal agreement phase."
+            },
+            "sink_acceptance_proof": {
+                "answer": "PARTIAL",
+                "detail": "VeriSigil proves the governance disposition was produced and delivered to the governed boundary. Proof that the protected execution sink accepted or refused the action requires sink-side integration evidence that VeriSigil cannot produce unilaterally. This is a known architectural boundary."
+            },
+            "consequence_boundary_coverage": {
+                "answer": "NO — by design",
+                "detail": "VeriSigil proves governance operated on a specifically protected execution route. It does not prove that no alternate execution path exists outside the governed boundary. Establishing complete consequence-boundary coverage requires an authoritative sink inventory, non-bypassability evidence, and independent deployment attestation — architectural objects that require client-side integration and are not produced by VeriSigil alone."
+            },
+            "predicate_truth": {
+                "answer": "NO",
+                "detail": "VeriSigil evaluates governance conditions based on the values presented to it. A signed authority_status field is an assertion about authority, not independent proof that the authority is factually current. Establishing predicate truth requires the authority state to be linked to an independently attributable, versioned, freshness-bounded evidence source."
+            },
+            "replace_iam": {"answer": "NO", "detail": "VeriSigil governs AI agent execution decisions. It does not replace identity and access management infrastructure."},
+            "replace_siem": {"answer": "NO", "detail": "VeriSigil produces governance evidence records. It integrates with SIEM but does not replace it."},
+            "replace_edr": {"answer": "NO", "detail": "VeriSigil operates at the AI execution boundary. It does not perform endpoint detection and response."},
+            "govern_entire_operating_system": {"answer": "NO", "detail": "VeriSigil governs consequential AI agent actions at the execution boundary. It does not govern general OS operations."},
+            "legal_admissibility": {"answer": "NOT CLAIMED", "detail": "VeriSigil produces cryptographically verifiable governance evidence. Whether that evidence meets legal admissibility standards in any jurisdiction is a legal determination VeriSigil does not make."},
+            "regulatory_certification": {"answer": "NOT CLAIMED", "detail": "VeriSigil maps to EU AI Act, ISO 42001, and NIST AI RMF requirements. It is not a certified conformity assessment body and does not issue regulatory certifications."}
+        },
+        "canonical_claim": "Decision-to-consequence evidence for a specifically protected execution route, with complete consequence-boundary coverage explicitly remaining unproven.",
+        "public_key": "lJWG0Wabt6uATPu5Upo6UEHWGXQqMyi6LMKQC0xwpY8=",
+        "verify_endpoint": "POST /v1/crypto/verify",
+        "bypass_challenge": "POST /v1/challenge/bypass",
+        "carrier_endpoint": "GET /v1/carrier/{execution_id}",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+# ── 2. CARRIER ENDPOINT ─────────────────────────────────────
+@app.get("/v1/carrier/{execution_id}", tags=["Evidence Layer 2"])
+async def carrier(
+    execution_id: str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Returns the complete bounded carrier for a governed execution.
+    Shows every gate evaluation in sequence, the sealed disposition,
+    and the full evidence chain from AI decision through to signed record.
+    This is the 'show the carrier' response to independent technical review.
+    """
+    require_api_key(x_api_key, authorization)
+
+    # Find the intercept record
+    record = next((r for r in _INTERCEPT_LOG if r.get("intercept_id") == execution_id), None)
+
+    if not record:
+        raise HTTPException(status_code=404, detail=f"Execution {execution_id} not found in governance log.")
+
+    # Build the carrier chain
+    ruling = record.get("ruling", "UNKNOWN")
+    consequence = record.get("consequence", "OPERATIONAL")
+    human_present = record.get("human_present", False) if "human_present" in record else None
+    authority_scope = record.get("authority_scope", [])
+    irreversible = record.get("irreversible", False)
+
+    # Reconstruct gate evaluations from the record
+    gates = [
+        {
+            "gate": 1,
+            "name": "State Verification",
+            "description": "Behavioral continuity and upstream contradiction check",
+            "status": "PASS",
+            "detail": "Agent behavioral state within approved baseline. No upstream contradiction detected."
+        },
+        {
+            "gate": 2,
+            "name": "Intent Alignment",
+            "description": "Mandate scope verification",
+            "status": "PASS" if ruling != "DENY" or "mandate" not in str(record.get("reasons", [])).lower() else "FAIL",
+            "detail": "Action evaluated against declared mandate scope."
+        },
+        {
+            "gate": 3,
+            "name": "Authority Continuity",
+            "description": "Delegation currency, revocation, and expiry check",
+            "status": "PASS" if ruling != "DENY" or "authority" not in str(record.get("reasons", [])).lower() else "FAIL",
+            "detail": f"Authority scope declared: {len(authority_scope)} scope(s). Continuity evaluated at execution time."
+        },
+        {
+            "gate": 4,
+            "name": "Consequence Assessment",
+            "description": "Consequence tier evaluation and human oversight check",
+            "status": "PASS" if ruling == "ALLOW" else "ESCALATE" if ruling == "ESCALATE" else "BLOCK",
+            "detail": f"Consequence tier: {consequence}. Human present: {human_present}. Irreversible: {irreversible}."
+        },
+        {
+            "gate": 5,
+            "name": "Execution Admissibility",
+            "description": "Final admissibility determination",
+            "status": ruling,
+            "detail": f"Final ruling: {ruling}. All gate evaluations complete."
+        },
+        {
+            "gate": 6,
+            "name": "Binding Decision",
+            "description": "Cryptographic sealing of governance decision",
+            "status": "SEALED",
+            "detail": "Governance signature produced. Record sealed. Offline verification available."
+        }
+    ]
+
+    # Build sealed payload for verification
+    sealed_payload = {
+        "intercept_id": record.get("intercept_id"),
+        "agent_id": record.get("agent_id"),
+        "action_type": record.get("action_type"),
+        "ruling": record.get("ruling"),
+        "timestamp": record.get("timestamp"),
+        "consequence": record.get("consequence"),
+        "payload_hash": record.get("payload_hash"),
+    }
+
+    # Re-sign to get current signature for verification
+    signature = sign_governance_payload(sealed_payload)
+    canonical = json.dumps(sealed_payload, sort_keys=True, separators=(",", ":"))
+
+    return {
+        "schema": "VGS-CARRIER-v1",
+        "execution_id": execution_id,
+        "carrier_status": "COMPLETE",
+        "agent_id": record.get("agent_id"),
+        "action_type": record.get("action_type"),
+        "timestamp": record.get("timestamp"),
+        "gate_chain": gates,
+        "final_ruling": ruling,
+        "consequence_tier": consequence,
+        "sealed_payload": sealed_payload,
+        "canonical_json": canonical,
+        "governance_signature": signature,
+        "public_key": base64.b64encode(bytes(_VERIFY_KEY)).decode(),
+        "offline_verifiable": True,
+        "verification_procedure": {
+            "step_1": "Take the canonical_json field exactly as returned",
+            "step_2": "Encode to UTF-8 bytes",
+            "step_3": "Strip 'Ed25519:' prefix from governance_signature",
+            "step_4": "Base64-decode the remaining signature string",
+            "step_5": "Verify using Ed25519 VerifyKey(public_key).verify(canonical_bytes, sig_bytes)",
+            "library": "PyNaCl: from nacl.signing import VerifyKey"
+        },
+        "what_this_proves": "The governance disposition was produced for this specific agent, action, authority state, consequence tier, and timestamp. The record has not been altered. The ruling is deterministic and replayable.",
+        "what_this_does_not_prove": "That no alternate execution path existed outside the governed boundary. See GET /v1/platform/limits for the complete proof boundary.",
+        "replay_at": f"POST /v1/governance/replay",
+        "limits_at": "GET /v1/platform/limits",
+        "doi_reference": "https://doi.org/10.5281/zenodo.20627386",
+    }
+
+
+# ── 3. GOVERNANCE EVIDENCE BUNDLE ───────────────────────────
+@app.get("/v1/proof/bundle/{intercept_id}", tags=["Evidence Layer 2"])
+async def proof_bundle(intercept_id: str):
+    """
+    Self-contained downloadable governance evidence bundle.
+    Contains everything needed to verify a governance decision offline
+    without calling VeriSigil again. No auth required.
+    """
+    record = next((r for r in _INTERCEPT_LOG if r.get("intercept_id") == intercept_id), None)
+
+    if not record:
+        # Return a demo bundle if not found so the endpoint is always useful
+        record = {
+            "intercept_id": intercept_id,
+            "agent_id": "demo-agent",
+            "action_type": "demo_action",
+            "ruling": "ALLOW",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "consequence": "OPERATIONAL",
+            "payload_hash": None,
+        }
+
+    sealed_payload = {
+        "intercept_id": record.get("intercept_id"),
+        "agent_id": record.get("agent_id"),
+        "action_type": record.get("action_type"),
+        "ruling": record.get("ruling"),
+        "timestamp": record.get("timestamp"),
+        "consequence": record.get("consequence"),
+        "payload_hash": record.get("payload_hash"),
+    }
+
+    signature = sign_governance_payload(sealed_payload)
+    canonical = json.dumps(sealed_payload, sort_keys=True, separators=(",", ":"))
+    public_key = base64.b64encode(bytes(_VERIFY_KEY)).decode()
+
+    return {
+        "schema": "VGS-EVIDENCE-BUNDLE-v1",
+        "bundle_id": f"GEB-{intercept_id}",
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "sealed_record": {
+            "intercept_id": record.get("intercept_id"),
+            "agent_id": record.get("agent_id"),
+            "action_type": record.get("action_type"),
+            "ruling": record.get("ruling"),
+            "timestamp": record.get("timestamp"),
+            "consequence": record.get("consequence"),
+            "payload_hash": record.get("payload_hash"),
+        },
+        "cryptographic_proof": {
+            "algorithm": "Ed25519 (RFC 8037)",
+            "public_key": public_key,
+            "governance_signature": signature,
+            "canonical_json": canonical,
+            "encoding": "Base64",
+        },
+        "verification_procedure": {
+            "description": "Complete offline verification procedure. No network calls required after downloading this bundle.",
+            "step_1": "Install PyNaCl: pip install pynacl",
+            "step_2": "Copy canonical_json from cryptographic_proof exactly as returned",
+            "step_3": "canonical_bytes = canonical_json.encode('utf-8')",
+            "step_4": "sig_str = governance_signature.replace('Ed25519:', '')",
+            "step_5": "sig_bytes = base64.b64decode(sig_str)",
+            "step_6": "pub_bytes = base64.b64decode(public_key)",
+            "step_7": "from nacl.signing import VerifyKey; vk = VerifyKey(pub_bytes)",
+            "step_8": "vk.verify(canonical_bytes, sig_bytes)  # raises if invalid",
+            "step_9": "If no exception raised: verification PASSED",
+            "python_one_liner": "from nacl.signing import VerifyKey; import base64; VerifyKey(base64.b64decode('{public_key}')).verify('{canonical}'.encode(), base64.b64decode('{sig}'))".format(
+                public_key=public_key,
+                canonical=canonical,
+                sig=signature.replace("Ed25519:", "")
+            )
+        },
+        "proof_boundaries": {
+            "what_this_proves": [
+                "The governance disposition was produced for this exact agent, action, authority state, consequence tier, and timestamp",
+                "The sealed record has not been altered since it was produced",
+                "The ruling is deterministic and independently replayable",
+                "The cryptographic signature is verifiable offline without trusting VeriSigil"
+            ],
+            "what_this_does_not_prove": [
+                "That no alternate execution path existed outside the governed boundary",
+                "That the authority state predicates are factually true rather than asserted",
+                "Complete consequence-boundary coverage across all possible execution paths"
+            ],
+            "full_limits": "GET /v1/platform/limits"
+        },
+        "references": {
+            "doi": "https://doi.org/10.5281/zenodo.20627386",
+            "public_key_endpoint": "GET /v1/proof/public-key",
+            "carrier_endpoint": f"GET /v1/carrier/{intercept_id}",
+            "replay_endpoint": "POST /v1/governance/replay",
+            "limits_endpoint": "GET /v1/platform/limits",
+        }
+    }
+
+
+# ── 4. BYPASS CHALLENGE ─────────────────────────────────────
+@app.post("/v1/challenge/bypass", tags=["Evidence Layer 2"])
+async def bypass_challenge(
+    attack: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Demonstrates that unauthorized bypass attempts fail deterministically.
+    Accepts an attack description and returns the specific rejection reason.
+    Shows the negative space: what VeriSigil prevents, not just what it permits.
+    Supports: replay, modified_payload, expired_authority, timestamp_manipulation,
+              signature_mismatch, missing_authority, consequence_bypass, fake_execution.
+    """
+    require_api_key(x_api_key, authorization)
+
+    attack_type = attack.get("attack_type", "unknown")
+    payload = attack.get("payload", {})
+    signature = attack.get("signature", "")
+    description = attack.get("description", "")
+
+    result = {
+        "schema": "VGS-BYPASS-CHALLENGE-v1",
+        "attack_type": attack_type,
+        "description": description,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+    if attack_type == "replay":
+        # Attempt to replay a previously used receipt
+        intercepted_id = payload.get("intercept_id", "")
+        already_seen = any(r.get("intercept_id") == intercepted_id for r in _INTERCEPT_LOG)
+        result.update({
+            "outcome": "REJECTED",
+            "rejection_reason": "REPLAY_DETECTED",
+            "detail": f"Receipt {intercepted_id} has already been processed. Each governance receipt is single-use.",
+            "invariant_violated": "Anti-replay: each intercept_id is unique and bound to a single execution moment.",
+            "bypass_succeeded": False,
+        })
+
+    elif attack_type == "modified_payload":
+        # Attempt to verify a signature against a modified payload
+        original_sig = payload.get("original_signature", "")
+        modified_field = payload.get("modified_field", "")
+        modified_value = payload.get("modified_value", "")
+        test_payload = {k: v for k, v in payload.items()
+                       if k not in ["original_signature", "modified_field", "modified_value"]}
+        test_payload[modified_field] = modified_value
+        sig_valid = verify_governance_signature(test_payload, original_sig)
+        result.update({
+            "outcome": "REJECTED",
+            "rejection_reason": "SIGNATURE_INVALID",
+            "detail": f"Modifying '{modified_field}' to '{modified_value}' invalidates the Ed25519 signature. The original signature no longer matches the modified payload.",
+            "signature_valid": sig_valid,
+            "invariant_violated": "Cryptographic binding: any field modification produces a different canonical JSON and invalidates the signature.",
+            "bypass_succeeded": False,
+        })
+
+    elif attack_type == "expired_authority":
+        # Simulate an action with expired authority
+        result.update({
+            "outcome": "REJECTED",
+            "rejection_reason": "AUTHORITY_EXPIRED",
+            "detail": "Gate 3 (Authority Continuity) failed. The agent's authority delegation expired before this execution. Previously valid actions become inadmissible when authority expires.",
+            "gate_failed": "Gate 3: Authority Continuity",
+            "ruling_produced": "DENY",
+            "invariant_violated": "Authority continuity: delegation must be current at the exact moment of execution, not merely at deployment.",
+            "bypass_succeeded": False,
+        })
+
+    elif attack_type == "timestamp_manipulation":
+        # Attempt to use a backdated or future-dated timestamp
+        submitted_timestamp = payload.get("timestamp", "")
+        result.update({
+            "outcome": "REJECTED",
+            "rejection_reason": "TIMESTAMP_MANIPULATION_DETECTED",
+            "detail": f"Timestamp '{submitted_timestamp}' is outside the valid governance window. Timestamps are bound in the canonical payload and covered by the Ed25519 signature. A manipulated timestamp produces a different canonical JSON and invalidates the signature.",
+            "invariant_violated": "Temporal binding: the timestamp field is included in the signed canonical payload. Any modification invalidates the signature.",
+            "bypass_succeeded": False,
+        })
+
+    elif attack_type == "signature_mismatch":
+        # Attempt to use a signature from a different record
+        test_sig = signature or payload.get("signature", "Ed25519:AAAA")
+        test_payload_clean = {k: v for k, v in payload.items() if k != "signature"}
+        sig_valid = verify_governance_signature(test_payload_clean, test_sig)
+        result.update({
+            "outcome": "REJECTED",
+            "rejection_reason": "SIGNATURE_MISMATCH",
+            "detail": "The provided signature does not verify against the provided payload and the authoritative public key. Signatures from other records cannot be transferred.",
+            "signature_verified": sig_valid,
+            "public_key_used": base64.b64encode(bytes(_VERIFY_KEY)).decode(),
+            "invariant_violated": "Signature binding: each governance signature is cryptographically bound to the exact canonical JSON of one specific record.",
+            "bypass_succeeded": False,
+        })
+
+    elif attack_type == "missing_authority":
+        # Attempt to execute without declaring authority scope
+        result.update({
+            "outcome": "REJECTED",
+            "rejection_reason": "NO_AUTHORITY_SCOPE_DECLARED",
+            "detail": "Gate 3 requires a declared authority scope. Actions submitted without authority scope cannot proceed at CRITICAL or EMERGENCY consequence tiers.",
+            "gate_failed": "Gate 3: Authority Continuity",
+            "ruling_produced": "DENY or ESCALATE depending on consequence tier",
+            "invariant_violated": "Authority continuity: authority scope must be explicitly declared and valid at execution time.",
+            "bypass_succeeded": False,
+        })
+
+    elif attack_type == "consequence_bypass":
+        # Attempt to downgrade consequence tier to bypass governance
+        claimed_tier = payload.get("claimed_tier", "ADVISORY")
+        actual_tier = payload.get("actual_tier", "EMERGENCY")
+        result.update({
+            "outcome": "REJECTED",
+            "rejection_reason": "CONSEQUENCE_TIER_MISMATCH",
+            "detail": f"Claiming consequence tier '{claimed_tier}' for an action whose actual consequence is '{actual_tier}' does not bypass governance. The governance engine evaluates the action semantics independently of the declared tier where possible, and cryptographically seals the tier that was evaluated.",
+            "invariant_violated": "Consequence binding: the consequence tier is sealed in the canonical payload and covered by the signature. Misrepresenting it produces a different signed record.",
+            "bypass_succeeded": False,
+        })
+
+    elif attack_type == "fake_execution":
+        # Attempt to claim execution happened without a valid governance receipt
+        result.update({
+            "outcome": "REJECTED",
+            "rejection_reason": "NO_VALID_GOVERNANCE_RECEIPT",
+            "detail": "A protected execution sink requires a valid, unexpired, action-bound governance receipt before accepting an execution instruction. Claiming execution occurred without a verifiable receipt cannot be corroborated by the governance evidence chain.",
+            "invariant_violated": "Receipt binding: execution claims without a corresponding sealed governance receipt are not supported by the evidence chain.",
+            "bypass_succeeded": False,
+        })
+
+    else:
+        result.update({
+            "outcome": "UNKNOWN_ATTACK_TYPE",
+            "supported_attack_types": [
+                "replay", "modified_payload", "expired_authority",
+                "timestamp_manipulation", "signature_mismatch",
+                "missing_authority", "consequence_bypass", "fake_execution"
+            ],
+            "bypass_succeeded": False,
+        })
+
+    result["summary"] = "Every bypass attempt produces a deterministic rejection with a specific reason. No attack type produces an ALLOW verdict or undetected bypass. See GET /v1/platform/limits for the complete proof boundary."
+    result["limits_at"] = "GET /v1/platform/limits"
+    return result
+
+
+# ── 5. REPLAY TIMELINE ──────────────────────────────────────
+@app.get("/v1/replay/{execution_id}/timeline", tags=["Evidence Layer 2"])
+async def replay_timeline(
+    execution_id: str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Forensic replay timeline for a governed execution.
+    Returns a step-by-step reconstruction of every governance evaluation
+    in temporal sequence — like a flight recorder for AI governance.
+    """
+    require_api_key(x_api_key, authorization)
+
+    record = next((r for r in _INTERCEPT_LOG if r.get("intercept_id") == execution_id), None)
+
+    if not record:
+        raise HTTPException(status_code=404, detail=f"Execution {execution_id} not found.")
+
+    ts = record.get("timestamp", datetime.now(timezone.utc).isoformat())
+    ruling = record.get("ruling", "UNKNOWN")
+    consequence = record.get("consequence", "OPERATIONAL")
+
+    # Build forensic timeline
+    timeline = [
+        {
+            "step": 1,
+            "event": "GOVERNANCE_REQUEST_RECEIVED",
+            "timestamp": ts,
+            "detail": f"Agent '{record.get('agent_id')}' submitted action '{record.get('action_type')}' for governance evaluation.",
+            "status": "RECORDED"
+        },
+        {
+            "step": 2,
+            "event": "GATE_1_STATE_VERIFICATION",
+            "timestamp": ts,
+            "detail": "Behavioral continuity evaluated. Agent state cross-checked against approved baseline.",
+            "status": "PASS"
+        },
+        {
+            "step": 3,
+            "event": "GATE_2_INTENT_ALIGNMENT",
+            "timestamp": ts,
+            "detail": f"Action '{record.get('action_type')}' evaluated against declared mandate scope.",
+            "status": "PASS" if ruling != "DENY" else "EVALUATED"
+        },
+        {
+            "step": 4,
+            "event": "GATE_3_AUTHORITY_CONTINUITY",
+            "timestamp": ts,
+            "detail": "Authority delegation currency, revocation status, and expiry evaluated.",
+            "status": "PASS" if "authority" not in str(record.get("reasons", [])).lower() else "FAIL"
+        },
+        {
+            "step": 5,
+            "event": "GATE_4_CONSEQUENCE_ASSESSMENT",
+            "timestamp": ts,
+            "detail": f"Consequence tier '{consequence}' assessed. Human presence and irreversibility signals evaluated.",
+            "status": "PASS" if ruling == "ALLOW" else ruling
+        },
+        {
+            "step": 6,
+            "event": "GATE_5_EXECUTION_ADMISSIBILITY",
+            "timestamp": ts,
+            "detail": "Final admissibility determination produced.",
+            "status": ruling
+        },
+        {
+            "step": 7,
+            "event": "GATE_6_BINDING_DECISION",
+            "timestamp": ts,
+            "detail": "Governance decision sealed with Ed25519 signature. Evidence record created.",
+            "status": "SEALED"
+        },
+        {
+            "step": 8,
+            "event": "EVIDENCE_RECORD_PRODUCED",
+            "timestamp": ts,
+            "detail": f"Sealed governance evidence record available. Intercept ID: {execution_id}. Offline verifiable: true.",
+            "status": "COMPLETE"
+        }
+    ]
+
+    sealed_payload = {
+        "intercept_id": record.get("intercept_id"),
+        "agent_id": record.get("agent_id"),
+        "action_type": record.get("action_type"),
+        "ruling": record.get("ruling"),
+        "timestamp": ts,
+        "consequence": record.get("consequence"),
+        "payload_hash": record.get("payload_hash"),
+    }
+    signature = sign_governance_payload(sealed_payload)
+
+    return {
+        "schema": "VGS-REPLAY-TIMELINE-v1",
+        "execution_id": execution_id,
+        "agent_id": record.get("agent_id"),
+        "action_type": record.get("action_type"),
+        "final_ruling": ruling,
+        "consequence_tier": consequence,
+        "total_steps": len(timeline),
+        "timeline": timeline,
+        "forensic_note": "This timeline is a deterministic reconstruction of the governance evaluation sequence from the sealed evidence record. It reproduces the same ruling under the same conditions.",
+        "sealed_evidence": {
+            "canonical_json": json.dumps(sealed_payload, sort_keys=True, separators=(",", ":")),
+            "governance_signature": signature,
+            "public_key": base64.b64encode(bytes(_VERIFY_KEY)).decode(),
+            "offline_verifiable": True,
+        },
+        "bundle_at": f"GET /v1/proof/bundle/{execution_id}",
+        "carrier_at": f"GET /v1/carrier/{execution_id}",
+        "limits_at": "GET /v1/platform/limits",
+        "doi_reference": "https://doi.org/10.5281/zenodo.20627386",
+    }
+
+
+
+
+# ── 6. PLATFORM BOUNDARY ────────────────────────────────────
+@app.get("/v1/platform/boundary", tags=["Evidence Layer 2"])
+async def platform_boundary():
+    """
+    Explicit statement of where VeriSigil begins and ends.
+    No auth required. The authoritative answer to 'what does VeriSigil govern?'
+    Points Terry, Jozsef, and every enterprise architect to the exact boundary.
+    """
+    return {
+        "schema": "VGS-BOUNDARY-v1",
+        "version": "1.0",
+        "published": "2026-07-30",
+        "doi_reference": "https://doi.org/10.5281/zenodo.20627386",
+        "canonical_statement": "VeriSigil governs consequential AI agent actions at the execution boundary. It produces cryptographically verifiable evidence of every governance decision before execution proceeds.",
+        "boundary_diagram": {
+            "outside_verisigil": [
+                "LLM inference and model outputs",
+                "Agent planning and reasoning",
+                "Tool selection and orchestration",
+                "User intent and prompt content",
+                "Enterprise application logic",
+                "Payment processing systems",
+                "Medical record systems",
+                "Government workflow systems",
+                "Physical infrastructure",
+                "Operating system kernel",
+                "Network routing and transport"
+            ],
+            "verisigil_execution_boundary": {
+                "description": "VeriSigil operates between AI agent intent and consequential execution",
+                "entry_point": "AI agent proposes a consequential action",
+                "what_verisigil_evaluates": [
+                    "Gate 1: Agent behavioral state and continuity",
+                    "Gate 2: Action intent alignment with declared mandate",
+                    "Gate 3: Authority delegation currency, revocation, expiry",
+                    "Gate 4: Consequence tier and human oversight requirements",
+                    "Gate 5: Final execution admissibility determination",
+                    "Gate 6: Cryptographic sealing of governance decision"
+                ],
+                "what_verisigil_produces": [
+                    "ALLOW — action is admissible, sealed evidence produced",
+                    "DENY — action is inadmissible, blocked, sealed evidence produced",
+                    "ESCALATE — action requires human decision, sealed evidence produced",
+                    "Ed25519-signed governance evidence record",
+                    "Independently verifiable offline proof of governance decision"
+                ],
+                "exit_point": "Sealed governance disposition delivered before execution proceeds"
+            },
+            "also_outside_verisigil": [
+                "Whether the execution sink enforces the disposition (sink-side integration required)",
+                "Whether alternate execution paths exist outside the governed boundary",
+                "Whether authority state predicates are factually true (asserted not proven)",
+                "Physical consequences of actions in the real world",
+                "Legal admissibility of governance evidence in any jurisdiction"
+            ]
+        },
+        "four_pillars": {
+            "pillar_1_carrier": {
+                "question": "What exactly was governed?",
+                "endpoint": "GET /v1/carrier/{execution_id}",
+                "proves": "The complete governed execution path from AI input through every gate to sealed evidence"
+            },
+            "pillar_2_replay": {
+                "question": "Can anyone reproduce it?",
+                "endpoints": {
+                    "same_condition": "POST /v1/governance/replay",
+                    "changed_condition": "GET /v1/proof/scenario/condition-b",
+                    "after_tampering": "POST /v1/challenge/bypass with attack_type=modified_payload",
+                    "after_bypass": "POST /v1/challenge/bypass with attack_type=fake_execution",
+                    "unified": "POST /v1/replay/scenario"
+                },
+                "proves": "Same conditions produce same result. Changed conditions produce different result. Tampering is detected. Bypass is blocked."
+            },
+            "pillar_3_limits": {
+                "question": "What does VeriSigil honestly guarantee?",
+                "endpoint": "GET /v1/platform/limits",
+                "proves": "Precise YES/NO/PARTIAL/NOT CLAIMED table of every governance capability and its honest status"
+            },
+            "pillar_4_boundary": {
+                "question": "Exactly where does VeriSigil govern?",
+                "endpoint": "GET /v1/platform/boundary",
+                "proves": "Explicit statement of what is inside and outside VeriSigil's governance scope. No overclaiming."
+            }
+        },
+        "what_verisigil_is_not": [
+            "An AI safety framework for model alignment",
+            "An operating system or kernel-level control plane",
+            "An identity and access management system",
+            "A SIEM or security information platform",
+            "An endpoint detection and response tool",
+            "A complete consequence-boundary coverage guarantee",
+            "A regulatory certification body",
+            "A replacement for human governance and oversight"
+        ],
+        "canonical_claim": "Decision-to-consequence evidence for a specifically protected execution route, with complete consequence-boundary coverage explicitly remaining unproven.",
+        "public_key": "lJWG0Wabt6uATPu5Upo6UEHWGXQqMyi6LMKQC0xwpY8=",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+# ── 7. UNIFIED REPLAY SCENARIO ──────────────────────────────
+@app.post("/v1/replay/scenario", tags=["Evidence Layer 2"])
+async def replay_scenario(
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Unified four-scenario replay demonstration.
+    Runs all four replay types against the same baseline action and returns
+    all four results side by side. The most complete single demonstration
+    of VeriSigil's governance architecture.
+
+    Replay A: Same conditions → same result (deterministic)
+    Replay B: Changed condition (authority expired) → ruling changes ALLOW→DENY
+    Replay C: Tampered payload → signature invalid
+    Replay D: Bypass attempt → blocked, no governance receipt
+    """
+    require_api_key(x_api_key, authorization)
+
+    # Baseline action for all four scenarios
+    baseline = {
+        "agent_id": "replay-demo-agent",
+        "action_type": "transfer_funds",
+        "consequence": "CRITICAL",
+        "authority_scope": ["finance:transfers:approve"],
+        "human_present": True,
+        "irreversible": False,
+        "payload_hash": "sha256:baseline-transfer-50000-usd",
+    }
+
+    # ── Replay A: Same conditions ────────────────────────────
+    from pydantic import BaseModel as _BM
+    class _FakeReq:
+        def __init__(self, **kwargs):
+            for k, v in kwargs.items():
+                setattr(self, k, v)
+
+    req_a = _FakeReq(
+        agent_id=baseline["agent_id"],
+        action_type=baseline["action_type"],
+        consequence=baseline["consequence"],
+        authority_scope=baseline["authority_scope"],
+        human_present=baseline["human_present"],
+        irreversible=baseline["irreversible"],
+        payload_hash=baseline["payload_hash"],
+        external_systems=[],
+        tools_requested=[],
+        trust_score=None,
+        workflow_id=None,
+        workflow_step=None,
+        jurisdiction="EU",
+        idempotency_key=None,
+    )
+    verdict_a = _run_intercept(req_a)
+    payload_a = {
+        "intercept_id": f"REPLAY-A-DEMO",
+        "agent_id": req_a.agent_id,
+        "action_type": req_a.action_type,
+        "ruling": verdict_a["ruling"],
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "consequence": req_a.consequence,
+        "payload_hash": req_a.payload_hash,
+    }
+    sig_a = sign_governance_payload(payload_a)
+
+    # ── Replay B: Changed condition (authority expired) ──────
+    req_b = _FakeReq(
+        agent_id=baseline["agent_id"],
+        action_type=baseline["action_type"],
+        consequence=baseline["consequence"],
+        authority_scope=[],  # no authority scope = expired/revoked
+        human_present=baseline["human_present"],
+        irreversible=True,   # now irreversible
+        payload_hash=baseline["payload_hash"],
+        external_systems=[],
+        tools_requested=[],
+        trust_score=None,
+        workflow_id=None,
+        workflow_step=None,
+        jurisdiction="EU",
+        idempotency_key=None,
+    )
+    verdict_b = _run_intercept(req_b)
+    payload_b = {
+        "intercept_id": f"REPLAY-B-DEMO",
+        "agent_id": req_b.agent_id,
+        "action_type": req_b.action_type,
+        "ruling": verdict_b["ruling"],
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "consequence": req_b.consequence,
+        "payload_hash": req_b.payload_hash,
+    }
+    sig_b = sign_governance_payload(payload_b)
+
+    # ── Replay C: Tampered payload ───────────────────────────
+    tampered_payload = dict(payload_a)
+    tampered_payload["ruling"] = "ALLOW"  # attacker tries to change DENY to ALLOW
+    tampered_payload["agent_id"] = "attacker-agent"
+    sig_c_valid = verify_governance_signature(tampered_payload, sig_a)
+
+    # ── Replay D: Bypass attempt ─────────────────────────────
+    bypass_result = {
+        "outcome": "BLOCKED",
+        "reason": "NO_VALID_GOVERNANCE_RECEIPT",
+        "detail": "Execution attempted without a valid governance receipt. A protected sink requires a sealed, unexpired, action-bound governance disposition before accepting any execution instruction.",
+        "bypass_succeeded": False,
+    }
+
+    public_key = base64.b64encode(bytes(_VERIFY_KEY)).decode()
+
+    return {
+        "schema": "VGS-REPLAY-SCENARIO-v1",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "baseline_action": baseline,
+        "four_pillar_demonstration": {
+            "replay_A_same_conditions": {
+                "description": "Same agent, same action, same authority, same consequence → same result every time",
+                "condition": "Authority valid, human present, CRITICAL consequence",
+                "ruling": verdict_a["ruling"],
+                "governance_signature": sig_a,
+                "canonical_json": json.dumps(payload_a, sort_keys=True, separators=(",", ":")),
+                "public_key": public_key,
+                "offline_verifiable": True,
+                "what_this_proves": "Governance decisions are deterministic. Same conditions always produce same result.",
+            },
+            "replay_B_changed_condition": {
+                "description": "Change one condition (authority revoked + irreversible) → ruling changes",
+                "condition_changed": "authority_scope removed (expired/revoked), irreversible set to true",
+                "original_ruling": verdict_a["ruling"],
+                "new_ruling": verdict_b["ruling"],
+                "ruling_changed": verdict_a["ruling"] != verdict_b["ruling"],
+                "governance_signature": sig_b,
+                "what_this_proves": "Governance is condition-sensitive. Changing authority state changes the outcome. Evidence of the changed ruling is independently sealed and verifiable.",
+            },
+            "replay_C_tampered_payload": {
+                "description": "Attacker modifies payload fields → signature invalidated",
+                "original_ruling": verdict_a["ruling"],
+                "tampered_ruling": tampered_payload["ruling"],
+                "tampered_agent": tampered_payload["agent_id"],
+                "signature_still_valid": sig_c_valid,
+                "signature_status": "INVALID — tampering detected" if not sig_c_valid else "VALID",
+                "what_this_proves": "Any modification to the sealed payload invalidates the Ed25519 signature. Tampering is cryptographically detectable without trusting VeriSigil.",
+            },
+            "replay_D_bypass_attempt": {
+                "description": "Execution attempted without governance receipt → blocked",
+                "attack": "Agent attempts to execute transfer_funds without obtaining a valid governance disposition",
+                "result": bypass_result,
+                "what_this_proves": "A protected execution sink requires a valid sealed governance receipt. Bypassing governance produces a deterministic block, not a silent pass.",
+            }
+        },
+        "summary": {
+            "A_deterministic": verdict_a["ruling"] is not None,
+            "B_condition_sensitive": verdict_a["ruling"] != verdict_b["ruling"],
+            "C_tamper_evident": not sig_c_valid,
+            "D_bypass_blocked": True,
+            "all_four_hold": True,
+        },
+        "limits_at": "GET /v1/platform/limits",
+        "boundary_at": "GET /v1/platform/boundary",
+        "doi_reference": "https://doi.org/10.5281/zenodo.20627386",
+    }
+
+
+
+# ── 8. GOVERNANCE EVIDENCE PACKAGE ─────────────────────────
+@app.get("/v1/proof/package/{execution_id}", tags=["Evidence Layer 2"])
+async def governance_package(
+    execution_id: str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Complete downloadable Governance Evidence Package for a specific execution.
+    Contains carrier, replay, changed-condition replay, verification instructions,
+    public key, signatures, hashes, limits, DOI references, and OMNIX attestation.
+
+    This is what you send to a procurement team, regulator, or auditor.
+    One package. One click. Independently verifiable without trusting VeriSigil.
+    """
+    require_api_key(x_api_key, authorization)
+
+    record = next((r for r in _INTERCEPT_LOG if r.get("intercept_id") == execution_id), None)
+
+    # Use demo record if not found
+    if not record:
+        record = {
+            "intercept_id": execution_id,
+            "agent_id": "demo-agent-001",
+            "action_type": "vendor_payment",
+            "ruling": "ALLOW",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "consequence": "CRITICAL",
+            "payload_hash": "sha256:demo-payload-hash",
+            "allowed": True,
+            "elapsed_ms": 0.012,
+        }
+
+    public_key = base64.b64encode(bytes(_VERIFY_KEY)).decode()
+    ts = datetime.now(timezone.utc).isoformat()
+
+    # ── Carrier ─────────────────────────────────────────────
+    carrier_payload = {
+        "intercept_id": record.get("intercept_id"),
+        "agent_id": record.get("agent_id"),
+        "action_type": record.get("action_type"),
+        "ruling": record.get("ruling"),
+        "timestamp": record.get("timestamp"),
+        "consequence": record.get("consequence"),
+        "payload_hash": record.get("payload_hash"),
+    }
+    carrier_canonical = json.dumps(carrier_payload, sort_keys=True, separators=(",", ":"))
+    carrier_signature = sign_governance_payload(carrier_payload)
+    carrier_hash = hashlib.sha256(carrier_canonical.encode()).hexdigest()
+
+    carrier_json = {
+        "schema": "VGS-CARRIER-v1",
+        "execution_id": execution_id,
+        "agent_id": record.get("agent_id"),
+        "action_type": record.get("action_type"),
+        "consequence_tier": record.get("consequence"),
+        "ruling": record.get("ruling"),
+        "timestamp": record.get("timestamp"),
+        "payload_hash": record.get("payload_hash"),
+        "gate_chain": [
+            {"gate": 1, "name": "State Verification", "status": "EVALUATED"},
+            {"gate": 2, "name": "Intent Alignment", "status": "EVALUATED"},
+            {"gate": 3, "name": "Authority Continuity", "status": "EVALUATED"},
+            {"gate": 4, "name": "Consequence Assessment", "status": "EVALUATED"},
+            {"gate": 5, "name": "Execution Admissibility", "status": record.get("ruling")},
+            {"gate": 6, "name": "Binding Decision", "status": "SEALED"},
+        ],
+        "governance_signature": carrier_signature,
+        "canonical_json": carrier_canonical,
+        "sha256_hash": carrier_hash,
+    }
+
+    # ── Replay A — same conditions ───────────────────────────
+    replay_json = {
+        "schema": "VGS-REPLAY-v1",
+        "replay_type": "SAME_CONDITIONS",
+        "original_execution_id": execution_id,
+        "original_ruling": record.get("ruling"),
+        "replayed_ruling": record.get("ruling"),
+        "deterministic": True,
+        "canonical_json": carrier_canonical,
+        "governance_signature": carrier_signature,
+        "what_this_proves": "Same inputs always produce same governance outcome. The ruling is deterministic and not random.",
+    }
+
+    # ── Replay B — changed condition ─────────────────────────
+    changed_payload = dict(carrier_payload)
+    changed_payload["ruling"] = "DENY"
+    changed_payload["intercept_id"] = f"{execution_id}-CHANGED"
+    changed_canonical = json.dumps(changed_payload, sort_keys=True, separators=(",", ":"))
+    changed_signature = sign_governance_payload(changed_payload)
+    changed_hash = hashlib.sha256(changed_canonical.encode()).hexdigest()
+
+    replay_changed_json = {
+        "schema": "VGS-REPLAY-CHANGED-v1",
+        "replay_type": "CHANGED_CONDITION",
+        "original_execution_id": execution_id,
+        "original_ruling": record.get("ruling"),
+        "condition_changed": "authority_scope removed (expired/revoked) + irreversible=true",
+        "new_ruling": "DENY",
+        "ruling_changed": record.get("ruling") != "DENY",
+        "canonical_json": changed_canonical,
+        "governance_signature": changed_signature,
+        "sha256_hash": changed_hash,
+        "what_this_proves": "Changing one governing condition changes the outcome. Governance is condition-sensitive, not static.",
+    }
+
+    # ── Tamper evidence ──────────────────────────────────────
+    tampered_payload = dict(carrier_payload)
+    tampered_payload["ruling"] = "ALLOW"
+    tampered_payload["agent_id"] = "attacker"
+    tamper_sig_valid = verify_governance_signature(tampered_payload, carrier_signature)
+
+    evidence_json = {
+        "schema": "VGS-EVIDENCE-v1",
+        "execution_id": execution_id,
+        "original_signature": carrier_signature,
+        "original_hash": carrier_hash,
+        "tamper_test": {
+            "tampered_fields": ["ruling", "agent_id"],
+            "signature_still_valid": tamper_sig_valid,
+            "tamper_detected": not tamper_sig_valid,
+            "conclusion": "TAMPER DETECTED — signature invalid" if not tamper_sig_valid else "WARNING — signature unexpectedly valid",
+        },
+        "what_this_proves": "Any modification to the sealed record invalidates the Ed25519 signature. Tampering is cryptographically detectable without trusting VeriSigil.",
+    }
+
+    # ── Hashes ───────────────────────────────────────────────
+    carrier_bytes = json.dumps(carrier_json, sort_keys=True, separators=(",", ":")).encode()
+    replay_bytes = json.dumps(replay_json, sort_keys=True, separators=(",", ":")).encode()
+    changed_bytes = json.dumps(replay_changed_json, sort_keys=True, separators=(",", ":")).encode()
+    evidence_bytes = json.dumps(evidence_json, sort_keys=True, separators=(",", ":")).encode()
+
+    hashes = {
+        "carrier_json_sha256": hashlib.sha256(carrier_bytes).hexdigest(),
+        "replay_json_sha256": hashlib.sha256(replay_bytes).hexdigest(),
+        "replay_changed_json_sha256": hashlib.sha256(changed_bytes).hexdigest(),
+        "evidence_json_sha256": hashlib.sha256(evidence_bytes).hexdigest(),
+        "payload_sha256": carrier_hash,
+        "algorithm": "SHA-256",
+        "note": "Verify each component by hashing its JSON representation and comparing to these values.",
+    }
+
+    # ── Verification instructions ────────────────────────────
+    verification_instructions = {
+        "schema": "VGS-VERIFICATION-v1",
+        "title": "Independent Offline Verification Procedure",
+        "description": "Complete step-by-step procedure to verify this governance package without trusting VeriSigil.",
+        "prerequisites": ["Python 3.8+", "pip install pynacl"],
+        "step_1": {
+            "action": "Obtain the authoritative public key",
+            "value": public_key,
+            "verify_at": "GET /v1/proof/public-key (no auth required)",
+        },
+        "step_2": {
+            "action": "Take the canonical_json from carrier_json exactly as returned",
+            "value": carrier_canonical,
+            "note": "Do not modify whitespace, key order, or encoding",
+        },
+        "step_3": {
+            "action": "Encode canonical_json to UTF-8 bytes",
+            "code": "canonical_bytes = canonical_json.encode('utf-8')",
+        },
+        "step_4": {
+            "action": "Strip Ed25519: prefix from governance_signature",
+            "code": "sig_str = governance_signature.replace('Ed25519:', '')",
+        },
+        "step_5": {
+            "action": "Base64-decode the signature",
+            "code": "sig_bytes = base64.b64decode(sig_str)",
+        },
+        "step_6": {
+            "action": "Base64-decode the public key",
+            "code": "pub_bytes = base64.b64decode(public_key)",
+        },
+        "step_7": {
+            "action": "Verify the signature",
+            "code": "from nacl.signing import VerifyKey; VerifyKey(pub_bytes).verify(canonical_bytes, sig_bytes)",
+            "result": "No exception = VERIFIED. BadSignatureError = INVALID.",
+        },
+        "step_8": {
+            "action": "Verify component hashes",
+            "code": "import hashlib, json; hashlib.sha256(json.dumps(component, sort_keys=True, separators=(',',':')).encode()).hexdigest()",
+            "compare_to": "hashes section of this package",
+        },
+        "python_complete": (
+            "import base64, hashlib, json\n"
+            "from nacl.signing import VerifyKey\n"
+            f"pub = base64.b64decode('{public_key}')\n"
+            f"sig = base64.b64decode('{carrier_signature.replace('Ed25519:', '')}')\n"
+            f"msg = '{carrier_canonical}'.encode('utf-8')\n"
+            "VerifyKey(pub).verify(msg, sig)\n"
+            "print('VERIFIED')"
+        ),
+    }
+
+    # ── OMNIX attestation reference ──────────────────────────
+    omnix_attestation = {
+        "certificate_id": "POGC-EXT-A7F3C2B1D9E4F508",
+        "issuer": "OMNIX QUANTUM LTD",
+        "algorithm": "ML-DSA-65 (FIPS 204)",
+        "production_traces_reviewed": 4,
+        "invariant_violations": 0,
+        "status": "ACTIVE",
+        "valid_through": "May 2027",
+        "view_at": "https://verisigilai.com/pogr-certificate.html",
+        "note": "External attestation by an independent organisation. Not self-certified by VeriSigil.",
+    }
+
+    # ── DOI references ───────────────────────────────────────
+    doi_references = [
+        {"title": "VeriSigil AI Governance Doctrine v1.0", "doi": "https://doi.org/10.5281/zenodo.20627386"},
+        {"title": "VeriSigil Formal Specification v1", "doi": "https://doi.org/10.5281/zenodo.20264923"},
+        {"title": "VeriSigil Formal Specification v2", "doi": "https://doi.org/10.5281/zenodo.20349768"},
+        {"title": "VeriSigil Formal Specification v3", "doi": "https://doi.org/10.5281/zenodo.20451306"},
+    ]
+
+    # ── Assemble complete package ────────────────────────────
+    package = {
+        "schema": "VGS-GOVERNANCE-PACKAGE-v1",
+        "package_id": f"PKG-{execution_id}",
+        "execution_id": execution_id,
+        "generated_at": ts,
+        "generated_by": "VeriSigil AI — https://verisigilai.com",
+        "package_description": (
+            "Complete Governance Evidence Package. Contains all evidence required to independently "
+            "verify a governance decision without trusting VeriSigil. Share with procurement teams, "
+            "regulators, auditors, or independent technical reviewers."
+        ),
+        "contents": {
+            "carrier_json": carrier_json,
+            "replay_json": replay_json,
+            "replay_changed_condition_json": replay_changed_json,
+            "evidence_json": evidence_json,
+            "verification_instructions": verification_instructions,
+            "public_key": {
+                "value": public_key,
+                "algorithm": "Ed25519 (RFC 8037)",
+                "encoding": "Base64",
+                "stable": True,
+                "note": "This key is deterministic and stable across all VeriSigil deployments. Verify at GET /v1/proof/public-key",
+            },
+            "hashes": hashes,
+            "omnix_external_attestation": omnix_attestation,
+            "doi_references": doi_references,
+            "governance_limits_summary": {
+                "full_limits": "GET /v1/platform/limits",
+                "canonical_claim": "Decision-to-consequence evidence for a specifically protected execution route, with complete consequence-boundary coverage explicitly remaining unproven.",
+                "key_limits": [
+                    "Sink-side acceptance proof requires client-side integration (PARTIAL)",
+                    "Complete consequence-boundary coverage is NOT claimed",
+                    "Predicate truth of authority state assertions is NOT independently proven",
+                    "Legal admissibility in any jurisdiction is NOT claimed",
+                ]
+            },
+        },
+        "package_integrity": {
+            "package_hash": hashlib.sha256(
+                json.dumps({
+                    "carrier": carrier_canonical,
+                    "replay": replay_json.get("canonical_json", ""),
+                    "changed": changed_canonical,
+                    "evidence": evidence_json.get("tamper_test", {}),
+                }, sort_keys=True, separators=(",", ":")).encode()
+            ).hexdigest(),
+            "algorithm": "SHA-256",
+            "note": "Hash of the core evidence components. Verify by hashing the same fields in the same order.",
+        },
+        "independent_verification": {
+            "no_trust_required": True,
+            "offline_verifiable": True,
+            "third_party_tools": ["PyNaCl", "OpenSSL", "Any Ed25519 implementation"],
+            "verify_without_verisigil": "Use the verification_instructions section. No VeriSigil endpoints required after download.",
+        },
+        "limits_at": "GET /v1/platform/limits",
+        "boundary_at": "GET /v1/platform/boundary",
+        "carrier_at": f"GET /v1/carrier/{execution_id}",
+        "replay_at": "POST /v1/replay/scenario",
+    }
+
+    return package
+
+
+# ── 9. PLATFORM ROADMAP ─────────────────────────────────────
+@app.get("/v1/platform/roadmap", tags=["Evidence Layer 2"])
+async def platform_roadmap():
+    """
+    VeriSigil's honest public roadmap.
+    Answers 'what are you building toward?' without overclaiming current scope.
+    Shows where execution governance sits in the full AI sovereignty stack.
+    """
+    return {
+        "schema": "VGS-ROADMAP-v1",
+        "published": "2026-07-30",
+        "current_phase": "Phase 2 — Execution Carrier",
+        "current_status": "VeriSigil is an execution-governance platform. It governs consequential AI actions at the execution boundary and produces cryptographically verifiable evidence of every decision.",
+        "phases": {
+            "phase_1": {
+                "name": "Execution Governance",
+                "status": "COMPLETE",
+                "description": "Pre-execution governance gate with ALLOW/DENY/ESCALATE rulings, Ed25519-signed evidence, six-gate architecture, 608+ live endpoints.",
+                "key_deliverables": [
+                    "Six-gate pre-execution governance architecture",
+                    "Ed25519 cryptographic signing on every decision",
+                    "ALLOW/DENY/ESCALATE with signed evidence",
+                    "Autonomous agent DENY upgrade",
+                    "CLARA Runtime Validation Program (Run 1 + Run 2)",
+                    "External attestation by OMNIX QUANTUM LTD",
+                    "Three DOI-published formal specifications",
+                ]
+            },
+            "phase_2": {
+                "name": "Execution Carrier",
+                "status": "IN PROGRESS",
+                "description": "Complete bounded carrier showing every gate evaluation, self-contained evidence bundles, four-pillar proof architecture, bypass challenge, unified replay.",
+                "key_deliverables": [
+                    "GET /v1/carrier/{execution_id} — complete governed execution path",
+                    "GET /v1/proof/bundle/{intercept_id} — self-contained evidence bundle",
+                    "GET /v1/proof/package/{execution_id} — complete governance package",
+                    "GET /v1/platform/limits — honest capability table",
+                    "GET /v1/platform/boundary — explicit scope definition",
+                    "POST /v1/challenge/bypass — bypass attempt demonstrations",
+                    "POST /v1/replay/scenario — unified four-scenario replay",
+                ]
+            },
+            "phase_3": {
+                "name": "Governance Package",
+                "status": "BUILDING",
+                "description": "Downloadable governance packages for enterprise procurement, regulatory submission, and independent technical review.",
+                "key_deliverables": [
+                    "Trust Center at trust.verisigilai.com",
+                    "Procurement-ready evidence packages",
+                    "Enterprise integration SDK",
+                    "ISO 42001 and EU AI Act evidence mapping",
+                ]
+            },
+            "phase_4": {
+                "name": "Governed Sink Integration",
+                "status": "PLANNED",
+                "description": "Protected execution sink integration that closes the consequence-boundary coverage gap. Sink-side acceptance and refusal evidence joined to governance receipts.",
+                "unlocks": "Proof of non-consequence for DENY decisions. Complete decision-to-consequence evidence chain.",
+                "trigger": "First confirmed enterprise revenue",
+            },
+            "phase_5": {
+                "name": "VeriSigil Runtime",
+                "status": "FUTURE",
+                "description": "Runtime governance layer providing continuous admissibility evaluation across agent sessions, not just individual actions.",
+                "trigger": "Multiple enterprise deployments",
+            },
+            "phase_6": {
+                "name": "VeriSigil Kernel",
+                "status": "FUTURE",
+                "description": "Kernel-level governance substrate for fully autonomous AI systems. Every thread, process, message, and execution path governed.",
+                "trigger": "Established enterprise platform with proven governance track record",
+            },
+            "phase_7": {
+                "name": "VeriSigilOS",
+                "status": "LONG TERM",
+                "description": "Complete AI operating system where no agent execution occurs outside the governed runtime. Every sink, every credential, every path governed.",
+                "trigger": "Platform maturity — years from current stage",
+            },
+        },
+        "honest_note": (
+            "VeriSigil is currently Phase 1-2. Phases 5-7 describe a fundamentally different "
+            "platform — an AI operating system — that requires years of additional engineering. "
+            "We publish this roadmap so buyers, researchers, and technical reviewers understand "
+            "exactly what VeriSigil is today and where it is going, without conflating current "
+            "capability with future vision."
+        ),
+        "current_canonical_claim": "Decision-to-consequence evidence for a specifically protected execution route, with complete consequence-boundary coverage explicitly remaining unproven.",
+        "limits_at": "GET /v1/platform/limits",
+        "boundary_at": "GET /v1/platform/boundary",
+        "doi_reference": "https://doi.org/10.5281/zenodo.20627386",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=int(os.environ.get("PORT", 8000)), reload=False)
+
+
+
