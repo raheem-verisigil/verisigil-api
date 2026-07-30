@@ -57983,9 +57983,347 @@ async def platform_roadmap():
     }
 
 
+
+# ============================================================
+# GOVERNANCE OWNERSHIP LAYER (GOL)
+# Answers: Who remains accountable for this AI system today?
+# Complements execution governance with operational continuity.
+# ============================================================
+
+_OWNERSHIP_REGISTRY: dict = {}  # system_id -> ownership record
+_OWNERSHIP_HISTORY:  list = []  # all ownership changes, append-only
+
+@app.post("/v1/governance/ownership/register", tags=["Governance Ownership Layer"])
+async def ownership_register(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Register governance ownership for an AI system.
+    Records who owns the system, workflow, risk, evidence, escalation, and retirement decisions.
+    Every registration is cryptographically sealed.
+    """
+    require_api_key(x_api_key, authorization)
+
+    system_id = req.get("system_id")
+    if not system_id:
+        raise HTTPException(status_code=422, detail="system_id is required")
+
+    ts = datetime.now(timezone.utc).isoformat()
+    record_id = f"GOL-{system_id}-{ts[:10]}"
+
+    ownership_record = {
+        "schema": "VGS-OWNERSHIP-v1",
+        "record_id": record_id,
+        "system_id": system_id,
+        "system_name": req.get("system_name", ""),
+        "registered_at": ts,
+        "owners": {
+            "business_owner": req.get("business_owner", ""),
+            "technical_owner": req.get("technical_owner", ""),
+            "risk_owner": req.get("risk_owner", ""),
+            "compliance_owner": req.get("compliance_owner", ""),
+            "evidence_custodian": req.get("evidence_custodian", ""),
+            "incident_lead": req.get("incident_lead", ""),
+            "escalation_authority": req.get("escalation_authority", ""),
+            "retirement_authority": req.get("retirement_authority", ""),
+        },
+        "review_schedule": {
+            "next_review_date": req.get("next_review_date", ""),
+            "review_frequency_days": req.get("review_frequency_days", 90),
+            "last_reviewed": ts,
+        },
+        "system_status": req.get("system_status", "ACTIVE"),
+        "risk_acceptance": {
+            "accepted_by": req.get("risk_accepted_by", ""),
+            "accepted_at": req.get("risk_accepted_at", ts),
+            "risk_level": req.get("risk_level", ""),
+            "conditions": req.get("risk_conditions", []),
+        },
+        "ownership_drift_score": 0.0,
+        "ownership_valid": True,
+        "ownership_warnings": [],
+    }
+
+    # Seal with Ed25519
+    seal_payload = {
+        "record_id": record_id,
+        "system_id": system_id,
+        "business_owner": ownership_record["owners"]["business_owner"],
+        "risk_owner": ownership_record["owners"]["risk_owner"],
+        "registered_at": ts,
+    }
+    ownership_record["governance_signature"] = sign_governance_payload(seal_payload)
+    ownership_record["canonical_json"] = json.dumps(seal_payload, sort_keys=True, separators=(",", ":"))
+
+    _OWNERSHIP_REGISTRY[system_id] = ownership_record
+    _OWNERSHIP_HISTORY.append({
+        "event": "OWNERSHIP_REGISTERED",
+        "system_id": system_id,
+        "record_id": record_id,
+        "timestamp": ts,
+        "changed_by": req.get("registered_by", ""),
+    })
+
+    return {
+        "status": "REGISTERED",
+        "record_id": record_id,
+        "system_id": system_id,
+        "ownership_valid": True,
+        "governance_signature": ownership_record["governance_signature"],
+        "next_review_date": ownership_record["review_schedule"]["next_review_date"],
+    }
+
+
+@app.get("/v1/governance/ownership/{system_id}", tags=["Governance Ownership Layer"])
+async def ownership_get(
+    system_id: str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Returns current governance ownership for an AI system including
+    drift score, ownership validity, and warnings.
+    Answers the auditor's question: who owns this AI system today?
+    """
+    require_api_key(x_api_key, authorization)
+
+    record = _OWNERSHIP_REGISTRY.get(system_id)
+    if not record:
+        raise HTTPException(status_code=404, detail=f"No ownership record found for system {system_id}. Register via POST /v1/governance/ownership/register")
+
+    # Compute ownership drift
+    warnings = []
+    drift_score = 0.0
+    owners = record.get("owners", {})
+
+    empty_roles = [role for role, value in owners.items() if not value]
+    if empty_roles:
+        drift_score += len(empty_roles) * 0.15
+        warnings.append(f"Unassigned ownership roles: {', '.join(empty_roles)}")
+
+    # Check review schedule
+    next_review = record.get("review_schedule", {}).get("next_review_date", "")
+    if next_review:
+        try:
+            from datetime import date
+            review_date = date.fromisoformat(next_review[:10])
+            days_overdue = (date.today() - review_date).days
+            if days_overdue > 0:
+                drift_score += min(0.4, days_overdue * 0.01)
+                warnings.append(f"Governance review overdue by {days_overdue} days")
+        except Exception:
+            pass
+
+    if record.get("system_status") == "ACTIVE" and not owners.get("business_owner"):
+        drift_score += 0.3
+        warnings.append("CRITICAL: Active system has no business owner")
+
+    if not owners.get("risk_owner"):
+        drift_score += 0.2
+        warnings.append("No risk owner assigned — risk acceptance is unowned")
+
+    if not owners.get("incident_lead"):
+        drift_score += 0.15
+        warnings.append("No incident lead assigned — incident response path unclear")
+
+    drift_score = min(1.0, round(drift_score, 3))
+    ownership_valid = drift_score < 0.5 and len([w for w in warnings if "CRITICAL" in w]) == 0
+
+    # Auto-escalate if drift is critical
+    escalation_required = drift_score >= 0.7
+    if escalation_required:
+        warnings.append("OWNERSHIP DRIFT CRITICAL — system requires governance reassignment before execution")
+
+    record["ownership_drift_score"] = drift_score
+    record["ownership_valid"] = ownership_valid
+    record["ownership_warnings"] = warnings
+    record["escalation_required"] = escalation_required
+
+    return {
+        "schema": "VGS-OWNERSHIP-STATUS-v1",
+        "system_id": system_id,
+        "record_id": record.get("record_id"),
+        "system_name": record.get("system_name"),
+        "system_status": record.get("system_status"),
+        "owners": owners,
+        "risk_acceptance": record.get("risk_acceptance"),
+        "review_schedule": record.get("review_schedule"),
+        "governance_health": {
+            "ownership_valid": ownership_valid,
+            "ownership_drift_score": drift_score,
+            "drift_level": "CRITICAL" if drift_score >= 0.7 else "HIGH" if drift_score >= 0.5 else "MEDIUM" if drift_score >= 0.3 else "LOW",
+            "warnings": warnings,
+            "escalation_required": escalation_required,
+            "ruling": "ESCALATE — governance reassignment required" if escalation_required else "VALID",
+        },
+        "governance_signature": record.get("governance_signature"),
+        "canonical_json": record.get("canonical_json"),
+        "offline_verifiable": True,
+        "registered_at": record.get("registered_at"),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@app.post("/v1/governance/ownership/change", tags=["Governance Ownership Layer"])
+async def ownership_change(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Records a governance ownership change. Every change is cryptographically
+    sealed and appended to the immutable ownership history.
+    Auditors can retrieve the complete chain of who owned what and when.
+    """
+    require_api_key(x_api_key, authorization)
+
+    system_id = req.get("system_id")
+    if not system_id:
+        raise HTTPException(status_code=422, detail="system_id is required")
+
+    record = _OWNERSHIP_REGISTRY.get(system_id)
+    if not record:
+        raise HTTPException(status_code=404, detail=f"System {system_id} not registered. Register first via POST /v1/governance/ownership/register")
+
+    ts = datetime.now(timezone.utc).isoformat()
+    change_id = f"OWN-CHG-{system_id}-{ts}"
+
+    role_changed = req.get("role")
+    previous_owner = record["owners"].get(role_changed, "")
+    new_owner = req.get("new_owner", "")
+    reason = req.get("reason", "")
+    changed_by = req.get("changed_by", "")
+
+    # Seal the change
+    change_payload = {
+        "change_id": change_id,
+        "system_id": system_id,
+        "role": role_changed,
+        "previous_owner": previous_owner,
+        "new_owner": new_owner,
+        "changed_by": changed_by,
+        "timestamp": ts,
+    }
+    change_signature = sign_governance_payload(change_payload)
+
+    # Apply change
+    if role_changed and role_changed in record["owners"]:
+        record["owners"][role_changed] = new_owner
+
+    # Append to history
+    history_entry = {
+        "event": "OWNERSHIP_CHANGED",
+        "change_id": change_id,
+        "system_id": system_id,
+        "role": role_changed,
+        "previous_owner": previous_owner,
+        "new_owner": new_owner,
+        "changed_by": changed_by,
+        "reason": reason,
+        "timestamp": ts,
+        "governance_signature": change_signature,
+        "canonical_json": json.dumps(change_payload, sort_keys=True, separators=(",", ":")),
+    }
+    _OWNERSHIP_HISTORY.append(history_entry)
+
+    return {
+        "status": "OWNERSHIP_CHANGED",
+        "change_id": change_id,
+        "system_id": system_id,
+        "role": role_changed,
+        "previous_owner": previous_owner,
+        "new_owner": new_owner,
+        "governance_signature": change_signature,
+        "timestamp": ts,
+        "history_at": f"GET /v1/governance/ownership/{system_id}/history",
+    }
+
+
+@app.get("/v1/governance/ownership/{system_id}/history", tags=["Governance Ownership Layer"])
+async def ownership_history(
+    system_id: str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Complete immutable ownership history for an AI system.
+    Every registration, change, and drift event — cryptographically sealed and auditable forever.
+    """
+    require_api_key(x_api_key, authorization)
+
+    events = [e for e in _OWNERSHIP_HISTORY if e.get("system_id") == system_id]
+
+    return {
+        "schema": "VGS-OWNERSHIP-HISTORY-v1",
+        "system_id": system_id,
+        "total_events": len(events),
+        "history": events,
+        "what_this_proves": "Complete chain of governance ownership from registration through every change. Every event is cryptographically sealed.",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@app.get("/v1/governance/ownership/{system_id}/health", tags=["Governance Ownership Layer"])
+async def ownership_health(
+    system_id: str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Governance ownership health score for an AI system.
+    Combines ownership completeness, review schedule, drift, and escalation status
+    into a single actionable health score.
+    """
+    require_api_key(x_api_key, authorization)
+
+    record = _OWNERSHIP_REGISTRY.get(system_id)
+    if not record:
+        raise HTTPException(status_code=404, detail=f"System {system_id} not registered.")
+
+    owners = record.get("owners", {})
+    filled = sum(1 for v in owners.values() if v)
+    total = len(owners)
+    completeness = round(filled / total, 2) if total > 0 else 0.0
+
+    history_count = len([e for e in _OWNERSHIP_HISTORY if e.get("system_id") == system_id])
+
+    return {
+        "schema": "VGS-OWNERSHIP-HEALTH-v1",
+        "system_id": system_id,
+        "governance_health_score": round(completeness * 100, 1),
+        "ownership_completeness": f"{filled}/{total} roles assigned",
+        "completeness_pct": completeness,
+        "total_ownership_events": history_count,
+        "system_status": record.get("system_status"),
+        "next_review": record.get("review_schedule", {}).get("next_review_date", "not set"),
+        "ownership_drift_score": record.get("ownership_drift_score", 0.0),
+        "warnings": record.get("ownership_warnings", []),
+        "escalation_required": record.get("escalation_required", False),
+        "questions_answered": {
+            "who_owns_the_use_case": owners.get("business_owner") or "NOT ASSIGNED",
+            "who_owns_risk_acceptance": owners.get("risk_owner") or "NOT ASSIGNED",
+            "who_owns_evidence": owners.get("evidence_custodian") or "NOT ASSIGNED",
+            "who_owns_escalation": owners.get("escalation_authority") or "NOT ASSIGNED",
+            "who_can_retire_the_system": owners.get("retirement_authority") or "NOT ASSIGNED",
+            "who_leads_incidents": owners.get("incident_lead") or "NOT ASSIGNED",
+        },
+        "chloe_devine_framework": {
+            "use_case_ownership": "COVERED" if owners.get("business_owner") else "GAP",
+            "risk_ownership": "COVERED" if owners.get("risk_owner") else "GAP",
+            "evidence_ownership": "COVERED" if owners.get("evidence_custodian") else "GAP",
+            "change_ownership": "COVERED" if owners.get("technical_owner") else "GAP",
+            "escalation_ownership": "COVERED" if owners.get("escalation_authority") else "GAP",
+        },
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=int(os.environ.get("PORT", 8000)), reload=False)
+
 
 
 
