@@ -171,19 +171,10 @@ def _sha256(data: str) -> str:
 # Real Ed25519 signing using PyNaCl
 # SIGNING_KEY loaded from environment — never hardcoded
 
-def _get_signing_key():
-    """Load Ed25519 signing key from environment."""
-    raw = os.environ.get("ED25519_SIGNING_KEY_B64")
-    if raw:
-        try:
-            return nacl.signing.SigningKey(base64.b64decode(raw))
-        except Exception:
-            pass
-    # Generate ephemeral key for sandbox/demo — NOT for production evidence
-    return nacl.signing.SigningKey.generate()
-
-_SIGNING_KEY = _get_signing_key()
-_VERIFY_KEY  = _SIGNING_KEY.verify_key
+# SIGNING KEY — stable, deterministic, derived from SIGN_SECRET
+# Uses the same seed as SIGNING_KEY to ensure consistency across restarts
+_SIGNING_KEY = SIGNING_KEY   # same key as line 91 — SHA256(SIGN_SECRET) derived, stable
+_VERIFY_KEY  = SIGNING_KEY.verify_key
 
 def sign_governance_payload(payload: dict) -> str:
     """
