@@ -52685,6 +52685,8 @@ async def intercept(
         "offline_verifiable":   True,
         "consequence":    req.consequence,
         "jurisdiction":   req.jurisdiction,
+        "payload_hash":   req.payload_hash,
+        "canonical_fields_note": "To verify offline: build canonical JSON from intercept_id, agent_id, action_type, ruling, timestamp, consequence, payload_hash — all present in this response. sort_keys=True, separators=(',',':')",
         "sdk_equivalent": f"govern('{req.agent_id}', '{req.action_type}', consequence='{req.consequence}')",
     }
 
@@ -58912,9 +58914,3 @@ async def signing_diagnostic():
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=int(os.environ.get("PORT", 8000)), reload=False)
-
-
-
-
-
-
