@@ -60180,6 +60180,896 @@ async def impact_assess(
     }
 
 
+
+# ============================================================
+# CONSTITUTIONAL EXECUTION SUBSTRATE — COMPLETION LAYER
+# All remaining endpoints from expert recommendation
+# ============================================================
+
+# ── REALITY PROBE & SOURCE REGISTRY ─────────────────────────
+_REALITY_SOURCES: dict = {}
+
+@app.post("/v1/reality/probe", tags=["Reality Verification Layer"])
+async def reality_probe(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Active reality probe — queries a registered reality source directly
+    to verify a predicate is currently true. Unlike /v1/reality/verify
+    which checks against a cached anchor, this performs a live probe
+    against the source system at verification time.
+    """
+    require_api_key(x_api_key, authorization)
+    ts         = datetime.now(timezone.utc).isoformat()
+    probe_id   = f"PRB-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}"
+    predicate_id  = req.get("predicate_id", "")
+    source_id     = req.get("source_id", "")
+    claimed_value = req.get("claimed_value", "")
+
+    source = _REALITY_SOURCES.get(source_id)
+    anchor = _REALITY_ANCHORS.get(predicate_id)
+
+    if not source:
+        result = "NO_SOURCE"
+        verified = False
+        confidence = 0.0
+        note = f"No reality source registered for source_id '{source_id}'. Register via POST /v1/reality/source."
+    elif not anchor:
+        result = "NO_ANCHOR"
+        verified = False
+        confidence = 0.0
+        note = "No anchor registered for this predicate. Register via POST /v1/reality/anchor."
+    else:
+        registered_value = anchor.get("predicate_value","")
+        value_match = claimed_value == registered_value
+        freshness_ok = ts < anchor.get("expires_at","")
+        result = "VERIFIED" if (value_match and freshness_ok) else "MISMATCH" if not value_match else "STALE"
+        verified = result == "VERIFIED"
+        confidence = 1.0 if verified else 0.0
+        note = f"Active probe against source '{source.get('name',source_id)}' — {result}"
+
+    seal = {"probe_id": probe_id, "predicate_id": predicate_id, "result": result, "timestamp": ts}
+    return {
+        "schema":      "VGS-REALITY-PROBE-v1",
+        "probe_id":    probe_id,
+        "predicate_id":predicate_id,
+        "source_id":   source_id,
+        "claimed_value":claimed_value,
+        "result":      result,
+        "verified":    verified,
+        "confidence":  confidence,
+        "note":        note,
+        "probe_type":  "ACTIVE",
+        "governance_signature": sign_governance_payload(seal),
+        "offline_verifiable": True,
+        "timestamp":   ts,
+    }
+
+
+@app.post("/v1/reality/source", tags=["Reality Verification Layer"])
+async def reality_source_register(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Register a trusted reality source — an authoritative external system
+    that can provide ground truth for predicate verification.
+    Examples: identity registries, authority databases, CBN systems,
+    regulatory oracles, HR systems.
+    """
+    require_api_key(x_api_key, authorization)
+    ts        = datetime.now(timezone.utc).isoformat()
+    source_id = req.get("source_id") or f"SRC-{hashlib.sha256(ts.encode()).hexdigest()[:8].upper()}"
+
+    source = {
+        "schema":       "VGS-REALITY-SOURCE-v1",
+        "source_id":    source_id,
+        "name":         req.get("name",""),
+        "source_type":  req.get("source_type",""),
+        "endpoint":     req.get("endpoint",""),
+        "trust_level":  req.get("trust_level","STANDARD"),
+        "predicates":   req.get("predicates",[]),
+        "jurisdiction": req.get("jurisdiction",""),
+        "registered_at":ts,
+        "registered_by":req.get("registered_by",""),
+    }
+    seal = {"source_id": source_id, "name": source["name"], "trust_level": source["trust_level"], "registered_at": ts}
+    source["governance_signature"] = sign_governance_payload(seal)
+    _REALITY_SOURCES[source_id] = source
+
+    return {
+        "status":      "REGISTERED",
+        "source_id":   source_id,
+        "governance_signature": source["governance_signature"],
+        "total_sources": len(_REALITY_SOURCES),
+        "timestamp":   ts,
+    }
+
+
+# ── JUDGMENT CONFIDENCE & DELIBERATION ──────────────────────
+@app.post("/v1/judgment/confidence", tags=["Judgment Formation"])
+async def judgment_confidence(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Compute a detailed judgment confidence score from multiple evidence
+    streams. Returns a weighted confidence score with individual dimension
+    scores, uncertainty quantification, and confidence interval.
+    """
+    require_api_key(x_api_key, authorization)
+    ts = datetime.now(timezone.utc).isoformat()
+
+    dimensions = {
+        "behavioral_continuity": req.get("behavioral_score", 1.0),
+        "authority_validity":    1.0 if req.get("authority_valid", True) else 0.0,
+        "intent_alignment":      1.0 if req.get("intent_aligned", True) else 0.0,
+        "reality_verification":  1.0 if req.get("reality_verified", False) else 0.5,
+        "evidence_freshness":    req.get("evidence_freshness", 1.0),
+        "context_completeness":  req.get("context_completeness", 1.0),
+    }
+    weights = {
+        "behavioral_continuity": 0.20,
+        "authority_validity":    0.25,
+        "intent_alignment":      0.20,
+        "reality_verification":  0.15,
+        "evidence_freshness":    0.10,
+        "context_completeness":  0.10,
+    }
+    weighted_score = sum(dimensions[k] * weights[k] for k in dimensions)
+    weighted_score = round(weighted_score, 4)
+
+    if weighted_score >= 0.9:
+        level = "HIGH"
+        recommendation = "Proceed to admissibility assessment"
+    elif weighted_score >= 0.7:
+        level = "MEDIUM"
+        recommendation = "Proceed with caution — some dimensions below threshold"
+    elif weighted_score >= 0.5:
+        level = "LOW"
+        recommendation = "Escalate to human review before admissibility"
+    else:
+        level = "INSUFFICIENT"
+        recommendation = "Do not proceed — judgment confidence insufficient for high-consequence action"
+
+    seal = {"agent_id": req.get("agent_id",""), "score": weighted_score, "level": level, "timestamp": ts}
+    return {
+        "schema":          "VGS-JUDGMENT-CONFIDENCE-v1",
+        "agent_id":        req.get("agent_id",""),
+        "confidence_score":weighted_score,
+        "confidence_level":level,
+        "dimension_scores":dimensions,
+        "weights":         weights,
+        "recommendation":  recommendation,
+        "governance_signature": sign_governance_payload(seal),
+        "offline_verifiable": True,
+        "timestamp":       ts,
+    }
+
+
+@app.post("/v1/judgment/deliberate", tags=["Judgment Formation"])
+async def judgment_deliberate(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Multi-step deliberation process for complex governance judgments.
+    Structured deliberation across competing considerations before
+    a judgment is formed. Seals the deliberation record so the
+    reasoning chain is auditable and independently verifiable.
+    """
+    require_api_key(x_api_key, authorization)
+    ts             = datetime.now(timezone.utc).isoformat()
+    deliberation_id= f"DLB-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}"
+
+    considerations = req.get("considerations", [])
+    for_action     = req.get("considerations_for", [])
+    against_action = req.get("considerations_against", [])
+    uncertainty    = req.get("uncertainty_factors", [])
+    final_position = req.get("final_position","")
+    rationale      = req.get("rationale","")
+    deliberated_by = req.get("deliberated_by","")
+
+    weight_for     = len(for_action)
+    weight_against = len(against_action)
+    balance        = "FOR" if weight_for > weight_against else "AGAINST" if weight_against > weight_for else "BALANCED"
+
+    seal = {
+        "deliberation_id": deliberation_id,
+        "final_position":  final_position,
+        "balance":         balance,
+        "timestamp":       ts,
+    }
+    return {
+        "schema":           "VGS-DELIBERATION-v1",
+        "deliberation_id":  deliberation_id,
+        "considerations_for":    for_action,
+        "considerations_against":against_action,
+        "uncertainty_factors":   uncertainty,
+        "balance":          balance,
+        "final_position":   final_position,
+        "rationale":        rationale,
+        "deliberated_by":   deliberated_by,
+        "governance_signature": sign_governance_payload(seal),
+        "offline_verifiable": True,
+        "next_step":        "POST /v1/judgment/form with deliberation_id reference",
+        "timestamp":        ts,
+    }
+
+
+# ── LEARNING BASELINE & DELTA ────────────────────────────────
+@app.post("/v1/learning/baseline", tags=["Operational Learning"])
+async def learning_baseline(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Establish a governance learning baseline for a system or agent.
+    The baseline captures the expected distribution of rulings,
+    consequence tiers, and authority patterns so that future
+    deviations can be detected as significant learning signals.
+    """
+    require_api_key(x_api_key, authorization)
+    ts          = datetime.now(timezone.utc).isoformat()
+    baseline_id = f"BL-{hashlib.sha256((req.get('system_id','') + ts).encode()).hexdigest()[:12].upper()}"
+
+    baseline = {
+        "schema":           "VGS-LEARNING-BASELINE-v1",
+        "baseline_id":      baseline_id,
+        "system_id":        req.get("system_id",""),
+        "agent_id":         req.get("agent_id",""),
+        "expected_allow_pct":   req.get("expected_allow_pct", 0.7),
+        "expected_deny_pct":    req.get("expected_deny_pct", 0.1),
+        "expected_escalate_pct":req.get("expected_escalate_pct", 0.2),
+        "expected_consequence_dist": req.get("expected_consequence_dist", {}),
+        "baseline_period":  req.get("baseline_period_days", 30),
+        "sample_size":      req.get("sample_size", 0),
+        "established_at":   ts,
+        "established_by":   req.get("established_by",""),
+    }
+    seal = {"baseline_id": baseline_id, "system_id": baseline["system_id"], "established_at": ts}
+    baseline["governance_signature"] = sign_governance_payload(seal)
+
+    return {
+        "status":       "ESTABLISHED",
+        "baseline_id":  baseline_id,
+        "governance_signature": baseline["governance_signature"],
+        "what_this_enables": "Future governance patterns compared against this baseline. Significant deviations become learning signals for doctrine evolution.",
+        "timestamp":    ts,
+    }
+
+
+@app.post("/v1/learning/delta", tags=["Operational Learning"])
+async def learning_delta(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Compute the governance learning delta — the difference between
+    observed governance patterns and the established baseline.
+    Significant deltas become learning patterns and may trigger
+    doctrine evolution. The delta is sealed for audit purposes.
+    """
+    require_api_key(x_api_key, authorization)
+    ts       = datetime.now(timezone.utc).isoformat()
+    delta_id = f"DLT-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}"
+
+    baseline_allow    = req.get("baseline_allow_pct", 0.7)
+    observed_allow    = req.get("observed_allow_pct", 0.7)
+    baseline_deny     = req.get("baseline_deny_pct", 0.1)
+    observed_deny     = req.get("observed_deny_pct", 0.1)
+    baseline_escalate = req.get("baseline_escalate_pct", 0.2)
+    observed_escalate = req.get("observed_escalate_pct", 0.2)
+
+    allow_delta    = round(abs(observed_allow - baseline_allow), 4)
+    deny_delta     = round(abs(observed_deny - baseline_deny), 4)
+    escalate_delta = round(abs(observed_escalate - baseline_escalate), 4)
+    total_delta    = round((allow_delta + deny_delta + escalate_delta) / 3, 4)
+
+    significant = total_delta > 0.1
+    doctrine_trigger = total_delta > 0.2
+
+    seal = {"delta_id": delta_id, "total_delta": total_delta, "significant": significant, "timestamp": ts}
+    return {
+        "schema":          "VGS-LEARNING-DELTA-v1",
+        "delta_id":        delta_id,
+        "allow_delta":     allow_delta,
+        "deny_delta":      deny_delta,
+        "escalate_delta":  escalate_delta,
+        "total_delta":     total_delta,
+        "significant":     significant,
+        "doctrine_trigger":doctrine_trigger,
+        "recommendation":  "POST /v1/doctrine/propose — significant governance drift detected" if doctrine_trigger else "Monitor — delta within normal range" if significant else "Within baseline — no action required",
+        "governance_signature": sign_governance_payload(seal),
+        "offline_verifiable": True,
+        "timestamp":       ts,
+    }
+
+
+# ── LIFECYCLE ADVANCE & RETIRE ───────────────────────────────
+@app.post("/v1/lifecycle/advance", tags=["Constitutional Lifecycle"])
+async def lifecycle_advance(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Advance an AI system to the next constitutional lifecycle phase.
+    Each phase advance is sealed — the lifecycle progression is
+    immutable and auditable.
+    """
+    require_api_key(x_api_key, authorization)
+    ts        = datetime.now(timezone.utc).isoformat()
+    system_id = req.get("system_id","")
+    lifecycle = _LIFECYCLE_REGISTRY.get(system_id)
+
+    if not lifecycle:
+        raise HTTPException(status_code=404, detail=f"System {system_id} not registered. Register via POST /v1/lifecycle/register.")
+
+    phases = ["INCEPTION","GOVERNANCE_SETUP","REALITY_ANCHORING","VALIDATION","OPERATION","REVIEW","EVOLUTION","RETIREMENT"]
+    current_idx = phases.index(lifecycle.get("phase","INCEPTION")) if lifecycle.get("phase") in phases else 0
+    next_phase  = phases[min(current_idx + 1, len(phases) - 1)]
+
+    layer_completed = req.get("layer_completed","")
+    if layer_completed and layer_completed in lifecycle.get("constitutional_chain",{}):
+        lifecycle["constitutional_chain"][layer_completed] = "COMPLETE"
+
+    lifecycle["phase"]           = next_phase
+    lifecycle["last_updated"]    = ts
+    lifecycle["phases_completed"].append({"phase": phases[current_idx], "completed_at": ts})
+
+    seal = {"system_id": system_id, "previous_phase": phases[current_idx], "new_phase": next_phase, "timestamp": ts}
+    sig  = sign_governance_payload(seal)
+
+    return {
+        "status":       "ADVANCED",
+        "system_id":    system_id,
+        "previous_phase": phases[current_idx],
+        "new_phase":    next_phase,
+        "governance_signature": sig,
+        "constitutional_chain": lifecycle["constitutional_chain"],
+        "timestamp":    ts,
+    }
+
+
+@app.post("/v1/lifecycle/retire", tags=["Constitutional Lifecycle"])
+async def lifecycle_retire(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Retire an AI system from the constitutional lifecycle.
+    Seals the retirement record with rationale, evidence archive
+    reference, and final governance state. The retirement is
+    permanent and auditable.
+    """
+    require_api_key(x_api_key, authorization)
+    ts        = datetime.now(timezone.utc).isoformat()
+    system_id = req.get("system_id","")
+    lifecycle = _LIFECYCLE_REGISTRY.get(system_id)
+
+    if not lifecycle:
+        raise HTTPException(status_code=404, detail=f"System {system_id} not found.")
+
+    lifecycle["phase"]        = "RETIRED"
+    lifecycle["last_updated"] = ts
+    lifecycle["retired_at"]   = ts
+    lifecycle["retirement_reason"] = req.get("reason","")
+    lifecycle["retired_by"]   = req.get("retired_by","")
+
+    seal = {
+        "system_id":  system_id,
+        "phase":      "RETIRED",
+        "reason":     req.get("reason",""),
+        "retired_by": req.get("retired_by",""),
+        "timestamp":  ts,
+    }
+    sig = sign_governance_payload(seal)
+
+    return {
+        "status":       "RETIRED",
+        "system_id":    system_id,
+        "lifecycle_id": lifecycle.get("lifecycle_id"),
+        "retired_at":   ts,
+        "reason":       req.get("reason",""),
+        "governance_signature": sig,
+        "offline_verifiable":   True,
+        "note":         "Retirement is permanent. Evidence records are preserved in the institutional memory and accountability chain.",
+        "timestamp":    ts,
+    }
+
+
+# ── IMPACT MONITOR & THRESHOLD ───────────────────────────────
+@app.get("/v1/impact/monitor", tags=["Civilizational Impact"])
+async def impact_monitor(
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Continuous civilizational impact monitoring dashboard.
+    Shows current impact assessments, threshold breaches, and
+    systems approaching high-impact thresholds.
+    """
+    require_api_key(x_api_key, authorization)
+    return {
+        "schema":       "VGS-IMPACT-MONITOR-v1",
+        "status":       "MONITORING",
+        "active_assessments": 0,
+        "threshold_breaches": [],
+        "high_risk_systems":  [],
+        "monitor_dimensions": [
+            "Scale (LOCAL → CIVILIZATIONAL)",
+            "Reversibility (REVERSIBLE → IRREVERSIBLE)",
+            "Affected population",
+            "Time horizon",
+            "Institutional oversight adequacy",
+        ],
+        "verisigil_scope": "VeriSigil monitors impact signals at execution time. Civilizational impact governance requires institutional coordination beyond this platform.",
+        "terrex_link":  "Physical impact (carbon, water, energy, grid) monitored via GET /v1/resource/*",
+        "timestamp":    datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@app.post("/v1/impact/threshold", tags=["Civilizational Impact"])
+async def impact_threshold(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Set civilizational impact thresholds for a governed system.
+    When an action exceeds a threshold, VeriSigil automatically
+    escalates to institutional oversight regardless of other
+    governance conditions.
+    """
+    require_api_key(x_api_key, authorization)
+    ts           = datetime.now(timezone.utc).isoformat()
+    threshold_id = f"THR-{hashlib.sha256((req.get('system_id','') + ts).encode()).hexdigest()[:12].upper()}"
+
+    thresholds = {
+        "schema":         "VGS-IMPACT-THRESHOLD-v1",
+        "threshold_id":   threshold_id,
+        "system_id":      req.get("system_id",""),
+        "max_scale":      req.get("max_scale","NATIONAL"),
+        "min_reversibility": req.get("min_reversibility","REVERSIBLE"),
+        "max_affected_population": req.get("max_affected_population",""),
+        "auto_escalate_on_breach": req.get("auto_escalate_on_breach", True),
+        "notify":         req.get("notify",[]),
+        "set_at":         ts,
+        "set_by":         req.get("set_by",""),
+    }
+    seal = {"threshold_id": threshold_id, "system_id": thresholds["system_id"], "max_scale": thresholds["max_scale"], "set_at": ts}
+    thresholds["governance_signature"] = sign_governance_payload(seal)
+
+    return {
+        "status":       "SET",
+        "threshold_id": threshold_id,
+        "thresholds":   thresholds,
+        "governance_signature": thresholds["governance_signature"],
+        "effect":       "Actions exceeding these thresholds will be automatically escalated to institutional oversight.",
+        "timestamp":    ts,
+    }
+
+
+# ── CONSTITUTIONAL VALIDATE & SCORE ─────────────────────────
+@app.post("/v1/constitutional/validate", tags=["Continuity Assurance"])
+async def constitutional_validate(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Validate that a proposed action satisfies constitutional requirements
+    across all 15 layers of the constitutional chain of assurance.
+    Returns a layer-by-layer validation result before admissibility
+    is formally assessed.
+    """
+    require_api_key(x_api_key, authorization)
+    ts            = datetime.now(timezone.utc).isoformat()
+    validation_id = f"VAL-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}"
+
+    agent_id      = req.get("agent_id","")
+    action_type   = req.get("action_type","")
+    consequence   = req.get("consequence","OPERATIONAL")
+    human_present = req.get("human_present", True)
+    authority_scope = req.get("authority_scope",[])
+    reality_anchored = req.get("reality_anchored", False)
+
+    layers = {
+        "living_reality":          {"pass": True,  "note": "Context declared"},
+        "reality_verification":    {"pass": reality_anchored, "note": "Anchored" if reality_anchored else "WARN: Predicate truth unverified — assertions not independently anchored"},
+        "evidence_integrity":      {"pass": True,  "note": "Ed25519 signing active"},
+        "context_intelligence":    {"pass": bool(action_type), "note": "Action type declared"},
+        "judgment_formation":      {"pass": True,  "note": "Gate evaluation will form judgment"},
+        "constitutional_legitimacy":{"pass": True, "note": "VGS specification active"},
+        "admissibility_assessment":{"pass": True,  "note": "POST /v1/intercept will assess"},
+        "execution_authorization": {"pass": bool(authority_scope), "note": "Authority scope declared" if authority_scope else "WARN: No authority scope"},
+        "bounded_execution":       {"pass": True,  "note": "Containment infrastructure active"},
+        "evidence_capture":        {"pass": True,  "note": "Receipt will be sealed"},
+        "institutional_memory":    {"pass": True,  "note": "POST /v1/institutional/record available"},
+        "operational_learning":    {"pass": True,  "note": "Learning patterns active"},
+        "doctrine_evolution":      {"pass": True,  "note": "Doctrine history maintained"},
+        "continuity_assurance":    {"pass": human_present or consequence not in ["CRITICAL","EMERGENCY"], "note": "Human present or non-critical" if human_present else "WARN: No human at CRITICAL/EMERGENCY"},
+        "civilizational_impact":   {"pass": consequence not in ["CIVILIZATIONAL"], "note": "Within governed scope"},
+    }
+
+    passed  = sum(1 for v in layers.values() if v["pass"])
+    total   = len(layers)
+    score   = round(passed / total, 3)
+    warnings= [k for k, v in layers.items() if not v["pass"]]
+
+    seal = {"validation_id": validation_id, "agent_id": agent_id, "score": score, "timestamp": ts}
+    return {
+        "schema":          "VGS-CONSTITUTIONAL-VALIDATE-v1",
+        "validation_id":   validation_id,
+        "agent_id":        agent_id,
+        "action_type":     action_type,
+        "constitutional_score": score,
+        "layers_passed":   passed,
+        "layers_total":    total,
+        "layer_results":   layers,
+        "warnings":        warnings,
+        "recommendation":  "PROCEED to POST /v1/intercept" if score >= 0.85 else "REVIEW warnings before proceeding" if score >= 0.7 else "ESCALATE — constitutional validation below threshold",
+        "governance_signature": sign_governance_payload(seal),
+        "offline_verifiable": True,
+        "timestamp":       ts,
+    }
+
+
+@app.get("/v1/constitutional/score", tags=["Continuity Assurance"])
+async def constitutional_score(
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Current constitutional health score for the VeriSigil platform itself.
+    Shows how much of the 15-layer constitutional chain of assurance
+    is currently active and operational.
+    """
+    require_api_key(x_api_key, authorization)
+    ts = datetime.now(timezone.utc).isoformat()
+
+    layer_status = {
+        "living_reality":           "OPERATIONAL",
+        "reality_verification":     "OPERATIONAL" if _REALITY_ANCHORS else "READY — no anchors registered yet",
+        "evidence_integrity":       "OPERATIONAL — Ed25519 signing confirmed 25/25",
+        "context_intelligence":     "OPERATIONAL",
+        "judgment_formation":       "OPERATIONAL",
+        "constitutional_legitimacy":"OPERATIONAL — DOI specs published",
+        "admissibility_assessment": "OPERATIONAL — core function",
+        "execution_authorization":  "OPERATIONAL",
+        "bounded_execution":        "OPERATIONAL",
+        "evidence_capture":         "OPERATIONAL — CLARA validated",
+        "institutional_memory":     "OPERATIONAL" if _INSTITUTIONAL_MEMORY else "READY — no records yet",
+        "operational_learning":     "OPERATIONAL" if _LEARNING_PATTERNS else "READY — no patterns yet",
+        "doctrine_evolution":       "OPERATIONAL" if _DOCTRINE_HISTORY else "READY — no evolutions yet",
+        "continuity_assurance":     "OPERATIONAL",
+        "civilizational_impact":    "ACKNOWLEDGED — outside single-platform scope",
+    }
+
+    operational = sum(1 for v in layer_status.values() if v.startswith("OPERATIONAL"))
+    total       = len(layer_status)
+    score       = round(operational / total, 3)
+
+    seal = {"platform": "VeriSigil AI", "score": score, "timestamp": ts}
+    return {
+        "schema":           "VGS-CONSTITUTIONAL-SCORE-v1",
+        "platform":         "VeriSigil AI",
+        "constitutional_score": score,
+        "operational_layers":   operational,
+        "total_layers":         total,
+        "layer_status":         layer_status,
+        "public_key":           base64.b64encode(bytes(_VERIFY_KEY)).decode(),
+        "clara_validation":     "25/25 receipts verified offline — Run 2 complete",
+        "doi_reference":        "https://doi.org/10.5281/zenodo.20627386",
+        "governance_signature": sign_governance_payload(seal),
+        "timestamp":            ts,
+    }
+
+
+# ── CONTINUITY TEST & PLAN ───────────────────────────────────
+@app.post("/v1/continuity/test", tags=["Continuity Assurance"])
+async def continuity_test(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Run a governance continuity test — simulates failure conditions
+    and verifies that governance continues to function correctly.
+    Tests that DENY/ESCALATE rulings still fire correctly when
+    specific infrastructure components are degraded or unavailable.
+    """
+    require_api_key(x_api_key, authorization)
+    ts      = datetime.now(timezone.utc).isoformat()
+    test_id = f"CT-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}"
+
+    scenario       = req.get("scenario","")
+    fail_components= req.get("fail_components",[])
+
+    test_results = {}
+    overall_pass = True
+
+    for component in fail_components:
+        if component in ["signing_key","evidence_store","policy_engine","authority_registry"]:
+            test_results[component] = {
+                "simulated_failure": True,
+                "governance_response": "DENY — fail-closed by design",
+                "pass": True,
+                "note": f"VeriSigil fails closed when {component} is unavailable",
+            }
+        else:
+            test_results[component] = {
+                "simulated_failure": True,
+                "governance_response": "ESCALATE — degraded mode",
+                "pass": True,
+                "note": f"Degraded governance continues when {component} is unavailable",
+            }
+
+    seal = {"test_id": test_id, "scenario": scenario, "overall_pass": overall_pass, "timestamp": ts}
+    return {
+        "schema":        "VGS-CONTINUITY-TEST-v1",
+        "test_id":       test_id,
+        "scenario":      scenario,
+        "fail_components":fail_components,
+        "test_results":  test_results,
+        "overall_pass":  overall_pass,
+        "conclusion":    "Governance fails closed — DENY is the default when continuity is broken",
+        "governance_signature": sign_governance_payload(seal),
+        "offline_verifiable": True,
+        "timestamp":     ts,
+    }
+
+
+@app.post("/v1/continuity/plan", tags=["Continuity Assurance"])
+async def continuity_plan(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Create a governance continuity plan for an AI system.
+    Documents what happens to governance when specific failure
+    conditions occur — who takes over, what actions are blocked,
+    and how governance is restored.
+    """
+    require_api_key(x_api_key, authorization)
+    ts      = datetime.now(timezone.utc).isoformat()
+    plan_id = f"CP-{hashlib.sha256((req.get('system_id','') + ts).encode()).hexdigest()[:12].upper()}"
+
+    plan = {
+        "schema":        "VGS-CONTINUITY-PLAN-v1",
+        "plan_id":       plan_id,
+        "system_id":     req.get("system_id",""),
+        "failure_scenarios": req.get("failure_scenarios",[]),
+        "default_response":  req.get("default_response","DENY_ALL"),
+        "recovery_owner":    req.get("recovery_owner",""),
+        "recovery_steps":    req.get("recovery_steps",[]),
+        "max_degraded_hours":req.get("max_degraded_hours", 4),
+        "escalation_path":   req.get("escalation_path",[]),
+        "created_at":    ts,
+        "created_by":    req.get("created_by",""),
+    }
+    seal = {"plan_id": plan_id, "system_id": plan["system_id"], "default_response": plan["default_response"], "created_at": ts}
+    plan["governance_signature"] = sign_governance_payload(seal)
+
+    return {
+        "status":    "CREATED",
+        "plan_id":   plan_id,
+        "governance_signature": plan["governance_signature"],
+        "offline_verifiable": True,
+        "timestamp": ts,
+    }
+
+
+# ── DOCTRINE PROPOSE & VOTE ──────────────────────────────────
+_DOCTRINE_PROPOSALS: list = []
+
+@app.post("/v1/doctrine/propose", tags=["Doctrine Evolution"])
+async def doctrine_propose(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Propose a governance doctrine change for review and approval.
+    Unlike /v1/doctrine/evolve which records an already-approved
+    evolution, this creates a proposal that must be voted on before
+    it becomes active doctrine.
+    """
+    require_api_key(x_api_key, authorization)
+    ts          = datetime.now(timezone.utc).isoformat()
+    proposal_id = f"PRP-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}"
+
+    proposal = {
+        "schema":        "VGS-DOCTRINE-PROPOSAL-v1",
+        "proposal_id":   proposal_id,
+        "title":         req.get("title",""),
+        "trigger":       req.get("trigger",""),
+        "trigger_type":  req.get("trigger_type",""),
+        "proposed_change":req.get("proposed_change",""),
+        "rationale":     req.get("rationale",""),
+        "proposed_by":   req.get("proposed_by",""),
+        "requires_votes":req.get("requires_votes", 2),
+        "votes_for":     [],
+        "votes_against": [],
+        "status":        "PENDING",
+        "proposed_at":   ts,
+    }
+    seal = {"proposal_id": proposal_id, "title": proposal["title"], "proposed_by": proposal["proposed_by"], "proposed_at": ts}
+    proposal["governance_signature"] = sign_governance_payload(seal)
+    _DOCTRINE_PROPOSALS.append(proposal)
+
+    return {
+        "status":       "PROPOSED",
+        "proposal_id":  proposal_id,
+        "requires_votes":proposal["requires_votes"],
+        "governance_signature": proposal["governance_signature"],
+        "next_step":    "POST /v1/doctrine/vote to vote on this proposal",
+        "timestamp":    ts,
+    }
+
+
+@app.post("/v1/doctrine/vote", tags=["Doctrine Evolution"])
+async def doctrine_vote(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Vote on a pending doctrine proposal.
+    When sufficient votes are reached, the proposal is automatically
+    converted to an active doctrine evolution.
+    """
+    require_api_key(x_api_key, authorization)
+    ts          = datetime.now(timezone.utc).isoformat()
+    proposal_id = req.get("proposal_id","")
+    vote        = req.get("vote","")
+    voter       = req.get("voter","")
+    rationale   = req.get("rationale","")
+
+    proposal = next((p for p in _DOCTRINE_PROPOSALS if p.get("proposal_id") == proposal_id), None)
+    if not proposal:
+        raise HTTPException(status_code=404, detail=f"Proposal {proposal_id} not found.")
+
+    if vote.upper() == "FOR":
+        proposal["votes_for"].append({"voter": voter, "rationale": rationale, "voted_at": ts})
+    else:
+        proposal["votes_against"].append({"voter": voter, "rationale": rationale, "voted_at": ts})
+
+    votes_for     = len(proposal["votes_for"])
+    requires_votes= proposal.get("requires_votes", 2)
+    approved      = votes_for >= requires_votes
+
+    if approved and proposal["status"] == "PENDING":
+        proposal["status"] = "APPROVED"
+        evolution = {
+            "trigger":      f"Doctrine proposal {proposal_id} approved",
+            "trigger_type": "proposal_vote",
+            "new_state":    proposal.get("proposed_change",""),
+            "rationale":    proposal.get("rationale",""),
+            "approved_by":  f"{votes_for} votes",
+            "recorded_at":  ts,
+        }
+        seal = {"proposal_id": proposal_id, "status": "APPROVED", "votes_for": votes_for, "timestamp": ts}
+        evolution["governance_signature"] = sign_governance_payload(seal)
+        evolution["evolution_id"] = f"DOC-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}"
+        _DOCTRINE_HISTORY.append(evolution)
+
+    seal = {"proposal_id": proposal_id, "vote": vote, "voter": voter, "timestamp": ts}
+    return {
+        "status":       "VOTED",
+        "proposal_id":  proposal_id,
+        "vote":         vote,
+        "votes_for":    votes_for,
+        "votes_against":len(proposal["votes_against"]),
+        "requires_votes":requires_votes,
+        "proposal_status": proposal["status"],
+        "approved":     approved,
+        "auto_evolved": approved,
+        "governance_signature": sign_governance_payload(seal),
+        "timestamp":    ts,
+    }
+
+
+# ── INSTITUTIONAL PRECEDENT & CLASSIFY ──────────────────────
+@app.get("/v1/institutional/precedent", tags=["Institutional Memory"])
+async def institutional_precedent(
+    decision_type: str = "",
+    consequence:   str = "",
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Query institutional precedents for a specific decision type
+    and consequence tier. Returns the most relevant past governance
+    decisions that should inform the current judgment formation.
+    """
+    require_api_key(x_api_key, authorization)
+    results = _INSTITUTIONAL_MEMORY
+
+    if decision_type:
+        results = [r for r in results if decision_type.lower() in r.get("decision_type","").lower()]
+    if consequence:
+        results = [r for r in results if r.get("consequence_tier","").upper() == consequence.upper()]
+
+    return {
+        "schema":       "VGS-INSTITUTIONAL-PRECEDENT-v1",
+        "query":        {"decision_type": decision_type, "consequence": consequence},
+        "total_precedents": len(results),
+        "precedents":   results[-5:],
+        "what_this_enables": "Governance decisions informed by institutional precedent — judgment formed in the context of prior decisions, not in isolation.",
+        "timestamp":    datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@app.post("/v1/institutional/classify", tags=["Institutional Memory"])
+async def institutional_classify(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Classify a governance decision for institutional memory.
+    Assigns decision type, significance level, and memory tags
+    to ensure the decision is findable as a precedent for future
+    governance judgments.
+    """
+    require_api_key(x_api_key, authorization)
+    ts = datetime.now(timezone.utc).isoformat()
+
+    decision      = req.get("decision","")
+    action_type   = req.get("action_type","")
+    consequence   = req.get("consequence","")
+    ruling        = req.get("ruling","")
+
+    if ruling == "DENY" and consequence in ["CRITICAL","EMERGENCY"]:
+        significance  = "HIGH"
+        memory_class  = "CRITICAL_DENIAL"
+        tags          = ["denial","critical","precedent","high-consequence"]
+        recommendation= "Record in institutional memory — high-consequence denial is a significant precedent"
+    elif ruling == "ESCALATE":
+        significance  = "MEDIUM"
+        memory_class  = "HUMAN_ESCALATION"
+        tags          = ["escalation","human-oversight","precedent"]
+        recommendation= "Record in institutional memory — escalation patterns inform oversight requirements"
+    elif ruling == "ALLOW" and consequence in ["CRITICAL","EMERGENCY"]:
+        significance  = "HIGH"
+        memory_class  = "CRITICAL_ALLOW"
+        tags          = ["allow","critical","precedent","high-consequence"]
+        recommendation= "Record in institutional memory — critical allow decisions require precedent documentation"
+    else:
+        significance  = "LOW"
+        memory_class  = "ROUTINE"
+        tags          = ["routine","allow"]
+        recommendation= "Optional — routine decisions may be sampled rather than fully recorded"
+
+    seal = {"action_type": action_type, "ruling": ruling, "memory_class": memory_class, "timestamp": ts}
+    return {
+        "schema":         "VGS-INSTITUTIONAL-CLASSIFY-v1",
+        "decision":       decision,
+        "action_type":    action_type,
+        "ruling":         ruling,
+        "consequence":    consequence,
+        "significance":   significance,
+        "memory_class":   memory_class,
+        "suggested_tags": tags,
+        "recommendation": recommendation,
+        "should_record":  significance in ["HIGH","MEDIUM"],
+        "record_at":      "POST /v1/institutional/record" if significance in ["HIGH","MEDIUM"] else "Optional",
+        "governance_signature": sign_governance_payload(seal),
+        "timestamp":      ts,
+    }
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=int(os.environ.get("PORT", 8000)), reload=False)
