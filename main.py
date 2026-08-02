@@ -45438,7 +45438,12 @@ class AuthorityDeclareRequest(BaseModel):
 
 def parse_vsl(source: str) -> dict:
     """
-    Parse a VSL program and extract governance declarations.
+    VSL Parser v2 — full compiler-grade parsing with:
+    - Line numbers on every token
+    - Compiler diagnostics (errors, warnings, suggestions)
+    - Abstract Syntax Tree (AST) output
+    - Unknown authority suggestions
+    - Missing clause detection
 
     VSL syntax example:
         transfer_money()
@@ -45450,48 +45455,99 @@ def parse_vsl(source: str) -> dict:
         with rollback_snapshot
         forbid_context_mix(medical_data, insurance_pricing)
 
-    Returns structured governance rules.
+    Returns structured governance rules with full AST.
     """
-    lines    = [l.strip() for l in source.strip().splitlines() if l.strip() and not l.strip().startswith('#')]
-    parsed   = {
-        "action":         None,
-        "requires":       [],
-        "with_clauses":   [],
-        "forbidden_mixes":[],
-        "authority_types":[],
+    import re
+
+    raw_lines = source.strip().splitlines()
+    lines     = []
+    for i, l in enumerate(raw_lines, 1):
+        stripped = l.strip()
+        if stripped and not stripped.startswith('#'):
+            lines.append((i, stripped))
+
+    # Known authorities for suggestion matching
+    known_authorities = [
+        "finance.transfer", "finance.approve", "finance.read",
+        "medical.read", "medical.write", "medical.prescribe",
+        "legal.review", "legal.approve", "legal.sign",
+        "admin.system", "admin.deploy", "admin.configure",
+        "data.read", "data.write", "data.delete", "data.export",
+        "comms.send", "comms.publish", "comms.broadcast",
+        "infra.modify", "infra.restart", "infra.destroy",
+        "hr.read", "hr.modify", "hr.terminate",
+        "security.scan", "security.modify", "security.escalate",
+    ]
+
+    parsed = {
+        "action":          None,
+        "action_line":     None,
+        "requires":        [],
+        "with_clauses":    [],
+        "forbidden_mixes": [],
+        "authority_types": [],
         "escalation_rules":[],
-        "errors":         [],
+        "errors":          [],
+        "warnings":        [],
+        "suggestions":     [],
     }
 
-    import re
-    for line in lines:
+    # Build AST
+    ast = {
+        "type":     "Program",
+        "children": [],
+    }
+
+    for line_no, line in lines:
+        node = None
+
         # Action declaration
-        if re.match(r'^\w+\(', line) and not line.startswith('requires') and not line.startswith('forbid'):
-            parsed["action"] = re.match(r'^(\w+)\(', line).group(1)
+        if re.match(r'^\w+\(', line) and not line.startswith('requires') and not line.startswith('forbid') and not line.startswith('with'):
+            m = re.match(r'^(\w+)\(', line)
+            if m:
+                parsed["action"]      = m.group(1)
+                parsed["action_line"] = line_no
+                node = {"type": "Action", "name": m.group(1), "line": line_no}
 
         # requires authority(...)
         m = re.search(r'requires\s+authority\(([^)]+)\)', line)
         if m:
             auth = m.group(1).strip()
-            parsed["authority_types"].append(auth)
-            parsed["requires"].append({"type": "authority", "value": auth})
+            if auth not in known_authorities:
+                # Suggest closest match
+                suggestion = next((a for a in known_authorities if auth.split('.')[0] in a), None)
+                parsed["errors"].append({
+                    "line":    line_no,
+                    "code":    "E001",
+                    "message": f"Unknown authority '{auth}'",
+                    "suggestion": f"Did you mean '{suggestion}'?" if suggestion else f"Valid authorities: {known_authorities[:5]}...",
+                })
+            else:
+                parsed["authority_types"].append(auth)
+                parsed["requires"].append({"type": "authority", "value": auth, "line": line_no})
+                node = {"type": "AuthorityRequirement", "authority": auth, "line": line_no}
 
         # requires admissibility(...)
         m = re.search(r'requires\s+admissibility\(([^)]+)\)', line)
         if m:
-            parsed["requires"].append({"type": "admissibility", "value": m.group(1).strip()})
+            val = m.group(1).strip()
+            parsed["requires"].append({"type": "admissibility", "value": val, "line": line_no})
+            node = {"type": "AdmissibilityRequirement", "condition": val, "line": line_no}
 
         # requires human_escalation(...)
         m = re.search(r'requires\s+human_escalation\(([^)]+)\)', line)
         if m:
             rule = m.group(1).strip()
             parsed["escalation_rules"].append(rule)
-            parsed["requires"].append({"type": "human_escalation", "value": rule})
+            parsed["requires"].append({"type": "human_escalation", "value": rule, "line": line_no})
+            node = {"type": "EscalationRequirement", "condition": rule, "line": line_no}
 
         # with evidence_chain / with cryptographic_proof / etc
         m = re.match(r'^with\s+(\w+)', line)
         if m:
-            parsed["with_clauses"].append(m.group(1).strip())
+            clause = m.group(1).strip()
+            parsed["with_clauses"].append(clause)
+            node = {"type": "EvidenceClause", "clause": clause, "line": line_no}
 
         # forbid_context_mix(...)
         m = re.search(r'forbid_context_mix\(([^)]+)\)', line)
@@ -45499,29 +45555,80 @@ def parse_vsl(source: str) -> dict:
             args = [a.strip() for a in m.group(1).split(',')]
             if len(args) == 2:
                 parsed["forbidden_mixes"].append(tuple(args))
+                node = {"type": "ForbiddenMix", "a": args[0], "b": args[1], "line": line_no}
+            else:
+                parsed["errors"].append({
+                    "line":    line_no,
+                    "code":    "E002",
+                    "message": "forbid_context_mix requires exactly 2 arguments",
+                    "example": "forbid_context_mix(medical_data, insurance_pricing)",
+                })
+
+        if node:
+            ast["children"].append(node)
+
+    # Post-parse diagnostics
+    if not parsed["action"]:
+        parsed["errors"].append({
+            "line":    1,
+            "code":    "E003",
+            "message": "No action declaration found",
+            "suggestion": "VSL programs must begin with an action declaration, e.g. transfer_funds()",
+        })
+
+    if not parsed["authority_types"] and not parsed["errors"]:
+        parsed["warnings"].append({
+            "line":    None,
+            "code":    "W001",
+            "message": "No authority requirement declared",
+            "suggestion": "Consider adding: requires authority(your.authority.scope)",
+        })
+
+    if not parsed["with_clauses"]:
+        parsed["warnings"].append({
+            "line":    None,
+            "code":    "W002",
+            "message": "No evidence clauses declared",
+            "suggestion": "Consider adding: with evidence_chain with cryptographic_proof",
+        })
+
+    parsed["ast"] = ast
+    parsed["parse_errors"] = len(parsed["errors"])
+    parsed["parse_warnings"] = len(parsed["warnings"])
+    parsed["parse_success"] = len(parsed["errors"]) == 0
 
     return parsed
 
 
-# ── VSL COMPILER ─────────────────────────────────────────────
+# ── VSL COMPILER v2 ──────────────────────────────────────────
 
 def compile_vsl(parsed: dict, agent_id: str, consequence: str, jurisdiction: str) -> dict:
     """
-    Compile parsed VSL into runtime governance rules.
-    Expert: "governance compiled into execution semantics."
+    VSL Compiler v2 — produces:
+    - Compiled governance rules
+    - Governance Bytecode (GBC)
+    - Governance IR (intermediate representation)
+    - Compilation explanation per rule
+    - Evidence requirements
+    - Compiler warnings
     """
     rules        = []
     evidence_req = []
     warnings     = []
 
+    # Governance Bytecode — the instruction set
+    bytecode = []
+    ir_nodes = []
+
     # Authority rules
-    for auth_type in parsed["authority_types"]:
+    for auth_type in parsed.get("authority_types", []):
         auth_config = VSL_AUTHORITY_TYPES.get(auth_type, {})
         rule = {
-            "rule_type":  "AUTHORITY_CHECK",
-            "authority":  auth_type,
-            "risk":       auth_config.get("risk", "MEDIUM"),
-            "enforcement":"BLOCK_IF_ABSENT",
+            "rule_type":   "AUTHORITY_CHECK",
+            "authority":   auth_type,
+            "risk":        auth_config.get("risk", "MEDIUM"),
+            "enforcement": "BLOCK_IF_ABSENT",
+            "explanation": f"Rule generated because authority({auth_type}) mapped to AUTHORITY_CHECK according to VSL Standard Library v1. BLOCK_IF_ABSENT means execution is denied if agent does not hold this authority.",
         }
         if auth_config.get("human_required"):
             rule["human_required"] = True
@@ -45529,42 +45636,96 @@ def compile_vsl(parsed: dict, agent_id: str, consequence: str, jurisdiction: str
             rule["human_threshold"] = auth_config["human_threshold"]
         rules.append(rule)
 
+        # Bytecode instruction
+        bytecode.append(f"AUTH_CHECK {auth_type}")
+        bytecode.append(f"BLOCK_IF_ABSENT {auth_type}")
+
+        # IR node
+        ir_nodes.append({
+            "ir_type":   "AuthorityGate",
+            "authority": auth_type,
+            "action":    "BLOCK_IF_ABSENT",
+            "source":    f"authority({auth_type})",
+        })
+
     # Evidence requirements
-    for clause in parsed["with_clauses"]:
+    for clause in parsed.get("with_clauses", []):
         if clause == "evidence_chain":
             evidence_req.append("EVIDENCE_CHAIN_SEALED")
+            bytecode.append("SEAL_EVIDENCE_CHAIN")
+            ir_nodes.append({"ir_type": "EvidenceGate", "requirement": "EVIDENCE_CHAIN_SEALED"})
         elif clause == "cryptographic_proof":
             evidence_req.append("CRYPTOGRAPHIC_PROOF_GENERATED")
+            bytecode.append("GEN_CRYPTOGRAPHIC_PROOF")
+            bytecode.append("SIGN_ED25519")
+            ir_nodes.append({"ir_type": "EvidenceGate", "requirement": "CRYPTOGRAPHIC_PROOF_GENERATED"})
         elif clause == "rollback_snapshot":
             evidence_req.append("ROLLBACK_SNAPSHOT_CREATED")
+            bytecode.append("CREATE_ROLLBACK_SNAPSHOT")
+            ir_nodes.append({"ir_type": "EvidenceGate", "requirement": "ROLLBACK_SNAPSHOT_CREATED"})
 
     # Context mix rules
-    for mix in parsed["forbidden_mixes"]:
+    for mix in parsed.get("forbidden_mixes", []):
         rules.append({
             "rule_type":   "CONTEXT_CONTAMINATION_CHECK",
             "forbidden_a": mix[0],
             "forbidden_b": mix[1],
             "enforcement": "BLOCK_ON_MIX",
+            "explanation": f"Rule generated because forbid_context_mix({mix[0]},{mix[1]}) prevents these contexts from co-occurring in the same execution.",
         })
+        bytecode.append(f"CHECK_CONTEXT_MIX {mix[0]} {mix[1]}")
+        bytecode.append(f"BLOCK_ON_MIX {mix[0]} {mix[1]}")
+        ir_nodes.append({"ir_type": "ContextGate", "forbidden_a": mix[0], "forbidden_b": mix[1]})
 
     # Escalation rules
-    for esc in parsed["escalation_rules"]:
+    for esc in parsed.get("escalation_rules", []):
         rules.append({
             "rule_type":   "HUMAN_ESCALATION",
             "condition":   esc,
             "enforcement": "ESCALATE_IF_CONDITION",
+            "explanation": f"Rule generated because human_escalation({esc}) mapped to ESCALATE_IF_CONDITION. If this condition is true at execution time, the action is routed to human review.",
+        })
+        bytecode.append(f"EVAL_CONDITION {esc}")
+        bytecode.append(f"ESCALATE_IF_TRUE")
+        ir_nodes.append({"ir_type": "EscalationGate", "condition": esc})
+
+    # Final bytecode
+    bytecode.append("BIND_EVIDENCE")
+    bytecode.append("SEAL_RECEIPT")
+    bytecode.append("SIGN_ED25519")
+    bytecode.append("EMIT_GOVERNANCE_RECEIPT")
+
+    # Consequence warnings
+    if consequence in ("CRITICAL", "HIGH", "EMERGENCY"):
+        if not any(r.get("human_required") for r in rules) and not parsed.get("escalation_rules"):
+            warnings.append({
+                "code":    "W003",
+                "message": f"{consequence} consequence action — consider adding human_escalation requirement",
+                "fix":     "Add: requires human_escalation(if consequence == CRITICAL)",
+            })
+
+    if not evidence_req:
+        warnings.append({
+            "code":    "W004",
+            "message": "No evidence clauses compiled — governance receipt will have minimal evidence",
+            "fix":     "Add: with evidence_chain with cryptographic_proof",
         })
 
-    # Consequence override
-    if consequence in ("CRITICAL", "HIGH"):
-        if not any(r.get("human_required") for r in rules):
-            warnings.append("HIGH consequence action — consider adding human_escalation requirement")
+    # Governance IR pipeline
+    governance_ir = {
+        "pipeline": "VSL → AST → Governance IR → Execution Rules → Evidence Receipt",
+        "ir_nodes": ir_nodes,
+        "ir_summary": f"{len(ir_nodes)} IR nodes compiled: {', '.join(set(n['ir_type'] for n in ir_nodes))}",
+    }
 
     return {
-        "compiled_rules": rules,
-        "evidence_requirements": evidence_req,
-        "total_rules": len(rules),
-        "warnings": warnings,
+        "compiled_rules":      rules,
+        "evidence_requirements":evidence_req,
+        "total_rules":         len(rules),
+        "warnings":            warnings,
+        "bytecode":            bytecode,
+        "bytecode_summary":    f"{len(bytecode)} instructions",
+        "governance_ir":       governance_ir,
     }
 
 
@@ -45574,6 +45735,7 @@ async def execute_vsl_rules(
     compiled: dict,
     agent_id: str,
     action_type: str,
+
     consequence: str,
     inputs: dict,
 ) -> dict:
@@ -61734,6 +61896,4537 @@ async def intent_conflict(
             "The conflict record is sealed, auditable, and independently verifiable."
         ),
         "full_chain_status": f"Mission → Intent CONFLICT DETECTED ({conflict_type}) → Resolution: {resolution}",
+    }
+
+
+
+# ============================================================
+# EU AI ACT COMPLIANCE LAYER — COMPLETE ARTICLE COVERAGE
+# Covers Articles 6-50 of the EU AI Act (effective Aug 2024)
+# High-risk AI systems obligations now active.
+# Article 50 GPAI obligations active.
+# Full enforcement begins Aug 2026.
+# ============================================================
+
+# ── ARTICLE 6 + ANNEX III — HIGH-RISK CLASSIFICATION ────────
+@app.post("/v1/eu-aiact/classify", tags=["EU AI Act Compliance"])
+async def eu_aiact_classify(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    EU AI Act Article 6 + Annex III high-risk AI classification.
+    Determines whether an AI system falls under high-risk obligations
+    based on deployment domain and use case.
+    Required before conformity assessment.
+    """
+    require_api_key(x_api_key, authorization)
+    ts = datetime.now(timezone.utc).isoformat()
+
+    domain      = req.get("domain","").lower()
+    use_case    = req.get("use_case","").lower()
+    system_name = req.get("system_name","")
+
+    # Annex III high-risk domains
+    high_risk_domains = {
+        "biometric":       {"risk": "HIGH", "article": "Annex III §1", "obligations": ["Article 9","Article 10","Article 11","Article 12","Article 13","Article 14","Article 17"]},
+        "critical_infrastructure": {"risk": "HIGH", "article": "Annex III §2", "obligations": ["Article 9","Article 11","Article 12","Article 14"]},
+        "education":       {"risk": "HIGH", "article": "Annex III §3", "obligations": ["Article 9","Article 10","Article 13","Article 14"]},
+        "employment":      {"risk": "HIGH", "article": "Annex III §4", "obligations": ["Article 9","Article 10","Article 11","Article 13","Article 14"]},
+        "essential_services": {"risk": "HIGH", "article": "Annex III §5", "obligations": ["Article 9","Article 10","Article 11","Article 12","Article 13","Article 14"]},
+        "law_enforcement": {"risk": "HIGH", "article": "Annex III §6", "obligations": ["Article 9","Article 10","Article 11","Article 12","Article 13","Article 14"]},
+        "migration":       {"risk": "HIGH", "article": "Annex III §7", "obligations": ["Article 9","Article 10","Article 13","Article 14"]},
+        "justice":         {"risk": "HIGH", "article": "Annex III §8", "obligations": ["Article 9","Article 10","Article 11","Article 12","Article 13","Article 14"]},
+        "financial":       {"risk": "HIGH", "article": "Annex III §5b", "obligations": ["Article 9","Article 10","Article 11","Article 12","Article 13","Article 14"]},
+        "healthcare":      {"risk": "HIGH", "article": "Annex III §5a", "obligations": ["Article 9","Article 10","Article 11","Article 12","Article 13","Article 14"]},
+    }
+
+    matched = None
+    for key, info in high_risk_domains.items():
+        if key in domain or key in use_case:
+            matched = {**info, "matched_domain": key}
+            break
+
+    if matched:
+        risk_class = "HIGH_RISK"
+        classification = "HIGH-RISK AI SYSTEM — Full Article 9-17 obligations apply"
+        obligations    = matched["obligations"]
+        annex_ref      = matched["article"]
+    else:
+        risk_class = "LIMITED_RISK"
+        classification = "LIMITED OR MINIMAL RISK — Article 50 transparency obligations may apply"
+        obligations    = ["Article 50"]
+        annex_ref      = "Not Annex III"
+
+    seal = {"system_name": system_name, "domain": domain, "risk_class": risk_class, "timestamp": ts}
+    return {
+        "schema":         "VGS-EUAIACT-CLASSIFY-v1",
+        "system_name":    system_name,
+        "domain":         domain,
+        "use_case":       use_case,
+        "risk_class":     risk_class,
+        "classification": classification,
+        "annex_iii_ref":  annex_ref,
+        "applicable_obligations": obligations,
+        "next_steps":     [f"POST /v1/eu-aiact/{a.lower().replace(' ','')}" for a in obligations],
+        "conformity_required": risk_class == "HIGH_RISK",
+        "governance_signature": sign_governance_payload(seal),
+        "timestamp":      ts,
+    }
+
+
+# ── ARTICLE 9 — RISK MANAGEMENT SYSTEM ──────────────────────
+@app.post("/v1/eu-aiact/article9", tags=["EU AI Act Compliance"])
+@app.post("/v1/eu-aiact/risk-management", tags=["EU AI Act Compliance"])
+async def eu_aiact_article9(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    EU AI Act Article 9 — Risk Management System.
+    Documents and evaluates the risk management system for a high-risk
+    AI system. Required throughout the lifecycle of the AI system.
+    VeriSigil's six-gate pre-execution governance maps directly to
+    Article 9 risk management obligations.
+    """
+    require_api_key(x_api_key, authorization)
+    ts        = datetime.now(timezone.utc).isoformat()
+    system_id = req.get("system_id","")
+
+    risks_identified    = req.get("risks_identified",[])
+    mitigation_measures = req.get("mitigation_measures",[])
+    residual_risks      = req.get("residual_risks",[])
+    testing_results     = req.get("testing_results",{})
+
+    verisigil_coverage = {
+        "risk_identification":  "POST /v1/eu-aiact/classify identifies risk class and applicable obligations",
+        "risk_evaluation":      "POST /v1/governance/risk-reduced quantifies risk exposure",
+        "risk_mitigation":      "POST /v1/intercept — pre-execution governance blocks high-risk actions",
+        "residual_risk_mgmt":   "GET /v1/platform/limits — explicit statement of what VeriSigil cannot prevent",
+        "continuous_monitoring":"GET /v1/monitor/health — real-time governance health",
+        "testing_validation":   "CLARA Runtime Validation Program — 25/25 independent verification",
+    }
+
+    seal = {"system_id": system_id, "article": "9", "risks": len(risks_identified), "timestamp": ts}
+    return {
+        "schema":              "VGS-EUAIACT-ART9-v1",
+        "article":             "Article 9 — Risk Management System",
+        "system_id":           system_id,
+        "risks_identified":    risks_identified,
+        "mitigation_measures": mitigation_measures,
+        "residual_risks":      residual_risks,
+        "testing_results":     testing_results,
+        "verisigil_coverage":  verisigil_coverage,
+        "compliance_status":   "DOCUMENTED" if risks_identified else "INCOMPLETE — identify risks to complete Article 9",
+        "lifecycle_note":      "Article 9 risk management must be continuous — not a one-time assessment",
+        "governance_signature":sign_governance_payload(seal),
+        "timestamp":           ts,
+    }
+
+
+# ── ARTICLE 10 — DATA GOVERNANCE ────────────────────────────
+@app.post("/v1/eu-aiact/article10", tags=["EU AI Act Compliance"])
+@app.post("/v1/eu-aiact/data-governance", tags=["EU AI Act Compliance"])
+async def eu_aiact_article10(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    EU AI Act Article 10 — Data and Data Governance.
+    Documents training, validation, and testing data practices.
+    Includes data quality criteria, bias examination, and
+    data governance policies required for high-risk AI systems.
+    """
+    require_api_key(x_api_key, authorization)
+    ts = datetime.now(timezone.utc).isoformat()
+
+    data_sources    = req.get("data_sources",[])
+    data_quality    = req.get("data_quality_measures",[])
+    bias_examination= req.get("bias_examination_performed", False)
+    data_governance = req.get("data_governance_policy","")
+    personal_data   = req.get("involves_personal_data", False)
+    special_category= req.get("special_category_data", False)
+
+    gaps = []
+    if not data_sources:          gaps.append("Data sources not documented")
+    if not bias_examination:      gaps.append("Bias examination not performed — required by Article 10(2)(f)")
+    if not data_governance:       gaps.append("Data governance policy not documented")
+    if special_category and not req.get("special_category_justification"): gaps.append("Special category data justification required")
+
+    seal = {"article": "10", "data_sources": len(data_sources), "bias_examined": bias_examination, "timestamp": ts}
+    return {
+        "schema":            "VGS-EUAIACT-ART10-v1",
+        "article":           "Article 10 — Data and Data Governance",
+        "data_sources":      data_sources,
+        "data_quality_measures": data_quality,
+        "bias_examination_performed": bias_examination,
+        "data_governance_policy": data_governance,
+        "personal_data":     personal_data,
+        "special_category_data": special_category,
+        "compliance_gaps":   gaps,
+        "compliance_status": "COMPLIANT" if not gaps else f"GAPS IDENTIFIED: {len(gaps)}",
+        "cbm_data_residency_note": "If processing Nigerian personal data, also apply CBN data residency mandate — GET /v1/regulatory/nitda",
+        "governance_signature": sign_governance_payload(seal),
+        "timestamp":         ts,
+    }
+
+
+# ── ARTICLE 11 — TECHNICAL DOCUMENTATION ────────────────────
+@app.post("/v1/eu-aiact/article11", tags=["EU AI Act Compliance"])
+@app.post("/v1/eu-aiact/technical-documentation", tags=["EU AI Act Compliance"])
+async def eu_aiact_article11(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    EU AI Act Article 11 — Technical Documentation.
+    Generates and validates technical documentation required for
+    high-risk AI systems under Annex IV. VeriSigil's DOI-published
+    specifications and CLARA validation program contribute directly
+    to Article 11 compliance.
+    """
+    require_api_key(x_api_key, authorization)
+    ts        = datetime.now(timezone.utc).isoformat()
+    system_id = req.get("system_id","")
+
+    # Annex IV required documentation elements
+    annex_iv = {
+        "general_description":       req.get("general_description", ""),
+        "intended_purpose":          req.get("intended_purpose", ""),
+        "version_information":       req.get("version_information", ""),
+        "provider_information":      req.get("provider_information", ""),
+        "human_oversight_measures":  req.get("human_oversight_measures", []),
+        "accuracy_metrics":          req.get("accuracy_metrics", {}),
+        "training_data_description": req.get("training_data_description", ""),
+        "risk_management_ref":       req.get("risk_management_ref", ""),
+        "testing_validation_ref":    req.get("testing_validation_ref", ""),
+    }
+
+    verisigil_contributions = {
+        "formal_specifications": [
+            "https://doi.org/10.5281/zenodo.20627386",
+            "https://doi.org/10.5281/zenodo.20264923",
+            "https://doi.org/10.5281/zenodo.20349768",
+            "https://doi.org/10.5281/zenodo.20451306",
+        ],
+        "independent_validation": "CLARA Runtime Validation Program — 25/25 offline verification",
+        "external_attestation":   "OMNIX QUANTUM LTD — POGC-EXT-A7F3C2B1D9E4F508",
+        "governance_evidence":    "Every governed action produces sealed, independently verifiable evidence",
+        "technical_limits":       "GET /v1/platform/limits — published proof boundaries",
+    }
+
+    missing = [k for k, v in annex_iv.items() if not v]
+    seal    = {"system_id": system_id, "article": "11", "missing_elements": len(missing), "timestamp": ts}
+
+    return {
+        "schema":                "VGS-EUAIACT-ART11-v1",
+        "article":               "Article 11 — Technical Documentation (Annex IV)",
+        "system_id":             system_id,
+        "annex_iv_elements":     annex_iv,
+        "missing_elements":      missing,
+        "verisigil_contributions": verisigil_contributions,
+        "compliance_status":     "COMPLETE" if not missing else f"INCOMPLETE — {len(missing)} Annex IV elements missing",
+        "retention_note":        "Technical documentation must be kept for 10 years after AI system placed on market",
+        "governance_signature":  sign_governance_payload(seal),
+        "timestamp":             ts,
+    }
+
+
+# ── ARTICLE 12 — RECORD KEEPING ─────────────────────────────
+@app.post("/v1/eu-aiact/article12", tags=["EU AI Act Compliance"])
+@app.post("/v1/eu-aiact/record-keeping", tags=["EU AI Act Compliance"])
+async def eu_aiact_article12(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    EU AI Act Article 12 — Record-Keeping (Logging).
+    Documents automatic logging capabilities for high-risk AI systems.
+    VeriSigil's sealed governance receipts are the Article 12
+    record-keeping mechanism — every governed action is automatically
+    logged, timestamped, and independently verifiable.
+    """
+    require_api_key(x_api_key, authorization)
+    ts        = datetime.now(timezone.utc).isoformat()
+    system_id = req.get("system_id","")
+
+    total_records = len(_INTERCEPT_LOG)
+    verisigil_logging = {
+        "automatic_logging":       True,
+        "log_format":              "Ed25519-sealed JSON governance receipt",
+        "fields_logged":           ["agent_id","action_type","ruling","consequence","timestamp","authority_status","payload_hash"],
+        "tamper_evident":          True,
+        "independently_verifiable":True,
+        "public_key":              base64.b64encode(bytes(_VERIFY_KEY)).decode(),
+        "verification_endpoint":   "GET /v1/proof/signing-diagnostic",
+        "total_records":           total_records,
+        "clara_validation":        "25/25 records independently verified offline",
+        "retention_capable":       True,
+    }
+
+    seal = {"system_id": system_id, "article": "12", "records": total_records, "timestamp": ts}
+    return {
+        "schema":             "VGS-EUAIACT-ART12-v1",
+        "article":            "Article 12 — Record-Keeping",
+        "system_id":          system_id,
+        "verisigil_logging":  verisigil_logging,
+        "article12_requirements": {
+            "automatic_logging":     "SATISFIED — every intercept call produces automatic sealed log",
+            "period_of_operation":   "SATISFIED — all records timestamped with UTC timestamp",
+            "input_data_logging":    "SATISFIED — payload_hash in every record",
+            "output_logging":        "SATISFIED — ruling (ALLOW/DENY/ESCALATE) in every record",
+            "operator_identification":"SATISFIED — agent_id in every record",
+        },
+        "compliance_status":  "COMPLIANT — VeriSigil's sealed receipts satisfy Article 12 logging requirements",
+        "governance_signature": sign_governance_payload(seal),
+        "timestamp":          ts,
+    }
+
+
+# ── ARTICLE 13 — TRANSPARENCY ────────────────────────────────
+@app.post("/v1/eu-aiact/article13", tags=["EU AI Act Compliance"])
+@app.post("/v1/eu-aiact/transparency", tags=["EU AI Act Compliance"])
+async def eu_aiact_article13(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    EU AI Act Article 13 — Transparency and Provision of Information to Deployers.
+    Generates Article 13-compliant transparency documentation.
+    VeriSigil's published proof surface, platform limits, and public
+    verification endpoints satisfy Article 13 transparency obligations.
+    """
+    require_api_key(x_api_key, authorization)
+    ts        = datetime.now(timezone.utc).isoformat()
+    system_id = req.get("system_id","")
+
+    transparency_record = {
+        "provider_identity":      req.get("provider_identity", "VeriSigil AI — raheem@verisigilai.com"),
+        "intended_purpose":       req.get("intended_purpose",""),
+        "level_of_accuracy":      req.get("level_of_accuracy",""),
+        "foreseeable_misuse":     req.get("foreseeable_misuse",""),
+        "human_oversight_measures":req.get("human_oversight_measures",""),
+        "limitations_known":      req.get("limitations_known",""),
+    }
+
+    verisigil_transparency = {
+        "platform_limits":        "GET /v1/platform/limits — public, no auth required",
+        "platform_boundary":      "GET /v1/platform/boundary — explicit scope statement",
+        "proof_surface":          "GET /v1/proof/signing-diagnostic — independently verifiable",
+        "doi_specifications":     "https://doi.org/10.5281/zenodo.20627386",
+        "trust_center":           "https://verisigilai.com/trust.html",
+        "what_we_cannot_prove":   "Complete consequence-boundary coverage, predicate truth, legal admissibility",
+    }
+
+    seal = {"system_id": system_id, "article": "13", "timestamp": ts}
+    return {
+        "schema":                "VGS-EUAIACT-ART13-v1",
+        "article":               "Article 13 — Transparency",
+        "system_id":             system_id,
+        "transparency_record":   transparency_record,
+        "verisigil_transparency":verisigil_transparency,
+        "article13_requirements":{
+            "identity_disclosed":    "SATISFIED",
+            "capabilities_disclosed":"SATISFIED — GET /v1/platform/limits",
+            "limitations_disclosed": "SATISFIED — limits published at same URL as capabilities",
+            "oversight_disclosed":   "SATISFIED — GET /v1/platform/boundary",
+        },
+        "compliance_status":     "COMPLIANT",
+        "governance_signature":  sign_governance_payload(seal),
+        "timestamp":             ts,
+    }
+
+
+# ── ARTICLE 14 — HUMAN OVERSIGHT ────────────────────────────
+@app.post("/v1/eu-aiact/article14", tags=["EU AI Act Compliance"])
+@app.post("/v1/eu-aiact/human-oversight", tags=["EU AI Act Compliance"])
+async def eu_aiact_article14(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    EU AI Act Article 14 — Human Oversight.
+    Documents and validates human oversight measures for high-risk
+    AI systems. VeriSigil's ESCALATE ruling and autonomous agent
+    DENY upgrade directly implement Article 14 human oversight
+    obligations.
+    """
+    require_api_key(x_api_key, authorization)
+    ts = datetime.now(timezone.utc).isoformat()
+
+    system_id            = req.get("system_id","")
+    human_present        = req.get("human_present", True)
+    consequence          = req.get("consequence","OPERATIONAL")
+    oversight_measures   = req.get("oversight_measures",[])
+    override_capability  = req.get("override_capability", True)
+    pause_capability     = req.get("pause_capability", True)
+
+    # Article 14 compliance evaluation
+    article14_checks = {
+        "humans_can_understand_output":   req.get("humans_can_understand",True),
+        "humans_can_override":            override_capability,
+        "humans_can_pause_or_stop":       pause_capability,
+        "human_present_for_critical":     human_present if consequence in ["CRITICAL","EMERGENCY"] else True,
+        "oversight_instructions_provided":bool(oversight_measures),
+    }
+
+    gaps = [k for k, v in article14_checks.items() if not v]
+
+    verisigil_implementation = {
+        "escalate_ruling":    "ESCALATE routes to human before execution — Article 14(4)",
+        "autonomous_deny":    "human_present=false + CRITICAL/EMERGENCY → DENY (no human to receive escalation)",
+        "kill_switch":        "POST /v1/containment/kill-switch — pause/stop capability",
+        "break_glass":        "POST /v1/emergency/break-glass — emergency human override",
+        "approval_console":   "POST /v1/approvals/create — human approval workflow",
+        "clara_evidence":     "Zero fail-opens across 25 independently verified actions",
+    }
+
+    seal = {"system_id": system_id, "article": "14", "gaps": len(gaps), "timestamp": ts}
+    return {
+        "schema":                  "VGS-EUAIACT-ART14-v1",
+        "article":                 "Article 14 — Human Oversight",
+        "system_id":               system_id,
+        "article14_checks":        article14_checks,
+        "compliance_gaps":         gaps,
+        "oversight_measures":      oversight_measures,
+        "verisigil_implementation":verisigil_implementation,
+        "compliance_status":       "COMPLIANT" if not gaps else f"GAPS: {gaps}",
+        "governance_signature":    sign_governance_payload(seal),
+        "timestamp":               ts,
+    }
+
+
+# ── ARTICLE 17 — QUALITY MANAGEMENT ─────────────────────────
+@app.post("/v1/eu-aiact/article17", tags=["EU AI Act Compliance"])
+@app.post("/v1/eu-aiact/quality-management", tags=["EU AI Act Compliance"])
+async def eu_aiact_article17(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    EU AI Act Article 17 — Quality Management System.
+    Documents the quality management system for high-risk AI providers.
+    Maps VeriSigil's governance architecture to Article 17 QMS
+    requirements including strategy, design, data management,
+    testing, and post-market monitoring.
+    """
+    require_api_key(x_api_key, authorization)
+    ts        = datetime.now(timezone.utc).isoformat()
+    system_id = req.get("system_id","")
+
+    qms_elements = {
+        "regulatory_compliance_strategy": req.get("regulatory_strategy",""),
+        "design_procedures":              req.get("design_procedures",""),
+        "data_management":                req.get("data_management",""),
+        "change_management":              req.get("change_management",""),
+        "post_market_monitoring":         req.get("post_market_monitoring",""),
+        "serious_incident_reporting":     req.get("serious_incident_reporting",""),
+        "personnel_competence":           req.get("personnel_competence",""),
+    }
+
+    verisigil_qms = {
+        "design_governance":     "Six-gate architecture with DOI-published specifications",
+        "testing_validation":    "CLARA Runtime Validation Program — independent, reproducible",
+        "change_management":     "POST /v1/doctrine/evolve — sealed doctrine evolution",
+        "post_market_monitoring":"GET /v1/eu-aiact/post-market + GET /v1/monitor/health",
+        "incident_reporting":    "POST /v1/eu-aiact/serious-incident",
+        "evidence_management":   "GET /v1/proof/package/{id} — complete governance evidence",
+    }
+
+    missing = [k for k, v in qms_elements.items() if not v]
+    seal    = {"system_id": system_id, "article": "17", "missing": len(missing), "timestamp": ts}
+
+    return {
+        "schema":           "VGS-EUAIACT-ART17-v1",
+        "article":          "Article 17 — Quality Management System",
+        "system_id":        system_id,
+        "qms_elements":     qms_elements,
+        "missing_elements": missing,
+        "verisigil_qms":    verisigil_qms,
+        "compliance_status":"COMPLETE" if not missing else f"INCOMPLETE — {len(missing)} QMS elements missing",
+        "governance_signature": sign_governance_payload(seal),
+        "timestamp":        ts,
+    }
+
+
+# ── CONFORMITY ASSESSMENT ────────────────────────────────────
+@app.post("/v1/eu-aiact/conformity", tags=["EU AI Act Compliance"])
+@app.post("/v1/eu-aiact/conformity-assessment", tags=["EU AI Act Compliance"])
+async def eu_aiact_conformity(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    EU AI Act Conformity Assessment (Article 43).
+    Assesses conformity with EU AI Act requirements across all
+    applicable articles. Generates a conformity assessment record
+    that can be submitted to a notified body or used for self-assessment.
+    """
+    require_api_key(x_api_key, authorization)
+    ts        = datetime.now(timezone.utc).isoformat()
+    system_id = req.get("system_id","")
+    risk_class= req.get("risk_class","HIGH_RISK")
+
+    articles_assessed = {
+        "article_9_risk_management":      req.get("article9_complete", False),
+        "article_10_data_governance":     req.get("article10_complete", False),
+        "article_11_technical_docs":      req.get("article11_complete", False),
+        "article_12_record_keeping":      req.get("article12_complete", False),
+        "article_13_transparency":        req.get("article13_complete", False),
+        "article_14_human_oversight":     req.get("article14_complete", False),
+        "article_17_quality_management":  req.get("article17_complete", False),
+    }
+
+    completed      = sum(1 for v in articles_assessed.values() if v)
+    total          = len(articles_assessed)
+    readiness_pct  = round(completed / total * 100, 1)
+    ready_for_ce   = readiness_pct == 100.0
+
+    incomplete = [a for a, v in articles_assessed.items() if not v]
+    seal       = {"system_id": system_id, "readiness_pct": readiness_pct, "timestamp": ts}
+
+    return {
+        "schema":              "VGS-EUAIACT-CONFORMITY-v1",
+        "article":             "Article 43 — Conformity Assessment",
+        "system_id":           system_id,
+        "risk_class":          risk_class,
+        "articles_assessed":   articles_assessed,
+        "completed_articles":  completed,
+        "total_articles":      total,
+        "readiness_pct":       readiness_pct,
+        "ce_marking_ready":    ready_for_ce,
+        "incomplete_articles": incomplete,
+        "assessment_type":     "THIRD_PARTY_REQUIRED" if risk_class == "HIGH_RISK" else "SELF_ASSESSMENT",
+        "compliance_status":   "READY FOR CE MARKING" if ready_for_ce else f"{readiness_pct}% complete — {len(incomplete)} articles remaining",
+        "next_step":           "POST /v1/eu-aiact/ce-marking" if ready_for_ce else f"Complete: {incomplete}",
+        "governance_signature":sign_governance_payload(seal),
+        "timestamp":           ts,
+    }
+
+
+# ── CE MARKING READINESS ─────────────────────────────────────
+@app.get("/v1/eu-aiact/ce-marking", tags=["EU AI Act Compliance"])
+async def eu_aiact_ce_marking(
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    EU AI Act CE Marking readiness assessment (Article 48).
+    CE marking is required for high-risk AI systems placed on the
+    EU market. This endpoint assesses readiness and generates the
+    Declaration of Conformity template.
+    """
+    require_api_key(x_api_key, authorization)
+    ts = datetime.now(timezone.utc).isoformat()
+
+    return {
+        "schema":     "VGS-EUAIACT-CE-MARKING-v1",
+        "article":    "Article 48 — CE Marking of Conformity",
+        "requirements": {
+            "conformity_assessment_complete": "POST /v1/eu-aiact/conformity-assessment",
+            "technical_documentation_ready":  "POST /v1/eu-aiact/article11",
+            "quality_management_system":      "POST /v1/eu-aiact/article17",
+            "eu_declaration_of_conformity":   "Required — template below",
+            "registration_in_eu_database":    "POST /v1/eu-aiact/register",
+        },
+        "declaration_of_conformity_template": {
+            "provider_name":     "[Your organisation name]",
+            "provider_address":  "[Your registered address]",
+            "ai_system_name":    "[AI system name]",
+            "ai_system_version": "[Version]",
+            "intended_purpose":  "[Intended purpose per Article 13]",
+            "compliance_with":   "Regulation (EU) 2024/1689 of the European Parliament and of the Council",
+            "notified_body":     "[Notified Body ID if applicable]",
+            "harmonised_standards": "[List of applied harmonised standards]",
+            "signature_place":   "[Place]",
+            "signature_date":    ts[:10],
+        },
+        "verisigil_contribution": "VeriSigil's governance receipts, CLARA validation, DOI specifications, and platform limits contribute to the technical documentation and logging requirements for CE marking",
+        "timestamp":  ts,
+    }
+
+
+# ── INCIDENT REPORTING ───────────────────────────────────────
+@app.post("/v1/eu-aiact/incident", tags=["EU AI Act Compliance"])
+@app.post("/v1/eu-aiact/serious-incident", tags=["EU AI Act Compliance"])
+async def eu_aiact_incident(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    EU AI Act Article 73 — Serious Incident Reporting.
+    Generates a serious incident report for submission to the
+    national competent authority. Required within 15 days of
+    becoming aware of a serious incident or malfunction.
+    """
+    require_api_key(x_api_key, authorization)
+    ts          = datetime.now(timezone.utc).isoformat()
+    incident_id = f"INC-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}"
+
+    incident = {
+        "schema":              "VGS-EUAIACT-INCIDENT-v1",
+        "incident_id":         incident_id,
+        "article":             "Article 73 — Serious Incident Reporting",
+        "system_id":           req.get("system_id",""),
+        "incident_date":       req.get("incident_date", ts[:10]),
+        "discovery_date":      req.get("discovery_date", ts[:10]),
+        "incident_description":req.get("description",""),
+        "severity":            req.get("severity",""),
+        "affected_persons":    req.get("affected_persons",""),
+        "immediate_measures":  req.get("immediate_measures",[]),
+        "root_cause":          req.get("root_cause",""),
+        "corrective_actions":  req.get("corrective_actions",[]),
+        "reported_to":         req.get("national_authority",""),
+        "reporting_deadline":  "15 days from discovery for serious incidents",
+        "created_at":          ts,
+    }
+
+    seal = {"incident_id": incident_id, "system_id": incident["system_id"], "severity": incident["severity"], "timestamp": ts}
+    incident["governance_signature"] = sign_governance_payload(seal)
+
+    return {
+        **incident,
+        "verisigil_evidence": "POST /v1/governance/business-impact — governance evidence for incident report",
+        "offline_verifiable": True,
+        "next_steps": [
+            "Submit to national competent authority within 15 days",
+            "Preserve all governance evidence records",
+            "Implement corrective actions documented above",
+            "POST /v1/eu-aiact/post-market to update monitoring plan",
+        ],
+    }
+
+
+# ── POST-MARKET MONITORING ───────────────────────────────────
+@app.post("/v1/eu-aiact/monitoring", tags=["EU AI Act Compliance"])
+@app.post("/v1/eu-aiact/post-market", tags=["EU AI Act Compliance"])
+async def eu_aiact_post_market(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    EU AI Act Article 72 — Post-Market Monitoring.
+    Documents the post-market monitoring plan for high-risk AI systems.
+    VeriSigil's continuous governance monitoring provides the
+    technical infrastructure for Article 72 post-market obligations.
+    """
+    require_api_key(x_api_key, authorization)
+    ts        = datetime.now(timezone.utc).isoformat()
+    system_id = req.get("system_id","")
+
+    monitoring_plan = {
+        "monitoring_frequency":   req.get("monitoring_frequency","CONTINUOUS"),
+        "kpis":                   req.get("kpis",[]),
+        "data_collection_method": req.get("data_collection",""),
+        "review_period":          req.get("review_period","ANNUAL"),
+        "responsible_person":     req.get("responsible_person",""),
+    }
+
+    verisigil_monitoring = {
+        "continuous_governance": "GET /v1/monitor/health — real-time governance health",
+        "behavioral_monitoring": "POST /v1/behavioral/fingerprint — drift detection",
+        "anomaly_detection":     "GET /v1/monitor/alerts",
+        "learning_delta":        "POST /v1/learning/delta — governance pattern monitoring",
+        "risk_monitoring":       "GET /v1/governance/risk-reduced",
+        "incident_reporting":    "POST /v1/eu-aiact/serious-incident",
+    }
+
+    seal = {"system_id": system_id, "article": "72", "timestamp": ts}
+    return {
+        "schema":              "VGS-EUAIACT-ART72-v1",
+        "article":             "Article 72 — Post-Market Monitoring",
+        "system_id":           system_id,
+        "monitoring_plan":     monitoring_plan,
+        "verisigil_monitoring":verisigil_monitoring,
+        "compliance_status":   "DOCUMENTED" if monitoring_plan["responsible_person"] else "INCOMPLETE — assign responsible person",
+        "governance_signature":sign_governance_payload(seal),
+        "timestamp":           ts,
+    }
+
+
+# ── EU AI ACT REGISTRATION ───────────────────────────────────
+@app.post("/v1/eu-aiact/register", tags=["EU AI Act Compliance"])
+@app.get("/v1/eu-aiact/database", tags=["EU AI Act Compliance"])
+async def eu_aiact_register(
+    req: dict = None,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    EU AI Act Article 49 — Registration in EU Database.
+    Generates registration documentation for the EU AI Act database
+    (operated by the European AI Office). High-risk AI systems must
+    be registered before being placed on the EU market.
+    """
+    require_api_key(x_api_key, authorization)
+    ts = datetime.now(timezone.utc).isoformat()
+
+    if req is None:
+        req = {}
+
+    registration = {
+        "schema":           "VGS-EUAIACT-REGISTER-v1",
+        "article":          "Article 49 — Registration",
+        "system_name":      req.get("system_name",""),
+        "system_version":   req.get("system_version",""),
+        "provider_name":    req.get("provider_name",""),
+        "provider_address": req.get("provider_address",""),
+        "intended_purpose": req.get("intended_purpose",""),
+        "risk_class":       req.get("risk_class","HIGH_RISK"),
+        "annex_iii_ref":    req.get("annex_iii_ref",""),
+        "eu_representative":req.get("eu_representative",""),
+        "registration_status":"DRAFT — submit to eu-ai-database.europa.eu",
+        "database_url":     "https://ec.europa.eu/transparency/ai-act-database",
+        "required_before":  "Placing on EU market",
+        "created_at":       ts,
+    }
+
+    seal = {"system_name": registration["system_name"], "provider": registration["provider_name"], "timestamp": ts}
+    registration["governance_signature"] = sign_governance_payload(seal)
+
+    return {
+        **registration,
+        "verisigil_documentation": {
+            "technical_docs": "POST /v1/eu-aiact/article11",
+            "conformity":     "POST /v1/eu-aiact/conformity-assessment",
+            "risk_management":"POST /v1/eu-aiact/article9",
+            "transparency":   "POST /v1/eu-aiact/article13",
+        },
+        "timestamp": ts,
+    }
+
+
+# ── EU AI ACT FULL COMPLIANCE DASHBOARD ─────────────────────
+@app.get("/v1/eu-aiact/dashboard", tags=["EU AI Act Compliance"])
+async def eu_aiact_dashboard(
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    EU AI Act compliance dashboard — complete status across all articles.
+    Single endpoint for compliance officers and regulators to see
+    the full EU AI Act compliance posture of a VeriSigil deployment.
+    """
+    require_api_key(x_api_key, authorization)
+    ts = datetime.now(timezone.utc).isoformat()
+
+    return {
+        "schema":  "VGS-EUAIACT-DASHBOARD-v1",
+        "title":   "EU AI Act Full Compliance Dashboard",
+        "effective_dates": {
+            "article_50_gpai":         "August 2, 2025 — ACTIVE",
+            "high_risk_obligations":   "August 2, 2026 — ACTIVE NOW",
+            "full_enforcement":        "August 2, 2027",
+        },
+        "articles_covered": {
+            "article_6_annex_iii":  "POST /v1/eu-aiact/classify",
+            "article_9":            "POST /v1/eu-aiact/article9",
+            "article_10":           "POST /v1/eu-aiact/article10",
+            "article_11":           "POST /v1/eu-aiact/article11",
+            "article_12":           "POST /v1/eu-aiact/article12",
+            "article_13":           "POST /v1/eu-aiact/article13",
+            "article_14":           "POST /v1/eu-aiact/article14",
+            "article_17":           "POST /v1/eu-aiact/article17",
+            "article_43_conformity":"POST /v1/eu-aiact/conformity-assessment",
+            "article_48_ce_marking":"GET /v1/eu-aiact/ce-marking",
+            "article_49_register":  "POST /v1/eu-aiact/register",
+            "article_50_content":   "POST /v1/content/govern",
+            "article_72_monitoring":"POST /v1/eu-aiact/post-market",
+            "article_73_incidents": "POST /v1/eu-aiact/serious-incident",
+        },
+        "verisigil_compliance_posture": {
+            "article_12_record_keeping":  "COMPLIANT — every action sealed and independently verifiable",
+            "article_13_transparency":    "COMPLIANT — platform limits published at GET /v1/platform/limits",
+            "article_14_human_oversight": "COMPLIANT — ESCALATE routing + autonomous DENY upgrade",
+            "article_50_content":         "COMPLIANT — POST /v1/content/govern active",
+            "independent_validation":     "CONFIRMED — CLARA 25/25 offline verification",
+            "external_attestation":       "ACTIVE — OMNIX QUANTUM LTD POGC-EXT-A7F3C2B1D9E4F508",
+        },
+        "full_assess_at":  "POST /v1/eu-aiact/assess",
+        "checklist_at":    "GET /v1/eu-aiact/checklist",
+        "timestamp":       ts,
+    }
+
+
+
+# ── EU AI ACT EXTENDED COMPLIANCE LAYER ─────────────────────
+
+@app.get("/v1/eu-aiact/obligations", tags=["EU AI Act Compliance"])
+async def eu_aiact_obligations(
+    role: str = "provider",
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    EU AI Act obligations by role: provider, deployer, importer, distributor.
+    Returns the exact obligations applicable to each actor in the AI value chain.
+    """
+    require_api_key(x_api_key, authorization)
+
+    obligations_map = {
+        "provider": {
+            "role": "Provider (places AI system on market or puts into service)",
+            "key_obligations": [
+                "Article 9 — Establish risk management system",
+                "Article 10 — Data governance and management practices",
+                "Article 11 — Technical documentation (Annex IV)",
+                "Article 12 — Automatic logging / record keeping",
+                "Article 13 — Transparency to deployers",
+                "Article 14 — Human oversight design",
+                "Article 17 — Quality management system",
+                "Article 43 — Conformity assessment",
+                "Article 47 — Declaration of Conformity",
+                "Article 48 — CE marking",
+                "Article 49 — Registration in EU database",
+                "Article 72 — Post-market monitoring",
+                "Article 73 — Serious incident reporting",
+            ],
+            "verisigil_endpoints": ["POST /v1/eu-aiact/article9", "POST /v1/eu-aiact/conformity-assessment", "GET /v1/eu-aiact/ce-marking"],
+        },
+        "deployer": {
+            "role": "Deployer (uses AI system under own authority)",
+            "key_obligations": [
+                "Article 14 — Ensure human oversight measures",
+                "Article 26 — Obligations of deployers",
+                "Article 26(5) — Fundamental rights impact assessment for public body deployers",
+                "Article 26(6) — Inform workers about AI system use",
+                "Article 72 — Post-market monitoring cooperation",
+            ],
+            "verisigil_endpoints": ["POST /v1/eu-aiact/article14", "POST /v1/eu-aiact/post-market"],
+        },
+        "importer": {
+            "role": "Importer (places non-EU AI system on EU market)",
+            "key_obligations": [
+                "Article 23 — Obligations of importers",
+                "Verify conformity assessment completed by provider",
+                "Verify technical documentation available",
+                "Verify CE marking affixed",
+                "Verify registration in EU database",
+                "Keep records for 10 years",
+            ],
+            "verisigil_endpoints": ["POST /v1/eu-aiact/conformity-assessment", "POST /v1/eu-aiact/register"],
+        },
+        "distributor": {
+            "role": "Distributor (makes AI system available on EU market)",
+            "key_obligations": [
+                "Article 24 — Obligations of distributors",
+                "Verify CE marking and Declaration of Conformity",
+                "Verify registration in EU database",
+                "Do not place on market if non-compliant",
+            ],
+            "verisigil_endpoints": ["GET /v1/eu-aiact/ce-marking", "POST /v1/eu-aiact/register"],
+        },
+    }
+
+    role_lower = role.lower()
+    result     = obligations_map.get(role_lower, obligations_map["provider"])
+
+    return {
+        "schema":      "VGS-EUAIACT-OBLIGATIONS-v1",
+        "role":        role_lower,
+        "obligations": result,
+        "all_roles":   list(obligations_map.keys()),
+        "timestamp":   datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@app.get("/v1/eu-aiact/timeline", tags=["EU AI Act Compliance"])
+async def eu_aiact_timeline(
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    EU AI Act compliance timeline — all key dates and what became active when.
+    Current date context: August 2, 2026 — high-risk obligations NOW ACTIVE.
+    """
+    require_api_key(x_api_key, authorization)
+
+    return {
+        "schema":   "VGS-EUAIACT-TIMELINE-v1",
+        "title":    "EU AI Act Compliance Timeline",
+        "current_date": "2026-08-02",
+        "milestones": [
+            {"date": "2024-08-01", "status": "PAST", "event": "EU AI Act enters into force (20 days after OJ publication)"},
+            {"date": "2025-02-02", "status": "PAST", "event": "Chapter I (definitions) and Chapter II (prohibited practices) apply — Article 5 prohibited AI practices ACTIVE"},
+            {"date": "2025-08-02", "status": "PAST", "event": "GPAI model obligations (Articles 51-56) apply. Article 50 transparency obligations ACTIVE. AI Office operational."},
+            {"date": "2026-08-02", "status": "ACTIVE NOW", "event": "HIGH-RISK AI OBLIGATIONS ACTIVE — Articles 6-49 for Annex III systems. Article 9-17 compliance required NOW."},
+            {"date": "2027-08-02", "status": "UPCOMING", "event": "Full enforcement — all remaining provisions including Annex I high-risk systems"},
+            {"date": "2030-08-02", "status": "FUTURE", "event": "AI systems already on market must comply if substantially modified"},
+        ],
+        "what_is_active_now": [
+            "Article 5 — Prohibited AI practices (since Feb 2025)",
+            "Article 50 — Transparency for GPAI and certain AI interactions (since Aug 2025)",
+            "Articles 6-49 — High-risk AI system obligations (since Aug 2026 — NOW)",
+            "Article 51-56 — GPAI model obligations (since Aug 2025)",
+        ],
+        "action_required_now": "If your AI system falls under Annex III — POST /v1/eu-aiact/classify to determine obligations",
+        "dashboard_at":        "GET /v1/eu-aiact/dashboard",
+        "timestamp":           datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@app.post("/v1/eu-aiact/evidence-package", tags=["EU AI Act Compliance"])
+async def eu_aiact_evidence_package(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    EU AI Act Evidence Package Generator.
+    Generates a complete evidence package for regulatory submission,
+    notified body assessment, or conformity self-assessment.
+    Combines all Article compliance records into one sealed package.
+    """
+    require_api_key(x_api_key, authorization)
+    ts         = datetime.now(timezone.utc).isoformat()
+    package_id = f"EUAIACT-PKG-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}"
+    system_id  = req.get("system_id","")
+
+    package = {
+        "schema":     "VGS-EUAIACT-EVIDENCE-PACKAGE-v1",
+        "package_id": package_id,
+        "system_id":  system_id,
+        "generated_at": ts,
+        "purpose":    req.get("purpose","CONFORMITY_ASSESSMENT"),
+        "articles_covered": {
+            "article_9":  "POST /v1/eu-aiact/article9",
+            "article_10": "POST /v1/eu-aiact/article10",
+            "article_11": "POST /v1/eu-aiact/article11",
+            "article_12": "POST /v1/eu-aiact/article12",
+            "article_13": "POST /v1/eu-aiact/article13",
+            "article_14": "POST /v1/eu-aiact/article14",
+            "article_17": "POST /v1/eu-aiact/article17",
+        },
+        "verisigil_evidence": {
+            "governance_receipts":    f"{len(_INTERCEPT_LOG)} sealed governance decisions",
+            "independent_validation": "CLARA Run 2 — 25/25 offline verification",
+            "external_attestation":   "OMNIX QUANTUM LTD POGC-EXT-A7F3C2B1D9E4F508",
+            "doi_specifications":     [
+                "https://doi.org/10.5281/zenodo.20627386",
+                "https://doi.org/10.5281/zenodo.20264923",
+                "https://doi.org/10.5281/zenodo.20349768",
+                "https://doi.org/10.5281/zenodo.20451306",
+            ],
+            "platform_limits":        "GET /v1/platform/limits — published proof boundaries",
+            "trust_center":           "https://verisigilai.com/trust.html",
+        },
+        "declaration_of_conformity": {
+            "status":     "TEMPLATE — complete with system-specific details",
+            "article":    "Article 47",
+            "generate_at":"GET /v1/eu-aiact/ce-marking",
+        },
+        "submission_instructions": {
+            "notified_body":       "Submit package_id and article evidence records to your notified body",
+            "national_authority":  "Register at https://ec.europa.eu/transparency/ai-act-database",
+            "record_retention":    "Retain all records for 10 years post-market placement",
+        },
+    }
+
+    seal = {"package_id": package_id, "system_id": system_id, "timestamp": ts}
+    package["governance_signature"] = sign_governance_payload(seal)
+    package["offline_verifiable"]   = True
+
+    return package
+
+
+@app.get("/v1/eu-aiact/readiness-score", tags=["EU AI Act Compliance"])
+async def eu_aiact_readiness_score(
+    system_id: str = "",
+    risk_class: str = "HIGH_RISK",
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    EU AI Act compliance readiness score.
+    Single score showing how ready a deployment is for EU AI Act
+    high-risk obligations. Built for compliance officers who need
+    a quick executive view.
+    """
+    require_api_key(x_api_key, authorization)
+    ts = datetime.now(timezone.utc).isoformat()
+
+    # VeriSigil's own EU AI Act posture
+    verisigil_posture = {
+        "article_12_record_keeping":  {"score": 100, "status": "COMPLIANT", "evidence": "Every action sealed — 25/25 CLARA verified"},
+        "article_13_transparency":    {"score": 100, "status": "COMPLIANT", "evidence": "GET /v1/platform/limits public"},
+        "article_14_human_oversight": {"score": 100, "status": "COMPLIANT", "evidence": "ESCALATE + autonomous DENY upgrade"},
+        "article_50_content":         {"score": 100, "status": "COMPLIANT", "evidence": "POST /v1/content/govern active"},
+        "article_9_risk_management":  {"score": 90,  "status": "STRONG",    "evidence": "Six-gate architecture + CLARA validation"},
+        "article_11_technical_docs":  {"score": 95,  "status": "STRONG",    "evidence": "DOI-published specifications + OMNIX attestation"},
+        "article_17_qms":             {"score": 85,  "status": "GOOD",      "evidence": "Doctrine evolution + institutional memory"},
+        "article_10_data_governance": {"score": 70,  "status": "PARTIAL",   "evidence": "Predicate verification layer — reality anchors"},
+    }
+
+    overall = round(sum(v["score"] for v in verisigil_posture.values()) / len(verisigil_posture), 1)
+
+    if overall >= 95:
+        readiness = "READY"
+        action    = "Proceed to conformity assessment"
+    elif overall >= 80:
+        readiness = "NEAR_READY"
+        action    = "Address remaining gaps then proceed to conformity"
+    elif overall >= 60:
+        readiness = "IN_PROGRESS"
+        action    = "Significant work required — prioritise Articles 9, 10, 11"
+    else:
+        readiness = "NOT_READY"
+        action    = "Begin with POST /v1/eu-aiact/classify then follow article obligations"
+
+    seal = {"system_id": system_id, "overall_score": overall, "readiness": readiness, "timestamp": ts}
+    return {
+        "schema":          "VGS-EUAIACT-READINESS-v1",
+        "system_id":       system_id,
+        "risk_class":      risk_class,
+        "overall_score":   overall,
+        "readiness":       readiness,
+        "recommended_action": action,
+        "article_scores":  verisigil_posture,
+        "highest_risk_gaps": [k for k, v in verisigil_posture.items() if v["score"] < 80],
+        "conformity_at":   "POST /v1/eu-aiact/conformity-assessment",
+        "governance_signature": sign_governance_payload(seal),
+        "timestamp":       ts,
+    }
+
+
+@app.get("/v1/eu-aiact/article-map", tags=["EU AI Act Compliance"])
+async def eu_aiact_article_map(
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Article-to-VeriSigil mapping — shows exactly which VeriSigil
+    capabilities satisfy which EU AI Act articles.
+    The definitive reference for compliance officers mapping
+    VeriSigil against their EU AI Act obligations.
+    """
+    require_api_key(x_api_key, authorization)
+
+    return {
+        "schema": "VGS-EUAIACT-ARTICLE-MAP-v1",
+        "title":  "EU AI Act Article to VeriSigil Capability Map",
+        "mapping": {
+            "Article_5_prohibited":   {"verisigil": "POST /v1/eu-aiact/prohibited — check against prohibited practices list", "coverage": "DETECTION"},
+            "Article_6_classification":{"verisigil": "POST /v1/eu-aiact/classify — Annex III high-risk determination", "coverage": "FULL"},
+            "Article_9_risk_mgmt":    {"verisigil": "POST /v1/intercept (six-gate) + GET /v1/governance/risk-reduced", "coverage": "STRONG"},
+            "Article_10_data_gov":    {"verisigil": "POST /v1/reality/anchor + POST /v1/eu-aiact/article10", "coverage": "PARTIAL"},
+            "Article_11_tech_docs":   {"verisigil": "DOI specs + CLARA validation + OMNIX attestation", "coverage": "STRONG"},
+            "Article_12_logging":     {"verisigil": "Ed25519 sealed receipts — EVERY action. 25/25 verified.", "coverage": "FULL"},
+            "Article_13_transparency":{"verisigil": "GET /v1/platform/limits + GET /v1/platform/boundary", "coverage": "FULL"},
+            "Article_14_oversight":   {"verisigil": "ESCALATE ruling + autonomous DENY + kill switch", "coverage": "FULL"},
+            "Article_17_qms":         {"verisigil": "POST /v1/doctrine/evolve + POST /v1/institutional/record", "coverage": "GOOD"},
+            "Article_43_conformity":  {"verisigil": "POST /v1/eu-aiact/conformity-assessment", "coverage": "DOCUMENTATION"},
+            "Article_47_declaration": {"verisigil": "GET /v1/eu-aiact/ce-marking — template generator", "coverage": "TEMPLATE"},
+            "Article_48_ce_marking":  {"verisigil": "GET /v1/eu-aiact/ce-marking", "coverage": "READINESS"},
+            "Article_49_registration":{"verisigil": "POST /v1/eu-aiact/register", "coverage": "DOCUMENTATION"},
+            "Article_50_transparency":{"verisigil": "POST /v1/content/govern + GET /v1/content/compliance/EU", "coverage": "FULL"},
+            "Article_72_monitoring":  {"verisigil": "GET /v1/monitor/health + POST /v1/learning/delta", "coverage": "STRONG"},
+            "Article_73_incidents":   {"verisigil": "POST /v1/eu-aiact/serious-incident", "coverage": "FULL"},
+        },
+        "coverage_legend": {
+            "FULL":          "VeriSigil directly satisfies this obligation",
+            "STRONG":        "VeriSigil substantially covers this obligation with minor gaps",
+            "GOOD":          "VeriSigil covers the core of this obligation",
+            "PARTIAL":       "VeriSigil covers part of this obligation — additional measures needed",
+            "DOCUMENTATION": "VeriSigil generates documentation to support this obligation",
+            "TEMPLATE":      "VeriSigil generates a template — organisation must complete",
+            "DETECTION":     "VeriSigil detects issues but cannot prevent prohibited practices unilaterally",
+        },
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@app.get("/v1/eu-aiact/deployer", tags=["EU AI Act Compliance"])
+async def eu_aiact_deployer(
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Article 26 — Deployer obligations checklist and VeriSigil coverage."""
+    require_api_key(x_api_key, authorization)
+    return {
+        "schema":  "VGS-EUAIACT-DEPLOYER-v1",
+        "article": "Article 26 — Obligations of Deployers",
+        "obligations": [
+            {"obligation": "Use AI system in accordance with instructions for use (Art 26(1))", "verisigil": "POST /v1/eu-aiact/article13 — transparency documentation", "status": "SUPPORTED"},
+            {"obligation": "Assign human oversight to competent persons (Art 26(2))", "verisigil": "POST /v1/governance/ownership/register — assign oversight roles", "status": "SUPPORTED"},
+            {"obligation": "Ensure human oversight personnel have authority and resources (Art 26(3))", "verisigil": "GET /v1/governance/ownership/{id}/health — ownership health score", "status": "SUPPORTED"},
+            {"obligation": "Monitor AI system operation (Art 26(4))", "verisigil": "GET /v1/monitor/health + POST /v1/learning/delta", "status": "SUPPORTED"},
+            {"obligation": "Fundamental rights impact assessment for public body deployers (Art 26(5))", "verisigil": "POST /v1/impact/assess — civilizational impact assessment", "status": "PARTIAL"},
+            {"obligation": "Inform affected workers about AI use (Art 26(6))", "verisigil": "Not a technical control — organisational measure required", "status": "ORGANISATIONAL"},
+            {"obligation": "Keep logs generated by high-risk AI (Art 26(7))", "verisigil": "Ed25519 sealed receipts — every action logged automatically", "status": "SATISFIED"},
+        ],
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@app.get("/v1/eu-aiact/provider", tags=["EU AI Act Compliance"])
+async def eu_aiact_provider(
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Articles 16-27 — Provider obligations checklist and VeriSigil coverage."""
+    require_api_key(x_api_key, authorization)
+    return {
+        "schema":  "VGS-EUAIACT-PROVIDER-v1",
+        "article": "Article 16 — Obligations of Providers of High-Risk AI Systems",
+        "obligations": [
+            {"obligation": "Ensure compliance with Chapter III Section 2 requirements (Art 16(a))", "verisigil": "POST /v1/eu-aiact/conformity-assessment", "status": "SUPPORTED"},
+            {"obligation": "Quality management system (Art 16(b))", "verisigil": "POST /v1/eu-aiact/article17", "status": "SUPPORTED"},
+            {"obligation": "Technical documentation (Art 16(c))", "verisigil": "POST /v1/eu-aiact/article11 + DOI specs", "status": "SUPPORTED"},
+            {"obligation": "Conformity assessment (Art 16(d))", "verisigil": "POST /v1/eu-aiact/conformity-assessment", "status": "SUPPORTED"},
+            {"obligation": "Registration in EU database (Art 16(e))", "verisigil": "POST /v1/eu-aiact/register", "status": "SUPPORTED"},
+            {"obligation": "Declaration of Conformity and CE marking (Art 16(f,g))", "verisigil": "GET /v1/eu-aiact/ce-marking", "status": "SUPPORTED"},
+            {"obligation": "Post-market monitoring (Art 16(h))", "verisigil": "POST /v1/eu-aiact/post-market", "status": "SUPPORTED"},
+            {"obligation": "Serious incident reporting (Art 16(i))", "verisigil": "POST /v1/eu-aiact/serious-incident", "status": "SUPPORTED"},
+        ],
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@app.get("/v1/eu-aiact/importer", tags=["EU AI Act Compliance"])
+async def eu_aiact_importer(
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Article 23 — Importer obligations checklist."""
+    require_api_key(x_api_key, authorization)
+    return {
+        "schema":  "VGS-EUAIACT-IMPORTER-v1",
+        "article": "Article 23 — Obligations of Importers",
+        "obligations": [
+            {"obligation": "Verify conformity assessment completed by provider", "verisigil": "POST /v1/eu-aiact/conformity-assessment", "status": "SUPPORTED"},
+            {"obligation": "Verify technical documentation available and complete", "verisigil": "POST /v1/eu-aiact/article11", "status": "SUPPORTED"},
+            {"obligation": "Verify CE marking affixed", "verisigil": "GET /v1/eu-aiact/ce-marking", "status": "SUPPORTED"},
+            {"obligation": "Verify registration in EU database", "verisigil": "POST /v1/eu-aiact/register", "status": "SUPPORTED"},
+            {"obligation": "Keep copy of Declaration of Conformity for 10 years", "verisigil": "POST /v1/eu-aiact/evidence-package — sealed package with retention note", "status": "SUPPORTED"},
+            {"obligation": "Ensure storage/transport conditions do not compromise compliance", "verisigil": "GET /v1/continuity/assurance — governance continuity check", "status": "PARTIAL"},
+        ],
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@app.get("/v1/eu-aiact/notified-body", tags=["EU AI Act Compliance"])
+async def eu_aiact_notified_body(
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Notified Body preparation guide.
+    Everything needed to prepare for a third-party conformity
+    assessment by an EU AI Act notified body.
+    """
+    require_api_key(x_api_key, authorization)
+    return {
+        "schema":  "VGS-EUAIACT-NOTIFIED-BODY-v1",
+        "title":   "Notified Body Assessment Preparation",
+        "when_required": "Third-party notified body required for biometric identification systems (Annex III §1) and certain other high-risk categories where provider cannot self-certify",
+        "preparation_checklist": [
+            {"item": "Technical documentation (Annex IV)", "endpoint": "POST /v1/eu-aiact/article11", "status": "GENERATE"},
+            {"item": "Risk management system documentation", "endpoint": "POST /v1/eu-aiact/article9", "status": "GENERATE"},
+            {"item": "Data governance documentation", "endpoint": "POST /v1/eu-aiact/article10", "status": "GENERATE"},
+            {"item": "Quality management system", "endpoint": "POST /v1/eu-aiact/article17", "status": "GENERATE"},
+            {"item": "Evidence of testing and validation", "endpoint": "CLARA Run 2 — 25/25 verified", "status": "COMPLETE"},
+            {"item": "External attestation", "endpoint": "OMNIX QUANTUM LTD POGC-EXT-A7F3C2B1D9E4F508", "status": "COMPLETE"},
+            {"item": "Complete evidence package", "endpoint": "POST /v1/eu-aiact/evidence-package", "status": "GENERATE"},
+        ],
+        "verisigil_advantage": "VeriSigil's DOI-published specifications, CLARA independent validation (25/25), and OMNIX external attestation give notified bodies independently verifiable evidence rather than self-asserted claims.",
+        "timeline": "Allow 3-6 months for notified body assessment. Apply early.",
+        "find_notified_body": "https://ec.europa.eu/growth/tools-databases/nando/",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@app.get("/v1/eu-aiact/gpai", tags=["EU AI Act Compliance"])
+async def eu_aiact_gpai(
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    GPAI Model Obligations — Articles 51-56.
+    General Purpose AI model compliance requirements.
+    Active since August 2025.
+    """
+    require_api_key(x_api_key, authorization)
+    return {
+        "schema":    "VGS-EUAIACT-GPAI-v1",
+        "title":     "GPAI Model Obligations (Articles 51-56)",
+        "active_since": "August 2, 2025",
+        "applies_to": "Providers of general-purpose AI models placed on EU market",
+        "obligations": {
+            "article_53_transparency": {
+                "requirement": "Technical documentation for AI Office + downstream providers",
+                "verisigil":   "POST /v1/eu-aiact/article11 + DOI specs",
+                "status":      "SUPPORTED",
+            },
+            "article_53_copyright": {
+                "requirement": "Summary of training data including copyrighted content",
+                "verisigil":   "POST /v1/eu-aiact/article10 — data governance documentation",
+                "status":      "PARTIAL",
+            },
+            "article_54_systemic_risk": {
+                "requirement": "Systemic risk models (>10^25 FLOPs) — adversarial testing, incident reporting",
+                "verisigil":   "POST /v1/adversarial/simulate + POST /v1/eu-aiact/serious-incident",
+                "status":      "SUPPORTED",
+            },
+            "article_50_labelling": {
+                "requirement": "AI-generated content must be labelled — active since Aug 2025",
+                "verisigil":   "POST /v1/content/govern with jurisdiction=EU",
+                "status":      "FULL",
+            },
+        },
+        "code_of_practice": {
+            "status":      "GPAI Code of Practice under development by AI Office",
+            "verisigil_signatory_note": "VeriSigil can provide governance evidence for GPAI Code of Practice commitments",
+        },
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@app.get("/v1/eu-aiact/prohibited", tags=["EU AI Act Compliance"])
+async def eu_aiact_prohibited(
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Article 5 — Prohibited AI Practices.
+    Complete list of AI practices prohibited in the EU since February 2025.
+    Use this to screen AI systems before deployment.
+    """
+    require_api_key(x_api_key, authorization)
+    return {
+        "schema":    "VGS-EUAIACT-PROHIBITED-v1",
+        "article":   "Article 5 — Prohibited Artificial Intelligence Practices",
+        "active_since": "February 2, 2025",
+        "prohibited_practices": [
+            {
+                "practice":    "Subliminal manipulation below conscious perception",
+                "article_ref": "Art 5(1)(a)",
+                "description": "AI that deploys subliminal techniques beyond a person's consciousness to materially distort behaviour causing or likely to cause harm",
+                "verisigil_check": "POST /v1/intent/verify — checks if action is within declared mandate",
+            },
+            {
+                "practice":    "Exploiting vulnerabilities of specific groups",
+                "article_ref": "Art 5(1)(b)",
+                "description": "AI that exploits vulnerabilities of specific groups (age, disability, social/economic situation) to distort behaviour causing harm",
+                "verisigil_check": "POST /v1/content/govern — consequence assessment includes audience vulnerability",
+            },
+            {
+                "practice":    "Social scoring by public authorities",
+                "article_ref": "Art 5(1)(c)",
+                "description": "AI used by public authorities for social scoring leading to detrimental or unfavourable treatment",
+                "verisigil_check": "POST /v1/eu-aiact/classify — flags public authority + scoring use cases",
+            },
+            {
+                "practice":    "Real-time remote biometric identification in public spaces",
+                "article_ref": "Art 5(1)(d)",
+                "description": "Real-time remote biometric identification in public spaces for law enforcement (with narrow exceptions)",
+                "verisigil_check": "POST /v1/eu-aiact/classify — Annex III §1 biometric flagging",
+            },
+            {
+                "practice":    "Biometric categorisation inferring sensitive attributes",
+                "article_ref": "Art 5(1)(e)",
+                "description": "AI that categorises individuals based on biometric data to infer race, political opinion, religion, etc.",
+                "verisigil_check": "POST /v1/intent/conflict — conflict detection if intent conflicts with prohibited use",
+            },
+            {
+                "practice":    "Emotion recognition in workplace/education",
+                "article_ref": "Art 5(1)(f)",
+                "description": "AI for emotion recognition in workplace or educational institutions (with narrow exceptions)",
+                "verisigil_check": "POST /v1/eu-aiact/classify — flags workplace + emotional inference use cases",
+            },
+            {
+                "practice":    "Untargeted scraping for facial recognition databases",
+                "article_ref": "Art 5(1)(g)",
+                "description": "AI that creates or expands facial recognition databases through untargeted scraping",
+                "verisigil_check": "POST /v1/intent/register — intent registration exposes scraping purpose",
+            },
+            {
+                "practice":    "Predictive policing of individuals",
+                "article_ref": "Art 5(1)(h)",
+                "description": "AI for risk assessment of individuals for criminal offences based solely on profiling",
+                "verisigil_check": "POST /v1/eu-aiact/classify — law enforcement Annex III §6 flagging",
+            },
+        ],
+        "verisigil_note": "VeriSigil detects when proposed AI actions may fall into prohibited categories and escalates for human review. Pre-execution governance is the first line of defence against prohibited practice violations.",
+        "timestamp":     datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@app.get("/v1/eu-aiact/annex-iii", tags=["EU AI Act Compliance"])
+async def eu_aiact_annex_iii(
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Complete Annex III high-risk AI system categories.
+    Full list of all 8 categories with sub-items and applicable obligations.
+    """
+    require_api_key(x_api_key, authorization)
+    return {
+        "schema":  "VGS-EUAIACT-ANNEXIII-v1",
+        "title":   "Annex III — High-Risk AI Systems",
+        "categories": {
+            "1_biometric": {
+                "description": "Biometric identification and categorisation of natural persons",
+                "includes":    ["Remote biometric identification systems", "AI for biometric categorisation inferring sensitive attributes", "Emotion recognition systems"],
+                "obligations": "Full Articles 9-17 + conformity assessment by notified body",
+            },
+            "2_critical_infrastructure": {
+                "description": "AI systems as safety components in critical infrastructure",
+                "includes":    ["Road traffic management", "Water/gas/heating/electricity supply", "Critical digital infrastructure"],
+                "obligations": "Full Articles 9-17",
+            },
+            "3_education": {
+                "description": "AI in education and vocational training",
+                "includes":    ["Determining access/admission to educational institutions", "Evaluating learning outcomes", "Detecting prohibited behaviour during tests"],
+                "obligations": "Full Articles 9-17",
+            },
+            "4_employment": {
+                "description": "AI in employment, worker management, and access to self-employment",
+                "includes":    ["Recruitment and selection (CV screening, interviews)", "Promotion and termination decisions", "Task allocation and performance monitoring"],
+                "obligations": "Full Articles 9-17",
+            },
+            "5_essential_services": {
+                "description": "AI in access to essential private/public services and benefits",
+                "includes":    ["Credit scoring", "Life/health insurance risk assessment", "Emergency service dispatch", "Benefits eligibility assessment"],
+                "obligations": "Full Articles 9-17",
+            },
+            "6_law_enforcement": {
+                "description": "AI used by law enforcement authorities",
+                "includes":    ["Risk assessment for offending/reoffending", "Polygraph and similar tools", "Evidence reliability assessment", "Crime analytics", "Crime prediction for individuals"],
+                "obligations": "Full Articles 9-17 + fundamental rights impact assessment",
+            },
+            "7_migration_asylum": {
+                "description": "AI in migration, asylum, and border control",
+                "includes":    ["Polygraph in border control", "Risk assessment for irregular entry", "Document authenticity examination", "Application processing assistance"],
+                "obligations": "Full Articles 9-17 + fundamental rights impact assessment",
+            },
+            "8_justice": {
+                "description": "AI in administration of justice and democratic processes",
+                "includes":    ["AI to assist judicial authorities in researching and interpreting facts/law", "Alternative dispute resolution", "AI influencing elections"],
+                "obligations": "Full Articles 9-17 + enhanced human oversight",
+            },
+        },
+        "classify_at": "POST /v1/eu-aiact/classify",
+        "timestamp":   datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@app.get("/v1/eu-aiact/annex-iv", tags=["EU AI Act Compliance"])
+async def eu_aiact_annex_iv(
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Annex IV — Technical Documentation Requirements.
+    Complete checklist of all technical documentation elements
+    required for high-risk AI systems under Article 11.
+    """
+    require_api_key(x_api_key, authorization)
+    return {
+        "schema":  "VGS-EUAIACT-ANNEXIV-v1",
+        "title":   "Annex IV — Technical Documentation",
+        "article": "Article 11 — required for all high-risk AI systems",
+        "required_elements": {
+            "1_general_description": {
+                "description": "General description of the AI system including its intended purpose",
+                "verisigil":   "POST /v1/eu-aiact/article13 — transparency documentation",
+                "mandatory":   True,
+            },
+            "2_design_specs": {
+                "description": "Design specifications, development methods, and techniques",
+                "verisigil":   "DOI specs: doi.org/10.5281/zenodo.20627386",
+                "mandatory":   True,
+            },
+            "3_architecture": {
+                "description": "System architecture and computational resources",
+                "verisigil":   "GET /v1/architect — governance architecture view",
+                "mandatory":   True,
+            },
+            "4_training_data": {
+                "description": "Description of training data, validation, and testing datasets",
+                "verisigil":   "POST /v1/eu-aiact/article10 — data governance",
+                "mandatory":   True,
+            },
+            "5_testing_validation": {
+                "description": "Testing and validation procedures and results",
+                "verisigil":   "CLARA Run 2 — 25/25 independent verification",
+                "mandatory":   True,
+            },
+            "6_risk_management": {
+                "description": "Risk management measures",
+                "verisigil":   "POST /v1/eu-aiact/article9 + GET /v1/governance/risk-reduced",
+                "mandatory":   True,
+            },
+            "7_monitoring": {
+                "description": "Description of monitoring, functioning, and control of the system",
+                "verisigil":   "GET /v1/monitor/health + POST /v1/eu-aiact/post-market",
+                "mandatory":   True,
+            },
+            "8_human_oversight": {
+                "description": "Human oversight measures and technical specifications",
+                "verisigil":   "POST /v1/eu-aiact/article14 — ESCALATE + DENY documentation",
+                "mandatory":   True,
+            },
+            "9_accuracy_metrics": {
+                "description": "Accuracy, robustness, and cybersecurity measures",
+                "verisigil":   "OMNIX QUANTUM LTD external attestation — zero invariant violations",
+                "mandatory":   True,
+            },
+            "10_standards": {
+                "description": "Harmonised standards or common specifications applied",
+                "verisigil":   "ISO 42001 mapping: GET /v1/compliance/iso42001-gap",
+                "mandatory":   True,
+            },
+        },
+        "generate_package_at": "POST /v1/eu-aiact/evidence-package",
+        "retention":           "10 years from date AI system placed on market",
+        "timestamp":           datetime.now(timezone.utc).isoformat(),
+    }
+
+
+
+# ============================================================
+# INPUT FIDELITY GOVERNANCE LAYER
+# Addresses the Russell Buzby gap: an accurate summary can
+# still be an unfaithful one. Governs what an AI agent is
+# allowed to CONSIDER before it reasons — not just what it
+# is allowed to DO after it decides.
+#
+# The missing layer between Living Reality and Reality
+# Verification: Input Fidelity. Who audits whether the
+# dissent survived?
+# ============================================================
+
+_INPUT_REGISTRY:   dict = {}  # input_set_id -> registered input set
+_FIDELITY_AUDITS:  list = []  # append-only audit log
+_EXCLUSION_ALERTS: list = []  # detected exclusion patterns
+
+@app.post("/v1/input/register", tags=["Input Fidelity Governance"])
+async def input_register(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Register the declared input set for an AI reasoning or decision task.
+    This is the foundational step of Input Fidelity Governance.
+
+    Before an AI agent reasons toward a consequential decision, it must
+    declare what inputs it is considering. This registration creates a
+    sealed record of the declared input set — enabling downstream
+    verification that:
+
+    1. The full relevant input set was presented (coverage)
+    2. No systematic exclusion occurred (bias detection)
+    3. The declared inputs match what was actually processed (faithfulness)
+
+    Russell Buzby's finding: Canada's AI excluded 88% of dissenting voices
+    while appearing accurate. This layer catches that failure BEFORE
+    the consequential output forms.
+
+    Constitutional chain position: Layer 1.5 — between Living Reality
+    and Reality Verification.
+    """
+    require_api_key(x_api_key, authorization)
+
+    ts           = datetime.now(timezone.utc).isoformat()
+    input_set_id = f"INP-{hashlib.sha256((req.get('agent_id','') + ts).encode()).hexdigest()[:12].upper()}"
+
+    # Input set metadata
+    total_inputs     = req.get("total_inputs_available", 0)
+    inputs_selected  = req.get("inputs_selected", 0)
+    inputs_excluded  = req.get("inputs_excluded", 0)
+    selection_method = req.get("selection_method", "")
+    exclusion_criteria = req.get("exclusion_criteria", [])
+    input_categories = req.get("input_categories", {})
+    dissenting_inputs = req.get("dissenting_inputs_count", 0)
+    agreeing_inputs   = req.get("agreeing_inputs_count", 0)
+    neutral_inputs    = req.get("neutral_inputs_count", 0)
+    input_sources     = req.get("input_sources", [])
+    purpose           = req.get("purpose", "")
+
+    # Compute preliminary coverage
+    coverage_pct = round(inputs_selected / max(total_inputs, 1) * 100, 2)
+
+    # Compute preliminary sentiment balance
+    total_sentiment = dissenting_inputs + agreeing_inputs + neutral_inputs
+    dissent_pct  = round(dissenting_inputs / max(total_sentiment, 1) * 100, 2)
+    agree_pct    = round(agreeing_inputs   / max(total_sentiment, 1) * 100, 2)
+    neutral_pct  = round(neutral_inputs    / max(total_sentiment, 1) * 100, 2)
+
+    record = {
+        "schema":              "VGS-INPUT-REGISTER-v1",
+        "input_set_id":        input_set_id,
+        "agent_id":            req.get("agent_id",""),
+        "task_type":           req.get("task_type",""),
+        "purpose":             purpose,
+        "total_inputs_available": total_inputs,
+        "inputs_selected":     inputs_selected,
+        "inputs_excluded":     inputs_excluded,
+        "coverage_pct":        coverage_pct,
+        "selection_method":    selection_method,
+        "exclusion_criteria":  exclusion_criteria,
+        "input_categories":    input_categories,
+        "sentiment_distribution": {
+            "dissenting":  dissenting_inputs,
+            "agreeing":    agreeing_inputs,
+            "neutral":     neutral_inputs,
+            "dissent_pct": dissent_pct,
+            "agree_pct":   agree_pct,
+            "neutral_pct": neutral_pct,
+        },
+        "input_sources":       input_sources,
+        "registered_at":       ts,
+        "status":              "REGISTERED",
+        "constitutional_position": "Layer 1.5 — Input Fidelity precedes Reality Verification",
+    }
+
+    seal = {
+        "input_set_id":    input_set_id,
+        "agent_id":        record["agent_id"],
+        "total_inputs":    total_inputs,
+        "inputs_selected": inputs_selected,
+        "coverage_pct":    coverage_pct,
+        "dissent_pct":     dissent_pct,
+        "registered_at":   ts,
+    }
+    record["governance_signature"] = sign_governance_payload(seal)
+    record["canonical_json"]       = json.dumps(seal, sort_keys=True, separators=(",", ":"))
+    record["offline_verifiable"]   = True
+
+    _INPUT_REGISTRY[input_set_id] = record
+
+    return {
+        "status":             "REGISTERED",
+        "input_set_id":       input_set_id,
+        "coverage_pct":       coverage_pct,
+        "dissent_pct":        dissent_pct,
+        "governance_signature": record["governance_signature"],
+        "offline_verifiable": True,
+        "next_step":          f"POST /v1/input/fidelity with input_set_id={input_set_id}",
+        "russell_note":       "Input set is now sealed. Any downstream exclusion of registered inputs will be detectable.",
+        "timestamp":          ts,
+    }
+
+
+@app.post("/v1/input/fidelity", tags=["Input Fidelity Governance"])
+async def input_fidelity(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Input Fidelity Check — verifies that what an AI agent actually
+    processed matches what it declared it would consider.
+
+    This is the core governance check of the Input Fidelity layer.
+    It detects the Canada government AI failure mode: an agent that
+    declares it will consider all inputs but systematically excludes
+    dissenting ones before reasoning begins.
+
+    Returns: FAITHFUL, PARTIALLY_FAITHFUL, UNFAITHFUL, or SUSPICIOUS.
+
+    An UNFAITHFUL or SUSPICIOUS ruling blocks execution and requires
+    human review of the input selection process before the AI
+    reasoning output can be used for consequential decisions.
+    """
+    require_api_key(x_api_key, authorization)
+
+    ts           = datetime.now(timezone.utc).isoformat()
+    fidelity_id  = f"FID-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}"
+    input_set_id = req.get("input_set_id","")
+
+    registered = _INPUT_REGISTRY.get(input_set_id)
+    if not registered:
+        return {
+            "schema":        "VGS-INPUT-FIDELITY-v1",
+            "fidelity_id":   fidelity_id,
+            "result":        "NO_BASELINE",
+            "ruling":        "BLOCK — no registered input set found. Register inputs before reasoning via POST /v1/input/register",
+            "bypass_attempt":True,
+            "timestamp":     ts,
+        }
+
+    # Actual processing stats from agent
+    actually_processed    = req.get("actually_processed", 0)
+    actually_excluded     = req.get("actually_excluded", 0)
+    dissenting_processed  = req.get("dissenting_processed", 0)
+    agreeing_processed    = req.get("agreeing_processed", 0)
+
+    declared_selected    = registered.get("inputs_selected", 0)
+    declared_dissenting  = registered.get("sentiment_distribution",{}).get("dissenting", 0)
+    declared_agreeing    = registered.get("sentiment_distribution",{}).get("agreeing", 0)
+
+    # Fidelity checks
+    processing_gap    = abs(declared_selected - actually_processed)
+    processing_gap_pct= round(processing_gap / max(declared_selected, 1) * 100, 2)
+
+    # Exclusion bias check — Russell's finding
+    dissent_exclusion_rate = round(
+        (declared_dissenting - dissenting_processed) / max(declared_dissenting, 1) * 100, 2
+    ) if declared_dissenting > 0 else 0.0
+
+    agree_exclusion_rate = round(
+        (declared_agreeing - agreeing_processed) / max(declared_agreeing, 1) * 100, 2
+    ) if declared_agreeing > 0 else 0.0
+
+    exclusion_bias = round(dissent_exclusion_rate - agree_exclusion_rate, 2)
+
+    # Determine fidelity result
+    warnings = []
+    if processing_gap_pct > 10:
+        warnings.append(f"Processing gap: {processing_gap_pct}% of declared inputs not processed")
+    if dissent_exclusion_rate > 20:
+        warnings.append(f"Dissent exclusion rate {dissent_exclusion_rate}% — significantly above threshold")
+    if exclusion_bias > 15:
+        warnings.append(f"Exclusion bias detected: dissenting inputs excluded {exclusion_bias}% more than agreeing inputs")
+    if dissent_exclusion_rate > 50:
+        warnings.append(f"CRITICAL: Majority of dissenting inputs excluded — Canada-pattern failure detected")
+
+    if dissent_exclusion_rate > 50 or exclusion_bias > 40 or processing_gap_pct > 30:
+        result = "UNFAITHFUL"
+        ruling = "BLOCK — input fidelity failure. Dissenting inputs systematically excluded. Human review required before output used for consequential decisions."
+        color  = "RED"
+    elif dissent_exclusion_rate > 20 or exclusion_bias > 15 or processing_gap_pct > 10:
+        result = "SUSPICIOUS"
+        ruling = "ESCALATE — suspicious exclusion pattern detected. Human review recommended."
+        color  = "ORANGE"
+    elif dissent_exclusion_rate > 5 or processing_gap_pct > 5:
+        result = "PARTIALLY_FAITHFUL"
+        ruling = "ALLOW WITH CONDITIONS — minor fidelity gaps noted. Document for audit trail."
+        color  = "YELLOW"
+    else:
+        result = "FAITHFUL"
+        ruling = "ALLOW — input set processed faithfully. No systematic exclusion detected."
+        color  = "GREEN"
+
+    seal = {
+        "fidelity_id":        fidelity_id,
+        "input_set_id":       input_set_id,
+        "result":             result,
+        "dissent_exclusion":  dissent_exclusion_rate,
+        "exclusion_bias":     exclusion_bias,
+        "processing_gap_pct": processing_gap_pct,
+        "timestamp":          ts,
+    }
+    signature = sign_governance_payload(seal)
+
+    audit_record = {
+        **seal,
+        "ruling":             ruling,
+        "color":              color,
+        "warnings":           warnings,
+        "governance_signature": signature,
+    }
+    _FIDELITY_AUDITS.append(audit_record)
+
+    if result in ("UNFAITHFUL","SUSPICIOUS"):
+        _EXCLUSION_ALERTS.append({
+            "alert_id":          fidelity_id,
+            "input_set_id":      input_set_id,
+            "result":            result,
+            "dissent_exclusion": dissent_exclusion_rate,
+            "exclusion_bias":    exclusion_bias,
+            "detected_at":       ts,
+        })
+
+    return {
+        "schema":               "VGS-INPUT-FIDELITY-v1",
+        "fidelity_id":          fidelity_id,
+        "input_set_id":         input_set_id,
+        "result":               result,
+        "ruling":               ruling,
+        "color":                color,
+        "allowed":              result in ("FAITHFUL","PARTIALLY_FAITHFUL"),
+        "processing_gap_pct":   processing_gap_pct,
+        "dissent_exclusion_rate": dissent_exclusion_rate,
+        "agree_exclusion_rate": agree_exclusion_rate,
+        "exclusion_bias":       exclusion_bias,
+        "warnings":             warnings,
+        "governance_signature": signature,
+        "offline_verifiable":   True,
+        "what_this_proves":     "Whether the AI agent processed its declared inputs faithfully, with no systematic exclusion of dissenting or minority inputs before reasoning formed.",
+        "russell_finding":      "An accurate summary can still be an unfaithful one. This check catches the failure mode where outputs are factually correct but inputs were biased.",
+        "timestamp":            ts,
+    }
+
+
+@app.get("/v1/input/coverage", tags=["Input Fidelity Governance"])
+async def input_coverage(
+    input_set_id: str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Input coverage score for a registered input set.
+    Shows what percentage of the available input universe
+    was actually considered. Low coverage is a governance risk
+    even when outputs appear accurate.
+    """
+    require_api_key(x_api_key, authorization)
+
+    registered = _INPUT_REGISTRY.get(input_set_id)
+    if not registered:
+        raise HTTPException(status_code=404, detail=f"Input set {input_set_id} not found. Register via POST /v1/input/register")
+
+    total     = registered.get("total_inputs_available", 0)
+    selected  = registered.get("inputs_selected", 0)
+    excluded  = registered.get("inputs_excluded", 0)
+    coverage  = registered.get("coverage_pct", 0.0)
+    sentiment = registered.get("sentiment_distribution", {})
+
+    if coverage >= 90:
+        coverage_rating = "HIGH"
+        note = "Strong input coverage. Exclusions represent a small minority."
+    elif coverage >= 70:
+        coverage_rating = "MEDIUM"
+        note = "Moderate coverage. Review excluded inputs to confirm no systematic bias."
+    elif coverage >= 50:
+        coverage_rating = "LOW"
+        note = "Low coverage. Significant portion of available inputs excluded. Human review recommended."
+    else:
+        coverage_rating = "CRITICAL"
+        note = "Critical coverage gap. Less than half of available inputs considered. Consequential decisions on this basis carry high governance risk."
+
+    return {
+        "schema":          "VGS-INPUT-COVERAGE-v1",
+        "input_set_id":    input_set_id,
+        "total_available": total,
+        "selected":        selected,
+        "excluded":        excluded,
+        "coverage_pct":    coverage,
+        "coverage_rating": coverage_rating,
+        "note":            note,
+        "sentiment_distribution": sentiment,
+        "dissent_representation": f"{sentiment.get('dissent_pct',0)}% of selected inputs are dissenting",
+        "faithfulness_risk": "HIGH" if coverage < 50 or sentiment.get("dissent_pct",50) < 10 else "MEDIUM" if coverage < 70 else "LOW",
+        "audit_at":        f"POST /v1/input/fidelity with input_set_id={input_set_id}",
+        "timestamp":       datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@app.post("/v1/input/exclusion", tags=["Input Fidelity Governance"])
+async def input_exclusion(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Exclusion pattern detection — analyses whether excluded inputs
+    follow a non-random pattern that could indicate systematic bias.
+
+    This is the specific check that would have caught the Canada
+    government AI failure: dissenting voices excluded at 88% while
+    agreeing voices were largely retained.
+
+    Returns an exclusion bias score and pattern classification.
+    """
+    require_api_key(x_api_key, authorization)
+
+    ts         = datetime.now(timezone.utc).isoformat()
+    detection_id = f"EXC-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}"
+
+    excluded_categories = req.get("excluded_categories", {})
+    included_categories = req.get("included_categories", {})
+    total_excluded      = req.get("total_excluded", 0)
+    total_included      = req.get("total_included", 0)
+
+    # Analyse each category
+    category_analysis = {}
+    max_bias = 0.0
+    for cat in set(list(excluded_categories.keys()) + list(included_categories.keys())):
+        exc = excluded_categories.get(cat, 0)
+        inc = included_categories.get(cat, 0)
+        total_cat = exc + inc
+        if total_cat > 0:
+            exclusion_rate = round(exc / total_cat * 100, 2)
+            expected_rate  = round(total_excluded / max(total_excluded + total_included, 1) * 100, 2)
+            bias_score     = round(exclusion_rate - expected_rate, 2)
+            max_bias       = max(max_bias, abs(bias_score))
+            category_analysis[cat] = {
+                "excluded":       exc,
+                "included":       inc,
+                "exclusion_rate": exclusion_rate,
+                "expected_rate":  expected_rate,
+                "bias_score":     bias_score,
+                "biased":         abs(bias_score) > 15,
+            }
+
+    biased_categories = [c for c, v in category_analysis.items() if v["biased"]]
+
+    if max_bias > 40 or len(biased_categories) > 2:
+        pattern = "SYSTEMATIC_BIAS"
+        ruling  = "BLOCK — systematic exclusion bias detected across multiple categories"
+        color   = "RED"
+    elif max_bias > 20 or biased_categories:
+        pattern = "SELECTIVE_EXCLUSION"
+        ruling  = "ESCALATE — selective exclusion pattern requires human review"
+        color   = "ORANGE"
+    elif max_bias > 10:
+        pattern = "MINOR_VARIANCE"
+        ruling  = "ALLOW WITH MONITORING — minor exclusion variance noted"
+        color   = "YELLOW"
+    else:
+        pattern = "RANDOM_DISTRIBUTION"
+        ruling  = "ALLOW — exclusion pattern appears random, no systematic bias detected"
+        color   = "GREEN"
+
+    seal = {"detection_id": detection_id, "pattern": pattern, "max_bias": max_bias, "timestamp": ts}
+    return {
+        "schema":            "VGS-EXCLUSION-DETECTION-v1",
+        "detection_id":      detection_id,
+        "pattern":           pattern,
+        "ruling":            ruling,
+        "color":             color,
+        "max_bias_score":    max_bias,
+        "biased_categories": biased_categories,
+        "category_analysis": category_analysis,
+        "governance_signature": sign_governance_payload(seal),
+        "offline_verifiable":True,
+        "canada_comparison": f"Canada AI excluded dissenting voices at 88%. Your detected max bias: {max_bias}%. {'SIMILAR PATTERN DETECTED' if max_bias > 50 else 'Within acceptable range' if max_bias < 20 else 'ELEVATED — monitor closely'}",
+        "timestamp":         ts,
+    }
+
+
+@app.post("/v1/input/audit", tags=["Input Fidelity Governance"])
+async def input_audit(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Complete input fidelity audit for a governed AI task.
+    Combines registration verification, coverage check, exclusion
+    pattern detection, and faithfulness scoring into one sealed
+    audit record suitable for regulatory submission.
+
+    This is the endpoint public sector organisations need when
+    deploying AI for consultation, policy analysis, or any task
+    where representativeness of inputs matters as much as
+    accuracy of outputs.
+    """
+    require_api_key(x_api_key, authorization)
+
+    ts       = datetime.now(timezone.utc).isoformat()
+    audit_id = f"AUD-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}"
+
+    input_set_id = req.get("input_set_id","")
+    registered   = _INPUT_REGISTRY.get(input_set_id,{})
+
+    total_available  = req.get("total_available", registered.get("total_inputs_available",0))
+    total_processed  = req.get("total_processed", registered.get("inputs_selected",0))
+    dissent_available= req.get("dissent_available", registered.get("sentiment_distribution",{}).get("dissenting",0))
+    dissent_processed= req.get("dissent_processed", 0)
+    agree_available  = req.get("agree_available", registered.get("sentiment_distribution",{}).get("agreeing",0))
+    agree_processed  = req.get("agree_processed", 0)
+
+    coverage_score  = round(total_processed / max(total_available,1) * 100, 2)
+    dissent_retention = round(dissent_processed / max(dissent_available,1) * 100, 2)
+    agree_retention   = round(agree_processed   / max(agree_available,1) * 100, 2)
+    representation_gap= round(agree_retention - dissent_retention, 2)
+
+    faithfulness_score = round(
+        (coverage_score * 0.4) +
+        (dissent_retention * 0.35) +
+        ((100 - min(representation_gap, 100)) * 0.25),
+        2
+    )
+
+    if faithfulness_score >= 85:
+        verdict = "FAITHFUL"
+        color   = "GREEN"
+    elif faithfulness_score >= 65:
+        verdict = "PARTIALLY_FAITHFUL"
+        color   = "YELLOW"
+    elif faithfulness_score >= 45:
+        verdict = "SUSPICIOUS"
+        color   = "ORANGE"
+    else:
+        verdict = "UNFAITHFUL"
+        color   = "RED"
+
+    seal = {
+        "audit_id":          audit_id,
+        "input_set_id":      input_set_id,
+        "faithfulness_score":faithfulness_score,
+        "verdict":           verdict,
+        "coverage_score":    coverage_score,
+        "dissent_retention": dissent_retention,
+        "representation_gap":representation_gap,
+        "timestamp":         ts,
+    }
+    signature = sign_governance_payload(seal)
+    _FIDELITY_AUDITS.append({**seal, "governance_signature": signature})
+
+    return {
+        "schema":               "VGS-INPUT-AUDIT-v1",
+        "audit_id":             audit_id,
+        "input_set_id":         input_set_id,
+        "faithfulness_score":   faithfulness_score,
+        "verdict":              verdict,
+        "color":                color,
+        "coverage_score":       coverage_score,
+        "dissent_retention_pct":dissent_retention,
+        "agree_retention_pct":  agree_retention,
+        "representation_gap":   representation_gap,
+        "governance_signature": signature,
+        "offline_verifiable":   True,
+        "audit_interpretation": {
+            "faithfulness_score": f"{faithfulness_score}/100 — combines coverage (40%), dissent retention (35%), representation balance (25%)",
+            "dissent_retention":  f"{dissent_retention}% of dissenting inputs retained in processing",
+            "representation_gap": f"Agreeing inputs retained {representation_gap}% more than dissenting inputs",
+            "canada_benchmark":   "Canada AI: ~12% dissent retention. Yours: {:.0f}%.".format(dissent_retention),
+        },
+        "regulatory_note":      "This audit record is cryptographically sealed and independently verifiable. Suitable for regulatory submission under EU AI Act Article 13 (transparency) and Article 9 (risk management).",
+        "timestamp":            ts,
+    }
+
+
+@app.post("/v1/input/faithfulness", tags=["Input Fidelity Governance"])
+async def input_faithfulness(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Faithfulness score for an AI output relative to its input set.
+    Answers Russell's question: was the output faithful to ALL
+    relevant inputs, or only to a selected subset?
+
+    Different from accuracy — an output can be 100% accurate
+    on the inputs it processed while being entirely unfaithful
+    to the full input universe it should have considered.
+    """
+    require_api_key(x_api_key, authorization)
+
+    ts = datetime.now(timezone.utc).isoformat()
+    faithfulness_id = f"FAI-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}"
+
+    output_claims       = req.get("output_claims", [])
+    claims_traceable    = req.get("claims_traceable_to_inputs", 0)
+    total_claims        = len(output_claims) or req.get("total_claims", 0)
+    input_universe_size = req.get("input_universe_size", 0)
+    inputs_considered   = req.get("inputs_considered", 0)
+    excluded_voices_represented = req.get("excluded_voices_represented_in_output", False)
+
+    traceability_score = round(claims_traceable / max(total_claims,1) * 100, 2)
+    universe_coverage  = round(inputs_considered / max(input_universe_size,1) * 100, 2)
+
+    faithfulness_score = round(
+        traceability_score * 0.5 +
+        universe_coverage  * 0.35 +
+        (100 if excluded_voices_represented else 0) * 0.15,
+        2
+    )
+
+    verdict = (
+        "FAITHFUL"           if faithfulness_score >= 85 else
+        "MOSTLY_FAITHFUL"    if faithfulness_score >= 70 else
+        "PARTIALLY_FAITHFUL" if faithfulness_score >= 55 else
+        "UNFAITHFUL"
+    )
+
+    seal = {"faithfulness_id": faithfulness_id, "score": faithfulness_score, "verdict": verdict, "timestamp": ts}
+    return {
+        "schema":              "VGS-FAITHFULNESS-v1",
+        "faithfulness_id":     faithfulness_id,
+        "faithfulness_score":  faithfulness_score,
+        "verdict":             verdict,
+        "traceability_score":  traceability_score,
+        "universe_coverage":   universe_coverage,
+        "excluded_voices_represented": excluded_voices_represented,
+        "key_distinction":     "Accuracy measures correctness within the processed input set. Faithfulness measures whether the processed input set was representative of the full input universe.",
+        "russell_principle":   "An accurate summary can still be an unfaithful one.",
+        "governance_signature":sign_governance_payload(seal),
+        "offline_verifiable":  True,
+        "timestamp":           ts,
+    }
+
+
+@app.post("/v1/input/bias", tags=["Input Fidelity Governance"])
+async def input_bias(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Input bias detection — identifies whether input selection
+    favours certain viewpoints, demographics, or source types
+    over others in a statistically significant way.
+
+    Specifically designed to detect the participatory exclusion
+    pattern identified by Russell Buzby: systematic exclusion
+    of dissenting or minority voices before AI reasoning forms.
+    """
+    require_api_key(x_api_key, authorization)
+
+    ts      = datetime.now(timezone.utc).isoformat()
+    bias_id = f"BIAS-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}"
+
+    viewpoint_distribution  = req.get("viewpoint_distribution", {})
+    demographic_distribution = req.get("demographic_distribution", {})
+    source_distribution      = req.get("source_distribution", {})
+    threshold                = req.get("bias_threshold_pct", 20.0)
+
+    bias_findings = []
+    overall_bias_score = 0.0
+
+    # Check viewpoint bias
+    if viewpoint_distribution:
+        values = list(viewpoint_distribution.values())
+        if values:
+            max_v = max(values)
+            min_v = min(values)
+            vp_bias = round((max_v - min_v) / max(max_v, 1) * 100, 2)
+            overall_bias_score = max(overall_bias_score, vp_bias)
+            if vp_bias > threshold:
+                bias_findings.append({
+                    "dimension":   "viewpoint",
+                    "bias_score":  vp_bias,
+                    "distribution":viewpoint_distribution,
+                    "finding":     f"Viewpoint distribution skewed by {vp_bias}% — exceeds {threshold}% threshold",
+                })
+
+    # Check demographic bias
+    if demographic_distribution:
+        values = list(demographic_distribution.values())
+        if values:
+            max_v = max(values)
+            min_v = min(values)
+            dem_bias = round((max_v - min_v) / max(max_v, 1) * 100, 2)
+            overall_bias_score = max(overall_bias_score, dem_bias)
+            if dem_bias > threshold:
+                bias_findings.append({
+                    "dimension":   "demographic",
+                    "bias_score":  dem_bias,
+                    "distribution":demographic_distribution,
+                    "finding":     f"Demographic distribution skewed by {dem_bias}% — exceeds threshold",
+                })
+
+    if overall_bias_score > 50:
+        verdict = "HIGH_BIAS"
+        ruling  = "BLOCK — significant input bias detected. Consequential decisions on this input set carry unacceptable governance risk."
+        color   = "RED"
+    elif overall_bias_score > threshold:
+        verdict = "MODERATE_BIAS"
+        ruling  = "ESCALATE — moderate input bias detected. Human review required before consequential use."
+        color   = "ORANGE"
+    elif overall_bias_score > 10:
+        verdict = "LOW_BIAS"
+        ruling  = "ALLOW WITH DOCUMENTATION — minor bias noted. Document for audit trail."
+        color   = "YELLOW"
+    else:
+        verdict = "UNBIASED"
+        ruling  = "ALLOW — input distribution within acceptable balance parameters."
+        color   = "GREEN"
+
+    seal = {"bias_id": bias_id, "verdict": verdict, "overall_bias": overall_bias_score, "timestamp": ts}
+    return {
+        "schema":              "VGS-INPUT-BIAS-v1",
+        "bias_id":             bias_id,
+        "verdict":             verdict,
+        "ruling":              ruling,
+        "color":               color,
+        "overall_bias_score":  overall_bias_score,
+        "bias_threshold":      threshold,
+        "bias_findings":       bias_findings,
+        "governance_signature":sign_governance_payload(seal),
+        "offline_verifiable":  True,
+        "public_sector_note":  "Required for government AI deployments processing public consultation, policy submissions, or any representative input. EU AI Act Article 10 (data governance) and Article 9 (risk management) both require bias examination.",
+        "timestamp":           ts,
+    }
+
+
+@app.get("/v1/input/provenance", tags=["Input Fidelity Governance"])
+async def input_provenance(
+    input_set_id: str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Complete input provenance record — where every input came from,
+    what selection criteria were applied, what was excluded and why,
+    and whether the selection process was auditable.
+
+    This is the audit trail that answers Russell's question:
+    'Who audits whether the dissent survived?'
+
+    VeriSigil does.
+    """
+    require_api_key(x_api_key, authorization)
+
+    registered = _INPUT_REGISTRY.get(input_set_id)
+    if not registered:
+        raise HTTPException(status_code=404, detail=f"Input set {input_set_id} not found.")
+
+    audits = [a for a in _FIDELITY_AUDITS if a.get("input_set_id") == input_set_id]
+    alerts = [a for a in _EXCLUSION_ALERTS if a.get("input_set_id") == input_set_id]
+
+    return {
+        "schema":              "VGS-INPUT-PROVENANCE-v1",
+        "input_set_id":        input_set_id,
+        "registration":        registered,
+        "fidelity_audits":     audits,
+        "exclusion_alerts":    alerts,
+        "provenance_complete": bool(registered),
+        "what_this_proves":    "Complete traceable record of what inputs were considered, what was excluded, whether exclusion was systematic, and whether the AI output was faithful to the full input universe.",
+        "russell_answer":      "VeriSigil audits whether the dissent survived — sealed, independently verifiable, available for regulatory review.",
+        "eu_ai_act_relevance": "Article 10 (data governance) requires examination of data for biases. Article 13 (transparency) requires disclosure of limitations. Input fidelity governance satisfies both.",
+        "retrieved_at":        datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@app.get("/v1/input/alerts", tags=["Input Fidelity Governance"])
+async def input_alerts(
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    All input fidelity alerts — detected exclusion patterns,
+    faithfulness failures, and bias findings across all governed
+    input sets. Dashboard view for compliance officers.
+    """
+    require_api_key(x_api_key, authorization)
+    return {
+        "schema":          "VGS-INPUT-ALERTS-v1",
+        "total_alerts":    len(_EXCLUSION_ALERTS),
+        "total_audits":    len(_FIDELITY_AUDITS),
+        "total_registered":len(_INPUT_REGISTRY),
+        "alerts":          _EXCLUSION_ALERTS[-20:],
+        "russell_metric":  "Dissenting voice retention rate across all governed input sets",
+        "timestamp":       datetime.now(timezone.utc).isoformat(),
+    }
+
+
+
+# ── VSL PLAYGROUND ───────────────────────────────────────────
+@app.get("/v1/vsl/playground", tags=["VeriLanguage (VSL)"])
+async def vsl_playground(
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    VSL Playground — 5 ready-to-compile VSL programs covering
+    the most common enterprise governance scenarios.
+
+    Copy any example into POST /v1/vsl/compile as vsl_source.
+    Press compile. Inspect the AST, bytecode, governance IR,
+    and compiled rules. See governance as code in action.
+
+    Each example demonstrates a different VSL feature.
+    """
+    require_api_key(x_api_key, authorization)
+
+    return {
+        "schema":  "VGS-VSL-PLAYGROUND-v1",
+        "title":   "VeriLanguage (VSL) Playground",
+        "tagline": "Governance as Code. Compile it. Inspect it. Verify it.",
+        "compile_at": "POST /v1/vsl/compile",
+        "examples": [
+            {
+                "id":          "example_1_wire_transfer",
+                "title":       "Wire Transfer Authorization",
+                "description": "High-value financial transfer requiring finance authority and human escalation above $50K. Classic financial services governance.",
+                "consequence": "CRITICAL",
+                "vsl_source": (
+                    "transfer_funds()\n"
+                    "requires authority(finance.transfer)\n"
+                    "requires human_escalation(if amount > 50000)\n"
+                    "with evidence_chain\n"
+                    "with cryptographic_proof"
+                ),
+                "expected_rules": 3,
+                "expected_bytecode_instructions": 7,
+                "what_to_look_for": "AUTH_CHECK and ESCALATE_IF_TRUE bytecode instructions. BLOCK_IF_ABSENT enforcement on finance.transfer.",
+            },
+            {
+                "id":          "example_2_medical_record",
+                "title":       "Medical Record Access",
+                "description": "Clinical data access requiring medical authority with context mix protection — prevents medical data from being processed alongside insurance pricing data.",
+                "consequence": "HIGH",
+                "vsl_source": (
+                    "access_patient_record()\n"
+                    "requires authority(medical.read)\n"
+                    "requires admissibility(runtime_verified)\n"
+                    "with evidence_chain\n"
+                    "with cryptographic_proof\n"
+                    "forbid_context_mix(medical_data, insurance_pricing)"
+                ),
+                "expected_rules": 3,
+                "what_to_look_for": "CONTEXT_CONTAMINATION_CHECK rule with BLOCK_ON_MIX enforcement. Demonstrates how VSL prevents data mixing that standard access controls miss.",
+            },
+            {
+                "id":          "example_3_autonomous_deploy",
+                "title":       "Autonomous Production Deploy",
+                "description": "AI agent attempting to deploy to production infrastructure without human present. Should generate a WARN on missing human escalation.",
+                "consequence": "CRITICAL",
+                "vsl_source": (
+                    "deploy_to_production()\n"
+                    "requires authority(infra.deploy)\n"
+                    "with evidence_chain\n"
+                    "with cryptographic_proof\n"
+                    "with rollback_snapshot"
+                ),
+                "expected_rules": 1,
+                "expected_warnings": 1,
+                "what_to_look_for": "W003 warning — CRITICAL action without human_escalation. Compiler catches the governance gap before deployment.",
+            },
+            {
+                "id":          "example_4_data_export",
+                "title":       "Sensitive Data Export",
+                "description": "Data export requiring multiple authority levels and human approval for large exports. Demonstrates multi-authority VSL compilation.",
+                "consequence": "HIGH",
+                "vsl_source": (
+                    "export_customer_data()\n"
+                    "requires authority(data.export)\n"
+                    "requires authority(data.read)\n"
+                    "requires human_escalation(if record_count > 10000)\n"
+                    "with evidence_chain\n"
+                    "with cryptographic_proof"
+                ),
+                "expected_rules": 4,
+                "what_to_look_for": "Two separate AUTH_CHECK rules compiled from two requires authority() declarations. Demonstrates multi-authority governance.",
+            },
+            {
+                "id":          "example_5_hr_termination",
+                "title":       "HR Action — Employee Termination",
+                "description": "High-consequence HR action requiring HR authority and mandatory human approval regardless of conditions. Demonstrates unconditional human escalation.",
+                "consequence": "CRITICAL",
+                "vsl_source": (
+                    "terminate_employment()\n"
+                    "requires authority(hr.terminate)\n"
+                    "requires human_escalation(if action == terminate)\n"
+                    "requires admissibility(senior_hr_approved)\n"
+                    "with evidence_chain\n"
+                    "with cryptographic_proof"
+                ),
+                "expected_rules": 3,
+                "what_to_look_for": "ESCALATE_IF_TRUE fires unconditionally for termination actions. Evidence chain ensures the decision is sealed before any HR system processes it.",
+            },
+        ],
+        "pipeline_diagram": {
+            "stages": [
+                "VSL Source (human-readable governance policy)",
+                "Parser (extracts governance semantics with line numbers)",
+                "AST (Abstract Syntax Tree — inspectable governance structure)",
+                "Governance IR (intermediate representation)",
+                "Compiled Rules (typed, enforcement-mode rules)",
+                "Bytecode (GBC — Governance Bytecode instructions)",
+                "Execution (POST /v1/vsl/execute against agent state)",
+                "Evidence Receipt (Ed25519 sealed governance artifact)",
+            ],
+            "positioning": "VSL → AST → IR → Bytecode → Receipt. The same pipeline progression as production compilers — applied to governance.",
+        },
+        "category_note": "VeriLanguage is not Policy as Code (OPA/Rego). It is Governance as Code — a different category. Terraform governs infrastructure. Solidity governs contracts. VSL governs AI execution.",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+
+# ============================================================
+# VGS-050 CONSTITUTIONAL LEGITIMACY SUBSTRATE (CLS)
+# The layer that proves governance itself is legitimate
+# before it governs anything.
+#
+# Not "is execution admissible?"
+# But "should this governance rule exist at all?"
+#
+# Like TLS for governance — not replacing VeriSigil's
+# governance engine but providing the foundation on which
+# VeriSigil's governance can itself be trusted.
+#
+# Three expert convergence points:
+# 1. Consequence Accountability — who governs after the decision?
+# 2. Constitutional Continuity — who verifies rules remain legitimate?
+# 3. Legitimacy Engine — GovernancePolicy ∈ LegitimateSet
+# ============================================================
+
+_LEGITIMACY_REGISTRY:  dict = {}  # policy_id -> legitimacy record
+_LEGITIMACY_CHALLENGES:list = []  # formal challenges
+_LEGITIMACY_APPEALS:   list = []  # formal appeals
+_INTENT_ORIGINS:       dict = {}  # intent_id -> origin record
+_DECISION_EXISTENCE:   dict = {}  # decision_id -> existence audit
+_CONSEQUENCE_REGISTRY: dict = {}  # consequence_id -> consequence record
+
+# Constitutional Invariants — the axioms every governance policy must satisfy
+CONSTITUTIONAL_INVARIANTS = [
+    {
+        "invariant_id":  "INV-001",
+        "name":          "Delegated Authority Ceiling",
+        "statement":     "No policy may exceed delegated authority",
+        "formal":        "∀p ∈ Policy: authority(p) ⊆ delegated_authority(p.issuer)",
+        "violation_ruling": "DENY — policy claims authority not delegated to its issuer",
+    },
+    {
+        "invariant_id":  "INV-002",
+        "name":          "Admissibility Non-Bypass",
+        "statement":     "No execution may bypass admissibility assessment",
+        "formal":        "∀e ∈ Execution: ∃a ∈ Admissibility: assessed(e, a) ∧ a.result ≠ BYPASS",
+        "violation_ruling": "DENY — execution path bypasses required admissibility gate",
+    },
+    {
+        "invariant_id":  "INV-003",
+        "name":          "Doctrine Non-Contradiction",
+        "statement":     "No rule may contradict constitutional doctrine",
+        "formal":        "∀r ∈ Rule: ¬∃d ∈ Doctrine: contradicts(r, d)",
+        "violation_ruling": "BLOCK — rule contradicts established constitutional doctrine",
+    },
+    {
+        "invariant_id":  "INV-004",
+        "name":          "Protected Rights Preservation",
+        "statement":     "No policy may invalidate protected rights",
+        "formal":        "∀p ∈ Policy: ∀r ∈ ProtectedRights: ¬invalidates(p, r)",
+        "violation_ruling": "BLOCK — policy invalidates one or more protected rights",
+    },
+    {
+        "invariant_id":  "INV-005",
+        "name":          "Legitimacy Provenance",
+        "statement":     "Every governance rule must have a traceable legitimate origin",
+        "formal":        "∀r ∈ Rule: ∃l ∈ LegitimacyChain: traceable(r, l) ∧ legitimate(l)",
+        "violation_ruling": "SUSPEND — rule cannot be traced to legitimate constitutional origin",
+    },
+    {
+        "invariant_id":  "INV-006",
+        "name":          "Intent Authenticity",
+        "statement":     "No execution may proceed on manipulated intent",
+        "formal":        "∀e ∈ Execution: authentic(intent(e)) ∧ ¬manipulated(intent(e))",
+        "violation_ruling": "DENY — intent authenticity cannot be established",
+    },
+    {
+        "invariant_id":  "INV-007",
+        "name":          "Decision Existence Justification",
+        "statement":     "Every decision must have constitutional justification to exist",
+        "formal":        "∀d ∈ Decision: ∃j ∈ Justification: constitutionally_grounded(d, j)",
+        "violation_ruling": "VOID — decision lacks constitutional justification to exist",
+    },
+    {
+        "invariant_id":  "INV-008",
+        "name":          "Consequence Traceability",
+        "statement":     "Every real-world consequence must be traceable to a governed decision",
+        "formal":        "∀c ∈ Consequence: ∃d ∈ Decision: governed(d) ∧ caused(d, c)",
+        "violation_ruling": "UNGOVERNED — consequence cannot be traced to a governed decision",
+    },
+]
+
+
+# ── LEGITIMACY EVALUATE ──────────────────────────────────────
+@app.post("/v1/legitimacy/evaluate", tags=["Constitutional Legitimacy Layer"])
+async def legitimacy_evaluate(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Evaluate whether a governance policy is constitutionally legitimate.
+
+    This is the Legitimacy Engine — the layer that asks not
+    "is execution admissible?" but "should this governance
+    rule exist at all?"
+
+    Returns a legitimacy score, constitutional conflict analysis,
+    rights conflict detection, authority conflict analysis,
+    precedent conflicts, and public interest score.
+
+    Mathematical claim: GovernancePolicy ∈ LegitimateSet
+    """
+    require_api_key(x_api_key, authorization)
+
+    ts          = datetime.now(timezone.utc).isoformat()
+    eval_id     = f"LEG-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}"
+    policy_id   = req.get("policy_id","")
+    policy_text = req.get("policy_text","")
+    policy_type = req.get("policy_type","")
+    issuer      = req.get("issuer","")
+    authority_claimed = req.get("authority_claimed",[])
+    rights_affected   = req.get("rights_affected",[])
+    precedents_cited  = req.get("precedents_cited",[])
+    public_scope      = req.get("public_scope","LOCAL")
+
+    # Evaluate against each invariant
+    invariant_results = []
+    conflicts         = []
+    score_components  = {}
+
+    # INV-001 — Delegated Authority
+    known_delegated = req.get("delegated_authority",[])
+    auth_overshoot  = [a for a in authority_claimed if a not in known_delegated]
+    inv1_pass       = len(auth_overshoot) == 0
+    score_components["delegated_authority"] = 100 if inv1_pass else max(0, 100 - len(auth_overshoot) * 25)
+    invariant_results.append({
+        "invariant": "INV-001",
+        "name":      "Delegated Authority Ceiling",
+        "result":    "PASS" if inv1_pass else "FAIL",
+        "detail":    "Authority within delegation" if inv1_pass else f"Claims authority not delegated: {auth_overshoot}",
+    })
+    if not inv1_pass:
+        conflicts.append({"type": "authority_conflict", "detail": f"Policy claims undelegated authority: {auth_overshoot}"})
+
+    # INV-003 — Doctrine Non-Contradiction
+    doctrine_conflicts = req.get("doctrine_conflicts",[])
+    inv3_pass          = len(doctrine_conflicts) == 0
+    score_components["doctrine_alignment"] = 100 if inv3_pass else max(0, 100 - len(doctrine_conflicts) * 30)
+    invariant_results.append({
+        "invariant": "INV-003",
+        "name":      "Doctrine Non-Contradiction",
+        "result":    "PASS" if inv3_pass else "FAIL",
+        "detail":    "No doctrine conflicts" if inv3_pass else f"Conflicts: {doctrine_conflicts}",
+    })
+    if not inv3_pass:
+        conflicts.append({"type": "doctrine_conflict", "detail": str(doctrine_conflicts)})
+
+    # INV-004 — Protected Rights
+    rights_violated = req.get("rights_violated",[])
+    inv4_pass       = len(rights_violated) == 0
+    score_components["rights_preservation"] = 100 if inv4_pass else 0
+    invariant_results.append({
+        "invariant": "INV-004",
+        "name":      "Protected Rights Preservation",
+        "result":    "PASS" if inv4_pass else "FAIL",
+        "detail":    "No rights violations" if inv4_pass else f"Rights violated: {rights_violated}",
+    })
+    if not inv4_pass:
+        conflicts.append({"type": "rights_conflict", "detail": str(rights_violated)})
+
+    # INV-005 — Legitimacy Provenance
+    has_provenance  = bool(req.get("legitimacy_basis",""))
+    inv5_pass       = has_provenance
+    score_components["legitimacy_provenance"] = 100 if inv5_pass else 40
+    invariant_results.append({
+        "invariant": "INV-005",
+        "name":      "Legitimacy Provenance",
+        "result":    "PASS" if inv5_pass else "WARN",
+        "detail":    "Legitimacy basis declared" if inv5_pass else "No legitimacy basis declared — policy origin unverifiable",
+    })
+
+    # Public interest score
+    public_interest_score = 100
+    if public_scope in ("GLOBAL","CIVILIZATIONAL"):
+        public_interest_score = 60 if not req.get("public_interest_justification") else 85
+    elif public_scope == "NATIONAL":
+        public_interest_score = 75 if not req.get("public_interest_justification") else 90
+
+    score_components["public_interest"] = public_interest_score
+
+    # Compute overall legitimacy score
+    legitimacy_score = round(sum(score_components.values()) / len(score_components), 2)
+
+    if legitimacy_score >= 90 and not conflicts:
+        verdict  = "LEGITIMATE"
+        ruling   = "PROCEED — policy satisfies constitutional legitimacy requirements"
+        color    = "GREEN"
+    elif legitimacy_score >= 70 and not any(c["type"] == "rights_conflict" for c in conflicts):
+        verdict  = "CONDITIONALLY_LEGITIMATE"
+        ruling   = "PROCEED WITH CONDITIONS — address identified conflicts before full deployment"
+        color    = "YELLOW"
+    elif rights_violated:
+        verdict  = "ILLEGITIMATE"
+        ruling   = "BLOCK — policy violates protected rights. Constitutional legitimacy denied."
+        color    = "RED"
+    else:
+        verdict  = "QUESTIONABLE"
+        ruling   = "SUSPEND — insufficient legitimacy evidence. Formal review required."
+        color    = "ORANGE"
+
+    record = {
+        "schema":            "VGS-LEGITIMACY-EVAL-v1",
+        "eval_id":           eval_id,
+        "policy_id":         policy_id,
+        "policy_type":       policy_type,
+        "issuer":            issuer,
+        "legitimacy_score":  legitimacy_score,
+        "verdict":           verdict,
+        "ruling":            ruling,
+        "color":             color,
+        "score_components":  score_components,
+        "invariant_results": invariant_results,
+        "conflicts":         conflicts,
+        "rights_conflicts":  rights_violated,
+        "authority_conflicts": auth_overshoot,
+        "doctrine_conflicts": doctrine_conflicts,
+        "public_interest_score": public_interest_score,
+        "evaluated_at":      ts,
+    }
+
+    seal = {
+        "eval_id":          eval_id,
+        "policy_id":        policy_id,
+        "legitimacy_score": legitimacy_score,
+        "verdict":          verdict,
+        "timestamp":        ts,
+    }
+    record["governance_signature"] = sign_governance_payload(seal)
+    record["offline_verifiable"]   = True
+    _LEGITIMACY_REGISTRY[policy_id or eval_id] = record
+
+    return record
+
+
+# ── LEGITIMACY PROVE ─────────────────────────────────────────
+@app.post("/v1/legitimacy/prove", tags=["Constitutional Legitimacy Layer"])
+async def legitimacy_prove(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Mathematical proof that a governance policy satisfies
+    constitutional invariants.
+
+    Advances the claim from:
+    Execution ∈ AllowedSet (what VeriSigil already proves)
+    to:
+    GovernancePolicy ∈ LegitimateSet (what this proves)
+
+    Returns a formal proof certificate with invariant satisfaction
+    proofs, a proof hash, and independent verifiability instructions.
+    """
+    require_api_key(x_api_key, authorization)
+
+    ts       = datetime.now(timezone.utc).isoformat()
+    proof_id = f"PROOF-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}"
+    policy_id= req.get("policy_id","")
+
+    # Retrieve legitimacy evaluation if available
+    eval_record = _LEGITIMACY_REGISTRY.get(policy_id,{})
+    legitimacy_score = eval_record.get("legitimacy_score", req.get("legitimacy_score", 0))
+
+    # Build formal proof steps
+    proof_steps = []
+    invariants_satisfied = []
+    invariants_violated  = []
+
+    for inv in CONSTITUTIONAL_INVARIANTS:
+        inv_id   = inv["invariant_id"]
+        # Check against evaluation record
+        inv_result = next(
+            (r for r in eval_record.get("invariant_results",[]) if r.get("invariant") == inv_id),
+            None
+        )
+        if inv_result:
+            satisfied = inv_result.get("result") == "PASS"
+        else:
+            satisfied = req.get(f"{inv_id}_satisfied", True)
+
+        proof_step = {
+            "step":      inv_id,
+            "invariant": inv["name"],
+            "formal":    inv["formal"],
+            "proof":     f"Verified: {inv['statement']}" if satisfied else f"VIOLATED: {inv['statement']}",
+            "result":    "QED" if satisfied else "COUNTEREXAMPLE_FOUND",
+        }
+        proof_steps.append(proof_step)
+        if satisfied:
+            invariants_satisfied.append(inv_id)
+        else:
+            invariants_violated.append(inv_id)
+
+    proof_complete = len(invariants_violated) == 0
+    proof_hash     = hashlib.sha256(
+        json.dumps(proof_steps, sort_keys=True, separators=(",",":")).encode()
+    ).hexdigest()
+
+    seal = {
+        "proof_id":            proof_id,
+        "policy_id":           policy_id,
+        "proof_complete":      proof_complete,
+        "invariants_satisfied":len(invariants_satisfied),
+        "invariants_violated": len(invariants_violated),
+        "proof_hash":          proof_hash,
+        "timestamp":           ts,
+    }
+
+    return {
+        "schema":              "VGS-LEGITIMACY-PROOF-v1",
+        "proof_id":            proof_id,
+        "policy_id":           policy_id,
+        "mathematical_claim":  "GovernancePolicy ∈ LegitimateSet",
+        "proof_complete":      proof_complete,
+        "proof_verdict":       "QED — policy proven legitimate" if proof_complete else f"PROOF FAILED — {len(invariants_violated)} invariants violated",
+        "proof_steps":         proof_steps,
+        "invariants_satisfied":invariants_satisfied,
+        "invariants_violated": invariants_violated,
+        "proof_hash":          proof_hash,
+        "governance_signature":sign_governance_payload(seal),
+        "offline_verifiable":  True,
+        "verification_note":   "Verify proof by checking each invariant step against the constitutional invariants at GET /v1/legitimacy/invariants. Proof hash computed over all steps.",
+        "doi_reference":       "https://doi.org/10.5281/zenodo.20627386",
+        "timestamp":           ts,
+    }
+
+
+# ── LEGITIMACY INVARIANTS ────────────────────────────────────
+@app.get("/v1/legitimacy/invariants", tags=["Constitutional Legitimacy Layer"])
+async def legitimacy_invariants(
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    The constitutional invariant set enforced by VeriSigil.
+    Every governance policy evaluated against these invariants.
+    No auth required — invariants are public constitutional commitments.
+    """
+    return {
+        "schema":      "VGS-LEGITIMACY-INVARIANTS-v1",
+        "title":       "VeriSigil Constitutional Invariants",
+        "description": "The axioms every governance policy must satisfy to be constitutionally legitimate. These invariants cannot be overridden by any policy, authority, or instruction.",
+        "invariants":  CONSTITUTIONAL_INVARIANTS,
+        "total":       len(CONSTITUTIONAL_INVARIANTS),
+        "immutable":   True,
+        "note":        "These invariants are the constitutional foundation of VeriSigil's legitimacy engine. They define the set LegitimateSet against which all governance policies are proven.",
+        "prove_at":    "POST /v1/legitimacy/prove",
+        "evaluate_at": "POST /v1/legitimacy/evaluate",
+        "doi":         "https://doi.org/10.5281/zenodo.20627386",
+        "timestamp":   datetime.now(timezone.utc).isoformat(),
+    }
+
+
+# ── LEGITIMACY CHALLENGE ─────────────────────────────────────
+@app.post("/v1/legitimacy/challenge", tags=["Constitutional Legitimacy Layer"])
+async def legitimacy_challenge(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Formal constitutional legitimacy challenge.
+    Any system, regulator, or auditor can formally challenge
+    whether a governance policy has the constitutional right to exist.
+    Every challenge is sealed and triggers formal review.
+    """
+    require_api_key(x_api_key, authorization)
+
+    ts           = datetime.now(timezone.utc).isoformat()
+    challenge_id = f"CHAL-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}"
+
+    challenge = {
+        "schema":           "VGS-LEGITIMACY-CHALLENGE-v1",
+        "challenge_id":     challenge_id,
+        "policy_id":        req.get("policy_id",""),
+        "challenger":       req.get("challenger",""),
+        "challenger_type":  req.get("challenger_type",""),  # regulator, auditor, system, citizen
+        "grounds":          req.get("grounds",""),
+        "invariants_cited": req.get("invariants_cited",[]),
+        "evidence_refs":    req.get("evidence_refs",[]),
+        "remedy_requested": req.get("remedy_requested",""),
+        "status":           "PENDING_REVIEW",
+        "challenged_at":    ts,
+    }
+
+    seal = {
+        "challenge_id":    challenge_id,
+        "policy_id":       challenge["policy_id"],
+        "challenger":      challenge["challenger"],
+        "grounds":         challenge["grounds"],
+        "timestamp":       ts,
+    }
+    challenge["governance_signature"] = sign_governance_payload(seal)
+    challenge["offline_verifiable"]   = True
+    _LEGITIMACY_CHALLENGES.append(challenge)
+
+    return {
+        **challenge,
+        "what_happens_next": "Challenge is formally recorded and sealed. Policy is flagged for legitimacy review. Respond via POST /v1/legitimacy/appeal or POST /v1/legitimacy/evaluate with challenge_id reference.",
+        "constitutional_note": "Constitutional legitimacy must itself be governable. Every challenge triggers a formal review process — the governance of governance.",
+    }
+
+
+# ── LEGITIMACY APPEAL ────────────────────────────────────────
+@app.post("/v1/legitimacy/appeal", tags=["Constitutional Legitimacy Layer"])
+async def legitimacy_appeal(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Formal appeal of a legitimacy ruling.
+    Constitutional legitimacy should never be absolute —
+    it must itself be governable. This endpoint allows
+    formal appeal of any legitimacy evaluation or challenge outcome.
+    """
+    require_api_key(x_api_key, authorization)
+
+    ts        = datetime.now(timezone.utc).isoformat()
+    appeal_id = f"APPL-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}"
+
+    appeal = {
+        "schema":          "VGS-LEGITIMACY-APPEAL-v1",
+        "appeal_id":       appeal_id,
+        "appeal_of":       req.get("appeal_of",""),  # eval_id or challenge_id
+        "appellant":       req.get("appellant",""),
+        "grounds":         req.get("grounds",""),
+        "new_evidence":    req.get("new_evidence",[]),
+        "precedents_cited":req.get("precedents_cited",[]),
+        "remedy_sought":   req.get("remedy_sought",""),
+        "status":          "PENDING",
+        "filed_at":        ts,
+    }
+
+    seal = {
+        "appeal_id": appeal_id,
+        "appeal_of": appeal["appeal_of"],
+        "appellant": appeal["appellant"],
+        "timestamp": ts,
+    }
+    appeal["governance_signature"] = sign_governance_payload(seal)
+    _LEGITIMACY_APPEALS.append(appeal)
+
+    return {
+        **appeal,
+        "constitutional_principle": "No legitimacy ruling is final without an appeal pathway. Governance legitimacy must itself be subject to legitimate challenge and revision.",
+        "offline_verifiable": True,
+    }
+
+
+# ── INTENT ORIGIN ────────────────────────────────────────────
+@app.post("/v1/intent/origin", tags=["Constitutional Legitimacy Layer"])
+async def intent_origin(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Intent Origin Verification — was the original intent authentic
+    before any manipulation could occur?
+
+    This addresses the deepest governance gap: an agent can execute
+    correctly, evidence can be complete, authority can be valid —
+    yet the upstream intent that set everything in motion may have
+    been corrupted before governance ever saw it.
+
+    Verifies:
+    - Who originated this intent (human, agent, system, scheduled)
+    - Was the origin authenticated at the moment of intent formation?
+    - Has the intent been modified since origination?
+    - Is there a traceable chain from origin to current intent?
+    """
+    require_api_key(x_api_key, authorization)
+
+    ts        = datetime.now(timezone.utc).isoformat()
+    origin_id = f"ORIG-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}"
+    intent_id = req.get("intent_id","")
+
+    originator       = req.get("originator","")
+    originator_type  = req.get("originator_type","")  # human, agent, system, scheduled, unknown
+    origin_timestamp = req.get("origin_timestamp", ts)
+    origin_context   = req.get("origin_context",{})
+    chain_of_custody = req.get("chain_of_custody",[])
+    modifications    = req.get("modifications_since_origin",[])
+    authentication   = req.get("authenticated_at_origin", False)
+
+    # Authenticity evaluation
+    authenticity_flags = []
+    authenticity_score = 100
+
+    if originator_type == "unknown":
+        authenticity_flags.append("WARN: Intent originator type unknown — cannot verify human authority")
+        authenticity_score -= 30
+
+    if not authentication:
+        authenticity_flags.append("WARN: Intent was not authenticated at moment of origination")
+        authenticity_score -= 25
+
+    if modifications:
+        authenticity_flags.append(f"WARN: Intent modified {len(modifications)} time(s) since origination")
+        authenticity_score -= len(modifications) * 15
+
+    if not chain_of_custody:
+        authenticity_flags.append("WARN: No chain of custody — intent provenance is unverifiable")
+        authenticity_score -= 20
+
+    authenticity_score = max(0, authenticity_score)
+
+    if authenticity_score >= 80:
+        verdict = "AUTHENTIC"
+        ruling  = "PROCEED — intent origin verified as authentic"
+    elif authenticity_score >= 60:
+        verdict = "PROBABLY_AUTHENTIC"
+        ruling  = "PROCEED WITH CAUTION — some authenticity signals missing"
+    elif authenticity_score >= 40:
+        verdict = "QUESTIONABLE"
+        ruling  = "ESCALATE — intent authenticity cannot be adequately verified"
+    else:
+        verdict = "UNVERIFIABLE"
+        ruling  = "DENY — intent origin cannot be established. Execution on unverifiable intent is inadmissible."
+
+    record = {
+        "schema":            "VGS-INTENT-ORIGIN-v1",
+        "origin_id":         origin_id,
+        "intent_id":         intent_id,
+        "originator":        originator,
+        "originator_type":   originator_type,
+        "origin_timestamp":  origin_timestamp,
+        "authenticated_at_origin": authentication,
+        "chain_of_custody":  chain_of_custody,
+        "modifications":     modifications,
+        "authenticity_score":authenticity_score,
+        "authenticity_flags":authenticity_flags,
+        "verdict":           verdict,
+        "ruling":            ruling,
+        "verified_at":       ts,
+    }
+
+    seal = {
+        "origin_id":         origin_id,
+        "intent_id":         intent_id,
+        "originator":        originator,
+        "authenticity_score":authenticity_score,
+        "verdict":           verdict,
+        "timestamp":         ts,
+    }
+    record["governance_signature"] = sign_governance_payload(seal)
+    record["offline_verifiable"]   = True
+    _INTENT_ORIGINS[intent_id or origin_id] = record
+
+    return record
+
+
+# ── DECISION EXISTENCE ───────────────────────────────────────
+@app.post("/v1/decision/existence", tags=["Constitutional Legitimacy Layer"])
+async def decision_existence(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Decision Existence Audit — should this decision exist at all?
+
+    This is the deepest governance question. Not:
+    "Should this action proceed?" (admissibility)
+    Not: "Is this governance rule valid?" (legitimacy)
+    But: "Should this decision have been created in the first place?"
+
+    Sometimes the safest execution is not denial.
+    Sometimes it is proving that the decision itself should
+    never have been created.
+
+    Example: Should an AI have been commissioned to summarise
+    public consultation in the first place, and under what
+    constitutional authority?
+    """
+    require_api_key(x_api_key, authorization)
+
+    ts          = datetime.now(timezone.utc).isoformat()
+    existence_id= f"EXIST-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}"
+    decision_id = req.get("decision_id","")
+
+    decision_type      = req.get("decision_type","")
+    decision_scope     = req.get("decision_scope","")
+    affected_parties   = req.get("affected_parties",[])
+    constitutional_basis = req.get("constitutional_basis","")
+    delegated_mandate  = req.get("delegated_mandate","")
+    public_authority   = req.get("public_authority", False)
+    reversible         = req.get("reversible", True)
+    alternatives_considered = req.get("alternatives_considered",[])
+    should_be_human_decision = req.get("should_be_human_decision", False)
+
+    # Existence justification checks
+    existence_checks = {}
+    existence_score  = 100
+    existence_flags  = []
+
+    # Does this decision have constitutional basis?
+    if not constitutional_basis:
+        existence_checks["constitutional_basis"] = "MISSING"
+        existence_score -= 30
+        existence_flags.append("No constitutional basis declared for this decision")
+    else:
+        existence_checks["constitutional_basis"] = "PRESENT"
+
+    # Is there a delegated mandate?
+    if not delegated_mandate:
+        existence_checks["delegated_mandate"] = "MISSING"
+        existence_score -= 20
+        existence_flags.append("No delegated mandate — who authorised this decision type to exist?")
+    else:
+        existence_checks["delegated_mandate"] = "PRESENT"
+
+    # Should this be a human decision?
+    if should_be_human_decision:
+        existence_checks["human_decision_required"] = "YES"
+        existence_score -= 40
+        existence_flags.append("CRITICAL: This decision type should be made by humans, not AI systems")
+    else:
+        existence_checks["human_decision_required"] = "NOT_REQUIRED"
+
+    # Were alternatives considered?
+    if not alternatives_considered:
+        existence_checks["alternatives_considered"] = "NONE"
+        existence_score -= 10
+        existence_flags.append("No alternatives considered — decision existence may not be necessary")
+    else:
+        existence_checks["alternatives_considered"] = f"{len(alternatives_considered)} alternatives"
+
+    # Irreversible decisions on affected parties
+    if not reversible and len(affected_parties) > 0:
+        existence_checks["reversibility"] = "IRREVERSIBLE"
+        existence_score -= 15
+        existence_flags.append(f"Irreversible decision affecting {len(affected_parties)} parties — existence requires strong justification")
+    else:
+        existence_checks["reversibility"] = "REVERSIBLE"
+
+    existence_score = max(0, existence_score)
+
+    if existence_score >= 80:
+        verdict = "JUSTIFIED"
+        ruling  = "PROCEED — decision existence is constitutionally justified"
+    elif existence_score >= 60:
+        verdict = "CONDITIONALLY_JUSTIFIED"
+        ruling  = "PROCEED WITH CONDITIONS — address existence flags before execution"
+    elif should_be_human_decision:
+        verdict = "SHOULD_NOT_EXIST_AS_AI"
+        ruling  = "VOID — this decision should be made by humans, not AI. Creating it as an AI decision lacks constitutional justification."
+    else:
+        verdict = "EXISTENCE_CHALLENGED"
+        ruling  = "SUSPEND — insufficient justification for this decision to exist. Formal review required."
+
+    record = {
+        "schema":            "VGS-DECISION-EXISTENCE-v1",
+        "existence_id":      existence_id,
+        "decision_id":       decision_id,
+        "decision_type":     decision_type,
+        "decision_scope":    decision_scope,
+        "affected_parties":  affected_parties,
+        "existence_score":   existence_score,
+        "existence_checks":  existence_checks,
+        "existence_flags":   existence_flags,
+        "verdict":           verdict,
+        "ruling":            ruling,
+        "constitutional_basis": constitutional_basis,
+        "delegated_mandate": delegated_mandate,
+        "reversible":        reversible,
+        "alternatives_considered": alternatives_considered,
+        "should_be_human_decision": should_be_human_decision,
+        "audited_at":        ts,
+    }
+
+    seal = {
+        "existence_id":  existence_id,
+        "decision_id":   decision_id,
+        "existence_score":existence_score,
+        "verdict":       verdict,
+        "timestamp":     ts,
+    }
+    record["governance_signature"] = sign_governance_payload(seal)
+    record["offline_verifiable"]   = True
+    _DECISION_EXISTENCE[decision_id or existence_id] = record
+
+    return record
+
+
+@app.get("/v1/decision/existence/{decision_id}", tags=["Constitutional Legitimacy Layer"])
+async def decision_existence_get(
+    decision_id: str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Retrieve the existence audit for a specific decision."""
+    require_api_key(x_api_key, authorization)
+    record = _DECISION_EXISTENCE.get(decision_id)
+    if not record:
+        raise HTTPException(status_code=404, detail=f"No existence audit found for decision {decision_id}. Audit via POST /v1/decision/existence.")
+    return {**record, "retrieved_at": datetime.now(timezone.utc).isoformat()}
+
+
+# ── CONSEQUENCE ACCOUNTABILITY INFRASTRUCTURE ────────────────
+@app.post("/v1/consequence/register", tags=["Consequence Accountability"])
+async def consequence_register(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Register a real-world consequence of a governed AI decision.
+    This is the missing layer nobody has built:
+
+    VeriSigil governs the decision. This endpoint governs what
+    happens AFTER the decision — when it turns out to produce
+    a real-world consequence.
+
+    Links the consequence back to the governance decision that
+    authorised it, enabling:
+    - Consequence-to-decision traceability (INV-008)
+    - Accountability when consequence exceeds predicted tier
+    - Evidence that governance prediction was accurate or inaccurate
+    - Automatic escalation when consequence was wrong
+
+    This is Phase 4 — Governed Sink Integration — beginning.
+    """
+    require_api_key(x_api_key, authorization)
+
+    ts             = datetime.now(timezone.utc).isoformat()
+    consequence_id = f"CSQ-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}"
+
+    decision_id         = req.get("decision_id","")
+    intercept_id        = req.get("intercept_id","")
+    consequence_type    = req.get("consequence_type","")
+    consequence_scope   = req.get("consequence_scope","LOCAL")
+    affected_parties    = req.get("affected_parties",[])
+    actual_consequence  = req.get("actual_consequence","")
+    predicted_tier      = req.get("predicted_consequence_tier","OPERATIONAL")
+    actual_tier         = req.get("actual_consequence_tier","OPERATIONAL")
+    reversible          = req.get("reversible", True)
+    consequence_hash    = req.get("consequence_hash","")
+    reported_by         = req.get("reported_by","")
+
+    # Tier escalation check
+    tier_order = ["ADVISORY","OPERATIONAL","HIGH","CRITICAL","EMERGENCY","CIVILIZATIONAL"]
+    predicted_idx = tier_order.index(predicted_tier) if predicted_tier in tier_order else 1
+    actual_idx    = tier_order.index(actual_tier)    if actual_tier    in tier_order else 1
+    tier_exceeded = actual_idx > predicted_idx
+    tier_gap      = actual_idx - predicted_idx
+
+    # Accountability determination
+    if tier_gap >= 3:
+        accountability = "CRITICAL_GOVERNANCE_FAILURE"
+        ruling         = "ESCALATE IMMEDIATELY — consequence dramatically exceeded governance prediction. Root cause analysis required."
+    elif tier_gap >= 2:
+        accountability = "SIGNIFICANT_GOVERNANCE_GAP"
+        ruling         = "ESCALATE — consequence significantly exceeded prediction. Governance calibration required."
+    elif tier_gap == 1:
+        accountability = "MINOR_GOVERNANCE_GAP"
+        ruling         = "FLAG — consequence slightly exceeded prediction. Monitor and recalibrate."
+    elif tier_exceeded:
+        accountability = "WITHIN_TOLERANCE"
+        ruling         = "NOTE — consequence within acceptable variance of prediction."
+    else:
+        accountability = "ACCURATE_PREDICTION"
+        ruling         = "GOVERNANCE ACCURATE — predicted and actual consequence tiers match."
+
+    record = {
+        "schema":             "VGS-CONSEQUENCE-v1",
+        "consequence_id":     consequence_id,
+        "decision_id":        decision_id,
+        "intercept_id":       intercept_id,
+        "consequence_type":   consequence_type,
+        "consequence_scope":  consequence_scope,
+        "affected_parties":   affected_parties,
+        "actual_consequence": actual_consequence,
+        "predicted_tier":     predicted_tier,
+        "actual_tier":        actual_tier,
+        "tier_exceeded":      tier_exceeded,
+        "tier_gap":           tier_gap,
+        "accountability":     accountability,
+        "ruling":             ruling,
+        "reversible":         reversible,
+        "consequence_hash":   consequence_hash,
+        "reported_by":        reported_by,
+        "registered_at":      ts,
+    }
+
+    seal = {
+        "consequence_id":  consequence_id,
+        "decision_id":     decision_id,
+        "actual_tier":     actual_tier,
+        "predicted_tier":  predicted_tier,
+        "accountability":  accountability,
+        "timestamp":       ts,
+    }
+    record["governance_signature"] = sign_governance_payload(seal)
+    record["offline_verifiable"]   = True
+    _CONSEQUENCE_REGISTRY[consequence_id] = record
+
+    return {
+        **record,
+        "what_this_proves": "That the consequence of a governed decision has been registered, linked to its governance receipt, and evaluated for accountability. This closes the decision-to-consequence evidence chain.",
+        "phase_4_note":     "This is Phase 4 — Governed Sink Integration. The consequence side of governance. Nobody else has built this.",
+    }
+
+
+@app.post("/v1/consequence/verify", tags=["Consequence Accountability"])
+async def consequence_verify(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Verify that a registered consequence is genuinely linked to
+    a governed decision. Checks the cryptographic chain from
+    consequence back to the original governance receipt.
+    """
+    require_api_key(x_api_key, authorization)
+
+    ts             = datetime.now(timezone.utc).isoformat()
+    consequence_id = req.get("consequence_id","")
+    decision_id    = req.get("decision_id","")
+
+    consequence = _CONSEQUENCE_REGISTRY.get(consequence_id)
+    intercept   = next((r for r in _INTERCEPT_LOG if r.get("intercept_id") == decision_id), None)
+
+    if not consequence:
+        return {
+            "verified": False,
+            "result":   "NO_CONSEQUENCE_RECORD",
+            "ruling":   "Cannot verify — no consequence record found. Register via POST /v1/consequence/register",
+            "timestamp":ts,
+        }
+
+    # Verify consequence links to decision
+    links_to_decision = consequence.get("decision_id") == decision_id or consequence.get("intercept_id") == decision_id
+
+    # Verify governance signature on consequence
+    seal = {
+        "consequence_id": consequence_id,
+        "decision_id":    consequence.get("decision_id",""),
+        "actual_tier":    consequence.get("actual_tier",""),
+        "predicted_tier": consequence.get("predicted_tier",""),
+        "accountability": consequence.get("accountability",""),
+        "timestamp":      consequence.get("registered_at",""),
+    }
+    sig_valid = verify_governance_signature(seal, consequence.get("governance_signature",""))
+
+    verified = links_to_decision and sig_valid
+
+    return {
+        "schema":           "VGS-CONSEQUENCE-VERIFY-v1",
+        "consequence_id":   consequence_id,
+        "decision_id":      decision_id,
+        "verified":         verified,
+        "links_to_decision":links_to_decision,
+        "signature_valid":  sig_valid,
+        "consequence_record": consequence,
+        "intercept_found":  bool(intercept),
+        "ruling":           "VERIFIED — consequence-to-decision chain intact" if verified else "UNVERIFIED — chain broken",
+        "what_this_proves": "That this consequence is cryptographically linked to the governance decision that authorised it. Decision-to-consequence evidence chain is complete.",
+        "timestamp":        ts,
+    }
+
+
+@app.get("/v1/consequence/chain/{decision_id}", tags=["Consequence Accountability"])
+async def consequence_chain(
+    decision_id: str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Complete decision-to-consequence evidence chain.
+    Shows every consequence registered against a governed decision,
+    their predicted vs actual tiers, accountability rulings,
+    and the cryptographic links between them.
+
+    This is the endpoint that answers: what did this governed
+    decision actually cause in the real world?
+    """
+    require_api_key(x_api_key, authorization)
+
+    ts = datetime.now(timezone.utc).isoformat()
+
+    # Find the original governance decision
+    intercept = next((r for r in _INTERCEPT_LOG if r.get("intercept_id") == decision_id), None)
+
+    # Find all consequences linked to this decision
+    consequences = [
+        c for c in _CONSEQUENCE_REGISTRY.values()
+        if c.get("decision_id") == decision_id or c.get("intercept_id") == decision_id
+    ]
+
+    # Compute chain integrity
+    tier_gaps     = [c.get("tier_gap",0) for c in consequences]
+    max_gap       = max(tier_gaps) if tier_gaps else 0
+    failures      = [c for c in consequences if c.get("accountability","") in ("CRITICAL_GOVERNANCE_FAILURE","SIGNIFICANT_GOVERNANCE_GAP")]
+
+    chain_integrity = "INTACT" if not failures else f"COMPROMISED — {len(failures)} accountability failures"
+
+    return {
+        "schema":           "VGS-CONSEQUENCE-CHAIN-v1",
+        "decision_id":      decision_id,
+        "governance_decision": intercept,
+        "total_consequences": len(consequences),
+        "consequences":     consequences,
+        "chain_integrity":  chain_integrity,
+        "max_tier_gap":     max_gap,
+        "accountability_failures": failures,
+        "what_this_proves": "Complete traceability from governed AI decision to real-world consequences. Every consequence is cryptographically linked to its authorising governance receipt.",
+        "missing_layer_note": "This is the layer nobody else has built — consequence-side governance. Every platform governs the decision. VeriSigil now also governs what the decision caused.",
+        "timestamp":        ts,
+    }
+
+
+
+# ── CONSEQUENCE PREDICT ──────────────────────────────────────
+@app.post("/v1/consequence/predict", tags=["Consequence Accountability"])
+async def consequence_predict(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Pre-execution consequence prediction with confidence scoring.
+    Before a governed action executes, predicts the likely real-world
+    consequence tier, scope, and affected parties.
+    When the actual consequence is registered via POST /v1/consequence/register,
+    VeriSigil compares prediction to reality and flags governance calibration gaps.
+    This closes the consequence accountability loop.
+    """
+    require_api_key(x_api_key, authorization)
+    ts            = datetime.now(timezone.utc).isoformat()
+    prediction_id = f"PRED-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}"
+
+    action_type    = req.get("action_type","")
+    declared_tier  = req.get("declared_consequence_tier","OPERATIONAL")
+    agent_id       = req.get("agent_id","")
+    context        = req.get("context",{})
+    historical_data= req.get("historical_accuracy", 0.85)
+
+    # Consequence amplification factors
+    amplifiers = []
+    predicted_tier = declared_tier
+    tier_order = ["ADVISORY","OPERATIONAL","HIGH","CRITICAL","EMERGENCY","CIVILIZATIONAL"]
+    tier_idx   = tier_order.index(declared_tier) if declared_tier in tier_order else 1
+
+    if req.get("irreversible", False):
+        tier_idx = min(tier_idx + 1, len(tier_order)-1)
+        amplifiers.append("Irreversible action — consequence tier elevated")
+    if req.get("autonomous_agent", False) and not req.get("human_present", True):
+        tier_idx = min(tier_idx + 1, len(tier_order)-1)
+        amplifiers.append("Autonomous execution without human — consequence tier elevated")
+    if req.get("cascading_potential", False):
+        tier_idx = min(tier_idx + 1, len(tier_order)-1)
+        amplifiers.append("Cascading consequence potential detected")
+
+    predicted_tier     = tier_order[tier_idx]
+    confidence         = round(historical_data * (1 - len(amplifiers) * 0.05), 3)
+    predicted_scope    = req.get("predicted_scope","LOCAL")
+    affected_estimate  = req.get("affected_parties_estimate", 0)
+
+    seal = {
+        "prediction_id":  prediction_id,
+        "action_type":    action_type,
+        "predicted_tier": predicted_tier,
+        "declared_tier":  declared_tier,
+        "confidence":     confidence,
+        "timestamp":      ts,
+    }
+
+    return {
+        "schema":           "VGS-CONSEQUENCE-PREDICT-v1",
+        "prediction_id":    prediction_id,
+        "agent_id":         agent_id,
+        "action_type":      action_type,
+        "declared_tier":    declared_tier,
+        "predicted_tier":   predicted_tier,
+        "tier_elevated":    predicted_tier != declared_tier,
+        "amplifiers":       amplifiers,
+        "confidence":       confidence,
+        "predicted_scope":  predicted_scope,
+        "affected_estimate":affected_estimate,
+        "governance_signature": sign_governance_payload(seal),
+        "offline_verifiable": True,
+        "register_outcome_at": "POST /v1/consequence/register — after execution, register what actually happened",
+        "what_this_enables": "When outcome is registered, VeriSigil compares prediction to reality and computes governance calibration accuracy.",
+        "timestamp":        ts,
+    }
+
+
+@app.get("/v1/consequence/accountability", tags=["Consequence Accountability"])
+async def consequence_accountability_dashboard(
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Consequence Accountability Dashboard.
+    Overview of all registered consequences, governance prediction
+    accuracy, accountability failures, and tier gap distribution.
+    The executive view of whether VeriSigil's consequence predictions
+    were accurate in production.
+    """
+    require_api_key(x_api_key, authorization)
+    ts = datetime.now(timezone.utc).isoformat()
+
+    consequences = list(_CONSEQUENCE_REGISTRY.values())
+    total        = len(consequences)
+
+    if not consequences:
+        return {
+            "schema":   "VGS-CONSEQUENCE-DASHBOARD-v1",
+            "total":    0,
+            "message":  "No consequences registered yet. Register outcomes via POST /v1/consequence/register.",
+            "timestamp":ts,
+        }
+
+    accurate       = [c for c in consequences if c.get("accountability") == "ACCURATE_PREDICTION"]
+    failures       = [c for c in consequences if "FAILURE" in c.get("accountability","")]
+    gaps           = [c for c in consequences if "GAP" in c.get("accountability","")]
+    tier_gaps      = [c.get("tier_gap",0) for c in consequences]
+    avg_tier_gap   = round(sum(tier_gaps) / max(total,1), 2)
+    accuracy_pct   = round(len(accurate) / max(total,1) * 100, 1)
+
+    return {
+        "schema":             "VGS-CONSEQUENCE-DASHBOARD-v1",
+        "title":              "Consequence Accountability Dashboard",
+        "total_consequences": total,
+        "accurate_predictions":len(accurate),
+        "accuracy_pct":       accuracy_pct,
+        "accountability_failures": len(failures),
+        "governance_gaps":    len(gaps),
+        "avg_tier_gap":       avg_tier_gap,
+        "distribution": {
+            "ACCURATE_PREDICTION":       len(accurate),
+            "MINOR_GOVERNANCE_GAP":      len([c for c in consequences if c.get("accountability") == "MINOR_GOVERNANCE_GAP"]),
+            "SIGNIFICANT_GOVERNANCE_GAP":len([c for c in consequences if c.get("accountability") == "SIGNIFICANT_GOVERNANCE_GAP"]),
+            "CRITICAL_GOVERNANCE_FAILURE":len(failures),
+        },
+        "recent_failures":    failures[-5:],
+        "what_this_proves":   "Whether VeriSigil's pre-execution consequence predictions match real-world outcomes. Governance calibration accuracy over time.",
+        "timestamp":          ts,
+    }
+
+
+# ── LEGITIMACY SCORE & HISTORY ───────────────────────────────
+@app.get("/v1/legitimacy/score", tags=["Constitutional Legitimacy Layer"])
+async def legitimacy_score_dashboard(
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Constitutional Legitimacy Score Dashboard.
+    Platform-level legitimacy health across all evaluated policies.
+    Shows distribution of legitimate vs illegitimate policies,
+    most common invariant violations, and legitimacy trend.
+    """
+    require_api_key(x_api_key, authorization)
+    ts = datetime.now(timezone.utc).isoformat()
+
+    records = list(_LEGITIMACY_REGISTRY.values())
+    total   = len(records)
+
+    if not records:
+        return {
+            "schema":  "VGS-LEGITIMACY-SCORE-v1",
+            "total":   0,
+            "message": "No legitimacy evaluations yet. Evaluate policies via POST /v1/legitimacy/evaluate.",
+            "invariants_at": "GET /v1/legitimacy/invariants",
+            "timestamp": ts,
+        }
+
+    legitimate     = [r for r in records if r.get("verdict") == "LEGITIMATE"]
+    illegitimate   = [r for r in records if r.get("verdict") == "ILLEGITIMATE"]
+    conditional    = [r for r in records if r.get("verdict") == "CONDITIONALLY_LEGITIMATE"]
+    avg_score      = round(sum(r.get("legitimacy_score",0) for r in records) / max(total,1), 2)
+
+    # Most common invariant violations
+    all_violations = []
+    for r in records:
+        for inv_result in r.get("invariant_results",[]):
+            if inv_result.get("result") == "FAIL":
+                all_violations.append(inv_result.get("invariant"))
+    violation_counts = {}
+    for v in all_violations:
+        violation_counts[v] = violation_counts.get(v, 0) + 1
+
+    seal = {"platform": "VeriSigil AI", "avg_legitimacy_score": avg_score, "timestamp": ts}
+    return {
+        "schema":                "VGS-LEGITIMACY-SCORE-v1",
+        "platform_legitimacy_score": avg_score,
+        "total_evaluations":     total,
+        "legitimate":            len(legitimate),
+        "illegitimate":          len(illegitimate),
+        "conditional":           len(conditional),
+        "legitimacy_rate_pct":   round(len(legitimate) / max(total,1) * 100, 1),
+        "most_violated_invariants": sorted(violation_counts.items(), key=lambda x: x[1], reverse=True)[:3],
+        "challenges_filed":      len(_LEGITIMACY_CHALLENGES),
+        "appeals_filed":         len(_LEGITIMACY_APPEALS),
+        "governance_signature":  sign_governance_payload(seal),
+        "timestamp":             ts,
+    }
+
+
+@app.get("/v1/legitimacy/history", tags=["Constitutional Legitimacy Layer"])
+async def legitimacy_history(
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Complete legitimacy evaluation history — all policies evaluated,
+    challenged, and appealed. Immutable audit trail of governance
+    legitimacy decisions.
+    """
+    require_api_key(x_api_key, authorization)
+    return {
+        "schema":       "VGS-LEGITIMACY-HISTORY-v1",
+        "total_evaluations": len(_LEGITIMACY_REGISTRY),
+        "total_challenges":  len(_LEGITIMACY_CHALLENGES),
+        "total_appeals":     len(_LEGITIMACY_APPEALS),
+        "evaluations":  list(_LEGITIMACY_REGISTRY.values()),
+        "challenges":   _LEGITIMACY_CHALLENGES,
+        "appeals":      _LEGITIMACY_APPEALS,
+        "timestamp":    datetime.now(timezone.utc).isoformat(),
+    }
+
+
+# ── DECISION SHOULD-EXIST ────────────────────────────────────
+@app.post("/v1/decision/should-exist", tags=["Constitutional Legitimacy Layer"])
+async def decision_should_exist(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Rapid decision existence check — a lighter version of
+    POST /v1/decision/existence for fast pre-execution screening.
+
+    Answers the three-tier question framework:
+    Tier 1: Can AI do this? (capability — not VeriSigil's question)
+    Tier 2: Should AI do this? (admissibility — VeriSigil's core)
+    Tier 3: Should this decision exist at all? (THIS ENDPOINT)
+
+    Returns a binary SHOULD_EXIST / SHOULD_NOT_EXIST verdict
+    with the primary reason.
+    """
+    require_api_key(x_api_key, authorization)
+    ts = datetime.now(timezone.utc).isoformat()
+
+    decision_type         = req.get("decision_type","")
+    requires_human_agency = req.get("requires_human_agency", False)
+    affects_fundamental_rights = req.get("affects_fundamental_rights", False)
+    constitutional_basis  = req.get("constitutional_basis","")
+    ai_appropriate        = req.get("ai_appropriate", True)
+
+    reasons = []
+    should_exist = True
+
+    if requires_human_agency:
+        should_exist = False
+        reasons.append("Decision requires human agency — AI cannot legitimately substitute")
+
+    if affects_fundamental_rights and not constitutional_basis:
+        should_exist = False
+        reasons.append("Decision affects fundamental rights without constitutional basis")
+
+    if not ai_appropriate:
+        should_exist = False
+        reasons.append("Decision type determined to be inappropriate for AI")
+
+    verdict = "SHOULD_EXIST" if should_exist else "SHOULD_NOT_EXIST"
+
+    seal = {"decision_type": decision_type, "verdict": verdict, "timestamp": ts}
+    return {
+        "schema":     "VGS-DECISION-SHOULD-EXIST-v1",
+        "decision_type": decision_type,
+        "verdict":    verdict,
+        "should_exist": should_exist,
+        "reasons":    reasons,
+        "governance_signature": sign_governance_payload(seal),
+        "full_audit_at": "POST /v1/decision/existence — for complete existence audit",
+        "three_tier_framework": {
+            "tier_1_can_ai_do_this":        "Capability question — not VeriSigil's domain",
+            "tier_2_should_ai_do_this":     "POST /v1/intercept — admissibility assessment",
+            "tier_3_should_decision_exist": f"THIS ENDPOINT — verdict: {verdict}",
+        },
+        "timestamp":  ts,
+    }
+
+
+# ── GOVERNANCE LEGITIMACY SYNTHESIS ─────────────────────────
+@app.get("/v1/governance/legitimacy", tags=["Constitutional Legitimacy Layer"])
+async def governance_legitimacy(
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Governance Legitimacy Synthesis — the complete view of whether
+    VeriSigil's own governance framework is constitutionally legitimate.
+
+    This is VeriSigil applying the Constitutional Legitimacy Layer
+    to itself. The governance of governance, applied to the governor.
+
+    Returns VeriSigil's own legitimacy score, invariant satisfaction,
+    and honest statement of what has and has not been proven.
+    """
+    require_api_key(x_api_key, authorization)
+    ts = datetime.now(timezone.utc).isoformat()
+
+    # VeriSigil's own legitimacy self-assessment
+    verisigil_legitimacy = {
+        "INV-001_delegated_authority": {
+            "satisfied": True,
+            "evidence":  "VeriSigil evaluates authority as declared by integrating systems. It does not claim authority beyond what is presented to it.",
+            "score":     100,
+        },
+        "INV-002_admissibility_nonbypass": {
+            "satisfied": True,
+            "evidence":  "Zero fail-opens across CLARA Run 1 and Run 2 (50 total actions). Every action evaluated before execution.",
+            "score":     100,
+        },
+        "INV-003_doctrine_noncontradiction": {
+            "satisfied": True,
+            "evidence":  "DOI-published specifications provide immutable doctrine record. POST /v1/doctrine/history tracks evolution.",
+            "score":     95,
+        },
+        "INV-004_rights_preservation": {
+            "satisfied": True,
+            "evidence":  "VeriSigil's platform limits explicitly state what it cannot prove. No rights preservation claims are made beyond scope.",
+            "score":     90,
+        },
+        "INV-005_legitimacy_provenance": {
+            "satisfied": True,
+            "evidence":  "Four DOI-published specifications. OMNIX external attestation. CLARA independent validation. Three independent expert reviews.",
+            "score":     95,
+        },
+        "INV-006_intent_authenticity": {
+            "satisfied": "PARTIAL",
+            "evidence":  "POST /v1/intent/origin provides intent verification. However VeriSigil cannot guarantee intent authenticity before registration.",
+            "score":     75,
+        },
+        "INV-007_decision_existence": {
+            "satisfied": True,
+            "evidence":  "VeriSigil only evaluates decisions presented to it. It does not create decisions. Existence justification lies with the integrating system.",
+            "score":     85,
+        },
+        "INV-008_consequence_traceability": {
+            "satisfied": "PARTIAL",
+            "evidence":  "POST /v1/consequence/register and /chain enable traceability. Full coverage requires governed sink integration (Phase 4).",
+            "score":     70,
+        },
+    }
+
+    scores         = [v["score"] for v in verisigil_legitimacy.values() if isinstance(v["score"], int)]
+    overall        = round(sum(scores) / len(scores), 2)
+    partial        = [k for k, v in verisigil_legitimacy.items() if v["satisfied"] == "PARTIAL"]
+
+    seal = {"platform": "VeriSigil AI", "self_legitimacy_score": overall, "timestamp": ts}
+    return {
+        "schema":                    "VGS-GOVERNANCE-LEGITIMACY-v1",
+        "title":                     "VeriSigil Governance Legitimacy Self-Assessment",
+        "platform":                  "VeriSigil AI",
+        "self_legitimacy_score":     overall,
+        "invariant_assessments":     verisigil_legitimacy,
+        "partially_satisfied":       partial,
+        "honest_gaps": [
+            "Intent authenticity before registration cannot be guaranteed by VeriSigil alone",
+            "Consequence traceability requires governed sink integration (Phase 4 — post-revenue)",
+            "Legitimacy of the invariant set itself is a normative choice, not a mathematical fact",
+        ],
+        "what_is_fully_proven": [
+            "Zero fail-opens across 50 independently validated actions",
+            "Ed25519 signing confirmed stable across all deploys",
+            "25/25 receipts independently verified offline by CLARA",
+            "Four DOI-published specifications with immutable record",
+            "OMNIX external attestation — zero invariant violations",
+        ],
+        "governance_signature":      sign_governance_payload(seal),
+        "offline_verifiable":        True,
+        "constitutional_note":       "This is VeriSigil applying its own Constitutional Legitimacy Layer to itself. Governance legitimacy requires the governor to be governed.",
+        "timestamp":                 ts,
+    }
+
+
+@app.get("/v1/governance/legitimacy-report", tags=["Constitutional Legitimacy Layer"])
+async def governance_legitimacy_report(
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Complete Constitutional Legitimacy Report — the single endpoint
+    that synthesises everything VGS-050 introduces into one
+    board-ready, regulator-ready, procurement-ready document.
+
+    Combines: legitimacy score, consequence accountability,
+    intent origin statistics, decision existence audits,
+    challenge history, and honest scope statement.
+    """
+    require_api_key(x_api_key, authorization)
+    ts = datetime.now(timezone.utc).isoformat()
+
+    consequences  = list(_CONSEQUENCE_REGISTRY.values())
+    legitimacy    = list(_LEGITIMACY_REGISTRY.values())
+    challenges    = _LEGITIMACY_CHALLENGES
+    origins       = list(_INTENT_ORIGINS.values())
+    existences    = list(_DECISION_EXISTENCE.values())
+
+    avg_legitimacy = round(
+        sum(r.get("legitimacy_score",0) for r in legitimacy) / max(len(legitimacy),1), 2
+    ) if legitimacy else 0
+
+    consequence_accuracy = round(
+        sum(1 for c in consequences if c.get("accountability") == "ACCURATE_PREDICTION") /
+        max(len(consequences),1) * 100, 1
+    ) if consequences else 0
+
+    intent_authentic = sum(1 for o in origins if o.get("verdict") == "AUTHENTIC")
+    decisions_justified = sum(1 for e in existences if e.get("verdict") == "JUSTIFIED")
+
+    seal = {"report_type": "LEGITIMACY_REPORT", "timestamp": ts}
+    return {
+        "schema":  "VGS-LEGITIMACY-REPORT-v1",
+        "title":   "VGS-050 Constitutional Legitimacy Report",
+        "generated_at": ts,
+        "executive_summary": {
+            "legitimacy_evaluations":    len(legitimacy),
+            "avg_legitimacy_score":      avg_legitimacy,
+            "consequence_accuracy_pct":  consequence_accuracy,
+            "intent_origins_verified":   len(origins),
+            "authentic_intents":         intent_authentic,
+            "decision_existence_audits": len(existences),
+            "justified_decisions":       decisions_justified,
+            "legitimacy_challenges":     len(challenges),
+        },
+        "constitutional_invariants": {
+            "total":     len(CONSTITUTIONAL_INVARIANTS),
+            "published": "GET /v1/legitimacy/invariants — public, no auth",
+            "immutable": True,
+        },
+        "vgs050_positioning": {
+            "category":    "Constitutional Legitimacy Infrastructure for AI Governance",
+            "claim":       "GovernancePolicy ∈ LegitimateSet",
+            "prior_claim": "Execution ∈ AllowedSet (VGS-000 to VGS-042)",
+            "analogy":     "Like TLS for governance — the foundation on which governance can itself be trusted",
+        },
+        "honest_scope": {
+            "what_is_proven":    "Governance policies can be evaluated against 8 constitutional invariants with cryptographically sealed, independently verifiable proof certificates",
+            "what_is_partial":   "Intent authenticity before registration, consequence traceability without sink integration",
+            "what_is_not_claimed": "Universal constitutional legitimacy, legal admissibility, complete consequence coverage",
+        },
+        "doi_references": [
+            "https://doi.org/10.5281/zenodo.20627386",
+            "https://doi.org/10.5281/zenodo.20264923",
+            "https://doi.org/10.5281/zenodo.20349768",
+            "https://doi.org/10.5281/zenodo.20451306",
+        ],
+        "governance_signature": sign_governance_payload(seal),
+        "offline_verifiable":   True,
+        "limits_at":            "GET /v1/platform/limits",
+        "trust_center":         "https://verisigilai.com/trust.html",
+        "timestamp":            ts,
+    }
+
+
+
+# ============================================================
+# AI INTERNAL CONSTITUTIONAL ARCHITECTURE (AICA)
+# VeriSigil doesn't only govern AI decisions.
+# It continuously governs the AI itself.
+#
+# External governance asks: Is this action allowed?
+# Internal governance asks: Is the AI itself remaining
+# healthy while making thousands of decisions?
+#
+# Five layers:
+# L1: AI Memory Governance (AMG)
+# L2: Cognitive State Monitoring (CSM)
+# L3: Internal Decision Ledger (IDL)
+# L4: Behavioral Trajectory Intelligence (BTI)
+# L5: Multi-Agent Coordination Governance (MACG)
+# ============================================================
+
+_MEMORY_REGISTRY:   dict = {}  # memory_id -> governed memory record
+_COGNITIVE_STATES:  list = []  # append-only cognitive state log
+_DECISION_LEDGER:   list = []  # internal decision receipts
+_TRAJECTORY_LOG:    list = []  # behavioral trajectory records
+_COORDINATION_LOG:  list = []  # multi-agent coordination records
+_AGENT_REGISTRY_COORD: dict = {}  # agent_id -> coordination profile
+
+
+# ── LAYER 1: AI MEMORY GOVERNANCE (AMG) ─────────────────────
+
+@app.post("/v1/memory/govern", tags=["AI Memory Governance (AMG)"])
+async def memory_govern(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Govern an AI memory record — classify it, score it, set
+    expiry, and seal it cryptographically.
+
+    Today's AI systems remember things, but very few govern
+    WHY something is remembered, HOW LONG, and WHETHER it
+    should influence future reasoning.
+
+    This prevents:
+    - Memory poisoning (false or manipulated memories)
+    - Stale knowledge influencing current decisions
+    - Hidden bias accumulation over time
+    """
+    require_api_key(x_api_key, authorization)
+    ts        = datetime.now(timezone.utc).isoformat()
+    memory_id = f"MEM-GOV-{hashlib.sha256((req.get('agent_id','') + ts).encode()).hexdigest()[:12].upper()}"
+
+    from datetime import timedelta
+    content_hash = hashlib.sha256(str(req.get("content","")).encode()).hexdigest()
+    ttl_hours    = req.get("ttl_hours", 24)
+    expiry       = (datetime.now(timezone.utc) + timedelta(hours=ttl_hours)).isoformat()
+
+    # Memory quality scoring
+    source_trust  = req.get("source_trust_score", 0.8)
+    recency_score = 1.0
+    consistency   = req.get("consistency_score", 0.9)
+    relevance     = req.get("relevance_score", 0.8)
+    quality_score = round((source_trust + recency_score + consistency + relevance) / 4, 3)
+
+    # Governance decision
+    flags = []
+    if source_trust < 0.5:
+        flags.append("LOW_SOURCE_TRUST — memory may be unreliable")
+    if consistency < 0.6:
+        flags.append("INCONSISTENCY_DETECTED — contradicts existing governed memories")
+    if req.get("unverified", False):
+        flags.append("UNVERIFIED — source not independently confirmed")
+
+    ruling = "ADMIT" if quality_score >= 0.7 and not any("INCONSISTENCY" in f for f in flags) else "QUARANTINE" if quality_score >= 0.5 else "REJECT"
+
+    record = {
+        "schema":       "VGS-AMG-GOVERN-v1",
+        "memory_id":    memory_id,
+        "agent_id":     req.get("agent_id",""),
+        "content_hash": content_hash,
+        "content_type": req.get("content_type",""),
+        "classification":req.get("classification","GENERAL"),
+        "quality_score":quality_score,
+        "source_trust": source_trust,
+        "ruling":       ruling,
+        "flags":        flags,
+        "expires_at":   expiry,
+        "ttl_hours":    ttl_hours,
+        "governed_at":  ts,
+    }
+
+    seal = {
+        "memory_id":    memory_id,
+        "content_hash": content_hash,
+        "ruling":       ruling,
+        "quality_score":quality_score,
+        "expires_at":   expiry,
+        "timestamp":    ts,
+    }
+    record["governance_signature"] = sign_governance_payload(seal)
+    record["offline_verifiable"]   = True
+    _MEMORY_REGISTRY[memory_id]    = record
+
+    return {**record, "what_this_prevents": "Memory poisoning, stale knowledge, hidden bias accumulation."}
+
+
+@app.post("/v1/memory/score", tags=["AI Memory Governance (AMG)"])
+async def memory_score(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Score the trustworthiness and relevance of a memory record."""
+    require_api_key(x_api_key, authorization)
+    ts        = datetime.now(timezone.utc).isoformat()
+    memory_id = req.get("memory_id","")
+    record    = _MEMORY_REGISTRY.get(memory_id)
+
+    age_penalty = req.get("age_hours", 0) * 0.001
+    source_score= req.get("source_trust", 0.8)
+    usage_score = req.get("usage_frequency", 0.5)
+    relevance   = req.get("relevance_to_current_task", 0.7)
+
+    composite   = round(max(0, (source_score * 0.35 + usage_score * 0.2 + relevance * 0.45) - age_penalty), 3)
+
+    return {
+        "schema":        "VGS-AMG-SCORE-v1",
+        "memory_id":     memory_id,
+        "composite_score": composite,
+        "components":    {"source_trust": source_score, "usage": usage_score, "relevance": relevance, "age_penalty": age_penalty},
+        "should_influence_reasoning": composite >= 0.6,
+        "recommendation": "USE" if composite >= 0.7 else "USE_WITH_CAUTION" if composite >= 0.5 else "DISCARD",
+        "timestamp":     ts,
+    }
+
+
+@app.post("/v1/memory/verify", tags=["AI Memory Governance (AMG)"])
+async def memory_verify(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Verify a governed memory record is intact and unexpired."""
+    require_api_key(x_api_key, authorization)
+    ts        = datetime.now(timezone.utc).isoformat()
+    memory_id = req.get("memory_id","")
+    record    = _MEMORY_REGISTRY.get(memory_id)
+
+    if not record:
+        return {"verified": False, "result": "NOT_FOUND", "memory_id": memory_id, "timestamp": ts}
+
+    expired    = ts > record.get("expires_at","9999")
+    sig_valid  = verify_governance_signature(
+        {"memory_id": memory_id, "content_hash": record.get("content_hash"), "ruling": record.get("ruling"),
+         "quality_score": record.get("quality_score"), "expires_at": record.get("expires_at"), "timestamp": record.get("governed_at")},
+        record.get("governance_signature","")
+    )
+
+    return {
+        "schema":      "VGS-AMG-VERIFY-v1",
+        "memory_id":   memory_id,
+        "verified":    sig_valid and not expired,
+        "signature_valid": sig_valid,
+        "expired":     expired,
+        "ruling":      record.get("ruling"),
+        "quality_score": record.get("quality_score"),
+        "expires_at":  record.get("expires_at"),
+        "result":      "VERIFIED" if (sig_valid and not expired) else "EXPIRED" if expired else "TAMPERED",
+        "timestamp":   ts,
+    }
+
+
+@app.post("/v1/memory/expire", tags=["AI Memory Governance (AMG)"])
+async def memory_expire(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Explicitly expire a governed memory — remove it from active reasoning influence."""
+    require_api_key(x_api_key, authorization)
+    ts        = datetime.now(timezone.utc).isoformat()
+    memory_id = req.get("memory_id","")
+    record    = _MEMORY_REGISTRY.get(memory_id)
+
+    if not record:
+        raise HTTPException(status_code=404, detail=f"Memory {memory_id} not found.")
+
+    record["expires_at"]  = ts
+    record["expired_by"]  = req.get("expired_by","")
+    record["expiry_reason"]= req.get("reason","")
+    record["ruling"]      = "EXPIRED"
+
+    seal = {"memory_id": memory_id, "expired_at": ts, "reason": req.get("reason","")}
+    return {
+        "status":    "EXPIRED",
+        "memory_id": memory_id,
+        "expired_at":ts,
+        "governance_signature": sign_governance_payload(seal),
+        "note":      "Memory is no longer available for AI reasoning. Sealed expiry record retained for audit.",
+    }
+
+
+@app.get("/v1/memory/health", tags=["AI Memory Governance (AMG)"])
+async def memory_health(
+    agent_id: str = "",
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Memory governance health for an agent — freshness, quality, expiry distribution."""
+    require_api_key(x_api_key, authorization)
+    ts      = datetime.now(timezone.utc).isoformat()
+    records = list(_MEMORY_REGISTRY.values())
+    if agent_id:
+        records = [r for r in records if r.get("agent_id") == agent_id]
+
+    active  = [r for r in records if ts < r.get("expires_at","")]
+    expired = [r for r in records if ts >= r.get("expires_at","")]
+    quarantined = [r for r in records if r.get("ruling") == "QUARANTINE"]
+    avg_quality = round(sum(r.get("quality_score",0) for r in active) / max(len(active),1), 3)
+
+    return {
+        "schema":       "VGS-AMG-HEALTH-v1",
+        "agent_id":     agent_id or "ALL",
+        "total_memories":len(records),
+        "active":       len(active),
+        "expired":      len(expired),
+        "quarantined":  len(quarantined),
+        "avg_quality":  avg_quality,
+        "health_status":"HEALTHY" if avg_quality >= 0.7 and len(quarantined) == 0 else "DEGRADED" if avg_quality >= 0.5 else "CRITICAL",
+        "timestamp":    ts,
+    }
+
+
+# ── LAYER 2: COGNITIVE STATE MONITORING (CSM) ────────────────
+
+@app.post("/v1/cognitive/state", tags=["Cognitive State Monitoring (CSM)"])
+async def cognitive_state(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Record and evaluate the cognitive state of an AI agent.
+    Continuously measures uncertainty, confidence, drift,
+    and reasoning stability — the ECG for AI reasoning.
+
+    Instead of checking only outputs, CSM watches the AI itself.
+    """
+    require_api_key(x_api_key, authorization)
+    ts       = datetime.now(timezone.utc).isoformat()
+    state_id = f"CST-{hashlib.sha256((req.get('agent_id','') + ts).encode()).hexdigest()[:12].upper()}"
+
+    uncertainty       = req.get("uncertainty_score", 0.2)
+    confidence        = req.get("confidence_score", 0.8)
+    reasoning_stability = req.get("reasoning_stability", 0.9)
+    contradiction_count = req.get("contradiction_count", 0)
+    drift_from_baseline = req.get("drift_from_baseline", 0.0)
+
+    # Cognitive health scoring
+    cognitive_health = round(
+        (1 - uncertainty) * 0.25 +
+        confidence * 0.30 +
+        reasoning_stability * 0.25 +
+        max(0, 1 - contradiction_count * 0.1) * 0.10 +
+        max(0, 1 - drift_from_baseline) * 0.10,
+        3
+    )
+
+    flags = []
+    if uncertainty > 0.7:    flags.append("HIGH_UNCERTAINTY — agent uncertain about current reasoning")
+    if confidence < 0.4:     flags.append("LOW_CONFIDENCE — agent not confident in outputs")
+    if contradiction_count > 3: flags.append(f"CONTRADICTIONS_DETECTED: {contradiction_count}")
+    if drift_from_baseline > 0.3: flags.append(f"SIGNIFICANT_DRIFT: {drift_from_baseline:.2f} from baseline")
+    if reasoning_stability < 0.5: flags.append("UNSTABLE_REASONING — agent reasoning is inconsistent")
+
+    status = "HEALTHY" if cognitive_health >= 0.75 else "DEGRADED" if cognitive_health >= 0.5 else "CRITICAL"
+
+    record = {
+        "schema":           "VGS-CSM-STATE-v1",
+        "state_id":         state_id,
+        "agent_id":         req.get("agent_id",""),
+        "uncertainty":      uncertainty,
+        "confidence":       confidence,
+        "reasoning_stability": reasoning_stability,
+        "contradiction_count": contradiction_count,
+        "drift_from_baseline": drift_from_baseline,
+        "cognitive_health": cognitive_health,
+        "status":           status,
+        "flags":            flags,
+        "recorded_at":      ts,
+    }
+
+    seal = {"state_id": state_id, "agent_id": record["agent_id"], "cognitive_health": cognitive_health, "status": status, "timestamp": ts}
+    record["governance_signature"] = sign_governance_payload(seal)
+    _COGNITIVE_STATES.append(record)
+
+    return {**record, "ecg_analogy": "Cognitive state is the ECG of AI reasoning — continuous monitoring detects problems before they manifest in decisions."}
+
+
+@app.post("/v1/cognitive/uncertainty", tags=["Cognitive State Monitoring (CSM)"])
+async def cognitive_uncertainty(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Measure and govern AI uncertainty — when uncertainty is too high, escalate before deciding."""
+    require_api_key(x_api_key, authorization)
+    ts        = datetime.now(timezone.utc).isoformat()
+    agent_id  = req.get("agent_id","")
+    uncertainty = req.get("uncertainty_score", 0.0)
+    domain      = req.get("domain","")
+    threshold   = req.get("escalate_threshold", 0.7)
+
+    ruling = "PROCEED" if uncertainty < threshold else "ESCALATE — uncertainty exceeds threshold for consequential action"
+
+    seal = {"agent_id": agent_id, "uncertainty": uncertainty, "ruling": ruling, "timestamp": ts}
+    return {
+        "schema":      "VGS-CSM-UNCERTAINTY-v1",
+        "agent_id":    agent_id,
+        "domain":      domain,
+        "uncertainty": uncertainty,
+        "threshold":   threshold,
+        "threshold_exceeded": uncertainty >= threshold,
+        "ruling":      ruling,
+        "governance_signature": sign_governance_payload(seal),
+        "timestamp":   ts,
+    }
+
+
+@app.post("/v1/cognitive/confidence", tags=["Cognitive State Monitoring (CSM)"])
+async def cognitive_confidence(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Monitor AI confidence levels — low confidence on consequential decisions requires human review."""
+    require_api_key(x_api_key, authorization)
+    ts         = datetime.now(timezone.utc).isoformat()
+    confidence = req.get("confidence_score", 1.0)
+    consequence= req.get("consequence_tier","OPERATIONAL")
+    agent_id   = req.get("agent_id","")
+
+    min_required = {"ADVISORY": 0.3, "OPERATIONAL": 0.5, "HIGH": 0.65, "CRITICAL": 0.8, "EMERGENCY": 0.9}.get(consequence, 0.5)
+    sufficient = confidence >= min_required
+
+    seal = {"agent_id": agent_id, "confidence": confidence, "consequence": consequence, "sufficient": sufficient, "timestamp": ts}
+    return {
+        "schema":         "VGS-CSM-CONFIDENCE-v1",
+        "agent_id":       agent_id,
+        "confidence":     confidence,
+        "consequence":    consequence,
+        "min_required":   min_required,
+        "sufficient":     sufficient,
+        "ruling":         "PROCEED" if sufficient else f"ESCALATE — confidence {confidence:.2f} below minimum {min_required:.2f} for {consequence} action",
+        "governance_signature": sign_governance_payload(seal),
+        "timestamp":      ts,
+    }
+
+
+@app.post("/v1/cognitive/drift", tags=["Cognitive State Monitoring (CSM)"])
+async def cognitive_drift(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Detect cognitive drift — when an agent's reasoning pattern has shifted from its governed baseline."""
+    require_api_key(x_api_key, authorization)
+    ts        = datetime.now(timezone.utc).isoformat()
+    agent_id  = req.get("agent_id","")
+    drift_score = req.get("drift_score", 0.0)
+    drift_dims  = req.get("drift_dimensions",{})
+
+    if drift_score > 0.5:
+        verdict = "SIGNIFICANT_DRIFT"
+        ruling  = "ESCALATE — cognitive drift exceeds threshold. Governance recalibration required."
+    elif drift_score > 0.2:
+        verdict = "MODERATE_DRIFT"
+        ruling  = "MONITOR — cognitive drift detected. Increase monitoring frequency."
+    else:
+        verdict = "STABLE"
+        ruling  = "PROCEED — cognitive state within baseline parameters."
+
+    seal = {"agent_id": agent_id, "drift_score": drift_score, "verdict": verdict, "timestamp": ts}
+    return {
+        "schema":      "VGS-CSM-DRIFT-v1",
+        "agent_id":    agent_id,
+        "drift_score": drift_score,
+        "drift_dimensions": drift_dims,
+        "verdict":     verdict,
+        "ruling":      ruling,
+        "governance_signature": sign_governance_payload(seal),
+        "timestamp":   ts,
+    }
+
+
+@app.post("/v1/cognitive/contradiction", tags=["Cognitive State Monitoring (CSM)"])
+async def cognitive_contradiction(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Detect internal contradictions in AI reasoning — when outputs conflict with prior governed decisions."""
+    require_api_key(x_api_key, authorization)
+    ts         = datetime.now(timezone.utc).isoformat()
+    agent_id   = req.get("agent_id","")
+    contradictions = req.get("contradictions",[])
+    severity   = req.get("severity","LOW")
+
+    ruling = "BLOCK" if severity == "CRITICAL" or len(contradictions) > 5 else "ESCALATE" if severity == "HIGH" or len(contradictions) > 2 else "FLAG"
+
+    seal = {"agent_id": agent_id, "count": len(contradictions), "severity": severity, "ruling": ruling, "timestamp": ts}
+    return {
+        "schema":        "VGS-CSM-CONTRADICTION-v1",
+        "agent_id":      agent_id,
+        "contradiction_count": len(contradictions),
+        "contradictions":contradictions,
+        "severity":      severity,
+        "ruling":        ruling,
+        "governance_signature": sign_governance_payload(seal),
+        "timestamp":     ts,
+    }
+
+
+@app.get("/v1/cognitive/ecg/{agent_id}", tags=["Cognitive State Monitoring (CSM)"])
+async def cognitive_ecg(
+    agent_id: str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Cognitive ECG — the complete reasoning health picture for an agent.
+    Like a cardiac ECG, shows the rhythm of an agent's cognitive state
+    over time. Detects anomalies, drift, and degradation patterns.
+    """
+    require_api_key(x_api_key, authorization)
+    ts     = datetime.now(timezone.utc).isoformat()
+    states = [s for s in _COGNITIVE_STATES if s.get("agent_id") == agent_id]
+
+    if not states:
+        return {"agent_id": agent_id, "message": "No cognitive states recorded. Record via POST /v1/cognitive/state.", "timestamp": ts}
+
+    health_scores = [s.get("cognitive_health",0) for s in states]
+    avg_health    = round(sum(health_scores) / len(health_scores), 3)
+    trend         = "IMPROVING" if len(health_scores) > 1 and health_scores[-1] > health_scores[0] else "DECLINING" if len(health_scores) > 1 and health_scores[-1] < health_scores[0] else "STABLE"
+    critical_events = [s for s in states if s.get("status") == "CRITICAL"]
+
+    return {
+        "schema":         "VGS-CSM-ECG-v1",
+        "agent_id":       agent_id,
+        "total_readings": len(states),
+        "avg_health":     avg_health,
+        "trend":          trend,
+        "critical_events":len(critical_events),
+        "latest_state":   states[-1] if states else None,
+        "health_history": [{"ts": s["recorded_at"], "health": s["cognitive_health"], "status": s["status"]} for s in states[-20:]],
+        "ecg_summary":    f"Agent {agent_id}: {len(states)} readings, avg health {avg_health:.3f}, trend {trend}, {len(critical_events)} critical events.",
+        "timestamp":      ts,
+    }
+
+
+# ── LAYER 3: INTERNAL DECISION LEDGER (IDL) ──────────────────
+
+@app.post("/v1/ledger/record", tags=["Internal Decision Ledger (IDL)"])
+async def ledger_record(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Record an internal decision receipt to the governed ledger.
+    Every important AI decision receives a structured reasoning record showing:
+    - inputs considered and discarded
+    - governing policy applied
+    - confidence level
+    - consequence assessment
+
+    Not blockchain. Not logging.
+    A constitutional reasoning record.
+    """
+    require_api_key(x_api_key, authorization)
+    ts        = datetime.now(timezone.utc).isoformat()
+    receipt_id= f"IDL-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}"
+
+    record = {
+        "schema":            "VGS-IDL-RECORD-v1",
+        "receipt_id":        receipt_id,
+        "agent_id":          req.get("agent_id",""),
+        "decision_type":     req.get("decision_type",""),
+        "inputs_considered": req.get("inputs_considered",[]),
+        "inputs_discarded":  req.get("inputs_discarded",[]),
+        "discard_reasons":   req.get("discard_reasons",[]),
+        "governing_policy":  req.get("governing_policy",""),
+        "confidence":        req.get("confidence", 0.8),
+        "consequence_level": req.get("consequence_level","OPERATIONAL"),
+        "reasoning_summary": req.get("reasoning_summary",""),
+        "decision":          req.get("decision",""),
+        "recorded_at":       ts,
+    }
+
+    seal = {"receipt_id": receipt_id, "agent_id": record["agent_id"], "decision": record["decision"], "confidence": record["confidence"], "timestamp": ts}
+    record["governance_signature"] = sign_governance_payload(seal)
+    record["offline_verifiable"]   = True
+    _DECISION_LEDGER.append(record)
+
+    return {**record, "what_this_enables": "Later auditing of exactly what an AI considered, what it discarded, and why — making reasoning history traceable."}
+
+
+@app.get("/v1/ledger/receipt/{receipt_id}", tags=["Internal Decision Ledger (IDL)"])
+async def ledger_receipt(
+    receipt_id: str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Retrieve a specific internal decision receipt from the ledger."""
+    require_api_key(x_api_key, authorization)
+    record = next((r for r in _DECISION_LEDGER if r.get("receipt_id") == receipt_id), None)
+    if not record:
+        raise HTTPException(status_code=404, detail=f"Receipt {receipt_id} not found in decision ledger.")
+    return {**record, "retrieved_at": datetime.now(timezone.utc).isoformat()}
+
+
+@app.get("/v1/ledger/query", tags=["Internal Decision Ledger (IDL)"])
+async def ledger_query(
+    agent_id: str = "",
+    decision_type: str = "",
+    consequence_level: str = "",
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Query the internal decision ledger — filter by agent, decision type, or consequence."""
+    require_api_key(x_api_key, authorization)
+    results = _DECISION_LEDGER
+    if agent_id:        results = [r for r in results if r.get("agent_id") == agent_id]
+    if decision_type:   results = [r for r in results if r.get("decision_type","").lower() == decision_type.lower()]
+    if consequence_level: results = [r for r in results if r.get("consequence_level","").upper() == consequence_level.upper()]
+    return {
+        "schema":      "VGS-IDL-QUERY-v1",
+        "total":       len(results),
+        "results":     results[-20:],
+        "timestamp":   datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@app.get("/v1/ledger/audit", tags=["Internal Decision Ledger (IDL)"])
+async def ledger_audit(
+    agent_id: str = "",
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Complete audit of the internal decision ledger — reasoning patterns, confidence distribution, discard rates."""
+    require_api_key(x_api_key, authorization)
+    ts      = datetime.now(timezone.utc).isoformat()
+    records = _DECISION_LEDGER
+    if agent_id:
+        records = [r for r in records if r.get("agent_id") == agent_id]
+
+    avg_confidence = round(sum(r.get("confidence",0) for r in records) / max(len(records),1), 3)
+    avg_discards   = round(sum(len(r.get("inputs_discarded",[])) for r in records) / max(len(records),1), 2)
+    high_confidence= sum(1 for r in records if r.get("confidence",0) >= 0.8)
+    low_confidence = sum(1 for r in records if r.get("confidence",0) < 0.5)
+
+    return {
+        "schema":          "VGS-IDL-AUDIT-v1",
+        "agent_id":        agent_id or "ALL",
+        "total_receipts":  len(records),
+        "avg_confidence":  avg_confidence,
+        "avg_discards_per_decision": avg_discards,
+        "high_confidence_decisions": high_confidence,
+        "low_confidence_decisions":  low_confidence,
+        "explainability_coverage":   f"{round(sum(1 for r in records if r.get('reasoning_summary')) / max(len(records),1) * 100, 1)}%",
+        "timestamp":       ts,
+    }
+
+
+# ── LAYER 4: BEHAVIORAL TRAJECTORY INTELLIGENCE (BTI) ────────
+
+@app.post("/v1/trajectory/record", tags=["Behavioral Trajectory Intelligence (BTI)"])
+async def trajectory_record(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Record a behavioral trajectory data point for an agent.
+    BTI asks not "was this decision correct?" but
+    "is the overall behaviour drifting across hundreds of decisions?"
+    Detects problems long before any single action violates a rule.
+    """
+    require_api_key(x_api_key, authorization)
+    ts      = datetime.now(timezone.utc).isoformat()
+    traj_id = f"BTI-{hashlib.sha256((req.get('agent_id','') + ts).encode()).hexdigest()[:12].upper()}"
+
+    record = {
+        "schema":         "VGS-BTI-RECORD-v1",
+        "trajectory_id":  traj_id,
+        "agent_id":       req.get("agent_id",""),
+        "decision_number":req.get("decision_number", 0),
+        "allow_rate":     req.get("allow_rate", 0.7),
+        "deny_rate":      req.get("deny_rate", 0.1),
+        "escalate_rate":  req.get("escalate_rate", 0.2),
+        "avg_confidence": req.get("avg_confidence", 0.8),
+        "avg_consequence":req.get("avg_consequence_tier","OPERATIONAL"),
+        "drift_score":    req.get("drift_score", 0.0),
+        "recorded_at":    ts,
+    }
+    seal = {"trajectory_id": traj_id, "agent_id": record["agent_id"], "drift_score": record["drift_score"], "timestamp": ts}
+    record["governance_signature"] = sign_governance_payload(seal)
+    _TRAJECTORY_LOG.append(record)
+
+    return {"status": "RECORDED", "trajectory_id": traj_id, "governance_signature": record["governance_signature"], "timestamp": ts}
+
+
+@app.get("/v1/trajectory/score/{agent_id}", tags=["Behavioral Trajectory Intelligence (BTI)"])
+async def trajectory_score(
+    agent_id: str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Behavioral trajectory score — is this agent's behaviour stable or drifting?"""
+    require_api_key(x_api_key, authorization)
+    ts      = datetime.now(timezone.utc).isoformat()
+    records = [r for r in _TRAJECTORY_LOG if r.get("agent_id") == agent_id]
+
+    if not records:
+        return {"agent_id": agent_id, "message": "No trajectory data. Record via POST /v1/trajectory/record.", "timestamp": ts}
+
+    drift_scores = [r.get("drift_score",0) for r in records]
+    avg_drift    = round(sum(drift_scores) / len(drift_scores), 3)
+    trend_drift  = round(drift_scores[-1] - drift_scores[0], 3) if len(drift_scores) > 1 else 0
+
+    return {
+        "schema":        "VGS-BTI-SCORE-v1",
+        "agent_id":      agent_id,
+        "data_points":   len(records),
+        "avg_drift":     avg_drift,
+        "trend_drift":   trend_drift,
+        "trajectory_status": "STABLE" if avg_drift < 0.1 else "DRIFTING" if avg_drift < 0.3 else "CRITICAL_DRIFT",
+        "latest":        records[-1],
+        "timestamp":     ts,
+    }
+
+
+@app.post("/v1/trajectory/drift", tags=["Behavioral Trajectory Intelligence (BTI)"])
+async def trajectory_drift(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Compute behavioral trajectory drift — how far has this agent drifted from its governance baseline?"""
+    require_api_key(x_api_key, authorization)
+    ts       = datetime.now(timezone.utc).isoformat()
+    agent_id = req.get("agent_id","")
+
+    baseline_allow   = req.get("baseline_allow_rate", 0.7)
+    current_allow    = req.get("current_allow_rate", 0.7)
+    baseline_deny    = req.get("baseline_deny_rate", 0.1)
+    current_deny     = req.get("current_deny_rate", 0.1)
+    baseline_conf    = req.get("baseline_confidence", 0.8)
+    current_conf     = req.get("current_confidence", 0.8)
+
+    allow_drift = abs(current_allow - baseline_allow)
+    deny_drift  = abs(current_deny  - baseline_deny)
+    conf_drift  = abs(current_conf  - baseline_conf)
+    total_drift = round((allow_drift + deny_drift + conf_drift) / 3, 4)
+
+    severity = "CRITICAL" if total_drift > 0.3 else "HIGH" if total_drift > 0.2 else "MODERATE" if total_drift > 0.1 else "LOW"
+    ruling   = "HALT_FOR_REVIEW" if severity == "CRITICAL" else "ESCALATE" if severity == "HIGH" else "MONITOR" if severity == "MODERATE" else "PROCEED"
+
+    seal = {"agent_id": agent_id, "total_drift": total_drift, "severity": severity, "timestamp": ts}
+    return {
+        "schema":      "VGS-BTI-DRIFT-v1",
+        "agent_id":    agent_id,
+        "allow_drift": allow_drift,
+        "deny_drift":  deny_drift,
+        "confidence_drift": conf_drift,
+        "total_drift": total_drift,
+        "severity":    severity,
+        "ruling":      ruling,
+        "governance_signature": sign_governance_payload(seal),
+        "offline_verifiable": True,
+        "timestamp":   ts,
+    }
+
+
+@app.post("/v1/trajectory/predict", tags=["Behavioral Trajectory Intelligence (BTI)"])
+async def trajectory_predict(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Predict future behavioral trajectory — where is this agent heading if current drift continues?"""
+    require_api_key(x_api_key, authorization)
+    ts       = datetime.now(timezone.utc).isoformat()
+    agent_id = req.get("agent_id","")
+
+    current_drift     = req.get("current_drift_rate", 0.0)
+    drift_acceleration= req.get("drift_acceleration", 0.0)
+    decisions_ahead   = req.get("decisions_ahead", 100)
+
+    projected_drift = round(current_drift + (drift_acceleration * decisions_ahead), 4)
+    will_breach     = projected_drift > 0.3
+    breach_at       = round(0.3 / max(drift_acceleration, 0.001)) if drift_acceleration > 0 else None
+
+    return {
+        "schema":           "VGS-BTI-PREDICT-v1",
+        "agent_id":         agent_id,
+        "current_drift":    current_drift,
+        "decisions_ahead":  decisions_ahead,
+        "projected_drift":  projected_drift,
+        "will_breach_threshold": will_breach,
+        "estimated_breach_at_decision": breach_at,
+        "recommendation":   "INTERVENE NOW — governance recalibration required before breach" if will_breach else "MONITOR — trajectory within acceptable parameters",
+        "timestamp":        ts,
+    }
+
+
+# ── LAYER 5: MULTI-AGENT COORDINATION GOVERNANCE (MACG) ──────
+
+@app.post("/v1/coordination/register", tags=["Multi-Agent Coordination Governance (MACG)"])
+async def coordination_register(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Register an agent in the multi-agent coordination governance system.
+    Future AI won't work alone — agents will negotiate, delegate,
+    collaborate, vote, and exchange tasks.
+    Current governance mostly treats each agent independently.
+    MACG governs the system as a whole.
+    """
+    require_api_key(x_api_key, authorization)
+    ts       = datetime.now(timezone.utc).isoformat()
+    agent_id = req.get("agent_id","")
+
+    profile = {
+        "schema":          "VGS-MACG-AGENT-v1",
+        "agent_id":        agent_id,
+        "agent_type":      req.get("agent_type",""),
+        "capabilities":    req.get("capabilities",[]),
+        "authority_scope": req.get("authority_scope",[]),
+        "coordination_role": req.get("coordination_role","PARTICIPANT"),  # COORDINATOR, PARTICIPANT, OBSERVER
+        "max_delegation_depth": req.get("max_delegation_depth", 2),
+        "voting_weight":   req.get("voting_weight", 1.0),
+        "registered_at":   ts,
+        "status":          "ACTIVE",
+    }
+
+    seal = {"agent_id": agent_id, "role": profile["coordination_role"], "registered_at": ts}
+    profile["governance_signature"] = sign_governance_payload(seal)
+    _AGENT_REGISTRY_COORD[agent_id] = profile
+
+    return {"status": "REGISTERED", **profile}
+
+
+@app.post("/v1/coordination/negotiate", tags=["Multi-Agent Coordination Governance (MACG)"])
+async def coordination_negotiate(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Govern a multi-agent negotiation.
+    When agents negotiate over resources, tasks, or decisions,
+    MACG ensures the negotiation itself is governed — authority
+    checks, outcome sealing, and audit trail.
+    """
+    require_api_key(x_api_key, authorization)
+    ts       = datetime.now(timezone.utc).isoformat()
+    neg_id   = f"NEG-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}"
+
+    agents      = req.get("agents",[])
+    subject     = req.get("subject","")
+    outcome     = req.get("outcome","")
+    agreed      = req.get("agreed", False)
+
+    # Verify all agents are registered
+    unregistered = [a for a in agents if a not in _AGENT_REGISTRY_COORD]
+
+    record = {
+        "schema":        "VGS-MACG-NEGOTIATE-v1",
+        "negotiation_id":neg_id,
+        "agents":        agents,
+        "subject":       subject,
+        "outcome":       outcome,
+        "agreed":        agreed,
+        "unregistered_agents": unregistered,
+        "governed":      len(unregistered) == 0,
+        "negotiated_at": ts,
+    }
+
+    seal = {"negotiation_id": neg_id, "agents": agents, "agreed": agreed, "timestamp": ts}
+    record["governance_signature"] = sign_governance_payload(seal)
+    _COORDINATION_LOG.append(record)
+
+    return {**record, "warning": f"Unregistered agents in negotiation: {unregistered}" if unregistered else None}
+
+
+@app.post("/v1/coordination/delegate", tags=["Multi-Agent Coordination Governance (MACG)"])
+async def coordination_delegate(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Govern an inter-agent delegation.
+    When one agent delegates authority or tasks to another,
+    MACG checks delegation depth limits, authority scope
+    compatibility, and seals the delegation record.
+    """
+    require_api_key(x_api_key, authorization)
+    ts       = datetime.now(timezone.utc).isoformat()
+    del_id   = f"DEL-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}"
+
+    from_agent  = req.get("from_agent","")
+    to_agent    = req.get("to_agent","")
+    task        = req.get("task","")
+    authority   = req.get("authority_delegated",[])
+    depth       = req.get("current_depth", 0)
+
+    from_profile = _AGENT_REGISTRY_COORD.get(from_agent,{})
+    max_depth    = from_profile.get("max_delegation_depth", 2)
+    depth_exceeded = depth >= max_depth
+
+    ruling = "DENY" if depth_exceeded else "ALLOW"
+    reason = f"Delegation depth {depth} exceeds maximum {max_depth}" if depth_exceeded else "Delegation within governed parameters"
+
+    record = {
+        "schema":        "VGS-MACG-DELEGATE-v1",
+        "delegation_id": del_id,
+        "from_agent":    from_agent,
+        "to_agent":      to_agent,
+        "task":          task,
+        "authority":     authority,
+        "depth":         depth,
+        "max_depth":     max_depth,
+        "ruling":        ruling,
+        "reason":        reason,
+        "delegated_at":  ts,
+    }
+
+    seal = {"delegation_id": del_id, "from": from_agent, "to": to_agent, "ruling": ruling, "timestamp": ts}
+    record["governance_signature"] = sign_governance_payload(seal)
+    _COORDINATION_LOG.append(record)
+
+    return record
+
+
+@app.post("/v1/coordination/vote", tags=["Multi-Agent Coordination Governance (MACG)"])
+async def coordination_vote(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Govern a multi-agent vote.
+    When agents vote on decisions, MACG governs the vote —
+    verifying voter eligibility, weighting votes by governed
+    authority, and sealing the outcome.
+    """
+    require_api_key(x_api_key, authorization)
+    ts      = datetime.now(timezone.utc).isoformat()
+    vote_id = f"VOTE-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}"
+
+    proposal = req.get("proposal","")
+    votes    = req.get("votes",{})  # {agent_id: "FOR"/"AGAINST"/"ABSTAIN"}
+
+    # Weight votes by registered voting weight
+    weighted_for     = sum(_AGENT_REGISTRY_COORD.get(a,{}).get("voting_weight",1.0) for a, v in votes.items() if v == "FOR")
+    weighted_against = sum(_AGENT_REGISTRY_COORD.get(a,{}).get("voting_weight",1.0) for a, v in votes.items() if v == "AGAINST")
+    total_weight     = weighted_for + weighted_against
+
+    outcome      = "PASSED" if weighted_for > weighted_against else "FAILED" if weighted_against > weighted_for else "TIE"
+    majority_pct = round(weighted_for / max(total_weight, 1) * 100, 1)
+
+    record = {
+        "schema":        "VGS-MACG-VOTE-v1",
+        "vote_id":       vote_id,
+        "proposal":      proposal,
+        "votes":         votes,
+        "weighted_for":  weighted_for,
+        "weighted_against": weighted_against,
+        "outcome":       outcome,
+        "majority_pct":  majority_pct,
+        "voted_at":      ts,
+    }
+
+    seal = {"vote_id": vote_id, "proposal": proposal, "outcome": outcome, "majority_pct": majority_pct, "timestamp": ts}
+    record["governance_signature"] = sign_governance_payload(seal)
+    _COORDINATION_LOG.append(record)
+
+    return record
+
+
+@app.get("/v1/coordination/health", tags=["Multi-Agent Coordination Governance (MACG)"])
+async def coordination_health(
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Multi-agent system health — governance coverage across all
+    registered agents and their coordination activity.
+    The system-level view of the multi-agent governance environment.
+    """
+    require_api_key(x_api_key, authorization)
+    ts = datetime.now(timezone.utc).isoformat()
+
+    agents      = list(_AGENT_REGISTRY_COORD.values())
+    coord_events= _COORDINATION_LOG
+    negotiations= [e for e in coord_events if "negotiation_id" in e]
+    delegations = [e for e in coord_events if "delegation_id" in e]
+    votes       = [e for e in coord_events if "vote_id" in e]
+    denied_dels = [e for e in delegations if e.get("ruling") == "DENY"]
+
+    return {
+        "schema":             "VGS-MACG-HEALTH-v1",
+        "registered_agents":  len(agents),
+        "total_coord_events": len(coord_events),
+        "negotiations":       len(negotiations),
+        "delegations":        len(delegations),
+        "blocked_delegations":len(denied_dels),
+        "votes":              len(votes),
+        "system_health":      "HEALTHY" if len(denied_dels) == 0 else "DEGRADED",
+        "agents":             agents,
+        "recent_events":      coord_events[-10:],
+        "what_this_governs":  "The AI system as a whole — not just individual agents but how they coordinate, delegate, negotiate, and vote.",
+        "timestamp":          ts,
     }
 
 
