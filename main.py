@@ -66430,6 +66430,916 @@ async def coordination_health(
     }
 
 
+
+# ============================================================
+# AI COMMERCE GOVERNANCE LAYER
+# Governs autonomous AI agents operating in commerce:
+# purchases, pricing, vendor selection, marketplace ops,
+# fraud detection, escrow, disputes, inventory management.
+#
+# When an AI agent autonomously executes a commercial action,
+# VeriSigil answers: was it authorised, was the consequence
+# assessed, and is there independently verifiable evidence?
+#
+# Sector-specific consequence tiers built in.
+# ============================================================
+
+_COMMERCE_LOG:    list = []
+_VENDOR_REGISTRY: dict = {}
+_ESCROW_REGISTRY: dict = {}
+_DISPUTE_LOG:     list = []
+
+
+@app.post("/v1/commerce/transaction", tags=["AI Commerce Governance"])
+async def commerce_transaction(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Govern an autonomous AI commercial transaction before it executes.
+    Covers B2B, B2C, marketplace, and cross-border transactions.
+
+    AI commerce agents that autonomously execute purchases, sales,
+    or transfers must pass governance before funds move or
+    contracts are formed. This endpoint is the pre-execution
+    gate for any AI-initiated commercial action.
+
+    Consequence tiers for commerce:
+    - ADVISORY: browsing, recommendations, price checks
+    - OPERATIONAL: small purchases, standard orders
+    - HIGH: large purchases, vendor contracts
+    - CRITICAL: major contracts, cross-border, irreversible
+    - EMERGENCY: system-critical procurement
+    """
+    require_api_key(x_api_key, authorization)
+    ts       = datetime.now(timezone.utc).isoformat()
+    tx_id    = f"CMX-{hashlib.sha256((req.get('agent_id','') + ts).encode()).hexdigest()[:12].upper()}"
+
+    agent_id      = req.get("agent_id","")
+    action        = req.get("action","")          # purchase, sell, transfer, contract
+    amount        = req.get("amount", 0.0)
+    currency      = req.get("currency","USD")
+    counterparty  = req.get("counterparty","")
+    platform      = req.get("platform","")
+    human_present = req.get("human_present", False)
+    authority     = req.get("authority_scope",[])
+    irreversible  = req.get("irreversible", True)  # most financial transactions are
+
+    # Commerce-specific consequence tier
+    if amount >= 100000:
+        consequence = "CRITICAL"
+    elif amount >= 10000:
+        consequence = "HIGH"
+    elif amount >= 1000:
+        consequence = "OPERATIONAL"
+    else:
+        consequence = "ADVISORY"
+
+    # Governance evaluation
+    reasons    = []
+    conditions = []
+
+    if amount >= 50000 and not human_present:
+        reasons.append(f"BLOCK: Transaction ${amount:,.2f} requires human approval — no human present")
+    if not authority:
+        reasons.append("BLOCK: No authority scope declared for commercial transaction")
+    if irreversible and consequence in ("CRITICAL","HIGH") and not human_present:
+        reasons.append(f"BLOCK: Irreversible {consequence} transaction without human oversight")
+
+    if not reasons and amount >= 10000:
+        conditions.append(f"Transaction above ${amount:,.2f} — enhanced logging required")
+    if currency != "USD" and not req.get("fx_rate_verified", False):
+        conditions.append("Cross-currency transaction — FX rate should be verified before execution")
+
+    ruling = "DENY" if reasons else "ESCALATE" if (amount >= 25000 and not human_present) else "ALLOW"
+    color  = "RED" if ruling == "DENY" else "ORANGE" if ruling == "ESCALATE" else "GREEN"
+
+    record = {
+        "schema":       "VGS-COMMERCE-TX-v1",
+        "tx_id":        tx_id,
+        "agent_id":     agent_id,
+        "action":       action,
+        "amount":       amount,
+        "currency":     currency,
+        "counterparty": counterparty,
+        "platform":     platform,
+        "consequence":  consequence,
+        "ruling":       ruling,
+        "color":        color,
+        "reasons":      reasons,
+        "conditions":   conditions,
+        "human_present":human_present,
+        "irreversible": irreversible,
+        "governed_at":  ts,
+    }
+    seal = {"tx_id": tx_id, "agent_id": agent_id, "amount": amount, "ruling": ruling, "timestamp": ts}
+    record["governance_signature"] = sign_governance_payload(seal)
+    record["offline_verifiable"]   = True
+    _COMMERCE_LOG.append(record)
+
+    return {
+        **record,
+        "what_this_governs": "AI agent commercial execution — prevents autonomous agents from transacting beyond authorised scope without human oversight.",
+        "consequence_register_at": "POST /v1/consequence/register after transaction completes",
+    }
+
+
+@app.post("/v1/commerce/purchase", tags=["AI Commerce Governance"])
+async def commerce_purchase(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Govern an AI-autonomous purchase order.
+    Validates purchase authority, budget limits, vendor trust,
+    and compliance before any commitment is made.
+    """
+    require_api_key(x_api_key, authorization)
+    ts     = datetime.now(timezone.utc).isoformat()
+    po_id  = f"PO-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}"
+
+    amount       = req.get("amount", 0.0)
+    vendor_id    = req.get("vendor_id","")
+    budget_limit = req.get("budget_limit", 0.0)
+    category     = req.get("category","")
+    approved_vendors = req.get("approved_vendor_list",[])
+
+    reasons = []
+    if budget_limit and amount > budget_limit:
+        reasons.append(f"BLOCK: Purchase ${amount:,.2f} exceeds budget limit ${budget_limit:,.2f}")
+    if approved_vendors and vendor_id not in approved_vendors:
+        reasons.append(f"BLOCK: Vendor '{vendor_id}' not on approved vendor list")
+    if amount >= 50000 and not req.get("purchase_order_number",""):
+        reasons.append("BLOCK: Purchases ≥$50,000 require a pre-issued purchase order number")
+
+    ruling = "DENY" if reasons else "ALLOW"
+
+    seal = {"po_id": po_id, "vendor_id": vendor_id, "amount": amount, "ruling": ruling, "timestamp": ts}
+    return {
+        "schema":   "VGS-COMMERCE-PO-v1",
+        "po_id":    po_id,
+        "vendor_id":vendor_id,
+        "amount":   amount,
+        "category": category,
+        "ruling":   ruling,
+        "reasons":  reasons,
+        "budget_remaining": max(0, budget_limit - amount) if budget_limit else None,
+        "governance_signature": sign_governance_payload(seal),
+        "offline_verifiable": True,
+        "timestamp":ts,
+    }
+
+
+@app.post("/v1/commerce/pricing", tags=["AI Commerce Governance"])
+async def commerce_pricing(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Govern AI-driven dynamic pricing decisions.
+    Prevents predatory pricing, price discrimination,
+    and pricing actions that violate regulatory limits.
+    Critical for AI commerce agents managing real-time pricing.
+    """
+    require_api_key(x_api_key, authorization)
+    ts = datetime.now(timezone.utc).isoformat()
+
+    product_id    = req.get("product_id","")
+    base_price    = req.get("base_price", 0.0)
+    proposed_price= req.get("proposed_price", 0.0)
+    floor_price   = req.get("floor_price", 0.0)
+    ceiling_price = req.get("ceiling_price", 0.0)
+    change_pct    = round(abs(proposed_price - base_price) / max(base_price, 0.01) * 100, 2)
+    jurisdiction  = req.get("jurisdiction","")
+
+    reasons    = []
+    conditions = []
+
+    if floor_price and proposed_price < floor_price:
+        reasons.append(f"BLOCK: Price ${proposed_price:.2f} below floor ${floor_price:.2f}")
+    if ceiling_price and proposed_price > ceiling_price:
+        reasons.append(f"BLOCK: Price ${proposed_price:.2f} above ceiling ${ceiling_price:.2f}")
+    if change_pct > 50 and not req.get("surge_approved", False):
+        reasons.append(f"BLOCK: Price change {change_pct:.1f}% requires surge pricing approval")
+    if change_pct > 20:
+        conditions.append(f"Price change {change_pct:.1f}% — significant movement, log for audit")
+    if jurisdiction in ("EU","NG") and req.get("essential_good", False):
+        conditions.append("Essential goods pricing may be subject to regulatory limits in this jurisdiction")
+
+    ruling = "DENY" if reasons else "ALLOW_WITH_CONDITIONS" if conditions else "ALLOW"
+    seal = {"product_id": product_id, "proposed_price": proposed_price, "change_pct": change_pct, "ruling": ruling, "timestamp": ts}
+
+    return {
+        "schema":        "VGS-COMMERCE-PRICING-v1",
+        "product_id":    product_id,
+        "base_price":    base_price,
+        "proposed_price":proposed_price,
+        "change_pct":    change_pct,
+        "ruling":        ruling,
+        "reasons":       reasons,
+        "conditions":    conditions,
+        "governance_signature": sign_governance_payload(seal),
+        "offline_verifiable": True,
+        "timestamp":     ts,
+    }
+
+
+@app.post("/v1/commerce/refund", tags=["AI Commerce Governance"])
+async def commerce_refund(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Govern AI-autonomous refund decisions.
+    Ensures refunds are within authorised limits, properly
+    verified, and sealed with evidence before funds move.
+    """
+    require_api_key(x_api_key, authorization)
+    ts        = datetime.now(timezone.utc).isoformat()
+    refund_id = f"REF-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}"
+
+    amount         = req.get("amount", 0.0)
+    original_tx    = req.get("original_transaction_id","")
+    reason         = req.get("reason","")
+    refund_limit   = req.get("autonomous_refund_limit", 500.0)
+    days_since_purchase = req.get("days_since_purchase", 0)
+    refund_window  = req.get("refund_window_days", 30)
+
+    reasons = []
+    if amount > refund_limit and not req.get("manager_approved", False):
+        reasons.append(f"BLOCK: Refund ${amount:.2f} exceeds autonomous limit ${refund_limit:.2f} — requires manager approval")
+    if days_since_purchase > refund_window:
+        reasons.append(f"BLOCK: Purchase {days_since_purchase} days ago exceeds {refund_window}-day refund window")
+    if not original_tx:
+        reasons.append("BLOCK: No original transaction ID — cannot verify refund eligibility")
+
+    ruling = "DENY" if reasons else "ALLOW"
+    seal = {"refund_id": refund_id, "amount": amount, "ruling": ruling, "timestamp": ts}
+
+    return {
+        "schema":      "VGS-COMMERCE-REFUND-v1",
+        "refund_id":   refund_id,
+        "amount":      amount,
+        "original_tx": original_tx,
+        "reason":      reason,
+        "ruling":      ruling,
+        "reasons":     reasons,
+        "governance_signature": sign_governance_payload(seal),
+        "offline_verifiable": True,
+        "timestamp":   ts,
+    }
+
+
+@app.post("/v1/commerce/fraud", tags=["AI Commerce Governance"])
+async def commerce_fraud(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    AI Commerce fraud governance — evaluates fraud signals
+    before any commercial action executes.
+    Returns fraud risk score, signals detected, and governance ruling.
+    """
+    require_api_key(x_api_key, authorization)
+    ts      = datetime.now(timezone.utc).isoformat()
+    fraud_id= f"FRD-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}"
+
+    signals = req.get("fraud_signals",[])
+    amount  = req.get("amount", 0.0)
+    velocity= req.get("transaction_velocity", 0)  # txns per hour
+    new_account = req.get("new_account", False)
+    unusual_location = req.get("unusual_location", False)
+    device_mismatch  = req.get("device_mismatch", False)
+    known_bad_actor  = req.get("known_bad_actor", False)
+
+    fraud_score = 0.0
+    detected = list(signals)
+
+    if known_bad_actor:   fraud_score += 0.9; detected.append("KNOWN_BAD_ACTOR")
+    if device_mismatch:   fraud_score += 0.3; detected.append("DEVICE_MISMATCH")
+    if unusual_location:  fraud_score += 0.2; detected.append("UNUSUAL_LOCATION")
+    if new_account and amount > 500: fraud_score += 0.25; detected.append("NEW_ACCOUNT_LARGE_TX")
+    if velocity > 10:     fraud_score += 0.3; detected.append(f"HIGH_VELOCITY:{velocity}/hr")
+    if amount > 10000 and new_account: fraud_score += 0.3; detected.append("NEW_ACCOUNT_CRITICAL_AMOUNT")
+
+    fraud_score = min(1.0, round(fraud_score, 3))
+
+    ruling = "DENY" if fraud_score >= 0.7 or known_bad_actor else "ESCALATE" if fraud_score >= 0.4 else "ALLOW"
+    seal   = {"fraud_id": fraud_id, "fraud_score": fraud_score, "ruling": ruling, "timestamp": ts}
+
+    return {
+        "schema":      "VGS-COMMERCE-FRAUD-v1",
+        "fraud_id":    fraud_id,
+        "fraud_score": fraud_score,
+        "risk_level":  "HIGH" if fraud_score >= 0.7 else "MEDIUM" if fraud_score >= 0.4 else "LOW",
+        "signals_detected": detected,
+        "ruling":      ruling,
+        "amount":      amount,
+        "governance_signature": sign_governance_payload(seal),
+        "offline_verifiable": True,
+        "timestamp":   ts,
+    }
+
+
+@app.post("/v1/commerce/vendor", tags=["AI Commerce Governance"])
+async def commerce_vendor(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Govern AI-autonomous vendor selection and onboarding.
+    When an AI agent selects, onboards, or contracts a vendor
+    autonomously, this endpoint validates authority, due
+    diligence requirements, and contract limits.
+    """
+    require_api_key(x_api_key, authorization)
+    ts        = datetime.now(timezone.utc).isoformat()
+    vendor_id = req.get("vendor_id","")
+
+    action           = req.get("action","select")  # select, onboard, contract, terminate
+    contract_value   = req.get("contract_value", 0.0)
+    due_diligence    = req.get("due_diligence_complete", False)
+    sanctions_checked= req.get("sanctions_checked", False)
+    sole_source      = req.get("sole_source", False)
+
+    reasons = []
+    if contract_value >= 100000 and not due_diligence:
+        reasons.append(f"BLOCK: Contract value ${contract_value:,.2f} requires completed due diligence")
+    if not sanctions_checked:
+        reasons.append("BLOCK: Sanctions check required before vendor onboarding")
+    if sole_source and contract_value >= 50000 and not req.get("sole_source_justification",""):
+        reasons.append("BLOCK: Sole-source contract ≥$50,000 requires documented justification")
+
+    ruling = "DENY" if reasons else "ALLOW"
+    seal   = {"vendor_id": vendor_id, "action": action, "contract_value": contract_value, "ruling": ruling, "timestamp": ts}
+
+    record = {
+        "schema":         "VGS-COMMERCE-VENDOR-v1",
+        "vendor_id":      vendor_id,
+        "action":         action,
+        "contract_value": contract_value,
+        "due_diligence":  due_diligence,
+        "sanctions_checked": sanctions_checked,
+        "ruling":         ruling,
+        "reasons":        reasons,
+        "governance_signature": sign_governance_payload(seal),
+        "offline_verifiable": True,
+        "timestamp":      ts,
+    }
+    _VENDOR_REGISTRY[vendor_id] = record
+    return record
+
+
+@app.post("/v1/commerce/marketplace", tags=["AI Commerce Governance"])
+async def commerce_marketplace(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Govern AI agent actions on marketplace platforms.
+    Covers listing, bidding, buying, selling, and review
+    manipulation detection. Applicable to Amazon, eBay,
+    Jumia, Konga, and enterprise procurement marketplaces.
+    """
+    require_api_key(x_api_key, authorization)
+    ts     = datetime.now(timezone.utc).isoformat()
+    mkt_id = f"MKT-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}"
+
+    action     = req.get("action","")   # list, bid, buy, sell, review
+    platform   = req.get("platform","")
+    amount     = req.get("amount", 0.0)
+    item_count = req.get("item_count", 1)
+    bulk_action= item_count > 100
+
+    reasons    = []
+    conditions = []
+
+    if action == "review" and req.get("incentivised_review", False):
+        reasons.append("BLOCK: Incentivised reviews violate marketplace policies and FTC regulations")
+    if bulk_action and not req.get("bulk_action_approved", False):
+        reasons.append(f"BLOCK: Bulk action ({item_count} items) requires explicit approval")
+    if action == "bid" and amount > req.get("bid_limit", float('inf')):
+        reasons.append(f"BLOCK: Bid ${amount:,.2f} exceeds autonomous bid limit")
+    if req.get("price_fixing_risk", False):
+        reasons.append("BLOCK: Price coordination with competitors is illegal in most jurisdictions")
+
+    if platform in ("Amazon","eBay") and action == "list" and item_count > 50:
+        conditions.append("Large bulk listing — review platform terms of service")
+
+    ruling = "DENY" if reasons else "ALLOW_WITH_CONDITIONS" if conditions else "ALLOW"
+    seal   = {"mkt_id": mkt_id, "action": action, "platform": platform, "amount": amount, "ruling": ruling, "timestamp": ts}
+
+    return {
+        "schema":    "VGS-COMMERCE-MKT-v1",
+        "mkt_id":    mkt_id,
+        "action":    action,
+        "platform":  platform,
+        "amount":    amount,
+        "item_count":item_count,
+        "ruling":    ruling,
+        "reasons":   reasons,
+        "conditions":conditions,
+        "governance_signature": sign_governance_payload(seal),
+        "offline_verifiable": True,
+        "timestamp": ts,
+    }
+
+
+@app.post("/v1/commerce/escrow", tags=["AI Commerce Governance"])
+async def commerce_escrow(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Govern AI-managed escrow operations.
+    AI agents managing escrow accounts for marketplace transactions,
+    real estate, or B2B contracts must pass governance before
+    releasing, holding, or returning funds.
+    """
+    require_api_key(x_api_key, authorization)
+    ts        = datetime.now(timezone.utc).isoformat()
+    escrow_id = req.get("escrow_id","") or f"ESC-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}"
+
+    action         = req.get("action","hold")  # hold, release, return, dispute
+    amount         = req.get("amount", 0.0)
+    conditions_met = req.get("release_conditions_met",[])
+    required_conds = req.get("required_conditions",[])
+    both_parties   = req.get("both_parties_confirmed", False)
+
+    reasons = []
+    unmet = [c for c in required_conds if c not in conditions_met]
+    if action == "release" and unmet:
+        reasons.append(f"BLOCK: Release conditions not met: {unmet}")
+    if action == "release" and amount >= 10000 and not both_parties:
+        reasons.append("BLOCK: Escrow release ≥$10,000 requires confirmation from both parties")
+    if action == "return" and not req.get("return_justified",""):
+        reasons.append("BLOCK: Escrow return requires documented justification")
+
+    ruling = "DENY" if reasons else "ALLOW"
+    seal   = {"escrow_id": escrow_id, "action": action, "amount": amount, "ruling": ruling, "timestamp": ts}
+
+    record = {
+        "schema":      "VGS-COMMERCE-ESCROW-v1",
+        "escrow_id":   escrow_id,
+        "action":      action,
+        "amount":      amount,
+        "conditions_met": conditions_met,
+        "unmet_conditions": unmet,
+        "both_parties_confirmed": both_parties,
+        "ruling":      ruling,
+        "reasons":     reasons,
+        "governance_signature": sign_governance_payload(seal),
+        "offline_verifiable": True,
+        "timestamp":   ts,
+    }
+    _ESCROW_REGISTRY[escrow_id] = record
+    return record
+
+
+@app.post("/v1/commerce/dispute", tags=["AI Commerce Governance"])
+async def commerce_dispute(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Govern AI-autonomous dispute resolution.
+    When AI agents handle commercial disputes — chargebacks,
+    delivery failures, quality disputes — this endpoint
+    governs the resolution decision before it is executed.
+    """
+    require_api_key(x_api_key, authorization)
+    ts         = datetime.now(timezone.utc).isoformat()
+    dispute_id = f"DIS-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}"
+
+    amount         = req.get("amount", 0.0)
+    dispute_type   = req.get("dispute_type","")
+    proposed_resolution = req.get("proposed_resolution","")
+    resolution_amount   = req.get("resolution_amount", 0.0)
+    autonomous_limit    = req.get("autonomous_resolution_limit", 1000.0)
+    evidence_provided   = req.get("evidence_provided",[])
+
+    reasons = []
+    if resolution_amount > autonomous_limit and not req.get("manager_approved", False):
+        reasons.append(f"BLOCK: Resolution amount ${resolution_amount:.2f} exceeds autonomous limit ${autonomous_limit:.2f}")
+    if not evidence_provided:
+        reasons.append("BLOCK: Dispute resolution requires documented evidence")
+    if dispute_type == "chargeback" and not req.get("transaction_verified", False):
+        reasons.append("BLOCK: Chargeback resolution requires original transaction verification")
+
+    ruling = "DENY" if reasons else "ALLOW"
+    seal   = {"dispute_id": dispute_id, "amount": amount, "resolution_amount": resolution_amount, "ruling": ruling, "timestamp": ts}
+
+    record = {
+        "schema":           "VGS-COMMERCE-DISPUTE-v1",
+        "dispute_id":       dispute_id,
+        "dispute_type":     dispute_type,
+        "amount":           amount,
+        "proposed_resolution": proposed_resolution,
+        "resolution_amount":resolution_amount,
+        "evidence_provided":evidence_provided,
+        "ruling":           ruling,
+        "reasons":          reasons,
+        "governance_signature": sign_governance_payload(seal),
+        "offline_verifiable": True,
+        "timestamp":        ts,
+    }
+    _DISPUTE_LOG.append(record)
+    return record
+
+
+@app.post("/v1/commerce/inventory", tags=["AI Commerce Governance"])
+async def commerce_inventory(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Govern AI-autonomous inventory management decisions.
+    When AI agents autonomously reorder, write off, transfer,
+    or liquidate inventory, this governs the action before
+    stock moves or commitments are made.
+    """
+    require_api_key(x_api_key, authorization)
+    ts     = datetime.now(timezone.utc).isoformat()
+    inv_id = f"INV-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}"
+
+    action      = req.get("action","reorder")  # reorder, writeoff, transfer, liquidate
+    quantity    = req.get("quantity", 0)
+    unit_cost   = req.get("unit_cost", 0.0)
+    total_value = quantity * unit_cost
+    reorder_point = req.get("reorder_point", 0)
+    max_stock   = req.get("max_stock_level", 0)
+
+    reasons = []
+    if action == "writeoff" and total_value >= 10000 and not req.get("writeoff_approved", False):
+        reasons.append(f"BLOCK: Inventory write-off ${total_value:,.2f} requires approval")
+    if action == "liquidate" and not req.get("liquidation_authorised", False):
+        reasons.append("BLOCK: Inventory liquidation requires explicit authorisation")
+    if action == "reorder" and max_stock and quantity > max_stock:
+        reasons.append(f"BLOCK: Reorder quantity {quantity} exceeds maximum stock level {max_stock}")
+
+    ruling = "DENY" if reasons else "ALLOW"
+    seal   = {"inv_id": inv_id, "action": action, "total_value": total_value, "ruling": ruling, "timestamp": ts}
+
+    return {
+        "schema":      "VGS-COMMERCE-INV-v1",
+        "inv_id":      inv_id,
+        "action":      action,
+        "quantity":    quantity,
+        "unit_cost":   unit_cost,
+        "total_value": total_value,
+        "ruling":      ruling,
+        "reasons":     reasons,
+        "governance_signature": sign_governance_payload(seal),
+        "offline_verifiable": True,
+        "timestamp":   ts,
+    }
+
+
+# ============================================================
+# INDUSTRY VERTICAL GOVERNANCE MODULES
+# Sector-specific governance for AI agents operating in
+# healthcare, legal, real estate, insurance, logistics, energy.
+# Each module adds domain-specific consequence tiers,
+# regulatory requirements, and human oversight triggers.
+# ============================================================
+
+@app.post("/v1/healthcare/govern", tags=["Industry Vertical Governance"])
+async def healthcare_govern(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Healthcare AI Governance — pre-execution governance for
+    AI agents in clinical, diagnostic, and treatment workflows.
+
+    Consequence tiers for healthcare:
+    - ADVISORY: informational queries, appointment scheduling
+    - OPERATIONAL: administrative tasks, record access
+    - HIGH: diagnostic assistance, treatment recommendations
+    - CRITICAL: prescriptions, surgical decisions, medication orders
+    - EMERGENCY: life-critical interventions
+
+    Regulatory: HIPAA, FDA AI/ML guidance, EU AI Act Annex III §5a
+    """
+    require_api_key(x_api_key, authorization)
+    ts = datetime.now(timezone.utc).isoformat()
+
+    action         = req.get("action","")
+    action_type    = req.get("action_type","")
+    patient_id     = req.get("patient_id","")
+    clinician_present = req.get("clinician_present", True)
+    consequence    = req.get("consequence","OPERATIONAL")
+    affects_treatment = req.get("affects_treatment_decision", False)
+    medication_order  = req.get("medication_order", False)
+    emergency      = req.get("emergency_context", False)
+
+    reasons    = []
+    conditions = []
+
+    if medication_order and not clinician_present:
+        reasons.append("BLOCK: Medication orders require clinician oversight — no clinician present")
+    if consequence in ("CRITICAL","EMERGENCY") and not clinician_present and not emergency:
+        reasons.append(f"BLOCK: {consequence} healthcare action without clinician oversight")
+    if affects_treatment and not req.get("evidence_based_guideline",""):
+        conditions.append("Treatment decision should reference evidence-based guideline")
+    if req.get("off_label_use", False):
+        reasons.append("BLOCK: Off-label medication use requires explicit clinician approval")
+
+    ruling = "DENY" if reasons else "ESCALATE" if (affects_treatment and not clinician_present) else "ALLOW"
+
+    seal = {"action": action, "patient_id": patient_id, "consequence": consequence, "ruling": ruling, "timestamp": ts}
+    return {
+        "schema":           "VGS-HEALTHCARE-v1",
+        "action":           action,
+        "patient_id":       patient_id,
+        "consequence":      consequence,
+        "clinician_present":clinician_present,
+        "ruling":           ruling,
+        "reasons":          reasons,
+        "conditions":       conditions,
+        "regulatory_refs":  ["HIPAA Privacy Rule", "FDA AI/ML Action Plan", "EU AI Act Annex III §5a"],
+        "governance_signature": sign_governance_payload(seal),
+        "offline_verifiable": True,
+        "timestamp":        ts,
+    }
+
+
+@app.post("/v1/legal/govern", tags=["Industry Vertical Governance"])
+async def legal_govern(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Legal AI Governance — governs AI agents in legal workflows.
+    Contract drafting, legal research, filing, advice generation.
+
+    Critical: AI cannot provide legal advice without qualified
+    human oversight in most jurisdictions. This endpoint enforces
+    that boundary and seals the evidence.
+    """
+    require_api_key(x_api_key, authorization)
+    ts = datetime.now(timezone.utc).isoformat()
+
+    action          = req.get("action","")
+    jurisdiction    = req.get("jurisdiction","")
+    is_legal_advice = req.get("is_legal_advice", False)
+    solicitor_present = req.get("solicitor_present", False)
+    contract_value  = req.get("contract_value", 0.0)
+    binding_document= req.get("creates_binding_document", False)
+
+    reasons    = []
+    conditions = []
+
+    if is_legal_advice and not solicitor_present:
+        reasons.append("BLOCK: AI cannot provide legal advice without qualified solicitor oversight")
+    if binding_document and contract_value >= 100000 and not solicitor_present:
+        reasons.append(f"BLOCK: Binding contract ${contract_value:,.2f} requires solicitor review")
+    if req.get("court_filing", False) and not solicitor_present:
+        reasons.append("BLOCK: Court filings require authorised legal practitioner oversight")
+    if is_legal_advice:
+        conditions.append(f"AI legal output must be reviewed by qualified solicitor before client communication in {jurisdiction}")
+
+    ruling = "DENY" if reasons else "ESCALATE" if is_legal_advice else "ALLOW"
+
+    seal = {"action": action, "jurisdiction": jurisdiction, "ruling": ruling, "timestamp": ts}
+    return {
+        "schema":           "VGS-LEGAL-v1",
+        "action":           action,
+        "jurisdiction":     jurisdiction,
+        "is_legal_advice":  is_legal_advice,
+        "solicitor_present":solicitor_present,
+        "ruling":           ruling,
+        "reasons":          reasons,
+        "conditions":       conditions,
+        "regulatory_refs":  ["Legal Services Act (UK)", "Nigerian Legal Practitioners Act", "EU AI Act Annex III §8"],
+        "governance_signature": sign_governance_payload(seal),
+        "offline_verifiable": True,
+        "timestamp":        ts,
+    }
+
+
+@app.post("/v1/realestate/govern", tags=["Industry Vertical Governance"])
+async def realestate_govern(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Real Estate AI Governance — governs AI agents in property
+    transactions, valuations, tenant screening, and lease management.
+    High-consequence decisions due to transaction size and
+    fair housing compliance requirements.
+    """
+    require_api_key(x_api_key, authorization)
+    ts = datetime.now(timezone.utc).isoformat()
+
+    action         = req.get("action","")
+    property_value = req.get("property_value", 0.0)
+    jurisdiction   = req.get("jurisdiction","")
+    tenant_screening = req.get("is_tenant_screening", False)
+    valuation_only   = req.get("valuation_only", False)
+    binding_offer    = req.get("creates_binding_offer", False)
+
+    reasons    = []
+    conditions = []
+
+    if tenant_screening and req.get("uses_protected_attributes", False):
+        reasons.append("BLOCK: Tenant screening must not use protected class attributes (Fair Housing Act)")
+    if binding_offer and property_value >= 1000000 and not req.get("solicitor_approved", False):
+        reasons.append(f"BLOCK: Binding property offer ${property_value:,.0f} requires legal review")
+    if action == "eviction" and not req.get("legal_process_followed", False):
+        reasons.append("BLOCK: AI-initiated eviction requires legal process compliance verification")
+    if valuation_only:
+        conditions.append("Automated valuation — must be reviewed by licensed appraiser for official use")
+
+    ruling = "DENY" if reasons else "ALLOW_WITH_CONDITIONS" if conditions else "ALLOW"
+
+    seal = {"action": action, "property_value": property_value, "ruling": ruling, "timestamp": ts}
+    return {
+        "schema":         "VGS-REALESTATE-v1",
+        "action":         action,
+        "property_value": property_value,
+        "jurisdiction":   jurisdiction,
+        "ruling":         ruling,
+        "reasons":        reasons,
+        "conditions":     conditions,
+        "regulatory_refs":["Fair Housing Act (US)", "Nigerian Land Use Act", "EU AI Act Annex III §5"],
+        "governance_signature": sign_governance_payload(seal),
+        "offline_verifiable": True,
+        "timestamp":      ts,
+    }
+
+
+@app.post("/v1/insurance/govern", tags=["Industry Vertical Governance"])
+async def insurance_govern(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Insurance AI Governance — governs AI agents in underwriting,
+    claims, pricing, and coverage decisions.
+    Prevents discriminatory underwriting and governs automated
+    claims decisions above authorised thresholds.
+    """
+    require_api_key(x_api_key, authorization)
+    ts = datetime.now(timezone.utc).isoformat()
+
+    action         = req.get("action","")  # underwrite, claim, price, deny_coverage
+    claim_amount   = req.get("claim_amount", 0.0)
+    auto_limit     = req.get("autonomous_claim_limit", 5000.0)
+    uses_sensitive = req.get("uses_sensitive_attributes", False)
+    denial         = req.get("is_coverage_denial", False)
+    jurisdiction   = req.get("jurisdiction","")
+
+    reasons    = []
+    conditions = []
+
+    if uses_sensitive and action == "underwrite":
+        reasons.append("BLOCK: Underwriting must not use protected class attributes")
+    if claim_amount > auto_limit and not req.get("adjuster_approved", False):
+        reasons.append(f"BLOCK: Claim ${claim_amount:,.2f} exceeds autonomous limit ${auto_limit:,.2f}")
+    if denial and not req.get("denial_reason_documented",""):
+        reasons.append("BLOCK: Coverage denial requires documented, non-discriminatory reason")
+    if action == "underwrite" and jurisdiction == "EU":
+        conditions.append("EU AI Act Article 10 requires bias examination on underwriting training data")
+
+    ruling = "DENY" if reasons else "ALLOW_WITH_CONDITIONS" if conditions else "ALLOW"
+
+    seal = {"action": action, "claim_amount": claim_amount, "ruling": ruling, "timestamp": ts}
+    return {
+        "schema":         "VGS-INSURANCE-v1",
+        "action":         action,
+        "claim_amount":   claim_amount,
+        "ruling":         ruling,
+        "reasons":        reasons,
+        "conditions":     conditions,
+        "regulatory_refs":["Insurance Act (Nigeria)", "EU AI Act Annex III §5b", "UK FCA AI guidance"],
+        "governance_signature": sign_governance_payload(seal),
+        "offline_verifiable": True,
+        "timestamp":      ts,
+    }
+
+
+@app.post("/v1/logistics/govern", tags=["Industry Vertical Governance"])
+async def logistics_govern(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Logistics AI Governance — governs autonomous AI in supply chain,
+    route optimisation, fleet management, and delivery operations.
+    Critical for last-mile delivery AI in Nigerian and African markets.
+    """
+    require_api_key(x_api_key, authorization)
+    ts = datetime.now(timezone.utc).isoformat()
+
+    action         = req.get("action","")
+    vehicle_control= req.get("autonomous_vehicle_control", False)
+    hazmat         = req.get("hazardous_materials", False)
+    cross_border   = req.get("cross_border", False)
+    cargo_value    = req.get("cargo_value", 0.0)
+    jurisdiction   = req.get("jurisdiction","NG")
+
+    reasons    = []
+    conditions = []
+
+    if vehicle_control and not req.get("safety_system_verified", False):
+        reasons.append("BLOCK: Autonomous vehicle control requires verified safety system status")
+    if hazmat and not req.get("hazmat_certified", False):
+        reasons.append("BLOCK: Hazardous materials handling requires certified operator oversight")
+    if cross_border and not req.get("customs_cleared", False):
+        conditions.append("Cross-border shipment — ensure customs documentation is complete")
+    if cargo_value >= 1000000:
+        conditions.append(f"High-value cargo ${cargo_value:,.0f} — enhanced tracking and insurance required")
+
+    ruling = "DENY" if reasons else "ALLOW_WITH_CONDITIONS" if conditions else "ALLOW"
+
+    seal = {"action": action, "cargo_value": cargo_value, "ruling": ruling, "timestamp": ts}
+    return {
+        "schema":          "VGS-LOGISTICS-v1",
+        "action":          action,
+        "cargo_value":     cargo_value,
+        "cross_border":    cross_border,
+        "hazmat":          hazmat,
+        "ruling":          ruling,
+        "reasons":         reasons,
+        "conditions":      conditions,
+        "regulatory_refs": ["Nigerian FRSC regulations", "ECOWAS trade protocols", "EU AI Act critical infrastructure"],
+        "nigeria_specific":"CBN data residency applies to logistics payment data — GET /v1/regulatory/nitda",
+        "governance_signature": sign_governance_payload(seal),
+        "offline_verifiable": True,
+        "timestamp":       ts,
+    }
+
+
+@app.post("/v1/energy/govern", tags=["Industry Vertical Governance"])
+async def energy_govern(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Energy AI Governance — governs AI agents managing power grids,
+    renewable dispatch, energy trading, and consumption optimisation.
+    Critical infrastructure — highest governance standards apply.
+    """
+    require_api_key(x_api_key, authorization)
+    ts = datetime.now(timezone.utc).isoformat()
+
+    action         = req.get("action","")
+    grid_control   = req.get("grid_control", False)
+    mw_affected    = req.get("megawatts_affected", 0)
+    trading_value  = req.get("trading_value", 0.0)
+    critical_infra = req.get("critical_infrastructure", False)
+    human_present  = req.get("human_present", True)
+
+    reasons    = []
+    conditions = []
+
+    if grid_control and mw_affected >= 100 and not human_present:
+        reasons.append(f"BLOCK: Grid control affecting {mw_affected}MW requires human operator oversight")
+    if critical_infra and not human_present:
+        reasons.append("BLOCK: Critical infrastructure AI actions require human oversight (EU AI Act Annex III §2)")
+    if trading_value >= 1000000 and not req.get("trading_limit_verified", False):
+        reasons.append(f"BLOCK: Energy trade ${trading_value:,.0f} exceeds autonomous trading authority")
+    if action == "curtailment" and mw_affected >= 50:
+        conditions.append(f"Curtailment of {mw_affected}MW — notify grid operator and affected parties")
+
+    ruling = "DENY" if reasons else "ESCALATE" if (grid_control and mw_affected >= 50) else "ALLOW"
+
+    seal = {"action": action, "mw_affected": mw_affected, "ruling": ruling, "timestamp": ts}
+    return {
+        "schema":          "VGS-ENERGY-v1",
+        "action":          action,
+        "mw_affected":     mw_affected,
+        "trading_value":   trading_value,
+        "grid_control":    grid_control,
+        "critical_infra":  critical_infra,
+        "ruling":          ruling,
+        "reasons":         reasons,
+        "conditions":      conditions,
+        "regulatory_refs": ["NERC standards (US)", "NERC Nigeria grid code", "EU AI Act Annex III §2 critical infrastructure"],
+        "terrex_link":     "Physical energy impact tracked at GET /v1/resource/energy-score",
+        "governance_signature": sign_governance_payload(seal),
+        "offline_verifiable": True,
+        "timestamp":       ts,
+    }
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=int(os.environ.get("PORT", 8000)), reload=False)
