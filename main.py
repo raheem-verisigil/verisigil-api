@@ -68602,6 +68602,163 @@ async def verify_conformance(
     }
 
 
+
+# ── VERIFIED BOUNDARY STATEMENT — THE MOST IMPORTANT PAGE ───
+# Expert consensus: "This may become the most important page
+# in the whole specification. It should explicitly state what
+# is verified and what is not. This alone gives VeriSigilAI
+# tremendous credibility because it tells reviewers exactly
+# where the guarantees stop."
+# ─────────────────────────────────────────────────────────────
+
+@app.get("/v1/verified-boundary", tags=["Provable Execution Integrity"])
+async def verified_boundary():
+    """
+    THE VERIFIED BOUNDARY STATEMENT.
+
+    No authentication required. This is the first document
+    any security reviewer, enterprise buyer, or technical
+    critic should read.
+
+    It states precisely what VeriSigil has verified and what
+    it has not. Publishing both halves equally is what makes
+    the 'Verified' half credible.
+
+    The expert said: "This page alone gives VeriSigilAI
+    tremendous credibility because it tells reviewers exactly
+    where the guarantees stop."
+
+    Terry's style of criticism applies to systems that overclaim.
+    A system that publishes its own honest limits — prominently,
+    not buried — is a different category of system.
+    """
+    return {
+        "schema":  "VGS-VERIFIED-BOUNDARY-v1",
+        "title":   "VeriSigil Verified Boundary Statement",
+        "version": "2.0",
+        "date":    "2026-08-02",
+        "status":  "AUTHORITATIVE — this is the canonical scope statement for all VeriSigil claims",
+
+        "VERIFIED": {
+            "description": "These claims are independently verifiable. Each has a specific endpoint, test, or artifact behind it. Any third party can check these without trusting VeriSigil.",
+            "items": {
+                "decision_correctness": {
+                    "claim":   "The stated policy function was evaluated on the stated inputs and produced this output",
+                    "scope":   "Deterministic rule-based policy components ONLY — not ML/LLM reasoning paths",
+                    "verify":  "POST /v1/proof/correctness — recompute trace_hash from published inputs and policy",
+                    "status":  "VERIFIED — for deterministic sub-decisions",
+                },
+                "capability_authenticity": {
+                    "claim":   "The Authorization Object is genuine, single-use, and was issued by VeriSigil",
+                    "scope":   "Signature verification over AO fields",
+                    "verify":  "GET /v1/proof/signing-diagnostic — offline Ed25519 verification",
+                    "status":  "VERIFIED — CLARA 25/25 confirmed",
+                },
+                "state_freshness": {
+                    "claim":   "The AO was bound to state at authorization time; state change invalidates it",
+                    "scope":   "State fields declared at commit time — only those fields, nothing else",
+                    "verify":  "POST /v1/state/verify — submit changed state, receive STATE_CHANGED rejection",
+                    "status":  "VERIFIED — demonstrated in conformance vector CV-005",
+                },
+                "execution_binding": {
+                    "claim":   "The actuator cannot execute without presenting a valid, unconsumed AO",
+                    "scope":   "The specific actuator path where AO verification is integrated",
+                    "verify":  "POST /v1/verify/bypass-test — attempt bypass, receive HALT",
+                    "status":  "VERIFIED — structurally enforced, not policy-checked",
+                },
+                "replay_protection": {
+                    "claim":   "A consumed AO cannot be reused — replay attacks return ALREADY_CONSUMED",
+                    "scope":   "All AOs in the nonce ledger",
+                    "verify":  "POST /v1/verify/replay-test — attempt replay, receive ALREADY_CONSUMED",
+                    "status":  "VERIFIED",
+                },
+                "payload_continuity": {
+                    "claim":   "The exact authorized payload reached the actuator unmodified",
+                    "scope":   "Pipelines where POST /v1/continuity/hop is called at each hop",
+                    "verify":  "POST /v1/continuity/hop with modified payload — hash mismatch detected",
+                    "status":  "VERIFIED — hop-by-hop hash chain",
+                },
+                "independent_verification": {
+                    "claim":   "Any third party can verify all of the above without trusting VeriSigil",
+                    "scope":   "Using only PyNaCl, the published public key, and standard JSON operations",
+                    "verify":  "GET /v1/verify/kit — complete standalone verification kit",
+                    "status":  "VERIFIED — no cooperation from VeriSigil required",
+                },
+                "receipt_integrity": {
+                    "claim":   "Governance receipts are tamper-evident and independently verifiable",
+                    "scope":   "All intercept receipts since 30 Jul 2026 (stable key date)",
+                    "verify":  "GET /v1/proof/signing-diagnostic — public key + worked example",
+                    "status":  "VERIFIED — CLARA 25/25 offline verification",
+                },
+            },
+        },
+
+        "NOT_VERIFIED": {
+            "description": "These are not claimed. Any external review that finds VeriSigil implying otherwise should be treated as an error and reported to raheem@verisigilai.com.",
+            "items": {
+                "policy_correctness": {
+                    "not_claimed": "That the policy itself was the ethically, legally, or commercially correct one to apply",
+                    "why":         "A well-enforced bad policy is still a bad policy. VeriSigil enforces; it does not evaluate wisdom.",
+                },
+                "input_truthfulness": {
+                    "not_claimed": "That the inputs to the decision were true, complete, or unbiased",
+                    "why":         "The predicate truth gap. Partially addressed by POST /v1/reality/anchor but not fully closed without external source integration.",
+                },
+                "ml_component_faithfulness": {
+                    "not_claimed": "That any ML/LLM component in the reasoning path executed faithfully",
+                    "why":         "Faithfully arithmetizing a neural network's forward pass into a provable circuit is at the edge of current practicality.",
+                },
+                "universal_bypass_prevention": {
+                    "not_claimed": "That no bypass path exists under any threat model",
+                    "why":         "Hardware can be compromised, keys can be stolen, deployed code can diverge from audited version. Structural non-bypassability means no software-level bypass in the audited implementation.",
+                },
+                "consequence_coverage": {
+                    "not_claimed": "That consequence verification applies to all action types",
+                    "why":         "Depends on the downstream system being independently queryable. GET /v1/platform/limits states per-action applicability.",
+                },
+                "code_matches_spec": {
+                    "not_claimed": "That the deployed code perfectly matches any formal specification",
+                    "why":         "A separate code audit is required. Not yet conducted. This is an honest gap.",
+                },
+                "formal_theorem": {
+                    "not_claimed": "Any result described as a 'theorem' without a machine-checked proof (Isabelle/HOL, Coq, Lean, TLA+ model checker)",
+                    "why":         "A beautifully written PDF is not a theorem. VeriSigil will not use 'Theorem' until a proof assistant returns QED.",
+                },
+                "production_maturity": {
+                    "not_claimed": "Enterprise production deployment at scale",
+                    "why":         "The CLARA validation program is an independent autonomous agent validation — not an enterprise production deployment. These are different standards.",
+                },
+                "ethical_legitimacy": {
+                    "not_claimed": "That governed actions are ethically or morally correct",
+                    "why":         "VeriSigil governs execution against declared policies. Ethical evaluation of those policies is a human responsibility.",
+                },
+            },
+        },
+
+        "PENDING": {
+            "description": "These are real gaps being worked on. Progress will be published here as it occurs.",
+            "items": {
+                "tla_plus_model": "TLA+ model for AO state machine — in development. Will be published with model checker output, not just specification.",
+                "code_audit":     "Independent code audit mapping implementation to specification — not yet conducted.",
+                "real_second_signer": "Threshold signatures require a genuinely independently-operated second signer. Currently VeriSigil holds both keys. This is an honest gap.",
+                "production_sink":    "Governed sink integration — Phase 4. The CLARA downstream system was not a production consequence-bearing system.",
+                "danger_predicate":   "Published danger predicate for validation program — Alkama's assessment was independent but not a pre-published rubric.",
+                "soc2":              "SOC 2 Type I — not yet started. Required for enterprise procurement at most large organisations.",
+            },
+        },
+
+        "public_key": base64.b64encode(bytes(_VERIFY_KEY)).decode(),
+        "limits_at":        "GET /v1/platform/limits",
+        "boundary_at":      "GET /v1/platform/boundary",
+        "verification_kit": "GET /v1/verify/kit",
+        "conformance":      "GET /v1/verify/conformance",
+        "trust_center":     "https://verisigilai.com/trust.html",
+        "validation_page":  "https://verisigilai.com/validation.html",
+        "contact":          "raheem@verisigilai.com — report any overclaim found",
+        "timestamp":        datetime.now(timezone.utc).isoformat(),
+    }
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=int(os.environ.get("PORT", 8000)), reload=False)
