@@ -68614,7 +68614,7 @@ async def verify_kit():
             "row_6_model_matches_claim": {
                 "what_it_proves": "The stated invariant is what's actually enforced",
                 "method": "Review TLA+ model against stated invariant — pending Phase 7 build",
-                "status": "PENDING — TLA+ formal specification in development",
+                "status": "PUBLISHED — ActuatorSpec.tla in repository. NoBypass + NoReplay invariants. Run with TLC to verify.",
             },
             "row_7_spec_matches_implementation": {
                 "what_it_proves": "Deployed system does what the model says",
@@ -68625,7 +68625,7 @@ async def verify_kit():
         "sandbox_key":  "vs-sandbox-demo-2026b",
         "base_url":     "https://verisigil-api-production.up.railway.app",
         "what_is_verified_now":  ["Row 1 — Signature validity (CLARA 25/25 confirmed)", "Row 2 — Custody bypass (structurally prevented by AO architecture)", "Row 4 — Payload continuity (hop-by-hop hash verification)"],
-        "what_is_pending":       ["Row 3 — Threshold (second signer must be genuinely independent)", "Row 5 — Reality (requires downstream system cooperation)", "Row 6 — TLA+ model (in development)", "Row 7 — Code audit (not yet conducted)"],
+        "what_is_pending":       ["Row 3 — Threshold (second signer must be genuinely independent)", "Row 5 — Reality (requires downstream system cooperation)", "Row 6 — TLA+ model: ActuatorSpec.tla published (NoBypass + NoReplay). Gap: §2, §5-7 primitives not yet formally modeled.", "Row 7 — Code audit (not yet conducted)"],
         "timestamp":   datetime.now(timezone.utc).isoformat(),
     }
 
@@ -68967,7 +68967,7 @@ async def verified_boundary():
         "PENDING": {
             "description": "These are real gaps being worked on. Progress will be published here as it occurs.",
             "items": {
-                "tla_plus_model": "TLA+ model for AO state machine — in development. Will be published with model checker output, not just specification.",
+                "tla_plus_model": "ActuatorSpec.tla published — NoBypass and NoReplay invariants machine-checkable with TLC. See ActuatorSpec.md in repository. Gap: primitives §2, §5-7 not yet formally modeled, only empirically tested.",
                 "code_audit":     "Independent code audit mapping implementation to specification — not yet conducted.",
                 "real_second_signer": "Threshold signatures require a genuinely independently-operated second signer. Currently VeriSigil holds both keys. This is an honest gap.",
                 "production_sink":    "Governed sink integration — Phase 4. The CLARA downstream system was not a production consequence-bearing system.",
