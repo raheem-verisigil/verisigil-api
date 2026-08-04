@@ -67361,12 +67361,202 @@ async def energy_govern(
 # ============================================================
 
 _AO_LEDGER:         dict = {}  # ao_id -> Authorization Object
-_NONCE_LEDGER:      set  = set()  # consumed nonces — prevents replay
 _STATE_COMMITMENTS: dict = {}  # commitment_id -> state commitment
 _PAYLOAD_HOPS:      dict = {}  # pipeline_id -> hop chain
 _THRESHOLD_SESSIONS:dict = {}  # session_id -> threshold signing session
 _REALITY_CHECKS:    dict = {}  # execution_id -> closed-loop confirmation
 _CORRECTNESS_PROOFS:dict = {}  # proof_id -> decision correctness record
+
+# ── PERSISTENT NONCE LEDGER (SQLite-backed) ──────────────────
+# Replaces the in-memory set. The original _NONCE_LEDGER set()
+# was lost on every Railway restart — a restart attack made
+# replay prevention fail silently. This uses SQLite with a
+# UNIQUE constraint so consumption is atomic even under
+# concurrent requests racing to replay the same AO.
+# Source: nonce_ledger.py from consequence-custody-spec package.
+
+import sqlite3 as _sqlite3
+from contextlib import contextmanager as _contextmanager
+
+class _NonceLedger:
+    """
+    Persistent, crash-safe nonce ledger.
+    Two concurrent execution attempts for the same nonce cannot
+    both succeed — the database UNIQUE constraint, not application
+    logic, is what prevents the race. WAL mode keeps concurrent
+    reads fast while writes are in progress.
+    """
+    def __init__(self, db_path: str = "/tmp/verisigil_nonces.db"):
+        self.db_path = db_path
+        self._init_schema()
+
+    def _init_schema(self):
+        with self._conn() as conn:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS consumed_nonces (
+                    nonce      TEXT PRIMARY KEY,
+                    ao_id      TEXT NOT NULL,
+                    action_type TEXT,
+                    consumed_at TEXT NOT NULL
+                )
+            """)
+
+    @_contextmanager
+    def _conn(self):
+        conn = _sqlite3.connect(self.db_path, timeout=5.0)
+        conn.execute("PRAGMA journal_mode=WAL")
+        try:
+            yield conn
+            conn.commit()
+        finally:
+            conn.close()
+
+    def try_consume(self, nonce: str, ao_id: str, action_type: str = "") -> bool:
+        """
+        Atomically consume a nonce. Returns True on first use, False on replay.
+        The UNIQUE constraint on nonce makes this safe under concurrency —
+        two simultaneous replay attempts cannot both return True.
+        """
+        try:
+            with self._conn() as conn:
+                conn.execute(
+                    "INSERT INTO consumed_nonces (nonce, ao_id, action_type, consumed_at) VALUES (?, ?, ?, ?)",
+                    (nonce, ao_id, action_type, datetime.now(timezone.utc).isoformat())
+                )
+            return True
+        except _sqlite3.IntegrityError:
+            return False  # nonce already present → replay detected
+
+    def is_consumed(self, nonce: str) -> bool:
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT 1 FROM consumed_nonces WHERE nonce = ?", (nonce,)
+            ).fetchone()
+            return row is not None
+
+    def count(self) -> int:
+        with self._conn() as conn:
+            return conn.execute("SELECT COUNT(*) FROM consumed_nonces").fetchone()[0]
+
+    def recent(self, limit: int = 20) -> list:
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT nonce, ao_id, action_type, consumed_at FROM consumed_nonces ORDER BY consumed_at DESC LIMIT ?",
+                (limit,)
+            ).fetchall()
+            return [{"nonce": r[0], "ao_id": r[1], "action_type": r[2], "consumed_at": r[3]} for r in rows]
+
+_NONCE_LEDGER = _NonceLedger()
+
+# ── POLICY REGISTRY (Decision Correctness) ───────────────────
+# Replaces the simple hash approach with source-code-committed
+# policy functions. Any auditor can re-run the exact function
+# on the recorded inputs and confirm the output matches —
+# without trusting VeriSigil. No ZK required: nothing is hidden
+# from auditors. Source: decision_correctness.py from package.
+
+import inspect as _inspect
+
+class _PolicyRegistry:
+    """
+    Governance-side registry of deterministic policy functions.
+    Every registered function is hash-committed at registration
+    time via its source code. If the function changes even one
+    character, the hash changes — a DecisionProof can never be
+    silently re-validated against a different version of the
+    logic than the one that actually ran.
+    """
+    def __init__(self):
+        self._policies: dict = {}
+
+    def register(self, name: str, version: str, fn) -> str:
+        source      = _inspect.getsource(fn)
+        source_hash = hashlib.sha256(source.encode()).hexdigest()
+        self._policies[name] = (fn, version, source_hash, source)
+        return source_hash
+
+    def evaluate(self, name: str, inputs: dict) -> dict:
+        if name not in self._policies:
+            raise ValueError(f"Policy '{name}' not registered")
+        fn, version, source_hash, source = self._policies[name]
+        output = fn(**inputs)
+        return {
+            "policy_name":        name,
+            "policy_version":     version,
+            "policy_source_hash": source_hash,
+            "inputs":             inputs,
+            "output":             output,
+        }
+
+    def independent_verify(self, proof: dict, fn) -> tuple:
+        """
+        What an independent auditor does: given the proof and a
+        separately-obtained copy of the policy source (e.g. from
+        a public repo), confirm the hash matches AND that re-running
+        the function on the recorded inputs reproduces the output.
+        No cryptographic proof system required.
+        """
+        actual_hash = hashlib.sha256(_inspect.getsource(fn).encode()).hexdigest()
+        if actual_hash != proof.get("policy_source_hash"):
+            return False, "SOURCE_HASH_MISMATCH — verifier's policy copy differs from what ran"
+        recomputed = fn(**proof.get("inputs", {}))
+        if recomputed != proof.get("output"):
+            return False, f"OUTPUT_MISMATCH — recomputed {recomputed!r}, proof claims {proof.get('output')!r}"
+        return True, "VERIFIED — independently recomputed and matches"
+
+    def list_policies(self) -> list:
+        return [
+            {"name": name, "version": v, "source_hash": sh}
+            for name, (fn, v, sh, src) in self._policies.items()
+        ]
+
+_POLICY_REGISTRY = _PolicyRegistry()
+
+# Register VeriSigil's core consequence tier classification policy
+# This is the deterministic sub-decision that decision correctness
+# applies to — NOT the full reasoning chain including any ML components.
+def _classify_consequence_tier(amount: float, account_risk_score: float,
+                                irreversible: bool, autonomous: bool) -> str:
+    """
+    VeriSigil consequence tier classification v1.0.
+    Deterministic, auditable, independently recomputable.
+    """
+    if (amount >= 100000 or account_risk_score >= 0.8) and autonomous:
+        return "EMERGENCY"
+    if amount >= 100000 or account_risk_score >= 0.8:
+        return "CRITICAL"
+    if amount >= 10000 or account_risk_score >= 0.5:
+        return "HIGH"
+    if amount >= 1000 or irreversible:
+        return "OPERATIONAL"
+    return "ADVISORY"
+
+_POLICY_REGISTRY.register(
+    "consequence_tier_classification",
+    "1.0",
+    _classify_consequence_tier
+)
+
+# TTL by consequence tier — EMERGENCY actions have 5-second windows
+# A stolen EMERGENCY AO expires before it can be replayed elsewhere
+TIER_TTL_SECONDS = {
+    "ADVISORY":    300,
+    "OPERATIONAL":  60,
+    "HIGH":         30,
+    "CRITICAL":     15,
+    "EMERGENCY":     5,
+}
+
+# k-of-n co-signing requirements per tier
+# CRITICAL and EMERGENCY require 2 independent signers —
+# no single party including VeriSigil can unilaterally authorize
+TIER_REQUIRED_SIGNERS = {
+    "ADVISORY":    1,
+    "OPERATIONAL": 1,
+    "HIGH":        1,
+    "CRITICAL":    2,
+    "EMERGENCY":   2,
+}
 
 
 # ── GAP 1: DECISION CORRECTNESS ─────────────────────────────
@@ -67410,12 +67600,26 @@ async def proof_correctness(
     output           = req.get("output","")
     deterministic    = req.get("is_deterministic_policy", True)
     has_ml_component = req.get("has_ml_component", False)
+    use_registry     = req.get("use_policy_registry", False)
+    registered_policy= req.get("registered_policy_name","")
 
-    # Recompute what we can verify
+    # If using the PolicyRegistry — evaluate and commit to source code hash
+    registry_result  = None
+    source_hash      = None
+    if use_registry and registered_policy:
+        try:
+            registry_result = _POLICY_REGISTRY.evaluate(registered_policy, inputs)
+            output           = registry_result["output"]
+            source_hash      = registry_result["policy_source_hash"]
+        except ValueError as e:
+            registry_result = {"error": str(e)}
+
+    # Compute trace hash — inputs + policy + output
     inputs_hash = hashlib.sha256(
         json.dumps(inputs, sort_keys=True, separators=(",",":")).encode()
     ).hexdigest()
-    policy_hash = hashlib.sha256(f"{policy_id}:{policy_version}".encode()).hexdigest()
+    # Policy hash: source_hash if available (stronger), else policy_id:version
+    policy_hash = source_hash or hashlib.sha256(f"{policy_id}:{policy_version}".encode()).hexdigest()
     output_hash = hashlib.sha256(str(output).encode()).hexdigest()
     trace_hash  = hashlib.sha256(f"{inputs_hash}:{policy_hash}:{output_hash}".encode()).hexdigest()
 
@@ -67423,38 +67627,50 @@ async def proof_correctness(
     scope_statements = []
     if deterministic:
         scope_statements.append("COVERED: deterministic rule-based policy evaluation")
+    if source_hash:
+        scope_statements.append(f"COVERED: policy source code committed at hash {source_hash[:16]}... — any auditor can recompute")
     if has_ml_component:
         scope_statements.append("NOT COVERED: ML/LLM component — faithful execution of model does not equal correct judgment")
     scope_statements.append("NOT COVERED: whether policy was correct to apply")
     scope_statements.append("NOT COVERED: whether inputs were true or complete")
+    scope_statements.append("NOT COVERED: ZK not used — nothing is hidden from auditors, so ZK would add complexity without benefit")
 
     proof = {
-        "schema":          "VGS-PEI-CORRECTNESS-v1",
-        "proof_id":        proof_id,
-        "policy_id":       policy_id,
-        "policy_version":  policy_version,
-        "inputs_hash":     inputs_hash,
-        "policy_hash":     policy_hash,
-        "output":          output,
-        "output_hash":     output_hash,
-        "trace_hash":      trace_hash,
-        "deterministic":   deterministic,
-        "has_ml_component":has_ml_component,
-        "scope":           scope_statements,
-        "proven_at":       ts,
+        "schema":           "VGS-PEI-CORRECTNESS-v2",
+        "proof_id":         proof_id,
+        "policy_id":        policy_id,
+        "policy_version":   policy_version,
+        "policy_source_hash": source_hash,
+        "inputs_hash":      inputs_hash,
+        "policy_hash":      policy_hash,
+        "output":           output,
+        "output_hash":      output_hash,
+        "trace_hash":       trace_hash,
+        "deterministic":    deterministic,
+        "has_ml_component": has_ml_component,
+        "registry_result":  registry_result,
+        "scope":            scope_statements,
+        "proven_at":        ts,
     }
 
     seal = {
         "proof_id":    proof_id,
         "trace_hash":  trace_hash,
         "output":      output,
-        "deterministic": deterministic,
+        "source_hash": source_hash,
         "timestamp":   ts,
     }
     proof["governance_signature"] = sign_governance_payload(seal)
     proof["offline_verifiable"]   = True
-    proof["how_to_verify"]        = "Recompute inputs_hash from the stated inputs JSON, policy_hash from policy_id+version, output_hash from output, then verify trace_hash = sha256(inputs_hash:policy_hash:output_hash). Verify governance_signature with public key at GET /v1/proof/signing-diagnostic"
-
+    proof["how_to_verify"]        = (
+        "Method A (with PolicyRegistry): obtain the policy source from the public repo, "
+        "verify sha256(source) matches policy_source_hash, re-run the function on inputs, "
+        "confirm output matches. No cryptographic tooling needed. "
+        "Method B (trace hash): recompute inputs_hash from inputs JSON, "
+        "policy_hash from source or policy_id:version, output_hash from output, "
+        "verify trace_hash = sha256(inputs_hash:policy_hash:output_hash). "
+        "Verify governance_signature with public key at GET /v1/proof/signing-diagnostic"
+    )
     _CORRECTNESS_PROOFS[proof_id] = proof
     return {
         **proof,
@@ -67544,9 +67760,12 @@ async def ao_issue(
     nonce = hashlib.sha256((ao_id + ts + str(id(ao_id))).encode()).hexdigest()[:32]
 
     from datetime import timedelta
-    ttl_seconds  = req.get("ttl_seconds", 300)
-    expiry       = (datetime.now(timezone.utc) + timedelta(seconds=ttl_seconds)).isoformat()
     consequence  = req.get("consequence","OPERATIONAL")
+    # TTL scaled by consequence tier — EMERGENCY AOs expire in 5 seconds
+    # A stolen EMERGENCY AO cannot be replayed in a different context
+    default_ttl  = TIER_TTL_SECONDS.get(consequence, 60)
+    ttl_seconds  = req.get("ttl_seconds", default_ttl)
+    expiry       = (datetime.now(timezone.utc) + timedelta(seconds=ttl_seconds)).isoformat()
     agent_id     = req.get("agent_id","")
     action_type  = req.get("action_type","")
     actuator_id  = req.get("actuator_id","")
@@ -67690,11 +67909,22 @@ async def ao_verify(
             "timestamp": ts,
         }
 
-    # ALL CHECKS PASSED — consume the AO
+    # ALL CHECKS PASSED — atomically consume the AO via SQLite ledger
+    # try_consume uses a UNIQUE constraint — safe under concurrent requests
+    consumed_now = _NONCE_LEDGER.try_consume(nonce, ao_id, ao.get("action_type",""))
+    if not consumed_now:
+        # Race condition caught by database — another request consumed this nonce first
+        return {
+            "result":  "ALREADY_CONSUMED",
+            "ruling":  "HALT — this AO has already been used (race condition caught by database). Replay attack prevented.",
+            "ao_id":   ao_id,
+            "consumed_at": ao.get("consumed_at"),
+            "timestamp": ts,
+        }
+
     ao["consumed"]    = True
     ao["consumed_at"] = ts
     ao["status"]      = "CONSUMED"
-    _NONCE_LEDGER.add(nonce)
 
     seal = {"ao_id": ao_id, "result": "VALID_AND_UNCONSUMED", "consumed_at": ts}
     return {
@@ -67780,12 +68010,14 @@ async def ao_nonce_ledger(
     require_api_key(x_api_key, authorization)
     return {
         "schema":          "VGS-NONCE-LEDGER-v1",
-        "consumed_nonces": len(_NONCE_LEDGER),
+        "consumed_nonces": _NONCE_LEDGER.count(),
+        "ledger_type":     "SQLite-persistent — survives process restarts, atomic under concurrency",
         "ao_total":        len(_AO_LEDGER),
         "ao_valid":        sum(1 for ao in _AO_LEDGER.values() if not ao.get("consumed") and datetime.now(timezone.utc).isoformat() < ao.get("expires_at","")),
         "ao_consumed":     sum(1 for ao in _AO_LEDGER.values() if ao.get("consumed")),
         "ao_expired":      sum(1 for ao in _AO_LEDGER.values() if datetime.now(timezone.utc).isoformat() > ao.get("expires_at","") and not ao.get("consumed")),
-        "replay_attack_prevention": "Any nonce appearing in consumed_nonces will be rejected. Replay attacks are structurally prevented.",
+        "recent_consumed": _NONCE_LEDGER.recent(10),
+        "replay_attack_prevention": "SQLite UNIQUE constraint prevents replay even under concurrent requests and across process restarts. A restart attack no longer resets the ledger.",
         "timestamp":       datetime.now(timezone.utc).isoformat(),
     }
 
@@ -68122,13 +68354,23 @@ async def continuity_hop(
     record["hops"].append(hop)
     record["hop_count"] += 1
 
+    # Pipeline halts at first tampered hop — does NOT forward to next hop.
+    # Source: execution_continuity.py Pipeline class — any substitution
+    # attempt is caught at the FIRST hop after tampering, not silently at end.
+    if not match:
+        record["halted"]    = True
+        record["halted_at"] = ts
+        record["halted_hop"]= hop["hop_index"]
+
     seal = {"pipeline_id": pipeline_id, "hop": record["hop_count"], "hash_match": match, "timestamp": ts}
     return {
         **hop,
         "pipeline_id":    pipeline_id,
         "total_hops":     record["hop_count"],
+        "pipeline_halted":not match,
         "governance_signature": sign_governance_payload(seal),
-        "ruling":         "CONTINUE" if match else "HALT — payload tampered at this hop. Do not execute.",
+        "ruling":         "CONTINUE" if match else "HALT — payload tampered at this hop. Pipeline stops here. Do not forward to next hop. Do not execute.",
+        "continuity_note":"Each hop independently re-verifies the payload hash. No hop trusts that an earlier hop already checked.",
         "timestamp":      ts,
     }
 
@@ -68743,6 +68985,112 @@ async def verified_boundary():
         "validation_page":  "https://verisigilai.com/validation.html",
         "contact":          "raheem@verisigilai.com — report any overclaim found",
         "timestamp":        datetime.now(timezone.utc).isoformat(),
+    }
+
+
+
+# ── POLICY REGISTRY ENDPOINTS ────────────────────────────────
+@app.get("/v1/proof/policy-registry", tags=["Provable Execution Integrity"])
+async def proof_policy_registry():
+    """
+    Public policy registry — lists all registered deterministic
+    policy functions with their source code hashes.
+
+    Any auditor can independently verify that the hash of a
+    separately-obtained copy of the policy source matches what
+    is registered here. No ZK required — nothing is hidden from
+    auditors. This is the complete 'verifiable computation' claim
+    for VeriSigil's deterministic policy sub-decisions.
+
+    No authentication required — policy hashes are public.
+    """
+    return {
+        "schema":         "VGS-POLICY-REGISTRY-v1",
+        "title":          "VeriSigil Policy Registry",
+        "description":    "Hash-committed, versioned, independently recomputable policy functions",
+        "policies":       _POLICY_REGISTRY.list_policies(),
+        "how_to_verify":  (
+            "1. Obtain the policy source code from the public repository. "
+            "2. Compute sha256(source). "
+            "3. Confirm it matches policy_source_hash. "
+            "4. Re-run the function on any recorded inputs. "
+            "5. Confirm the output matches. "
+            "No cryptographic tooling needed — ordinary Python."
+        ),
+        "what_this_proves": "The exact code that evaluated each governance decision is committed. If the function changes, the hash changes.",
+        "what_this_does_not_prove": [
+            "That the policy was the correct one to apply",
+            "That the inputs were true or complete",
+            "Anything about ML/LLM reasoning components",
+        ],
+        "public_key":     base64.b64encode(bytes(_VERIFY_KEY)).decode(),
+        "timestamp":      datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@app.post("/v1/proof/policy-evaluate", tags=["Provable Execution Integrity"])
+async def proof_policy_evaluate(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Evaluate a registered policy and return a DecisionProof.
+    The proof includes the policy source hash, inputs, and output —
+    everything an independent auditor needs to recompute and verify.
+    """
+    require_api_key(x_api_key, authorization)
+    ts          = datetime.now(timezone.utc).isoformat()
+    policy_name = req.get("policy_name","")
+    inputs      = req.get("inputs",{})
+
+    try:
+        result = _POLICY_REGISTRY.evaluate(policy_name, inputs)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+    seal = {
+        "policy_name":        result["policy_name"],
+        "policy_source_hash": result["policy_source_hash"],
+        "output":             result["output"],
+        "timestamp":          ts,
+    }
+    result["governance_signature"] = sign_governance_payload(seal)
+    result["offline_verifiable"]   = True
+    result["timestamp"]            = ts
+    result["schema"]               = "VGS-DECISION-PROOF-v1"
+
+    return result
+
+
+@app.get("/v1/proof/tier-requirements", tags=["Provable Execution Integrity"])
+async def proof_tier_requirements():
+    """
+    Published tier requirements — TTL and co-signer count per consequence tier.
+    Public commitment to how VeriSigil's AO architecture behaves by tier.
+    No authentication required.
+    """
+    return {
+        "schema":  "VGS-TIER-REQUIREMENTS-v1",
+        "title":   "AO Tier Requirements",
+        "ttl_seconds": TIER_TTL_SECONDS,
+        "required_cosigners": TIER_REQUIRED_SIGNERS,
+        "tier_notes": {
+            "ADVISORY":    "300s TTL, 1 signer. Standard AI actions with minimal consequence.",
+            "OPERATIONAL": "60s TTL, 1 signer. Normal operational AI actions.",
+            "HIGH":        "30s TTL, 1 signer. Elevated consequence — enhanced monitoring.",
+            "CRITICAL":    "15s TTL, 2 signers required. High-consequence — no single party can authorize alone.",
+            "EMERGENCY":   "5s TTL, 2 signers required. A stolen EMERGENCY AO expires in 5 seconds.",
+        },
+        "cosigner_note": (
+            "k-of-n co-signing: CRITICAL/EMERGENCY require 2 independently-operated signers. "
+            "This is not FROST/Shamir threshold cryptography — it is simpler k-of-n co-signing. "
+            "Each party produces a full signature; k must verify. "
+            "In production the second signer must be genuinely separately operated — "
+            "not a second key VeriSigil controls."
+        ),
+        "honest_gap": "Current deployment: second signer is not yet operated by an independent external party. This is a stated gap in GET /v1/verified-boundary.",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
 
