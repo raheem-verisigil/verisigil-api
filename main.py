@@ -68321,22 +68321,11 @@ async def consequence_reality(
 # ── INDEPENDENT VERIFICATION KIT ─────────────────────────────
 
 @app.get("/v1/verify/kit", tags=["Independent Verification Kit"])
-async def verify_kit(
-    x_api_key: Optional[str] = Header(None),
-    authorization: Optional[str] = Header(None),
-):
+async def verify_kit():
     """
-    Independent Verification Kit — everything a security engineer
-    needs to independently verify VeriSigil's claims without
-    any cooperation from VeriSigil beyond the endpoint being reachable.
-
-    From enterprise-credibility-roadmap.md §3:
-    "a standalone tool that a prospective customer's own security
-    engineer can download and run... This is the difference between
-    'trust our claims' and 'here's a tool, go find out for yourself.'"
-
-    This is the one artifact that directly converts to a sales
-    conversation with a CISO or security review team.
+    Independent Verification Kit — NO AUTHENTICATION REQUIRED.
+    Everything a security engineer needs to independently verify
+    VeriSigil's claims without any cooperation from VeriSigil.
     """
     require_api_key(x_api_key, authorization)
     return {
@@ -68412,7 +68401,6 @@ async def verify_bypass_test(
     This is what Terry asked for: a test that proves the route
     is non-bypassable — not a claim, an independently runnable test.
     """
-    require_api_key(x_api_key, authorization)
     ts          = datetime.now(timezone.utc).isoformat()
     test_id     = f"BPT-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}"
     test_type   = req.get("test_type","no_ao")
@@ -68541,7 +68529,6 @@ async def verify_conformance(
     VeriSigil behaves as claimed. If the outputs differ,
     the system has deviated from specification.
     """
-    require_api_key(x_api_key, authorization)
     return {
         "schema":  "VGS-CONFORMANCE-v1",
         "title":   "VeriSigil Conformance Test Vectors",
