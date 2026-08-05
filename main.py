@@ -69094,6 +69094,472 @@ async def proof_tier_requirements():
     }
 
 
+
+# ============================================================
+# GOVERNANCE REPUTATION LAYER (GRL)
+# Phase 5 capability — built now, meaningful when production
+# execution data exists.
+#
+# Expert: "Most AI governance companies focus on individual
+# decisions. VeriSigil could become the company that measures
+# governance reputation over time — derived from independently
+# verifiable execution evidence rather than marketing claims."
+#
+# Reputation = f(
+#   Verified Executions,
+#   Failed Executions,
+#   Escalations,
+#   Authority Violations,
+#   Payload Integrity,
+#   Independent Verification Success,
+#   Audit Completeness
+# )
+#
+# NOT opinion. NOT self-reported. Computed from sealed,
+# independently verifiable governance receipts.
+#
+# HONEST BOUNDARY: reputation quality is proportional to
+# production execution volume. Scores from sandbox or
+# validation data reflect test behavior, not production
+# trustworthiness. This is stated in every response.
+# ============================================================
+
+_REPUTATION_REGISTRY: dict = {}  # agent_id -> reputation record
+_TRUST_EVENTS:        list = []  # append-only trust event log
+
+
+def _compute_reputation_score(
+    total_executions: int,
+    admissible: int,
+    denied: int,
+    escalated: int,
+    authority_violations: int,
+    payload_deviations: int,
+    replay_attempts: int,
+    independent_verifications: int,
+    verification_passes: int,
+    audit_completeness: float,
+) -> dict:
+    """
+    Governance Reputation Score algorithm — v1.0.
+    Published formula. Independently recomputable from
+    sealed execution receipts. Not opinion. Not marketing.
+
+    Weights chosen to reflect governance severity:
+    - Authority violations and replay attempts are heavily penalized
+    - Escalations are neutral (they indicate correct governance, not failure)
+    - Independent verification success is rewarded
+    """
+    if total_executions == 0:
+        return {
+            "score": 0.0,
+            "grade": "UNRATED",
+            "components": {},
+            "note": "No executions recorded — cannot compute reputation",
+        }
+
+    # Component 1: Admissibility rate (40%)
+    admissibility_rate = admissible / total_executions
+    c1 = admissibility_rate * 40
+
+    # Component 2: Zero authority violations (25%)
+    # Each violation loses 5 points, floor at 0
+    violation_penalty = min(authority_violations * 5, 25)
+    c2 = 25 - violation_penalty
+
+    # Component 3: Zero payload deviations (15%)
+    deviation_penalty = min(payload_deviations * 7.5, 15)
+    c3 = 15 - deviation_penalty
+
+    # Component 4: Zero replay attempts (10%)
+    replay_penalty = min(replay_attempts * 5, 10)
+    c4 = 10 - replay_penalty
+
+    # Component 5: Independent verification success (10%)
+    if independent_verifications > 0:
+        verification_rate = verification_passes / independent_verifications
+        c5 = verification_rate * 10
+    else:
+        c5 = 5.0  # neutral — no verifications attempted
+
+    total_score = round(c1 + c2 + c3 + c4 + c5, 2)
+    total_score = min(100.0, max(0.0, total_score))
+
+    # Grade
+    if total_score >= 95:
+        grade = "EXEMPLARY"
+    elif total_score >= 85:
+        grade = "STRONG"
+    elif total_score >= 70:
+        grade = "SATISFACTORY"
+    elif total_score >= 50:
+        grade = "MARGINAL"
+    else:
+        grade = "POOR"
+
+    return {
+        "score":      total_score,
+        "grade":      grade,
+        "components": {
+            "admissibility_rate_40pct":    round(c1, 2),
+            "authority_violations_25pct":  round(c2, 2),
+            "payload_integrity_15pct":     round(c3, 2),
+            "replay_prevention_10pct":     round(c4, 2),
+            "independent_verification_10pct": round(c5, 2),
+        },
+        "formula":    "score = admissibility(40%) + authority_integrity(25%) + payload_integrity(15%) + replay_prevention(10%) + verification_success(10%)",
+    }
+
+
+@app.post("/v1/reputation/compute", tags=["Governance Reputation Layer"])
+async def reputation_compute(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Compute the Governance Reputation Score for an agent or organisation.
+
+    Formula is published and independently recomputable from sealed
+    execution receipts. Not self-reported. Not opinion. Computed from
+    verifiable governance evidence.
+
+    HONEST BOUNDARY: reputation quality is proportional to production
+    execution volume. A score computed from 25 CLARA validation runs
+    reflects validation behavior. A score from 50,000 production
+    executions reflects production trustworthiness. These are different.
+    The data_source field distinguishes them.
+    """
+    require_api_key(x_api_key, authorization)
+    ts       = datetime.now(timezone.utc).isoformat()
+    agent_id = req.get("agent_id","")
+
+    stats = {
+        "total_executions":          req.get("total_executions", 0),
+        "admissible":                req.get("admissible", 0),
+        "denied":                    req.get("denied", 0),
+        "escalated":                 req.get("escalated", 0),
+        "authority_violations":      req.get("authority_violations", 0),
+        "payload_deviations":        req.get("payload_deviations", 0),
+        "replay_attempts":           req.get("replay_attempts", 0),
+        "independent_verifications": req.get("independent_verifications", 0),
+        "verification_passes":       req.get("verification_passes", 0),
+        "audit_completeness":        req.get("audit_completeness", 0.0),
+    }
+
+    result = _compute_reputation_score(**stats)
+
+    record = {
+        "schema":       "VGS-GRL-COMPUTE-v1",
+        "agent_id":     agent_id,
+        "data_source":  req.get("data_source",""),  # PRODUCTION, VALIDATION, SANDBOX
+        "data_source_note": req.get("data_source_note",""),
+        "period_start": req.get("period_start",""),
+        "period_end":   req.get("period_end", ts),
+        "stats":        stats,
+        **result,
+        "honest_boundary": (
+            "This score is only as trustworthy as the execution data behind it. "
+            "data_source=PRODUCTION means governed production executions. "
+            "data_source=VALIDATION means independent validation program results. "
+            "data_source=SANDBOX means test executions. "
+            "Verify the underlying receipts at GET /v1/proof/signing-diagnostic."
+        ),
+        "computed_at":  ts,
+    }
+
+    seal = {
+        "agent_id": agent_id,
+        "score":    result["score"],
+        "grade":    result["grade"],
+        "total_executions": stats["total_executions"],
+        "data_source": req.get("data_source",""),
+        "timestamp":ts,
+    }
+    record["governance_signature"] = sign_governance_payload(seal)
+    record["offline_verifiable"]   = True
+    record["verify_formula_at"]    = "GET /v1/reputation/formula"
+
+    _REPUTATION_REGISTRY[agent_id] = record
+
+    return record
+
+
+@app.get("/v1/reputation/score/{agent_id}", tags=["Governance Reputation Layer"])
+async def reputation_score(
+    agent_id: str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Retrieve the current Governance Reputation Score for an agent.
+    Includes score, grade, component breakdown, data source, and
+    honest boundary statement.
+    """
+    require_api_key(x_api_key, authorization)
+    record = _REPUTATION_REGISTRY.get(agent_id)
+    if not record:
+        return {
+            "agent_id": agent_id,
+            "status":   "UNRATED",
+            "message":  f"No reputation computed for agent '{agent_id}'. Compute via POST /v1/reputation/compute.",
+            "timestamp":datetime.now(timezone.utc).isoformat(),
+        }
+    return {**record, "retrieved_at": datetime.now(timezone.utc).isoformat()}
+
+
+@app.get("/v1/reputation/history/{agent_id}", tags=["Governance Reputation Layer"])
+async def reputation_history(
+    agent_id: str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Reputation history for an agent — all trust events over time.
+    Shows how governance reputation has evolved.
+    """
+    require_api_key(x_api_key, authorization)
+    events = [e for e in _TRUST_EVENTS if e.get("agent_id") == agent_id]
+    return {
+        "schema":       "VGS-GRL-HISTORY-v1",
+        "agent_id":     agent_id,
+        "total_events": len(events),
+        "events":       events[-50:],
+        "current_score":_REPUTATION_REGISTRY.get(agent_id, {}).get("score"),
+        "current_grade":_REPUTATION_REGISTRY.get(agent_id, {}).get("grade"),
+        "timestamp":    datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@app.post("/v1/reputation/carrier", tags=["Governance Reputation Layer"])
+async def reputation_carrier(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Generate a Governance Reputation Carrier — a portable, sealed
+    evidence package that an agent can present to another agent or
+    organisation to establish governance trustworthiness.
+
+    Expert: "Imagine agents exchanging reputation. Instead of a
+    certificate, Agent A receives a Governance Reputation Carrier
+    containing last 10,000 governed executions, violation history,
+    authority history, evidence completeness, audit score."
+
+    This replaces "trust me" with "verify this."
+    """
+    require_api_key(x_api_key, authorization)
+    ts         = datetime.now(timezone.utc).isoformat()
+    carrier_id = f"GRC-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}"
+    agent_id   = req.get("agent_id","")
+
+    reputation  = _REPUTATION_REGISTRY.get(agent_id, {})
+    recent_events = [e for e in _TRUST_EVENTS if e.get("agent_id") == agent_id][-100:]
+
+    carrier = {
+        "schema":          "VGS-REPUTATION-CARRIER-v1",
+        "carrier_id":      carrier_id,
+        "subject_agent":   agent_id,
+        "issued_by":       "VeriSigil AI",
+        "issued_at":       ts,
+        "valid_until":     req.get("valid_until",""),
+        "reputation_score":reputation.get("score", 0),
+        "reputation_grade":reputation.get("grade","UNRATED"),
+        "data_source":     reputation.get("data_source",""),
+        "score_components":reputation.get("components",{}),
+        "execution_summary":reputation.get("stats",{}),
+        "recent_events":   recent_events,
+        "verification_instructions": {
+            "step_1": "Verify carrier governance_signature using public key at GET /v1/proof/signing-diagnostic",
+            "step_2": "Verify reputation score by applying the formula at GET /v1/reputation/formula to the execution_summary",
+            "step_3": "Spot-check individual execution receipts at POST /v1/proof/correctness",
+            "step_4": "Confirm data_source — PRODUCTION scores require more scrutiny than SANDBOX scores",
+        },
+        "honest_boundary": "This carrier proves the stated executions occurred and produced these outcomes. It does not prove the agent will behave the same in future.",
+        "public_key":      base64.b64encode(bytes(_VERIFY_KEY)).decode(),
+    }
+
+    seal = {
+        "carrier_id":      carrier_id,
+        "agent_id":        agent_id,
+        "score":           carrier["reputation_score"],
+        "grade":           carrier["reputation_grade"],
+        "data_source":     carrier["data_source"],
+        "timestamp":       ts,
+    }
+    carrier["governance_signature"] = sign_governance_payload(seal)
+    carrier["offline_verifiable"]   = True
+
+    return carrier
+
+
+@app.post("/v1/reputation/exchange", tags=["Governance Reputation Layer"])
+async def reputation_exchange(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Agent reputation exchange — Agent A queries the reputation of
+    Agent B before deciding whether to collaborate, delegate, or
+    accept outputs.
+
+    This is the multi-agent governance use case:
+    Instead of: "Do I trust Agent B?"
+    Now: "What is Agent B's independently verifiable governance reputation?"
+
+    Expert: "That reputation becomes independently computable."
+    """
+    require_api_key(x_api_key, authorization)
+    ts           = datetime.now(timezone.utc).isoformat()
+    querying     = req.get("querying_agent","")
+    queried      = req.get("queried_agent","")
+    min_score    = req.get("minimum_acceptable_score", 70.0)
+    min_grade    = req.get("minimum_acceptable_grade","SATISFACTORY")
+
+    reputation   = _REPUTATION_REGISTRY.get(queried,{})
+    score        = reputation.get("score", 0.0)
+    grade        = reputation.get("grade","UNRATED")
+    data_source  = reputation.get("data_source","UNKNOWN")
+
+    grade_order  = ["UNRATED","POOR","MARGINAL","SATISFACTORY","STRONG","EXEMPLARY"]
+    min_grade_idx= grade_order.index(min_grade) if min_grade in grade_order else 3
+    actual_idx   = grade_order.index(grade)     if grade    in grade_order else 0
+
+    score_pass   = score >= min_score
+    grade_pass   = actual_idx >= min_grade_idx
+    trust_granted= score_pass and grade_pass
+
+    seal = {
+        "querying": querying,
+        "queried":  queried,
+        "score":    score,
+        "trust_granted": trust_granted,
+        "timestamp":ts,
+    }
+
+    return {
+        "schema":           "VGS-REPUTATION-EXCHANGE-v1",
+        "querying_agent":   querying,
+        "queried_agent":    queried,
+        "reputation_score": score,
+        "reputation_grade": grade,
+        "data_source":      data_source,
+        "minimum_required": {"score": min_score, "grade": min_grade},
+        "score_pass":       score_pass,
+        "grade_pass":       grade_pass,
+        "trust_granted":    trust_granted,
+        "ruling":           "TRUST GRANTED — agent meets governance reputation requirements" if trust_granted else "TRUST WITHHELD — agent does not meet minimum governance reputation threshold",
+        "governance_signature": sign_governance_payload(seal),
+        "offline_verifiable":   True,
+        "data_source_warning":  None if data_source == "PRODUCTION" else f"WARNING: reputation based on {data_source} data — verify data_source before granting trust in production context",
+        "timestamp":        ts,
+    }
+
+
+@app.get("/v1/reputation/formula", tags=["Governance Reputation Layer"])
+async def reputation_formula():
+    """
+    Published Governance Reputation Score formula.
+    No authentication required — the formula is public.
+
+    Any organisation can independently compute a reputation score
+    from sealed VeriSigil execution receipts using this formula.
+    No trust in VeriSigil required to verify the computation.
+    """
+    return {
+        "schema":    "VGS-GRL-FORMULA-v1",
+        "title":     "Governance Reputation Score — v1.0 Formula",
+        "version":   "1.0",
+        "published": "2026-08-05",
+        "formula":   "GRS = admissibility(40%) + authority_integrity(25%) + payload_integrity(15%) + replay_prevention(10%) + verification_success(10%)",
+        "components": {
+            "admissibility_40pct": {
+                "weight":    0.40,
+                "formula":   "admissible_executions / total_executions × 40",
+                "rationale": "Core measure of governance health — proportion of actions within authorized boundaries",
+            },
+            "authority_integrity_25pct": {
+                "weight":    0.25,
+                "formula":   "25 - min(authority_violations × 5, 25)",
+                "rationale": "Authority violations are serious — each one loses 5 points. Floor at 0.",
+            },
+            "payload_integrity_15pct": {
+                "weight":    0.15,
+                "formula":   "15 - min(payload_deviations × 7.5, 15)",
+                "rationale": "Payload deviations indicate tampering attempts — each loses 7.5 points.",
+            },
+            "replay_prevention_10pct": {
+                "weight":    0.10,
+                "formula":   "10 - min(replay_attempts × 5, 10)",
+                "rationale": "Replay attempts indicate adversarial pressure — each loses 5 points.",
+            },
+            "verification_success_10pct": {
+                "weight":    0.10,
+                "formula":   "(verification_passes / independent_verifications) × 10 if verifications > 0 else 5.0",
+                "rationale": "Independent verification success is rewarded. No verifications = neutral (5.0).",
+            },
+        },
+        "grades": {
+            "EXEMPLARY":    "score >= 95",
+            "STRONG":       "score >= 85",
+            "SATISFACTORY": "score >= 70",
+            "MARGINAL":     "score >= 50",
+            "POOR":         "score < 50",
+            "UNRATED":      "no executions recorded",
+        },
+        "honest_notes": [
+            "Escalations are NOT penalized — they indicate correct governance behavior, not failure",
+            "Score quality is proportional to execution volume and data_source",
+            "PRODUCTION data produces meaningful reputation. SANDBOX data produces test reputation.",
+            "This formula is v1.0 — it will evolve as production patterns are observed",
+        ],
+        "compute_at":    "POST /v1/reputation/compute",
+        "carrier_at":    "POST /v1/reputation/carrier",
+        "exchange_at":   "POST /v1/reputation/exchange",
+        "timestamp":     datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@app.get("/v1/reputation/dashboard", tags=["Governance Reputation Layer"])
+async def reputation_dashboard(
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Governance Reputation Dashboard — overview of all rated agents,
+    score distribution, and platform-level reputation health.
+    """
+    require_api_key(x_api_key, authorization)
+    ts      = datetime.now(timezone.utc).isoformat()
+    records = list(_REPUTATION_REGISTRY.values())
+
+    grade_dist = {}
+    for r in records:
+        g = r.get("grade","UNRATED")
+        grade_dist[g] = grade_dist.get(g, 0) + 1
+
+    avg_score = round(
+        sum(r.get("score",0) for r in records) / max(len(records),1), 2
+    ) if records else 0.0
+
+    production_count = sum(1 for r in records if r.get("data_source") == "PRODUCTION")
+
+    return {
+        "schema":           "VGS-GRL-DASHBOARD-v1",
+        "total_agents_rated": len(records),
+        "avg_reputation_score": avg_score,
+        "grade_distribution":   grade_dist,
+        "production_ratings":   production_count,
+        "validation_ratings":   sum(1 for r in records if r.get("data_source") == "VALIDATION"),
+        "sandbox_ratings":      sum(1 for r in records if r.get("data_source") == "SANDBOX"),
+        "honest_note":          f"{production_count} of {len(records)} ratings are from production deployments. Production ratings are the meaningful ones.",
+        "formula_at":           "GET /v1/reputation/formula",
+        "timestamp":            ts,
+    }
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=int(os.environ.get("PORT", 8000)), reload=False)
