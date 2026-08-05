@@ -67860,7 +67860,7 @@ async def ao_issue(
 
     _AO_LEDGER[ao_id] = ao
     # Register nonce as issued (not yet consumed)
-    _NONCE_LEDGER  # nonce consumed on first verify
+    # nonce is consumed atomically via try_consume() in ao_verify
 
     return {
         **ao,
@@ -68716,13 +68716,16 @@ async def verify_bypass_test(
         "bypass_succeeded": False,
     }
 
-    # Test 3: Replayed nonce
-    consumed_nonce = next(iter(_NONCE_LEDGER)) if _NONCE_LEDGER else "test-nonce"
+    # Test 3: Replayed nonce — check the SQLite ledger for any consumed nonce
+    recent = _NONCE_LEDGER.recent(1)
+    consumed_nonce = recent[0]["nonce"] if recent else "test-nonce-not-yet-consumed"
+    nonce_in_ledger = _NONCE_LEDGER.is_consumed(consumed_nonce)
     test_results["replayed_nonce"] = {
-        "test":   f"Attempt replay with consumed nonce",
-        "result": "REJECTED",
-        "ruling": "HALT — ALREADY_CONSUMED",
+        "test":   "Attempt replay with consumed nonce",
+        "result": "REJECTED" if nonce_in_ledger else "NO_CONSUMED_NONCES_YET",
+        "ruling": "HALT — ALREADY_CONSUMED" if nonce_in_ledger else "No consumed nonces in ledger yet — consume an AO first via POST /v1/ao/verify then re-run",
         "bypass_succeeded": False,
+        "nonce_ledger_count": _NONCE_LEDGER.count(),
     }
 
     # Test 4: Expired AO
@@ -68766,7 +68769,7 @@ async def verify_replay_test(
     nonce = req.get("nonce","")
 
     ao = _AO_LEDGER.get(ao_id,{})
-    already_consumed = ao.get("consumed", False) or nonce in _NONCE_LEDGER
+    already_consumed = ao.get("consumed", False) or _NONCE_LEDGER.is_consumed(nonce)
 
     return {
         "schema":           "VGS-REPLAY-TEST-v1",
@@ -68794,7 +68797,7 @@ async def verify_nonce_test(
     ts    = datetime.now(timezone.utc).isoformat()
     nonce = req.get("nonce","")
 
-    in_ledger = nonce in _NONCE_LEDGER
+    in_ledger = _NONCE_LEDGER.is_consumed(nonce)
     return {
         "schema":       "VGS-NONCE-TEST-v1",
         "nonce":        nonce,
