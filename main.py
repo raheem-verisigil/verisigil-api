@@ -72334,6 +72334,767 @@ async def convergence_weights():
     }
 
 
+
+# ============================================================
+# EVIDENCE CONSTITUTION LAYER
+# Expert: "Every governance system eventually faces this
+# question: What evidence counts? Not all evidence should.
+# Define: Accepted Evidence, Rejected Evidence, Priority,
+# Expiry, Confidence, Conflict Rules, Origin, Trust Weight.
+# Before the AI reasons, the evidence must earn standing."
+# ============================================================
+
+_EVIDENCE_CONSTITUTION: dict = {}  # constitution_id -> constitution
+_EVIDENCE_REGISTRY:     dict = {}  # evidence_id -> evidence record
+_GOVERNANCE_MEMORY:     dict = {}  # agent_id -> memory record
+_APPEAL_REGISTRY:       dict = {}  # appeal_id -> appeal record
+_CANDIDATE_REGISTRY:    dict = {}  # candidate_id -> candidate movement
+
+
+@app.post("/v1/evidence/constitution", tags=["Evidence Constitution"])
+async def evidence_constitution_create(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Evidence Constitution — defines what evidence counts,
+    what is rejected, priority order, expiry, conflict rules,
+    and trust weights.
+
+    Expert: "Before the AI reasons, the evidence must earn
+    standing. That becomes your constitution."
+
+    An Evidence Constitution is a formal declaration of the
+    rules of evidence for a governed execution context.
+    Different organizations, jurisdictions, or workflows may
+    have different constitutions. VeriSigil enforces the
+    constitution declared for each context.
+    """
+    require_api_key(x_api_key, authorization)
+    ts   = datetime.now(timezone.utc).isoformat()
+    c_id = f"EVC-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}"
+
+    name            = req.get("name","")
+    accepted_types  = req.get("accepted_evidence_types",[])
+    rejected_types  = req.get("rejected_evidence_types",[])
+    priority_order  = req.get("priority_order",[])
+    expiry_rules    = req.get("expiry_rules",{})
+    conflict_rules  = req.get("conflict_rules","MOST_RECENT_WINS")
+    trust_weights   = req.get("trust_weights",{})
+    min_confidence  = req.get("minimum_confidence_threshold", 0.6)
+    jurisdiction    = req.get("jurisdiction","")
+
+    constitution = {
+        "schema":           "VGS-EVIDENCE-CONSTITUTION-v1",
+        "constitution_id":  c_id,
+        "name":             name,
+        "jurisdiction":     jurisdiction,
+        "accepted_evidence_types":  accepted_types,
+        "rejected_evidence_types":  rejected_types,
+        "priority_order":           priority_order,
+        "expiry_rules":             expiry_rules,
+        "conflict_rules":           conflict_rules,
+        "trust_weights":            trust_weights,
+        "minimum_confidence":       min_confidence,
+        "created_at":               ts,
+        "version":                  "1.0",
+    }
+
+    seal = {
+        "constitution_id": c_id,
+        "name":            name,
+        "conflict_rules":  conflict_rules,
+        "min_confidence":  min_confidence,
+        "timestamp":       ts,
+    }
+    constitution["governance_signature"] = sign_governance_payload(seal)
+    constitution["offline_verifiable"]   = True
+
+    _EVIDENCE_CONSTITUTION[c_id] = constitution
+    return {
+        **constitution,
+        "what_this_defines": "The rules of evidence for this governance context. All evidence presented for evaluation in this context must conform to this constitution.",
+        "use_in_convergence": f"Pass constitution_id={c_id} to POST /v1/convergence/evaluate to apply these rules.",
+    }
+
+
+@app.post("/v1/evidence/register", tags=["Evidence Constitution"])
+async def evidence_register(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Register an evidence item — evaluate it against the
+    applicable Evidence Constitution before accepting it.
+
+    Evidence must earn standing before it can influence
+    a governance decision. An evidence item that fails
+    the constitution is rejected — not weighted low,
+    but structurally excluded.
+    """
+    require_api_key(x_api_key, authorization)
+    ts   = datetime.now(timezone.utc).isoformat()
+    e_id = f"EVD-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}"
+
+    evidence_type   = req.get("type","")
+    origin          = req.get("origin","")
+    content         = req.get("content",{})
+    constitution_id = req.get("constitution_id","")
+    signed          = req.get("signed", False)
+    confidence      = req.get("confidence", 0.0)
+    expiry          = req.get("expires_at","")
+
+    constitution = _EVIDENCE_CONSTITUTION.get(constitution_id, {})
+    accepted     = constitution.get("accepted_evidence_types",[])
+    rejected     = constitution.get("rejected_evidence_types",[])
+    min_conf     = constitution.get("minimum_confidence", 0.6)
+    trust_weights= constitution.get("trust_weights",{})
+
+    # Constitution checks
+    reasons = []
+    if rejected and evidence_type in rejected:
+        reasons.append(f"Evidence type '{evidence_type}' is in the rejected list of constitution {constitution_id}")
+    if accepted and evidence_type not in accepted:
+        reasons.append(f"Evidence type '{evidence_type}' is not in the accepted list of constitution {constitution_id}")
+    if confidence < min_conf:
+        reasons.append(f"Confidence {confidence} below constitution minimum {min_conf}")
+    if not signed:
+        reasons.append("Evidence is not signed — unsigned evidence is not admissible")
+
+    accepted_by_constitution = len(reasons) == 0
+    trust_weight = trust_weights.get(evidence_type, 0.5) if accepted_by_constitution else 0.0
+
+    content_hash = hashlib.sha256(
+        json.dumps(content, sort_keys=True, separators=(",",":")).encode()
+    ).hexdigest()
+
+    record = {
+        "schema":          "VGS-EVIDENCE-RECORD-v1",
+        "evidence_id":     e_id,
+        "type":            evidence_type,
+        "origin":          origin,
+        "content_hash":    content_hash,
+        "confidence":      confidence,
+        "signed":          signed,
+        "expires_at":      expiry,
+        "constitution_id": constitution_id,
+        "accepted":        accepted_by_constitution,
+        "trust_weight":    trust_weight,
+        "rejection_reasons": reasons,
+        "registered_at":   ts,
+    }
+
+    seal = {"evidence_id": e_id, "type": evidence_type, "accepted": accepted_by_constitution, "trust_weight": trust_weight, "timestamp": ts}
+    record["governance_signature"] = sign_governance_payload(seal)
+    record["offline_verifiable"]   = True
+
+    _EVIDENCE_REGISTRY[e_id] = record
+    return record
+
+
+@app.get("/v1/evidence/constitution/{constitution_id}", tags=["Evidence Constitution"])
+async def evidence_constitution_get(
+    constitution_id: str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Retrieve an Evidence Constitution by ID."""
+    require_api_key(x_api_key, authorization)
+    c = _EVIDENCE_CONSTITUTION.get(constitution_id)
+    if not c:
+        raise HTTPException(status_code=404, detail=f"Constitution {constitution_id} not found")
+    return c
+
+
+@app.get("/v1/evidence/default-constitution", tags=["Evidence Constitution"])
+async def evidence_default_constitution():
+    """
+    Default VeriSigil Evidence Constitution — published publicly.
+    Defines the baseline rules of evidence for VeriSigil-governed contexts.
+    No authentication required.
+    """
+    return {
+        "schema":  "VGS-EVIDENCE-CONSTITUTION-DEFAULT-v1",
+        "title":   "VeriSigil Default Evidence Constitution",
+        "version": "1.0",
+        "published": "2026-08-05",
+        "accepted_evidence_types": [
+            "VERISIGIL_AO", "VERISIGIL_INTERCEPT", "VERISIGIL_RECEIPT",
+            "EXTERNAL_AUDITOR_SIGNATURE", "ISO_42001_ATTESTATION",
+            "NIST_AI_RMF_CONTROL", "EU_AI_ACT_COMPLIANCE",
+            "ENTERPRISE_POLICY_ATTESTATION", "STANDING_CERTIFICATE",
+        ],
+        "rejected_evidence_types": [
+            "SELF_DECLARED_AUTHORITY",   # agent declaring its own authority
+            "UNSIGNED_ASSERTION",        # any claim without cryptographic proof
+            "EXPIRED_CERTIFICATE",       # evidence past its stated expiry
+            "SINGLE_SOURCE_HIGH_RISK",   # single evidence source for CRITICAL/EMERGENCY
+        ],
+        "priority_order": [
+            "EXTERNAL_AUDITOR_SIGNATURE",
+            "VERISIGIL_AO",
+            "VERISIGIL_INTERCEPT",
+            "ISO_42001_ATTESTATION",
+            "NIST_AI_RMF_CONTROL",
+            "ENTERPRISE_POLICY_ATTESTATION",
+        ],
+        "conflict_rules":       "MOST_RECENT_WINS for same-type evidence. HIGHER_AUTHORITY_WINS for cross-type conflicts.",
+        "minimum_confidence":   0.60,
+        "evidence_must_be_signed": True,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+# ── GOVERNANCE MEMORY ─────────────────────────────────────────
+
+@app.post("/v1/memory/record", tags=["Governance Memory"])
+async def memory_record(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Governance Memory — VeriSigil remembers every authority,
+    receipt, certificate, override, reputation, exception,
+    appeal, challenge, and verification for each agent.
+
+    Expert: "AI reasons with memory. VeriSigil should remember
+    every authority, receipt, certificate, override, reputation,
+    exception, appeal, challenge, verification."
+
+    Governance memory is not a log. It is a structured,
+    queryable record of every governance-relevant event
+    for an agent — from first execution to latest reputation.
+    The memory is append-only and cryptographically sealed.
+    """
+    require_api_key(x_api_key, authorization)
+    ts       = datetime.now(timezone.utc).isoformat()
+    mem_id   = f"MEM-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}"
+    agent_id = req.get("agent_id","")
+
+    event = {
+        "memory_id":   mem_id,
+        "agent_id":    agent_id,
+        "event_type":  req.get("event_type",""),  # INTERCEPT, AO, RECEIPT, APPEAL, OVERRIDE, REPUTATION, EXCEPTION, CHALLENGE, VERIFICATION
+        "event_id":    req.get("event_id",""),
+        "ruling":      req.get("ruling",""),
+        "consequence": req.get("consequence",""),
+        "summary":     req.get("summary",""),
+        "recorded_at": ts,
+    }
+
+    event_hash = hashlib.sha256(
+        json.dumps(event, sort_keys=True, separators=(",",":")).encode()
+    ).hexdigest()
+    event["event_hash"] = event_hash
+
+    if agent_id not in _GOVERNANCE_MEMORY:
+        _GOVERNANCE_MEMORY[agent_id] = {
+            "agent_id":    agent_id,
+            "events":      [],
+            "chain_root":  "",
+            "event_count": 0,
+            "created_at":  ts,
+        }
+
+    mem = _GOVERNANCE_MEMORY[agent_id]
+    prev_root = mem["chain_root"]
+    new_root  = hashlib.sha256(f"{prev_root}:{event_hash}".encode()).hexdigest()
+
+    event["prev_chain_root"] = prev_root
+    event["new_chain_root"]  = new_root
+
+    mem["events"].append(event)
+    mem["chain_root"]  = new_root
+    mem["event_count"] = len(mem["events"])
+    mem["updated_at"]  = ts
+
+    seal = {"mem_id": mem_id, "agent_id": agent_id, "event_hash": event_hash, "chain_root": new_root, "timestamp": ts}
+    sig  = sign_governance_payload(seal)
+    event["governance_signature"] = sig
+
+    return {
+        **event,
+        "chain_integrity": "Each event chains to the previous. Modify any event and the chain_root breaks.",
+        "total_events": mem["event_count"],
+    }
+
+
+@app.get("/v1/memory/{agent_id}", tags=["Governance Memory"])
+async def memory_retrieve(
+    agent_id: str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Retrieve governance memory for an agent — complete history
+    of all governance-relevant events, append-only, chain-verified.
+    """
+    require_api_key(x_api_key, authorization)
+    mem = _GOVERNANCE_MEMORY.get(agent_id)
+    if not mem:
+        return {"agent_id": agent_id, "status": "NO_MEMORY", "events": [], "timestamp": datetime.now(timezone.utc).isoformat()}
+    return {**mem, "retrieved_at": datetime.now(timezone.utc).isoformat()}
+
+
+@app.get("/v1/memory/{agent_id}/summary", tags=["Governance Memory"])
+async def memory_summary(
+    agent_id: str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Summary of an agent's governance memory — counts by event type."""
+    require_api_key(x_api_key, authorization)
+    mem    = _GOVERNANCE_MEMORY.get(agent_id,{})
+    events = mem.get("events",[])
+    by_type = {}
+    for e in events:
+        t = e.get("event_type","UNKNOWN")
+        by_type[t] = by_type.get(t,0) + 1
+    rulings = {}
+    for e in events:
+        r = e.get("ruling","")
+        if r: rulings[r] = rulings.get(r,0) + 1
+    return {
+        "agent_id":      agent_id,
+        "total_events":  len(events),
+        "events_by_type":by_type,
+        "rulings":       rulings,
+        "chain_root":    mem.get("chain_root",""),
+        "created_at":    mem.get("created_at",""),
+        "updated_at":    mem.get("updated_at",""),
+        "timestamp":     datetime.now(timezone.utc).isoformat(),
+    }
+
+
+# ── GOVERNANCE APPEALS ────────────────────────────────────────
+
+@app.post("/v1/appeal/submit", tags=["Governance Appeals"])
+async def appeal_submit(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Governance Appeal — a regulator, human reviewer, supervisor,
+    or enterprise board can reopen a governance decision.
+
+    Expert: "Imagine a regulator / human reviewer / supervisor /
+    enterprise board can reopen a governance decision.
+    That appeal itself receives receipts. Very powerful."
+
+    An appeal does not overwrite the original decision.
+    It creates a new governance record that references the
+    original and documents the basis for review.
+
+    Appeal types:
+    - REGULATOR: external regulatory body
+    - HUMAN_REVIEWER: designated human reviewer
+    - SUPERVISOR: agent supervisor
+    - ENTERPRISE_BOARD: enterprise governance board
+    - AFFECTED_PARTY: party affected by the original decision
+
+    Every appeal is sealed. If the appeal succeeds, a new
+    ruling is issued. The original ruling remains in the record.
+    """
+    require_api_key(x_api_key, authorization)
+    ts        = datetime.now(timezone.utc).isoformat()
+    appeal_id = f"APL-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}"
+
+    original_id    = req.get("original_intercept_id","")
+    appellant      = req.get("appellant_identity","")
+    appellant_type = req.get("appellant_type","HUMAN_REVIEWER")
+    grounds        = req.get("grounds","")
+    evidence       = req.get("supporting_evidence",[])
+    requested_ruling = req.get("requested_ruling","")
+
+    if not original_id or not appellant or not grounds:
+        raise HTTPException(status_code=400, detail="original_intercept_id, appellant_identity, and grounds are required")
+
+    appeal = {
+        "schema":          "VGS-APPEAL-v1",
+        "appeal_id":       appeal_id,
+        "original_id":     original_id,
+        "appellant":       appellant,
+        "appellant_type":  appellant_type,
+        "grounds":         grounds,
+        "supporting_evidence": evidence,
+        "requested_ruling":    requested_ruling,
+        "status":          "OPEN",
+        "submitted_at":    ts,
+        "resolution":      None,
+        "resolved_at":     None,
+        "resolution_ruling":None,
+    }
+
+    seal = {
+        "appeal_id":    appeal_id,
+        "original_id":  original_id,
+        "appellant":    appellant,
+        "status":       "OPEN",
+        "timestamp":    ts,
+    }
+    appeal["governance_signature"] = sign_governance_payload(seal)
+    appeal["offline_verifiable"]   = True
+    _APPEAL_REGISTRY[appeal_id]    = appeal
+
+    return {
+        **appeal,
+        "what_this_creates": "A sealed governance appeal record. The original decision stands until this appeal is resolved via POST /v1/appeal/resolve.",
+        "immutability_note": "The original ruling is not modified. The appeal creates an additional governance layer referencing the original.",
+    }
+
+
+@app.post("/v1/appeal/resolve", tags=["Governance Appeals"])
+async def appeal_resolve(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Resolve a governance appeal — issue a new ruling with
+    the appeal reviewer's sealed determination.
+
+    The resolution itself is a sealed governance record.
+    Both the original ruling and the appeal resolution
+    are permanently preserved.
+    """
+    require_api_key(x_api_key, authorization)
+    ts        = datetime.now(timezone.utc).isoformat()
+    appeal_id = req.get("appeal_id","")
+    appeal    = _APPEAL_REGISTRY.get(appeal_id)
+
+    if not appeal:
+        raise HTTPException(status_code=404, detail=f"Appeal {appeal_id} not found")
+    if appeal.get("status") != "OPEN":
+        raise HTTPException(status_code=400, detail=f"Appeal {appeal_id} is already {appeal.get('status')}")
+
+    resolution        = req.get("resolution","")  # UPHELD, OVERTURNED, MODIFIED
+    resolution_ruling = req.get("resolution_ruling","")
+    resolver          = req.get("resolver_identity","")
+    resolution_reason = req.get("reason","")
+
+    appeal["status"]           = "RESOLVED"
+    appeal["resolution"]       = resolution
+    appeal["resolution_ruling"]= resolution_ruling
+    appeal["resolver"]         = resolver
+    appeal["resolution_reason"]= resolution_reason
+    appeal["resolved_at"]      = ts
+
+    seal = {
+        "appeal_id":       appeal_id,
+        "resolution":      resolution,
+        "resolution_ruling":resolution_ruling,
+        "resolver":        resolver,
+        "timestamp":       ts,
+    }
+    resolution_sig = sign_governance_payload(seal)
+
+    return {
+        **appeal,
+        "resolution_governance_signature": resolution_sig,
+        "offline_verifiable":              True,
+        "immutability_note":               "Original ruling preserved. This resolution is an additional sealed record.",
+        "timestamp": ts,
+    }
+
+
+@app.get("/v1/appeal/{appeal_id}", tags=["Governance Appeals"])
+async def appeal_get(
+    appeal_id: str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Retrieve a governance appeal by ID."""
+    require_api_key(x_api_key, authorization)
+    appeal = _APPEAL_REGISTRY.get(appeal_id)
+    if not appeal:
+        raise HTTPException(status_code=404, detail=f"Appeal {appeal_id} not found")
+    return {**appeal, "retrieved_at": datetime.now(timezone.utc).isoformat()}
+
+
+@app.get("/v1/appeal/history/{original_id}", tags=["Governance Appeals"])
+async def appeal_history(
+    original_id: str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """All appeals filed against a specific governance decision."""
+    require_api_key(x_api_key, authorization)
+    appeals = [a for a in _APPEAL_REGISTRY.values() if a.get("original_id") == original_id]
+    return {
+        "original_id":  original_id,
+        "appeal_count": len(appeals),
+        "appeals":      appeals,
+        "timestamp":    datetime.now(timezone.utc).isoformat(),
+    }
+
+
+# ── CANDIDATE MOVEMENT REGISTRY ───────────────────────────────
+
+@app.post("/v1/candidate/register", tags=["Candidate Movement Registry"])
+async def candidate_register(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Candidate Movement Registry — registers an explicit candidate
+    action before it reaches standing evaluation.
+
+    Expert: "If you only register explicit candidate actions,
+    it becomes much more tractable."
+
+    VeriSigil's definition of a candidate movement:
+    An action that an AI agent explicitly declares as a candidate
+    for consequence. The agent must explicitly register the
+    candidate — VeriSigil does not infer intent.
+
+    A candidate that is not registered cannot proceed to
+    standing evaluation or governance. This closes the gap
+    between intent and consequence at the earliest possible point.
+
+    Candidate status progression:
+    REGISTERED → STANDING_EVALUATED → GOVERNED → EXECUTED → CONSEQUENCE
+    or
+    REGISTERED → REJECTED (at any stage)
+    """
+    require_api_key(x_api_key, authorization)
+    ts           = datetime.now(timezone.utc).isoformat()
+    candidate_id = f"CND-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}"
+
+    agent_id     = req.get("agent_id","")
+    action_type  = req.get("action_type","")
+    intent       = req.get("declared_intent","")
+    consequence  = req.get("consequence","")
+    payload_hash = hashlib.sha256(
+        json.dumps(req.get("payload_preview",{}), sort_keys=True, separators=(",",":")).encode()
+    ).hexdigest()
+
+    candidate = {
+        "schema":        "VGS-CANDIDATE-v1",
+        "candidate_id":  candidate_id,
+        "agent_id":      agent_id,
+        "action_type":   action_type,
+        "declared_intent": intent,
+        "consequence":   consequence,
+        "payload_hash":  payload_hash,
+        "status":        "REGISTERED",
+        "registered_at": ts,
+        "standing_id":   None,
+        "intercept_id":  None,
+        "ao_id":         None,
+        "executed_at":   None,
+        "outcome":       None,
+    }
+
+    seal = {"candidate_id": candidate_id, "agent_id": agent_id, "action_type": action_type, "timestamp": ts}
+    candidate["governance_signature"] = sign_governance_payload(seal)
+    candidate["offline_verifiable"]   = True
+    _CANDIDATE_REGISTRY[candidate_id] = candidate
+
+    return {
+        **candidate,
+        "next_step": "POST /v1/formation/check then POST /v1/standing/evaluate",
+        "architecture_note": "Only explicitly registered candidates may proceed. VeriSigil does not infer intent — the agent must declare the candidate.",
+    }
+
+
+@app.post("/v1/candidate/advance", tags=["Candidate Movement Registry"])
+async def candidate_advance(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Advance a candidate through its status progression.
+    Records each stage of the candidate's journey to consequence.
+    """
+    require_api_key(x_api_key, authorization)
+    ts           = datetime.now(timezone.utc).isoformat()
+    candidate_id = req.get("candidate_id","")
+    candidate    = _CANDIDATE_REGISTRY.get(candidate_id)
+
+    if not candidate:
+        raise HTTPException(status_code=404, detail=f"Candidate {candidate_id} not found")
+
+    new_status  = req.get("new_status","")
+    reference_id= req.get("reference_id","")
+
+    VALID_PROGRESSIONS = {
+        "REGISTERED":          ["STANDING_EVALUATED","REJECTED"],
+        "STANDING_EVALUATED":  ["GOVERNED","REJECTED"],
+        "GOVERNED":            ["EXECUTED","REJECTED"],
+        "EXECUTED":            ["CONSEQUENCE","REJECTED"],
+    }
+
+    current = candidate.get("status","")
+    allowed = VALID_PROGRESSIONS.get(current,[])
+
+    if new_status not in allowed:
+        raise HTTPException(status_code=400, detail=f"Cannot advance from {current} to {new_status}. Allowed: {allowed}")
+
+    candidate["status"] = new_status
+    if new_status == "STANDING_EVALUATED": candidate["standing_id"]  = reference_id
+    if new_status == "GOVERNED":           candidate["intercept_id"] = reference_id
+    if new_status == "EXECUTED":           candidate["ao_id"]        = reference_id
+    if new_status == "CONSEQUENCE":        candidate["executed_at"]  = ts
+
+    stage_hash = hashlib.sha256(f"{candidate_id}:{new_status}:{reference_id}:{ts}".encode()).hexdigest()
+    seal = {"candidate_id": candidate_id, "new_status": new_status, "stage_hash": stage_hash, "timestamp": ts}
+
+    return {
+        **candidate,
+        "stage_hash":          stage_hash,
+        "stage_signature":     sign_governance_payload(seal),
+        "offline_verifiable":  True,
+        "advanced_at":         ts,
+    }
+
+
+@app.get("/v1/candidate/{candidate_id}", tags=["Candidate Movement Registry"])
+async def candidate_get(
+    candidate_id: str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Retrieve a candidate movement record."""
+    require_api_key(x_api_key, authorization)
+    c = _CANDIDATE_REGISTRY.get(candidate_id)
+    if not c:
+        raise HTTPException(status_code=404, detail=f"Candidate {candidate_id} not found")
+    return {**c, "retrieved_at": datetime.now(timezone.utc).isoformat()}
+
+
+@app.get("/v1/candidate/agent/{agent_id}", tags=["Candidate Movement Registry"])
+async def candidate_list_by_agent(
+    agent_id: str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """All candidate movements registered for an agent."""
+    require_api_key(x_api_key, authorization)
+    candidates = [c for c in _CANDIDATE_REGISTRY.values() if c.get("agent_id") == agent_id]
+    by_status  = {}
+    for c in candidates:
+        s = c.get("status","")
+        by_status[s] = by_status.get(s,0) + 1
+    return {
+        "agent_id":      agent_id,
+        "total":         len(candidates),
+        "by_status":     by_status,
+        "candidates":    candidates[-20:],
+        "timestamp":     datetime.now(timezone.utc).isoformat(),
+    }
+
+
+# ── STANDING EXPLAINABILITY ───────────────────────────────────
+
+@app.post("/v1/standing/explain", tags=["Consequence Standing Layer"])
+async def standing_explain(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Standing Explainability — produces a plain-language explanation
+    of why an action received the standing determination it did.
+
+    Expert: "Don't reduce standing to one number. Standing should
+    always be explainable. Derive Authority, Evidence, Context,
+    Consequence, Confidence — then the score."
+
+    This endpoint takes a standing_id and returns a structured
+    explanation that a regulator, auditor, or affected party
+    can understand without technical knowledge.
+    """
+    require_api_key(x_api_key, authorization)
+    ts          = datetime.now(timezone.utc).isoformat()
+    standing_id = req.get("standing_id","")
+    record      = _STANDING_REGISTRY.get(standing_id)
+
+    if not record:
+        raise HTTPException(status_code=404, detail=f"Standing record {standing_id} not found")
+
+    conditions = record.get("conditions",{})
+    score      = record.get("score", 0.0)
+    standing   = record.get("standing","")
+    missing    = record.get("missing",[])
+
+    # Build plain-language explanation
+    explanations = {
+        "intent_declared":     "The agent stated what it intended to do" if conditions.get("intent_declared") else "The agent did not state its intent — this is the most basic standing requirement",
+        "authority_traceable": "The authority chain was traceable to a root" if conditions.get("authority_traceable") else "Authority could not be traced — the agent cannot demonstrate it has the right to act",
+        "consequence_bounded": "The scope of real-world consequence was explicitly bounded" if conditions.get("consequence_bounded") else "The consequence scope was not declared — governance cannot operate on an unbounded action",
+        "payload_defined":     "The exact payload was committed before evaluation" if conditions.get("payload_defined") else "The payload was not defined — what the agent would actually do was not specified",
+        "falsification_possible": "The governance claim can be independently tested" if conditions.get("falsification_possible") else "The claim cannot be independently tested — governance requires falsifiable claims",
+        "human_accountability":   "A specific human is accountable for this outcome" if conditions.get("human_accountability") else "No human accountability was declared — high-consequence actions require a responsible party",
+    }
+
+    dimension_scores = {
+        "Authority":    round((_STANDING_WEIGHTS["authority_traceable"] * conditions.get("authority_traceable",False) +
+                               _STANDING_WEIGHTS["human_accountability"] * conditions.get("human_accountability",False)) /
+                              (_STANDING_WEIGHTS["authority_traceable"] + _STANDING_WEIGHTS["human_accountability"]), 3),
+        "Evidence":     round(_STANDING_WEIGHTS["payload_defined"] * conditions.get("payload_defined",False) /
+                              _STANDING_WEIGHTS["payload_defined"], 3),
+        "Context":      round(_STANDING_WEIGHTS["intent_declared"] * conditions.get("intent_declared",False) /
+                              _STANDING_WEIGHTS["intent_declared"], 3),
+        "Consequence":  round(_STANDING_WEIGHTS["consequence_bounded"] * conditions.get("consequence_bounded",False) /
+                              _STANDING_WEIGHTS["consequence_bounded"], 3),
+        "Confidence":   round(_STANDING_WEIGHTS["falsification_possible"] * conditions.get("falsification_possible",False) /
+                              _STANDING_WEIGHTS["falsification_possible"], 3),
+    }
+
+    return {
+        "schema":       "VGS-STANDING-EXPLANATION-v1",
+        "standing_id":  standing_id,
+        "agent_id":     record.get("agent_id",""),
+        "action_type":  record.get("action_type",""),
+        "standing":     standing,
+        "score":        score,
+        "dimension_scores": dimension_scores,
+        "plain_language_explanation": explanations,
+        "summary": (
+            f"This action received {standing} (score: {score:.2f}). "
+            + (f"It met all six preconditions." if not missing else
+               f"It failed {len(missing)} precondition(s): {', '.join(missing)}.")
+        ),
+        "what_would_change_this": [
+            f"Add {m.replace('_',' ')} to achieve higher standing"
+            for m in missing
+        ],
+        "timestamp": ts,
+    }
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=int(os.environ.get("PORT", 8000)), reload=False)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
