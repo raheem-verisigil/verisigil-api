@@ -1,0 +1,37 @@
+name: Post-Deploy Endpoint Tests
+
+on:
+  deployment_status:
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: 'API base URL to test'
+        required: false
+        default: 'https://verisigil-api-production.up.railway.app'
+
+jobs:
+  test-public-endpoints:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' || github.event.deployment_status.state == 'success'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Run public endpoint test suite
+        env:
+          BASE_URL: ${{ github.event.inputs.base_url || 'https://verisigil-api-production.up.railway.app' }}
+        run: |
+          python3 test_public_endpoints.py --base-url "$BASE_URL"
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: endpoint-test-results
+          path: test_public_endpoints.py
