@@ -68146,7 +68146,12 @@ async def state_verify(
     ts = datetime.now(timezone.utc).isoformat()
 
     commitment_id    = req.get("commitment_id","")
-    current_fields   = req.get("current_state_fields",{})
+    # Accept both field names — CV-005 bug fix (2026-08-06):
+    # Alkama sent state_fields at verify time (same as commit).
+    # state_verify was reading current_state_fields causing empty hash.
+    # Now accepts state_fields OR current_state_fields — commit and verify
+    # use the same field name for natural usage.
+    current_fields   = req.get("state_fields") or req.get("current_state_fields",{})
     current_hash     = hashlib.sha256(
         json.dumps(current_fields, sort_keys=True, separators=(",",":")).encode()
     ).hexdigest()
@@ -70165,6 +70170,25 @@ async def audit_changelog():
         "philosophy": "Every finding published — fixed or not. Silent patching undermines the trust that the governance layer is supposed to build.",
 
         "entries": [
+            {
+                "date":     "2026-08-06",
+                "version":  "0.9.x",
+                "type":     "BUG FIX",
+                "id":       "CHG-010",
+                "title":    "CV-005: state_verify read wrong field name — always compared against empty hash",
+                "found_by": "Alkama Eqbal, CLARA Run 3 CV-005 analysis (2026-08-06)",
+                "description": (
+                    "POST /v1/state/verify read 'current_state_fields' but callers naturally send 'state_fields' "
+                    "(same field name as POST /v1/state/commit). This caused current_fields to always be {} "
+                    "and current_hash to always equal sha256('{}') = 44136fa... — "
+                    "making every verify call return STATE_CHANGED regardless of actual state. "
+                    "Alkama identified this from the state_hash in the commit response: "
+                    "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a is sha256 of empty JSON."
+                ),
+                "fix":      "state_verify now accepts both 'state_fields' and 'current_state_fields'. Commit and verify use the same field name naturally.",
+                "confirmed_closed": "Pending Alkama re-check of CV-005.",
+                "alkama_credit": "Finding correctly attributed to Alkama Eqbal — precise root cause analysis from hash value alone.",
+            },
             {
                 "date":     "2026-08-05",
                 "version":  "0.8.x",
