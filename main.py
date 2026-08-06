@@ -68624,7 +68624,6 @@ async def verify_kit():
     Everything a security engineer needs to independently verify
     VeriSigil's claims without any cooperation from VeriSigil.
     """
-    require_api_key(x_api_key, authorization)
     return {
         "schema":  "VGS-VERIFY-KIT-v1",
         "title":   "VeriSigil Independent Verification Kit",
@@ -70174,6 +70173,24 @@ async def audit_changelog():
                 "date":     "2026-08-06",
                 "version":  "0.9.x",
                 "type":     "BUG FIX",
+                "id":       "CHG-011",
+                "title":    "verify/kit regression — 500 Internal Server Error after no-auth change",
+                "found_by": "Alkama Eqbal, post-deploy re-check (2026-08-06)",
+                "description": (
+                    "GET /v1/verify/kit returned 500 on all calls (with and without API key) "
+                    "after the no-auth change. Root cause: function signature was changed to "
+                    "remove auth parameters but the body still called require_api_key(x_api_key, authorization) "
+                    "— undefined variables in scope causing NameError at runtime. "
+                    "This is a regression introduced by CHG-006 (auth removal)."
+                ),
+                "fix":      "Removed stale require_api_key call from verify_kit function body.",
+                "confirmed_closed": "Pending Alkama re-check.",
+                "alkama_credit": "Found by Alkama during post-deploy validation. Flagged as highest priority: 'the kit is the thing you point people at to verify you without trusting you'.",
+            },
+            {
+                "date":     "2026-08-06",
+                "version":  "0.9.x",
+                "type":     "BUG FIX",
                 "id":       "CHG-010",
                 "title":    "CV-005: state_verify read wrong field name — always compared against empty hash",
                 "found_by": "Alkama Eqbal, CLARA Run 3 CV-005 analysis (2026-08-06)",
@@ -70188,6 +70205,17 @@ async def audit_changelog():
                 "fix":      "state_verify now accepts both 'state_fields' and 'current_state_fields'. Commit and verify use the same field name naturally.",
                 "confirmed_closed": "Pending Alkama re-check of CV-005.",
                 "alkama_credit": "Finding correctly attributed to Alkama Eqbal — precise root cause analysis from hash value alone.",
+            },
+            {
+                "date":     "2026-08-06",
+                "version":  "0.9.x",
+                "type":     "BUG FIX",
+                "id":       "CHG-010",
+                "title":    "CV-005: state_verify read wrong field name — always compared against empty hash",
+                "found_by": "Alkama Eqbal, CLARA Run 3 CV-005 analysis (2026-08-06)",
+                "description": "state_verify read current_state_fields but callers send state_fields. Empty dict always. Hash always 44136fa. Every verify returned STATE_CHANGED regardless of actual state.",
+                "fix":      "state_verify now accepts state_fields OR current_state_fields.",
+                "confirmed_closed": "Confirmed by Alkama — FRESH on unchanged, STATE_CHANGED on changed.",
             },
             {
                 "date":     "2026-08-05",
