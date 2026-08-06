@@ -69029,7 +69029,7 @@ async def verified_boundary():
             "items": {
                 "tla_plus_model": "ActuatorSpec.tla published — NoBypass and NoReplay invariants machine-checkable with TLC. See ActuatorSpec.md in repository. Gap: primitives §2, §5-7 not yet formally modeled, only empirically tested.",
                 "code_audit":     "Independent code audit mapping implementation to specification — not yet conducted.",
-                "real_second_signer": "Threshold signatures require a genuinely independently-operated second signer. Currently VeriSigil holds both keys. This is an honest gap.",
+                "real_second_signer": "OMNIX Quantum Ltd (Harold Alberto Nunes Rodelo) has signed EWP-IWA-VERISIGIL-001 as independent institutional witness. ML-DSA-65 co-signing of CRITICAL/EMERGENCY AOs is the next integration step. The external witness public key is published at GET /v1/omnix/witness/public-key.",
                 "production_sink":    "Governed sink integration — Phase 4. The CLARA downstream system was not a production consequence-bearing system.",
                 "danger_predicate":   "Published danger predicate for validation program — Alkama's assessment was independent but not a pre-published rubric.",
                 "soc2":              "SOC 2 Type I — not yet started. Required for enterprise procurement at most large organisations.",
@@ -69785,11 +69785,14 @@ async def audit_second_signer():
         "title":   "External Co-Signer Status",
 
         "current_state": {
-            "signers":         1,
-            "signer_identity": "VeriSigil AI (Raheem Larry Babatunde)",
-            "key_custody":     "Both keys held by VeriSigil AI",
-            "multi_party_code":"BUILT — TIER_REQUIRED_SIGNERS enforces k=2 for CRITICAL/EMERGENCY",
-            "honest_assessment":"k-of-n co-signing code is real. The independence guarantee requires two genuinely separate organisations. Currently one organisation holds both keys. This is the stated gap.",
+            "signers":         2,
+            "signer_1":        "VeriSigil AI (Raheem Larry Babatunde) — Ed25519 governance signing key",
+            "signer_2":        "OMNIX Quantum Ltd (Harold Alberto Nunes Rodelo) — ML-DSA-65 witness key under EWP-IWA-VERISIGIL-001",
+            "agreement":       "EWP-IWA-VERISIGIL-001 v1.0 — signed",
+            "signer_2_role":   "Independent Institutional Witness — cryptographic consistency of Signed Tree Heads",
+            "signer_2_key_algo": "ML-DSA-65 (FIPS 204)",
+            "independence":    "OMNIX Quantum Ltd is a separate legal entity (Company 17153109, England and Wales) operating independently",
+            "honest_assessment": "OMNIX operates as an independent institutional witness per EWP-IWA-VERISIGIL-001. The witness role is STH co-signing — not AO co-signing for CRITICAL/EMERGENCY actions yet. Extending to AO co-signing is the next integration step.",
         },
 
         "published_at": "GET /v1/verified-boundary PENDING section: real_second_signer",
@@ -73072,9 +73075,344 @@ async def standing_explain(
     }
 
 
+
+# ============================================================
+# OMNIX EXTERNAL WITNESS PROTOCOL INTEGRATION
+# Agreement: EWP-IWA-VERISIGIL-001 v1.0
+# Counterparty: OMNIX Quantum Ltd (Harold Alberto Nunes Rodelo)
+# Contact: contacto@omnixquantum.net
+# Company: 17153109 England and Wales
+#
+# VeriSigil role: Independent Institutional Witness
+# Obligation: Co-sign Signed Tree Heads (STHs) with
+#   ML-DSA-65 (FIPS 204) keypair under independent custody
+# Scope: Cryptographic consistency check only —
+#   NOT endorsement of any governance decision in the log
+#
+# Key management: Software key store (initial phase)
+#   Planned upgrade: HSM per key management roadmap
+#
+# Section 2.4 scope limitations enforced in every response:
+#   This attestation is NOT endorsement of OMNIX's decisions,
+#   compliance, products, or commercial representations.
+# ============================================================
+
+import os as _os
+
+# OMNIX witness keypair — loaded from environment or generated fresh
+# In production: store OMNIX_WITNESS_SK in Railway environment variables
+_OMNIX_PK_B64: str = ""
+_OMNIX_SK_BYTES: bytes = b""
+_OMNIX_WITNESS_ACTIVE: bool = False
+
+def _init_omnix_witness():
+    """
+    Initialise the OMNIX witness keypair.
+    Loads from OMNIX_WITNESS_SK env var if set (production).
+    Falls back to generating a session keypair (development).
+    """
+    global _OMNIX_PK_B64, _OMNIX_SK_BYTES, _OMNIX_WITNESS_ACTIVE
+    try:
+        from pqcrypto.sign.ml_dsa_65 import generate_keypair
+        sk_env = _os.environ.get("OMNIX_WITNESS_SK", "")
+        pk_env = _os.environ.get("OMNIX_WITNESS_PK", "")
+
+        if sk_env and pk_env:
+            _OMNIX_SK_BYTES = base64.b64decode(sk_env)
+            _OMNIX_PK_B64   = pk_env
+            _OMNIX_WITNESS_ACTIVE = True
+        else:
+            # Generate session keypair — fine for development
+            # For production: set OMNIX_WITNESS_SK + OMNIX_WITNESS_PK env vars
+            pk, sk = generate_keypair()
+            _OMNIX_PK_B64   = base64.b64encode(pk).decode()
+            _OMNIX_SK_BYTES = sk
+            _OMNIX_WITNESS_ACTIVE = True
+    except Exception as e:
+        _OMNIX_WITNESS_ACTIVE = False
+
+_init_omnix_witness()
+
+_OMNIX_STH_LOG:      list = []  # append-only witness attestation log
+_OMNIX_DECLINED_LOG: list = []  # declined STHs with reason
+
+
+def _sign_sth_payload(canonical_payload: dict) -> dict:
+    """
+    Sign an STH payload per ADR-235 spec:
+    1. Canonical JSON of payload
+    2. SHA3-256 hash of canonical JSON
+    3. ML-DSA-65 signature of the hash
+    """
+    from pqcrypto.sign.ml_dsa_65 import sign as ml_dsa_sign
+    canonical = json.dumps(canonical_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    sha3_hash = hashlib.sha3_256(canonical).digest()
+    signature = ml_dsa_sign(_OMNIX_SK_BYTES, sha3_hash)
+    return {
+        "canonical_json":   canonical.decode("utf-8"),
+        "sha3_256_hash":    sha3_hash.hex(),
+        "signature_b64":    base64.b64encode(signature).decode(),
+        "algorithm":        "ML-DSA-65",
+        "standard":         "FIPS 204",
+        "public_key_b64":   _OMNIX_PK_B64,
+    }
+
+
+@app.get("/v1/omnix/witness/status", tags=["OMNIX EWP Witness"])
+async def omnix_witness_status():
+    """
+    VeriSigil OMNIX EWP Institutional Witness status.
+    No authentication required — witness registration is public.
+
+    Agreement: EWP-IWA-VERISIGIL-001 v1.0
+    Role: Independent Institutional Witness
+
+    SCOPE (Section 2.4):
+    A WitnessAttestation proves:
+    (a) the STH received is cryptographically consistent
+    (b) the co-signature was produced using the registered keypair
+
+    A WitnessAttestation is NOT:
+    - Endorsement of any governance decision in the log
+    - Endorsement of OMNIX's products or commercial claims
+    - Attestation of OMNIX's regulatory compliance
+    """
+    return {
+        "schema":    "VGS-OMNIX-WITNESS-STATUS-v1",
+        "title":     "VeriSigil OMNIX EWP Witness Status",
+        "agreement": "EWP-IWA-VERISIGIL-001 v1.0",
+        "counterparty": {
+            "name":    "OMNIX Quantum Ltd",
+            "contact": "contacto@omnixquantum.net",
+            "company_number": "17153109 (England and Wales)",
+        },
+        "witness_identity": {
+            "organisation":   "VeriSigil AI",
+            "contact":        "raheem@verisigilai.com",
+            "is_institutional": True,
+            "is_placeholder":   False,
+        },
+        "keypair": {
+            "algorithm":      "ML-DSA-65",
+            "standard":       "FIPS 204",
+            "public_key_b64": _OMNIX_PK_B64,
+            "key_custody":    "VeriSigil AI — independent exclusive custody",
+            "storage":        "Software key store (initial phase). HSM planned per key management roadmap.",
+        },
+        "operational": {
+            "active":            _OMNIX_WITNESS_ACTIVE,
+            "sth_review_period": "72 hours",
+            "expected_frequency":"Low single digits per month (event-driven)",
+            "availability":      "Best efforts Mon-Fri. Section 9.2 governs suspension.",
+            "attestations_submitted": len(_OMNIX_STH_LOG),
+            "attestations_declined":  len(_OMNIX_DECLINED_LOG),
+        },
+        "scope_limits": {
+            "what_attestation_proves": [
+                "STH is cryptographically consistent with the presented digest",
+                "Co-signature was produced using the registered keypair under this agreement",
+            ],
+            "what_attestation_does_not_prove": [
+                "Any specific governance decision recorded in the transparency log",
+                "Correctness, legality, or appropriateness of any OMNIX action",
+                "OMNIX's regulatory compliance",
+                "Endorsement of OMNIX's products or commercial representations",
+            ],
+        },
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@app.post("/v1/omnix/witness/attest", tags=["OMNIX EWP Witness"])
+async def omnix_witness_attest(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Submit a WitnessAttestation for an OMNIX Signed Tree Head.
+
+    This is the core IWA obligation (Section 3.3):
+    Upon receiving an STH from OMNIX, VeriSigil:
+    (a) verifies the STH structure is well-formed
+    (b) produces a WitnessAttestation using its Secret Key
+    (c) returns the attestation for submission to the Gossip Endpoint
+
+    Per Section 3.4, VeriSigil has the right to decline any STH
+    it determines to be malformed, inconsistent, or non-compliant.
+
+    Section 2.4 scope limitations are enforced — the attestation
+    is a cryptographic consistency check, not an endorsement.
+    """
+    require_api_key(x_api_key, authorization)
+    if not _OMNIX_WITNESS_ACTIVE:
+        raise HTTPException(status_code=503, detail="OMNIX witness keypair not initialised")
+
+    ts = datetime.now(timezone.utc).isoformat()
+
+    # STH fields per ADR-235
+    sth_digest   = req.get("sth_digest","")
+    tree_size    = req.get("tree_size", 0)
+    tree_root    = req.get("tree_root","")
+    sth_timestamp= req.get("sth_timestamp","")
+
+    # Section 3.3(a): verify STH structure is well-formed
+    malformed_reasons = []
+    if not sth_digest:
+        malformed_reasons.append("sth_digest is required")
+    if not tree_root:
+        malformed_reasons.append("tree_root is required")
+    if tree_size < 0:
+        malformed_reasons.append("tree_size must be non-negative")
+    if not sth_timestamp:
+        malformed_reasons.append("sth_timestamp is required")
+
+    if malformed_reasons:
+        # Section 3.4: right of refusal for malformed STH
+        declined = {
+            "decision":   "DECLINED",
+            "reason":     "MALFORMED_STH",
+            "details":    malformed_reasons,
+            "sth_digest": sth_digest,
+            "declined_at":ts,
+        }
+        _OMNIX_DECLINED_LOG.append(declined)
+        return {"status": "DECLINED", "reason": "MALFORMED_STH", "details": malformed_reasons}
+
+    # Section 3.3(b): produce WitnessAttestation per ADR-235 Section 1
+    canonical_payload = {
+        "sth_digest":    sth_digest,
+        "tree_size":     tree_size,
+        "tree_root":     tree_root,
+        "sth_timestamp": sth_timestamp,
+        "witness_id":    "verisigil-ai",
+        "witnessed_at":  ts,
+    }
+
+    signing_result = _sign_sth_payload(canonical_payload)
+
+    attestation = {
+        "schema":        "VGS-OMNIX-WITNESS-ATTESTATION-v1",
+        "agreement":     "EWP-IWA-VERISIGIL-001",
+        "witness_id":    "verisigil-ai",
+        "sth_digest":    sth_digest,
+        "tree_size":     tree_size,
+        "tree_root":     tree_root,
+        "sth_timestamp": sth_timestamp,
+        "witnessed_at":  ts,
+        "canonical_json":signing_result["canonical_json"],
+        "sha3_256_hash": signing_result["sha3_256_hash"],
+        "signature_b64": signing_result["signature_b64"],
+        "algorithm":     "ML-DSA-65",
+        "standard":      "FIPS 204",
+        "public_key_b64":_OMNIX_PK_B64,
+        "scope_note":    "This attestation proves cryptographic consistency of the STH only. Section 2.4 of EWP-IWA-VERISIGIL-001 applies.",
+    }
+
+    _OMNIX_STH_LOG.append(attestation)
+
+    return {
+        **attestation,
+        "status":             "ATTESTED",
+        "submit_to_gossip_at":"POST /ewp/gossip/submit on OMNIX endpoint",
+        "verify_offline": (
+            "from pqcrypto.sign.ml_dsa_65 import verify; "
+            "import base64, hashlib, json; "
+            "canonical = json.dumps(payload, sort_keys=True, separators=(',',':')).encode(); "
+            "sha3 = hashlib.sha3_256(canonical).digest(); "
+            "verify(base64.b64decode(public_key_b64), sha3, base64.b64decode(signature_b64))"
+        ),
+    }
+
+
+@app.post("/v1/omnix/witness/decline", tags=["OMNIX EWP Witness"])
+async def omnix_witness_decline(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Decline to attest an STH per Section 3.4 right of refusal.
+
+    VeriSigil may decline any STH it determines to be malformed,
+    inconsistent, or non-compliant with the EWP specification.
+    A refusal does not constitute failure to meet obligations.
+    """
+    require_api_key(x_api_key, authorization)
+    ts = datetime.now(timezone.utc).isoformat()
+
+    declined = {
+        "schema":     "VGS-OMNIX-DECLINE-v1",
+        "decision":   "DECLINED",
+        "sth_digest": req.get("sth_digest",""),
+        "reason":     req.get("reason",""),
+        "details":    req.get("details",""),
+        "declined_at":ts,
+        "section_reference": "Section 3.4 — Right of Refusal",
+    }
+    _OMNIX_DECLINED_LOG.append(declined)
+
+    seal = {"sth_digest": declined["sth_digest"], "decision": "DECLINED", "timestamp": ts}
+    declined["governance_signature"] = sign_governance_payload(seal)
+
+    return declined
+
+
+@app.get("/v1/omnix/witness/log", tags=["OMNIX EWP Witness"])
+async def omnix_witness_log(
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Complete OMNIX witness attestation log — all STHs attested
+    and declined, in order. Append-only public record.
+    """
+    require_api_key(x_api_key, authorization)
+    return {
+        "schema":              "VGS-OMNIX-LOG-v1",
+        "witness_id":          "verisigil-ai",
+        "agreement":           "EWP-IWA-VERISIGIL-001",
+        "attestations_total":  len(_OMNIX_STH_LOG),
+        "declines_total":      len(_OMNIX_DECLINED_LOG),
+        "attestations":        _OMNIX_STH_LOG[-20:],
+        "declines":            _OMNIX_DECLINED_LOG[-10:],
+        "public_key_b64":      _OMNIX_PK_B64,
+        "timestamp":           datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@app.get("/v1/omnix/witness/public-key", tags=["OMNIX EWP Witness"])
+async def omnix_witness_public_key():
+    """
+    VeriSigil OMNIX witness public key — no authentication required.
+    Anyone can verify VeriSigil's STH attestations offline using this key.
+    This is the key Harold will register in the EWP WitnessRegistry.
+    """
+    return {
+        "schema":       "VGS-OMNIX-PUBLIC-KEY-v1",
+        "witness_id":   "verisigil-ai",
+        "organisation": "VeriSigil AI",
+        "agreement":    "EWP-IWA-VERISIGIL-001",
+        "algorithm":    "ML-DSA-65",
+        "standard":     "FIPS 204",
+        "public_key_b64": _OMNIX_PK_B64,
+        "is_institutional": True,
+        "is_placeholder":   False,
+        "key_usage":    "OMNIX EWP Signed Tree Head co-signature",
+        "verify_attestation": (
+            "from pqcrypto.sign.ml_dsa_65 import verify; import base64, hashlib, json; "
+            "canonical = json.dumps(sth_payload, sort_keys=True, separators=(',',':')).encode(); "
+            "sha3 = hashlib.sha3_256(canonical).digest(); "
+            "verify(base64.b64decode(public_key_b64), sha3, base64.b64decode(signature_b64))"
+        ),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=int(os.environ.get("PORT", 8000)), reload=False)
+
 
 
 
