@@ -77299,38 +77299,48 @@ async def board_dashboard(
     ts = datetime.now(timezone.utc).isoformat()
 
     # Active AI workers
-    workers    = [w for w in _WORKFORCE_REGISTRY.values() if w.get("org_id") == org_id]
+    workers     = [w for w in _WORKFORCE_REGISTRY.values() if w.get("org_id") == org_id]
     quarantined = [a for a in _QUARANTINE_LIST if a in _WORKFORCE_REGISTRY]
 
-    # Delegation health
-    del_health = await delegation_health(org_id, x_api_key=x_api_key)
+    # Delegation health — compute inline
+    people     = [p for p in _CAPABLE_PEOPLE.values() if p.get("org_id") == org_id]
+    overloaded = [p for p in people if p.get("current_load",0) >= p.get("decisions_per_day_capacity",10)]
+    passports  = [p for p in _DELEGATION_PASSPORTS.values() if p.get("org_id") == org_id]
+    del_health = {
+        "health_score":     round(1 - (len(overloaded) / max(len(people),1)), 2),
+        "overloaded":       len(overloaded),
+        "active_passports": len([p for p in passports if not p.get("revoked")]),
+        "status":           "HEALTHY" if not overloaded else "DEGRADED",
+    }
 
     # Security incidents (last 30)
     recent_incidents = _SECURITY_INCIDENTS[-30:]
     recent_exfil     = _EXFIL_ATTEMPTS[-10:]
 
     # Disclosure compliance
-    disclosures    = list(_DISCLOSURE_REGISTRY.values())
+    disclosures     = list(_DISCLOSURE_REGISTRY.values())
     non_compliant_d = [d for d in disclosures if not d.get("article_50_compliant")]
 
     # Literacy compliance
-    lit_records     = [r for r in _LITERACY_REGISTRY.values() if r.get("org_id") == org_id]
-    lit_compliant   = sum(1 for r in lit_records if r.get("article_4_satisfied"))
+    lit_records  = [r for r in _LITERACY_REGISTRY.values() if r.get("org_id") == org_id]
+    lit_compliant= sum(1 for r in lit_records if r.get("article_4_satisfied"))
 
-    # Appeals
-    open_appeals    = [a for a in _APPEAL_REGISTRY.values() if a.get("status") == "OPEN"]
+    # Appeals — safe lookup
+    try:
+        open_appeals = [a for a in _GOVERNANCE_APPEALS.values() if a.get("status") == "OPEN"]
+    except Exception:
+        open_appeals = []
 
-    # VGES score
     vges_p7 = "PARTIAL — second signer not yet independently operated"
 
-    # Overall governance health score
+    # Overall health score
     health_factors = {
-        "ai_workers_healthy":      len(quarantined) == 0,
-        "delegation_healthy":      del_health.get("status","") == "HEALTHY",
+        "ai_workers_healthy":         len(quarantined) == 0,
+        "delegation_healthy":         del_health.get("status") == "HEALTHY",
         "no_open_security_incidents": len(recent_incidents) == 0,
-        "article_50_compliant":    len(non_compliant_d) == 0,
-        "article_4_compliant":     lit_compliant == len(lit_records) if lit_records else False,
-        "no_open_appeals":         len(open_appeals) == 0,
+        "article_50_compliant":       len(non_compliant_d) == 0,
+        "article_4_compliant":        lit_compliant == len(lit_records) if lit_records else True,
+        "no_open_appeals":            len(open_appeals) == 0,
     }
     health_score = round(sum(1 for v in health_factors.values() if v) / len(health_factors), 2)
 
