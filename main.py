@@ -70170,6 +70170,22 @@ async def audit_changelog():
 
         "entries": [
             {
+                "date":     "2026-08-07",
+                "version":  "0.9.x",
+                "type":     "VALIDATION CLOSED",
+                "id":       "RUN-3-CLOSED",
+                "title":    "CLARA Run 3 cycle formally closed — all findings independently confirmed by Alkama Eqbal",
+                "confirmed_by": "Alkama Eqbal, independent reviewer",
+                "findings_closed": ["CV-003 (ESCALATE fix)", "CHG-010 (CV-005 state hash)", "CHG-011 (verify/kit 500)"],
+                "alkama_note": (
+                    "A signature updated during the no-auth refactor while the body still called "
+                    "the old auth helper is exactly the class of bug that only shows up from the outside, "
+                    "because internally the code still reads correctly. That is the argument for having "
+                    "someone hit the public surface with no key on every deploy, not just at the end of a cycle."
+                ),
+                "engineering_action": "test_public_endpoints.py added as permanent regression gate — 28 tests, 7 sections, runs on every deploy via GitHub Actions",
+            },
+            {
                 "date":     "2026-08-06",
                 "version":  "0.9.x",
                 "type":     "BUG FIX",
@@ -70184,8 +70200,8 @@ async def audit_changelog():
                     "This is a regression introduced by CHG-006 (auth removal)."
                 ),
                 "fix":      "Removed stale require_api_key call from verify_kit function body.",
-                "confirmed_closed": "Pending Alkama re-check.",
-                "alkama_credit": "Found by Alkama during post-deploy validation. Flagged as highest priority: 'the kit is the thing you point people at to verify you without trusting you'.",
+                "confirmed_closed": "CONFIRMED 2026-08-07 — Alkama Eqbal final pass: verify/kit returns 200 with full verification table no key. Conformance 200 public. CHG-011 readable in changelog no key. Run 3 cycle formally closed.",
+                "alkama_note": "A signature updated during the no-auth refactor while the body still called the old auth helper is exactly the class of bug that only shows up from the outside. This is the argument for hitting the public surface with no key on every deploy.",
             },
             {
                 "date":     "2026-08-06",
@@ -70215,7 +70231,7 @@ async def audit_changelog():
                 "found_by": "Alkama Eqbal, CLARA Run 3 CV-005 analysis (2026-08-06)",
                 "description": "state_verify read current_state_fields but callers send state_fields. Empty dict always. Hash always 44136fa. Every verify returned STATE_CHANGED regardless of actual state.",
                 "fix":      "state_verify now accepts state_fields OR current_state_fields.",
-                "confirmed_closed": "Confirmed by Alkama — FRESH on unchanged, STATE_CHANGED on changed.",
+                "confirmed_closed": "CONFIRMED 2026-08-07 — Alkama Eqbal final pass: commit then verify unchanged returns FRESH with PROCEED. Verify modified returns STATE_CHANGED with HALT. Both directions match expected behaviour.",
             },
             {
                 "date":     "2026-08-05",
@@ -76472,6 +76488,297 @@ async def ai_workforce_list(
         "by_type":      by_type,
         "workers":      workers,
         "timestamp":    datetime.now(timezone.utc).isoformat(),
+    }
+
+
+
+# ============================================================
+# VOICE INTEGRITY LAYER (VIL)
+# CDI Meta Layer 4 — Autonomous Operations
+#
+# Expert: "Govern Voice AI — Bland, Retell, Vapi, ElevenLabs.
+# Never compete. Govern."
+#
+# Voice AI introduces unique governance challenges:
+# 1. Identity — is this the authorized voice agent?
+# 2. Script integrity — is it saying what was approved?
+# 3. Consent — was the recipient informed this is AI?
+# 4. Consequence — can this call commit real-world obligations?
+# 5. Recording — is the governance receipt created?
+#
+# VeriSigil does not build Voice AI.
+# VeriSigil governs Voice AI before and during execution.
+# ============================================================
+
+_VOICE_SESSIONS:   dict = {}  # session_id -> voice session record
+_APPROVED_SCRIPTS: dict = {}  # script_id -> approved script
+_VOICE_INCIDENTS:  list = []  # voice governance incidents
+
+
+@app.post("/v1/voice/session/start", tags=["Voice Integrity Layer"])
+async def voice_session_start(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Voice Session Governance — intercept a Voice AI session before
+    it connects to a recipient.
+
+    CDI Layer 4 — Voice Integrity.
+    Governs: Bland, Retell, Vapi, ElevenLabs, and any Voice AI.
+
+    Before a voice AI agent calls or speaks to a real person,
+    VeriSigil verifies:
+
+    1. Agent identity — is this the authorized voice agent?
+    2. Script authorization — has the script been approved?
+    3. Recipient consent — was the recipient informed?
+    4. Consequence scope — can this call commit real obligations?
+    5. Human supervisor — is a human available to intervene?
+
+    A voice session without a governance receipt cannot be
+    treated as an authorized interaction.
+
+    Expert: "Never compete with Voice AI providers. Govern them."
+    """
+    require_api_key(x_api_key, authorization)
+    ts         = datetime.now(timezone.utc).isoformat()
+    session_id = f"VSS-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}"
+
+    agent_id       = req.get("agent_id","")
+    provider       = req.get("provider","")  # BLAND, RETELL, VAPI, ELEVENLABS, OTHER
+    script_id      = req.get("script_id","")
+    recipient_type = req.get("recipient_type","")  # CONSUMER, BUSINESS, INTERNAL
+    consequence    = req.get("consequence","OPERATIONAL")
+    can_commit     = req.get("can_commit_obligations", False)
+    human_supervisor = req.get("human_supervisor_available", False)
+    recipient_ai_disclosure = req.get("recipient_informed_of_ai", False)
+    jurisdiction   = req.get("jurisdiction","")
+
+    reasons = []
+    conditions = []
+
+    # Check delegation passport
+    passport = _DELEGATION_PASSPORTS.get(agent_id,{})
+    if passport and "voice_call" not in passport.get("allowed_actions",[]) and passport.get("allowed_actions"):
+        reasons.append(f"Voice calls not in agent delegation passport allowed actions")
+
+    # Check script is approved
+    approved_script = _APPROVED_SCRIPTS.get(script_id,{})
+    script_approved = bool(approved_script)
+    if script_id and not script_approved:
+        reasons.append(f"Script '{script_id}' has not been approved — voice agent cannot use unapproved scripts")
+
+    # Check recipient consent
+    if recipient_type == "CONSUMER" and not recipient_ai_disclosure:
+        reasons.append("Consumer recipient must be informed they are speaking with AI before session begins")
+
+    # Consequence governance
+    if can_commit and not human_supervisor:
+        reasons.append("Voice AI that can commit real-world obligations requires human supervisor availability")
+
+    if can_commit and consequence in ("HIGH","CRITICAL","EMERGENCY"):
+        conditions.append(f"Obligation-capable voice session at {consequence} tier — human supervisor required before any commitment")
+
+    # Jurisdiction check
+    if jurisdiction in ("EU","UK") and recipient_type == "CONSUMER" and not recipient_ai_disclosure:
+        reasons.append(f"EU/UK consumer protection requires AI disclosure before voice session")
+
+    if reasons:
+        ruling = "DENY"
+        allowed = False
+    elif conditions:
+        ruling = "ESCALATE"
+        allowed = False
+    else:
+        ruling = "ALLOW"
+        allowed = True
+
+    session = {
+        "schema":       "VGS-VOICE-SESSION-v1",
+        "session_id":   session_id,
+        "agent_id":     agent_id,
+        "provider":     provider,
+        "script_id":    script_id,
+        "script_approved": script_approved,
+        "recipient_type": recipient_type,
+        "recipient_informed_of_ai": recipient_ai_disclosure,
+        "can_commit":   can_commit,
+        "consequence":  consequence,
+        "human_supervisor": human_supervisor,
+        "jurisdiction": jurisdiction,
+        "ruling":       ruling,
+        "allowed":      allowed,
+        "reasons":      reasons,
+        "conditions":   conditions,
+        "started_at":   ts,
+        "status":       "ACTIVE" if allowed else "BLOCKED",
+    }
+
+    seal = {
+        "session_id": session_id,
+        "agent_id":   agent_id,
+        "ruling":     ruling,
+        "provider":   provider,
+        "timestamp":  ts,
+    }
+    session["governance_signature"] = sign_governance_payload(seal)
+    session["offline_verifiable"]   = True
+
+    if not allowed:
+        _VOICE_INCIDENTS.append({
+            "type":       "BLOCKED_SESSION",
+            "session_id": session_id,
+            "agent_id":   agent_id,
+            "reasons":    reasons,
+            "timestamp":  ts,
+        })
+
+    _VOICE_SESSIONS[session_id] = session
+    return {
+        **session,
+        "enforcement_note": "A voice session without this governance receipt cannot be treated as an authorized interaction. Present session_id to voice provider as proof of governance clearance.",
+    }
+
+
+@app.post("/v1/voice/script/approve", tags=["Voice Integrity Layer"])
+async def voice_script_approve(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Voice Script Approval — a human approves a script before
+    a Voice AI agent is permitted to use it.
+
+    A voice agent cannot use a script that has not been approved.
+    This prevents unauthorized prompt injection, off-script
+    commitments, and regulatory violations in voice interactions.
+
+    Human approval is mandatory. AI may draft. Humans approve.
+    """
+    require_api_key(x_api_key, authorization)
+    ts        = datetime.now(timezone.utc).isoformat()
+    script_id = f"SCR-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}"
+
+    approved_by = req.get("approved_by","")
+    if not approved_by:
+        raise HTTPException(status_code=400, detail="approved_by required — voice scripts require human approval. AI may draft. Humans approve.")
+
+    script = {
+        "schema":       "VGS-VOICE-SCRIPT-v1",
+        "script_id":    script_id,
+        "name":         req.get("name",""),
+        "content_hash": hashlib.sha256(json.dumps(req.get("content",""), sort_keys=True).encode()).hexdigest(),
+        "use_case":     req.get("use_case",""),
+        "permitted_commitments": req.get("permitted_commitments",[]),
+        "forbidden_commitments": req.get("forbidden_commitments",[]),
+        "requires_disclosure":   req.get("requires_ai_disclosure", True),
+        "max_consequence":       req.get("max_consequence","OPERATIONAL"),
+        "approved_by":  approved_by,
+        "approved_at":  ts,
+        "valid_until":  req.get("valid_until",""),
+    }
+
+    seal = {"script_id": script_id, "approved_by": approved_by, "timestamp": ts}
+    script["governance_signature"] = sign_governance_payload(seal)
+    _APPROVED_SCRIPTS[script_id]  = script
+
+    return {
+        **script,
+        "enforcement": "This script_id must be presented to POST /v1/voice/session/start. A voice agent cannot use an unapproved script.",
+    }
+
+
+@app.post("/v1/voice/session/close", tags=["Voice Integrity Layer"])
+async def voice_session_close(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Close a voice governance session — seal the final receipt
+    with outcome, commitments made, and duration.
+    """
+    require_api_key(x_api_key, authorization)
+    ts         = datetime.now(timezone.utc).isoformat()
+    session_id = req.get("session_id","")
+    session    = _VOICE_SESSIONS.get(session_id)
+
+    if not session:
+        raise HTTPException(status_code=404, detail=f"Voice session {session_id} not found")
+
+    session["status"]         = "CLOSED"
+    session["closed_at"]      = ts
+    session["outcome"]        = req.get("outcome","")
+    session["commitments_made"] = req.get("commitments_made",[])
+    session["duration_seconds"] = req.get("duration_seconds",0)
+    session["escalated_to_human"] = req.get("escalated_to_human", False)
+
+    # Flag if commitments were made that weren't in the approved script
+    script = _APPROVED_SCRIPTS.get(session.get("script_id",""),{})
+    permitted = script.get("permitted_commitments",[])
+    forbidden = script.get("forbidden_commitments",[])
+    commitments = req.get("commitments_made",[])
+    unauthorized = [c for c in commitments if c not in permitted] if permitted else []
+    forbidden_made = [c for c in commitments if c in forbidden]
+
+    session["unauthorized_commitments"] = unauthorized
+    session["forbidden_commitments_made"] = forbidden_made
+    session["commitment_violation"] = bool(unauthorized or forbidden_made)
+
+    if unauthorized or forbidden_made:
+        _VOICE_INCIDENTS.append({
+            "type":        "COMMITMENT_VIOLATION",
+            "session_id":  session_id,
+            "agent_id":    session.get("agent_id",""),
+            "unauthorized": unauthorized,
+            "forbidden":   forbidden_made,
+            "timestamp":   ts,
+        })
+
+    seal = {
+        "session_id":  session_id,
+        "outcome":     session["outcome"],
+        "commitments": len(commitments),
+        "violation":   session["commitment_violation"],
+        "timestamp":   ts,
+    }
+    session["close_signature"] = sign_governance_payload(seal)
+
+    return {
+        **session,
+        "receipt_complete": True,
+        "note": "This sealed session record is the governance receipt for this voice interaction. Retain for audit, compliance, and dispute resolution.",
+    }
+
+
+@app.get("/v1/voice/session/{session_id}", tags=["Voice Integrity Layer"])
+async def voice_session_get(
+    session_id: str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Retrieve a voice governance session record."""
+    require_api_key(x_api_key, authorization)
+    session = _VOICE_SESSIONS.get(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail=f"Voice session {session_id} not found")
+    return {**session, "retrieved_at": datetime.now(timezone.utc).isoformat()}
+
+
+@app.get("/v1/voice/incidents", tags=["Voice Integrity Layer"])
+async def voice_incidents(
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """All voice governance incidents — blocked sessions, unauthorized commitments."""
+    require_api_key(x_api_key, authorization)
+    return {
+        "total_incidents": len(_VOICE_INCIDENTS),
+        "incidents":       _VOICE_INCIDENTS[-20:],
+        "timestamp":       datetime.now(timezone.utc).isoformat(),
     }
 
 
