@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VeriSigil — Independent Verification Reports</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+:root{
+  --bg:#08111F;--surface:#1A2940;--elevated:#1f3352;
+  --border:rgba(255,255,255,.07);--text:#E8EDF4;--muted:#6B849E;
+  --faint:#374A60;--green:#00C896;--amber:#F5A623;--red:#E05555;
+  --blue:#4A9EFF;--mono:'IBM Plex Mono',monospace;--sans:'Inter',sans-serif;
+}
+body{background:var(--bg);color:var(--text);font-family:var(--sans);font-size:15px;line-height:1.65;min-height:100vh;}
+nav{border-bottom:1px solid var(--border);padding:14px 0;position:sticky;top:0;z-index:100;background:rgba(8,17,31,.96);backdrop-filter:blur(8px);}
+nav .wrap{display:flex;align-items:center;justify-content:space-between;}
+.nav-brand{font-family:var(--mono);font-size:13px;color:var(--text);text-decoration:none;}
+.nav-brand span{color:var(--green);}
+.nav-links{display:flex;gap:20px;list-style:none;}
+.nav-links a{font-family:var(--mono);font-size:11px;color:var(--muted);text-decoration:none;letter-spacing:.08em;text-transform:uppercase;transition:color .15s;}
+.nav-links a:hover{color:var(--green);}
+.wrap{max-width:820px;margin:0 auto;padding:0 24px;}
+header{padding:64px 0 48px;border-bottom:1px solid var(--border);}
+.kicker{font-family:var(--mono);font-size:11px;letter-spacing:.15em;text-transform:uppercase;color:var(--green);margin-bottom:16px;}
+header h1{font-family:var(--mono);font-size:clamp(20px,3.5vw,28px);font-weight:600;line-height:1.2;margin-bottom:14px;}
+.header-sub{font-size:15px;color:var(--muted);max-width:560px;line-height:1.75;margin-bottom:20px;}
+.header-note{font-family:var(--mono);font-size:11px;color:var(--faint);border-left:2px solid var(--faint);padding-left:12px;line-height:1.6;}
+
+/* Report card */
+.report-card{border:1px solid var(--border);border-radius:8px;overflow:hidden;margin:40px 0;}
+.report-header{background:var(--surface);padding:20px 24px;border-bottom:1px solid var(--border);display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px;}
+.report-meta{flex:1;}
+.report-num{font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin-bottom:6px;}
+.report-title{font-size:16px;font-weight:600;margin-bottom:4px;}
+.report-date{font-family:var(--mono);font-size:11px;color:var(--faint);}
+.status-badge{font-family:var(--mono);font-size:10px;font-weight:600;padding:5px 12px;border-radius:2px;letter-spacing:.06em;white-space:nowrap;align-self:flex-start;}
+.badge-closed{background:rgba(0,200,150,.1);color:var(--green);border:1px solid rgba(0,200,150,.2);}
+.badge-pending{background:rgba(245,166,35,.08);color:var(--amber);border:1px solid rgba(245,166,35,.2);}
+
+.report-body{padding:24px;}
+
+/* Meta table */
+.meta-grid{display:grid;grid-template-columns:140px 1fr;gap:6px 20px;margin-bottom:24px;font-size:13px;}
+.meta-label{font-family:var(--mono);font-size:11px;color:var(--muted);}
+.meta-value{font-family:var(--mono);font-size:11px;color:var(--text);}
+.meta-value.green{color:var(--green);}
+
+/* Section */
+.section{margin-bottom:28px;}
+.section-title{font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin-bottom:14px;padding-bottom:8px;border-bottom:1px solid var(--border);}
+
+/* Result rows */
+.result-row{display:flex;align-items:flex-start;gap:14px;padding:12px 0;border-bottom:1px solid rgba(255,255,255,.03);}
+.result-row:last-child{border-bottom:none;}
+.result-icon{font-family:var(--mono);font-size:12px;width:20px;flex-shrink:0;padding-top:1px;}
+.result-icon.pass{color:var(--green);}
+.result-icon.fail{color:var(--red);}
+.result-icon.info{color:var(--blue);}
+.result-body{flex:1;}
+.result-title{font-size:13px;font-weight:500;margin-bottom:3px;}
+.result-detail{font-size:12px;color:var(--muted);line-height:1.5;}
+.result-detail code{font-family:var(--mono);font-size:11px;color:var(--text);background:rgba(255,255,255,.04);padding:1px 5px;}
+
+/* Scenario comparison */
+.scenario-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:12px 0;}
+@media(max-width:600px){.scenario-grid{grid-template-columns:1fr;}}
+.scenario{background:var(--elevated);border-radius:4px;padding:14px;}
+.scenario-label{font-family:var(--mono);font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:8px;}
+.scenario-step{font-family:var(--mono);font-size:11px;color:var(--muted);padding:2px 0;}
+.scenario-step.result{color:var(--text);font-weight:500;margin-top:6px;padding-top:6px;border-top:1px solid rgba(255,255,255,.06);}
+.scenario-step.pass{color:var(--green);}
+.scenario-step.halt{color:var(--red);}
+
+/* Engineering observation */
+.obs-block{background:rgba(74,158,255,.04);border:1px solid rgba(74,158,255,.15);border-radius:4px;padding:16px;margin:12px 0;}
+.obs-title{font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--blue);margin-bottom:8px;}
+.obs-body{font-size:13px;color:var(--muted);line-height:1.7;}
+.obs-body strong{color:var(--text);}
+
+/* Quote */
+.quote-block{border-left:3px solid var(--green);padding:14px 18px;margin:16px 0;background:rgba(0,200,150,.03);}
+.quote-text{font-size:13px;color:var(--muted);line-height:1.75;font-style:italic;}
+.quote-attr{font-family:var(--mono);font-size:10px;color:var(--faint);margin-top:8px;}
+
+/* Attribution */
+.attribution{background:var(--elevated);border-radius:4px;padding:14px 16px;font-family:var(--mono);font-size:11px;color:var(--muted);line-height:1.6;margin-top:20px;}
+
+/* Rule */
+.rule{height:1px;background:linear-gradient(90deg,var(--green),transparent 60%);max-width:60px;margin:0 0 20px;}
+
+/* Upcoming */
+.upcoming-card{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:20px 24px;margin:20px 0;opacity:.6;}
+.upcoming-title{font-size:14px;font-weight:500;margin-bottom:4px;color:var(--muted);}
+.upcoming-sub{font-size:12px;color:var(--faint);}
+
+/* CTA */
+.cta{padding:48px 0;text-align:center;}
+.cta h2{font-size:18px;font-weight:600;margin-bottom:8px;}
+.cta p{color:var(--muted);font-size:14px;margin-bottom:20px;}
+.btn-row{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;}
+.btn-p{background:var(--green);color:#08111F;padding:10px 22px;border-radius:4px;text-decoration:none;font-weight:600;font-size:13px;font-family:var(--mono);}
+.btn-s{border:1px solid var(--faint);color:var(--muted);padding:10px 22px;border-radius:4px;text-decoration:none;font-size:13px;font-family:var(--mono);transition:all .15s;}
+.btn-s:hover{border-color:var(--green);color:var(--green);}
+
+footer{border-top:1px solid var(--border);padding:24px 0;}
+footer .wrap{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;}
+.footer-text{font-family:var(--mono);font-size:11px;color:var(--faint);}
+.footer-links{display:flex;gap:16px;}
+.footer-links a{font-family:var(--mono);font-size:11px;color:var(--faint);text-decoration:none;}
+.footer-links a:hover{color:var(--green);}
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="wrap">
+    <a href="https://verisigilai.com" class="nav-brand">VeriSigil<span>AI</span></a>
+    <ul class="nav-links">
+      <li><a href="/validation.html">Validation</a></li>
+      <li><a href="/runs.html">Run History</a></li>
+      <li><a href="/explorer.html">Explorer</a></li>
+      <li><a href="https://verisigilai.com/trust.html">Trust</a></li>
+    </ul>
+  </div>
+</nav>
+
+<header>
+  <div class="wrap">
+    <p class="kicker">Independent Verification Reports · Trust Center</p>
+    <h1>External reviewers. Real tests.<br>Published results.</h1>
+    <p class="header-sub">VeriSigil publishes every independent verification report — findings, fixes, and engineering observations included. These are not marketing documents. They are engineering records.</p>
+    <p class="header-note">Each report is produced by an independent reviewer with no commercial relationship with VeriSigil. Publication is subject to written approval from both parties. Attribution is by mutual consent only.</p>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <!-- REPORT #001 -->
+  <div class="report-card" id="report-001">
+    <div class="report-header">
+      <div class="report-meta">
+        <div class="report-num">Independent Verification Report · #001</div>
+        <div class="report-title">CLARA Run 3 — Formal Closure Verification</div>
+        <div class="report-date">Verified: 2026-08-07 · Cycle: 2026-08-04 — 2026-08-07</div>
+      </div>
+      <span class="status-badge badge-closed">✓ FORMALLY CLOSED</span>
+    </div>
+
+    <div class="report-body">
+
+      <div class="meta-grid">
+        <span class="meta-label">Reviewer</span>
+        <span class="meta-value">Alkama Eqbal (independent)</span>
+        <span class="meta-label">Program</span>
+        <span class="meta-value">CLARA Runtime Validation Program</span>
+        <span class="meta-label">Run cycle</span>
+        <span class="meta-value">Run 3 + Run 3b (post-fix re-validation)</span>
+        <span class="meta-label">Scope</span>
+        <span class="meta-value">Public verification surface — no API key</span>
+        <span class="meta-label">Relationship</span>
+        <span class="meta-value">Non-commercial · Attribution by written approval</span>
+        <span class="meta-label">Public key</span>
+        <span class="meta-value green">lJWG0Wabt6uATPu5Upo6UEHWGXQqMyi6LMKQC0xwpY8=</span>
+      </div>
+
+      <!-- Section 1 -->
+      <div class="section">
+        <div class="section-title">Verification Results</div>
+
+        <div class="result-row">
+          <span class="result-icon pass">✓</span>
+          <div class="result-body">
+            <div class="result-title">Public Verification Kit</div>
+            <div class="result-detail"><code>GET /v1/verify/kit</code> tested without API key. Returns HTTP 200 with the complete verification table. CHG-011 regression confirmed resolved.</div>
+          </div>
+        </div>
+
+        <div class="result-row">
+          <span class="result-icon pass">✓</span>
+          <div class="result-body">
+            <div class="result-title">Public Conformance Endpoint</div>
+            <div class="result-detail"><code>GET /v1/verify/conformance</code> publicly accessible without key. Returns HTTP 200. Operating as expected.</div>
+          </div>
+        </div>
+
+        <div class="result-row">
+          <span class="result-icon pass">✓</span>
+          <div class="result-body">
+            <div class="result-title">Public Changelog</div>
+            <div class="result-detail"><code>GET /v1/audit/changelog</code> accessible without API key. CHG-011 entry publicly readable. Change history confirmed.</div>
+          </div>
+        </div>
+
+        <div class="result-row">
+          <span class="result-icon pass">✓</span>
+          <div class="result-body">
+            <div class="result-title">CV-003 — HIGH Consequence Governance Ruling</div>
+            <div class="result-detail">HIGH + irreversible + <code>human_present=true</code> returns <code>ESCALATE</code> with <code>HIGH_IRREVERSIBLE_ESCALATE</code> signal present. Control (<code>human_present=false</code>) returns <code>DENY</code>. Both directions verified. Matches stated governance rule.</div>
+          </div>
+        </div>
+
+        <div class="result-row">
+          <span class="result-icon pass">✓</span>
+          <div class="result-body">
+            <div class="result-title">CV-005 — State Freshness (CHG-010)</div>
+            <div class="result-detail">Two independent execution paths verified:</div>
+            <div class="scenario-grid" style="margin-top:10px;">
+              <div class="scenario">
+                <div class="scenario-label">Scenario A — Unchanged State</div>
+                <div class="scenario-step">1. Commit state fields</div>
+                <div class="scenario-step">2. Verify with identical fields</div>
+                <div class="scenario-step result pass">Result: FRESH · PROCEED</div>
+              </div>
+              <div class="scenario">
+                <div class="scenario-label">Scenario B — Modified State</div>
+                <div class="scenario-step">1. Commit state fields</div>
+                <div class="scenario-step">2. Verify after field modification</div>
+                <div class="scenario-step result halt">Result: STATE_CHANGED · HALT</div>
+              </div>
+            </div>
+            <div class="result-detail" style="margin-top:8px;">Observed behaviour matches the expected execution model. CHG-010 confirmed closed.</div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Section 2 — Engineering Observation -->
+      <div class="section">
+        <div class="section-title">Engineering Observation</div>
+
+        <div class="obs-block">
+          <div class="obs-title">Root Cause — CHG-011 NameError</div>
+          <div class="obs-body">
+            The regression originated from a <strong>NameError introduced during the no-authentication refactor</strong>. Specifically: the function signature was updated to remove auth parameters, but the internal function body still referenced the previous authentication helper (<code>require_api_key</code>) — undefined variables in scope. Result: internally the code appeared correct; the public endpoint failed only under no-auth conditions — invisible to internal review.
+          </div>
+        </div>
+
+        <div class="quote-block">
+          <div class="quote-text">"A signature updated during the no-auth refactor while the body still called the old auth helper is exactly the class of bug that only shows up from the outside, because internally the code still reads correctly. That is the argument for having someone hit the public surface with no key on every deploy, not just at the end of a cycle."</div>
+          <div class="quote-attr">— Alkama Eqbal, independent reviewer · 2026-08-07</div>
+        </div>
+
+        <div class="result-row">
+          <span class="result-icon info">→</span>
+          <div class="result-body">
+            <div class="result-title">Engineering Response</div>
+            <div class="result-detail"><code>test_public_endpoints.py</code> added as a permanent regression gate — 28 tests across 7 sections, hits every public surface with no key on every deploy via GitHub Actions. This class of regression cannot reach production again without the test suite catching it first.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Section 3 — Final Assessment -->
+      <div class="section">
+        <div class="section-title">Final Assessment</div>
+
+        <div class="result-row">
+          <span class="result-icon pass">✓</span>
+          <div class="result-body">
+            <div class="result-title">All Run 3 findings independently verified and confirmed fixed</div>
+            <div class="result-detail">CV-003 (governance ruling) · CHG-010 (state hash field name) · CHG-011 (verify/kit NameError regression)</div>
+          </div>
+        </div>
+
+        <div class="result-row">
+          <span class="result-icon pass">✓</span>
+          <div class="result-body">
+            <div class="result-title">Run 3 cycle formally closed</div>
+            <div class="result-detail">Independent reviewer confirmed closure 2026-08-07. Full cycle history at <a href="/runs.html" style="color:var(--green);">verisigilai.com/runs.html</a></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="attribution">
+        Review conducted independently. Publication of this report is with the reviewer's written approval. External use of reviewer identity or specific quotation requires separate written consent from both parties. Contact: raheem@verisigilai.com
+      </div>
+
+    </div>
+  </div>
+
+  <!-- UPCOMING REPORTS -->
+  <p class="kicker" style="margin-top:48px;">Upcoming</p>
+  <div class="rule"></div>
+
+  <div class="upcoming-card">
+    <div class="report-num" style="font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);margin-bottom:6px;">Independent Verification Report · #002</div>
+    <div class="upcoming-title">CLARA Run 4 — Authorization Object Architecture Re-Validation</div>
+    <div class="upcoming-sub">Targeting: concurrent AO verification under sustained load, restart-safety of SQLite nonce ledger, CV-005 clean recheck with exact harness payloads.</div>
+  </div>
+
+  <div class="upcoming-card">
+    <div class="report-num" style="font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);margin-bottom:6px;">Independent Verification Report · #003</div>
+    <div class="upcoming-title">External Security Assessment — Penetration Test</div>
+    <div class="upcoming-sub">Formal independent security assessment from a recognized third-party security firm. Targeting the AI security governance layer, boundary enforcement, and exfiltration prevention. Planned after first design partner pilot.</div>
+  </div>
+
+</div>
+
+<div class="cta">
+  <div class="wrap">
+    <h2>Run these tests yourself.</h2>
+    <p>Every verification in Report #001 is independently reproducible with the public sandbox key.</p>
+    <div class="btn-row">
+      <a href="https://verisigil-api-production.up.railway.app/v1/verify/kit" target="_blank" class="btn-p">Verification Kit →</a>
+      <a href="https://verisigil-api-production.up.railway.app/v1/verify/conformance" target="_blank" class="btn-s">Conformance Vectors</a>
+      <a href="https://verisigil-api-production.up.railway.app/v1/audit/changelog" target="_blank" class="btn-s">Changelog</a>
+      <a href="/runs.html" class="btn-s">Full Run History</a>
+    </div>
+    <p style="margin-top:16px;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--faint);">Sandbox key: vs-sandbox-demo-2026b</p>
+  </div>
+</div>
+
+<footer>
+  <div class="wrap">
+    <span class="footer-text">© 2026 VeriSigil AI · raheem@verisigilai.com</span>
+    <div class="footer-links">
+      <a href="https://verisigilai.com">verisigilai.com</a>
+      <a href="/validation.html">Validation</a>
+      <a href="/runs.html">Run History</a>
+      <a href="/explorer.html">Explorer</a>
+      <a href="https://verisigilai.com/trust.html">Trust</a>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>
