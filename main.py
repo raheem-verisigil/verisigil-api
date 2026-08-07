@@ -75784,6 +75784,697 @@ async def reputation_network_query(
     }
 
 
+
+# ============================================================
+# CONSTITUTIONAL DELEGATION INFRASTRUCTURE (CDI)
+# Master Blueprint — frozen architecture
+#
+# Expert: "VeriSigilAI is the Constitutional Delegation
+# Infrastructure that ensures every autonomous decision—made
+# by AI, software, or authorized humans—is executed within
+# verified authority, produces cryptographic evidence, and
+# remains accountable to human governance."
+#
+# This section implements the remaining CDI modules not yet
+# covered by existing layers.
+# ============================================================
+
+# ── CDI STATE ────────────────────────────────────────────────
+_ORG_REGISTRY:         dict = {}  # org_id -> organization structure
+_HUMAN_REGISTRY:       dict = {}  # person_id -> verified human identity
+_PROCESS_GRAPH:        dict = {}  # process_id -> business process
+_DECISION_GRAPH_DB:    dict = {}  # entity_id -> decision authority map
+_KNOWLEDGE_GRAPH:      dict = {}  # doc_id -> policy/regulation/SOP
+_DELEGATION_PASSPORTS: dict = {}  # agent_id -> delegation passport
+_CAPABLE_PEOPLE:       dict = {}  # person_id -> capability profile
+_WORKFORCE_REGISTRY:   dict = {}  # worker_id -> AI worker profile
+_ROUTING_RULES:        dict = {}  # org_id -> decision routing config
+
+
+# ============================================================
+# META LAYER 1 — ORGANIZATIONAL INTELLIGENCE LAYER (OIL)
+# Purpose: Understand the organization before governing it.
+# ============================================================
+
+@app.post("/v1/org/discover", tags=["Organizational Intelligence Layer"])
+async def org_discover(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Organization Discovery Engine — discovers the organizational
+    structure before governance can be applied.
+
+    CDI Layer 1, Module 1.
+    Outputs: Organization Graph, Department Tree, Subsidiary Map.
+
+    Expert: "Understand the organization before governing it.
+    Without knowing who approves what, governance is guessing."
+    """
+    require_api_key(x_api_key, authorization)
+    ts     = datetime.now(timezone.utc).isoformat()
+    org_id = f"ORG-{hashlib.sha256(ts.encode()).hexdigest()[:10].upper()}"
+
+    org = {
+        "schema":       "VGS-CDI-ORG-v1",
+        "org_id":       org_id,
+        "name":         req.get("name",""),
+        "industry":     req.get("industry",""),
+        "jurisdiction": req.get("jurisdiction",""),
+        "departments":  req.get("departments",[]),
+        "subsidiaries": req.get("subsidiaries",[]),
+        "business_units":req.get("business_units",[]),
+        "branches":     req.get("branches",[]),
+        "headcount":    req.get("headcount",0),
+        "ai_workforce_count": req.get("ai_workforce_count",0),
+        "discovered_at":ts,
+    }
+
+    # Compute dependency indicators
+    ai_ratio = org["ai_workforce_count"] / max(org["headcount"],1)
+    org["ai_dependency_ratio"]     = round(ai_ratio, 3)
+    org["delegation_readiness"]    = "HIGH" if ai_ratio < 0.3 else "MEDIUM" if ai_ratio < 0.6 else "CRITICAL_DEPENDENCY"
+    org["governance_complexity"]   = len(org["departments"]) + len(org["subsidiaries"]) * 2
+
+    seal = {"org_id": org_id, "name": org["name"], "complexity": org["governance_complexity"], "timestamp": ts}
+    org["governance_signature"] = sign_governance_payload(seal)
+    _ORG_REGISTRY[org_id]      = org
+
+    return {
+        **org,
+        "next_steps": [
+            "POST /v1/org/human-identity to register human identities",
+            "POST /v1/ai/workforce/register to register AI workers",
+            "POST /v1/delegation/architect to design authority hierarchy",
+        ],
+    }
+
+
+@app.post("/v1/org/human-identity", tags=["Organizational Intelligence Layer"])
+async def org_human_identity(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Human Identity Discovery — creates a Verified Human Identity
+    Registry entry for every person who can approve, escalate,
+    override, or review governed decisions.
+
+    CDI Layer 1, Module 2.
+    """
+    require_api_key(x_api_key, authorization)
+    ts        = datetime.now(timezone.utc).isoformat()
+    person_id = f"HID-{hashlib.sha256((req.get('email','') + ts).encode()).hexdigest()[:10].upper()}"
+
+    person = {
+        "schema":     "VGS-CDI-HUMAN-IDENTITY-v1",
+        "person_id":  person_id,
+        "name":       req.get("name",""),
+        "email":      req.get("email",""),
+        "role":       req.get("role",""),
+        "department": req.get("department",""),
+        "org_id":     req.get("org_id",""),
+        "type":       req.get("type","EMPLOYEE"),  # EMPLOYEE, CONTRACTOR, VENDOR, CONSULTANT
+        "qualifications": req.get("qualifications",[]),
+        "certifications": req.get("certifications",[]),
+        "authority_ceiling": req.get("authority_ceiling",0),
+        "jurisdiction":      req.get("jurisdiction",""),
+        "verified_at": ts,
+    }
+
+    seal = {"person_id": person_id, "name": person["name"], "role": person["role"], "timestamp": ts}
+    person["governance_signature"] = sign_governance_payload(seal)
+    _HUMAN_REGISTRY[person_id]    = person
+    return person
+
+
+@app.post("/v1/org/process-graph", tags=["Organizational Intelligence Layer"])
+async def org_process_graph(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Process Discovery — maps business workflows so governance
+    knows which process owns which decisions.
+
+    CDI Layer 1, Module 4.
+    Examples: Procurement, HR, Finance, Sales, Compliance.
+    """
+    require_api_key(x_api_key, authorization)
+    ts         = datetime.now(timezone.utc).isoformat()
+    process_id = f"PRC-{hashlib.sha256(ts.encode()).hexdigest()[:10].upper()}"
+
+    process = {
+        "schema":      "VGS-CDI-PROCESS-v1",
+        "process_id":  process_id,
+        "name":        req.get("name",""),
+        "category":    req.get("category",""),  # PROCUREMENT, HR, FINANCE, SALES, COMPLIANCE
+        "org_id":      req.get("org_id",""),
+        "steps":       req.get("steps",[]),
+        "decision_points": req.get("decision_points",[]),
+        "approvers":   req.get("approvers",[]),
+        "ai_touchpoints": req.get("ai_touchpoints",[]),
+        "consequence_tier": req.get("consequence_tier","OPERATIONAL"),
+        "mapped_at":   ts,
+    }
+
+    seal = {"process_id": process_id, "name": process["name"], "timestamp": ts}
+    process["governance_signature"] = sign_governance_payload(seal)
+    _PROCESS_GRAPH[process_id]     = process
+    return process
+
+
+@app.post("/v1/org/decision-graph", tags=["Organizational Intelligence Layer"])
+async def org_decision_graph(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Decision Graph — maps who approves, escalates, overrides,
+    and reviews every category of decision in the organization.
+
+    CDI Layer 1, Module 5.
+    This is the authority map that the Delegation Intelligence
+    Layer uses to design and route decisions.
+    """
+    require_api_key(x_api_key, authorization)
+    ts      = datetime.now(timezone.utc).isoformat()
+    node_id = f"DGN-{hashlib.sha256(ts.encode()).hexdigest()[:10].upper()}"
+
+    node = {
+        "schema":      "VGS-CDI-DECISION-GRAPH-v1",
+        "node_id":     node_id,
+        "org_id":      req.get("org_id",""),
+        "decision_type": req.get("decision_type",""),
+        "approver":    req.get("approver_id",""),
+        "escalation_path": req.get("escalation_path",[]),
+        "override_authority": req.get("override_authority",""),
+        "review_authority":   req.get("review_authority",""),
+        "backup_approvers":   req.get("backup_approvers",[]),
+        "consequence_tier":   req.get("consequence_tier","OPERATIONAL"),
+        "max_amount":         req.get("max_amount",0),
+        "mapped_at":   ts,
+    }
+
+    seal = {"node_id": node_id, "decision_type": node["decision_type"], "timestamp": ts}
+    node["governance_signature"] = sign_governance_payload(seal)
+    _DECISION_GRAPH_DB[node_id] = node
+    return node
+
+
+@app.post("/v1/org/knowledge-graph", tags=["Organizational Intelligence Layer"])
+async def org_knowledge_graph(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Knowledge Graph — stores SOPs, policies, regulations, manuals,
+    and contracts that governance decisions are evaluated against.
+    """
+    require_api_key(x_api_key, authorization)
+    ts     = datetime.now(timezone.utc).isoformat()
+    doc_id = f"KG-{hashlib.sha256(ts.encode()).hexdigest()[:10].upper()}"
+
+    doc = {
+        "schema":    "VGS-CDI-KNOWLEDGE-v1",
+        "doc_id":    doc_id,
+        "type":      req.get("type",""),  # SOP, POLICY, REGULATION, MANUAL, CONTRACT
+        "title":     req.get("title",""),
+        "org_id":    req.get("org_id",""),
+        "jurisdiction": req.get("jurisdiction",""),
+        "content_hash": hashlib.sha256(json.dumps(req.get("content",{}), sort_keys=True).encode()).hexdigest(),
+        "effective_date": req.get("effective_date",""),
+        "expiry_date":    req.get("expiry_date",""),
+        "registered_at":  ts,
+    }
+
+    seal = {"doc_id": doc_id, "type": doc["type"], "title": doc["title"], "timestamp": ts}
+    doc["governance_signature"] = sign_governance_payload(seal)
+    _KNOWLEDGE_GRAPH[doc_id]   = doc
+    return doc
+
+
+@app.get("/v1/org/dependency-index/{org_id}", tags=["Organizational Intelligence Layer"])
+async def org_dependency_index(
+    org_id: str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Organizational Dependency Index — measures CEO dependency,
+    department dependency, AI dependency, and decision bottlenecks.
+    Outputs: Dependency Score, Bottleneck Report, Delegation Readiness.
+    """
+    require_api_key(x_api_key, authorization)
+    ts  = datetime.now(timezone.utc).isoformat()
+    org = _ORG_REGISTRY.get(org_id,{})
+
+    humans = [p for p in _HUMAN_REGISTRY.values() if p.get("org_id") == org_id]
+    procs  = [p for p in _PROCESS_GRAPH.values()  if p.get("org_id") == org_id]
+    ai_ct  = org.get("ai_workforce_count",0)
+    h_ct   = max(org.get("headcount",1),1)
+
+    # Decision bottlenecks — people with most decision authority
+    decision_nodes = [d for d in _DECISION_GRAPH_DB.values() if d.get("org_id") == org_id]
+    approver_counts = {}
+    for d in decision_nodes:
+        a = d.get("approver","")
+        if a: approver_counts[a] = approver_counts.get(a,0) + 1
+    bottlenecks = sorted(approver_counts.items(), key=lambda x: x[1], reverse=True)[:5]
+
+    return {
+        "schema":         "VGS-CDI-DEPENDENCY-INDEX-v1",
+        "org_id":         org_id,
+        "human_count":    len(humans),
+        "process_count":  len(procs),
+        "ai_count":       ai_ct,
+        "ai_dependency_ratio": round(ai_ct / h_ct, 3),
+        "decision_nodes": len(decision_nodes),
+        "top_bottlenecks": [{"approver": b[0], "decision_count": b[1]} for b in bottlenecks],
+        "delegation_readiness": org.get("delegation_readiness","UNKNOWN"),
+        "governance_complexity": org.get("governance_complexity",0),
+        "recommendation": "Distribute authority — create backup approvers for top bottlenecks" if bottlenecks and bottlenecks[0][1] > 3 else "Authority distribution looks healthy",
+        "timestamp": ts,
+    }
+
+
+# ============================================================
+# META LAYER 2 — DELEGATION INTELLIGENCE LAYER (DIL)
+# Purpose: Design authority. Not verify authority.
+# ============================================================
+
+@app.post("/v1/delegation/architect", tags=["Delegation Intelligence Layer"])
+async def delegation_architect(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Delegation Architect — automatically designs the authority
+    hierarchy, decision paths, and backup approvers for an org.
+
+    CDI Layer 2, Module 1.
+    Expert: "Design authority. Not just verify it."
+
+    Takes the Org Discovery output and produces a complete
+    delegation structure ready for governance enforcement.
+    """
+    require_api_key(x_api_key, authorization)
+    ts     = datetime.now(timezone.utc).isoformat()
+    org_id = req.get("org_id","")
+    design_id = f"DEL-{hashlib.sha256(ts.encode()).hexdigest()[:10].upper()}"
+
+    departments = req.get("departments",[])
+    ai_workers  = req.get("ai_workers",[])
+    decisions   = req.get("decision_types",[])
+
+    # Auto-design Jethro hierarchy tiers
+    tiers = {
+        "TIER_1_ROUTINE_AI": {
+            "description": "Routine AI autonomous decisions",
+            "consequence": "ADVISORY",
+            "human_required": False,
+            "examples": ["read_report","search_data","summarize_document"],
+            "ceiling": req.get("tier1_ceiling", 0),
+        },
+        "TIER_2_SUPERVISORS": {
+            "description": "Supervisor-level decisions",
+            "consequence": "OPERATIONAL",
+            "human_required": True,
+            "examples": ["approve_expense","assign_task","schedule_meeting"],
+            "ceiling": req.get("tier2_ceiling", 1000),
+        },
+        "TIER_3_MANAGERS": {
+            "description": "Manager-level decisions",
+            "consequence": "HIGH",
+            "human_required": True,
+            "examples": ["hire_contractor","approve_budget","sign_contract"],
+            "ceiling": req.get("tier3_ceiling", 50000),
+        },
+        "TIER_4_EXECUTIVES": {
+            "description": "Executive-level decisions",
+            "consequence": "CRITICAL",
+            "human_required": True,
+            "examples": ["approve_acquisition","sign_major_contract","terminate_partnership"],
+            "ceiling": req.get("tier4_ceiling", 1000000),
+        },
+        "TIER_5_BOARD": {
+            "description": "Board-level decisions",
+            "consequence": "CRITICAL",
+            "human_required": True,
+            "examples": ["approve_merger","change_bylaws","authorize_IPO"],
+            "ceiling": None,
+        },
+        "TIER_6_REGULATORS": {
+            "description": "Regulatory approval required",
+            "consequence": "EMERGENCY",
+            "human_required": True,
+            "examples": ["regulatory_filing","license_application","compliance_declaration"],
+            "ceiling": None,
+        },
+    }
+
+    design = {
+        "schema":     "VGS-CDI-DELEGATION-DESIGN-v1",
+        "design_id":  design_id,
+        "org_id":     org_id,
+        "jethro_hierarchy": tiers,
+        "department_count": len(departments),
+        "ai_worker_count":  len(ai_workers),
+        "decision_types":   decisions,
+        "backup_approver_recommendation": "Each Tier 2-4 approver should have at least 2 named backup approvers",
+        "designed_at": ts,
+    }
+
+    seal = {"design_id": design_id, "org_id": org_id, "tiers": len(tiers), "timestamp": ts}
+    design["governance_signature"] = sign_governance_payload(seal)
+    return {
+        **design,
+        "next_steps": [
+            "POST /v1/delegation/passport to issue delegation passports to AI workers",
+            "POST /v1/decision/route to register decision routing rules",
+            "POST /v1/capable-people/register to register human approvers",
+        ],
+    }
+
+
+@app.post("/v1/delegation/passport", tags=["Delegation Intelligence Layer"])
+async def delegation_passport(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Delegation Passport — every AI receives a cryptographically
+    sealed passport specifying exactly what it is allowed and
+    forbidden to do, for how long, with what budget, and who
+    supervises it.
+
+    CDI Layer 2. Expert: "Every AI receives: Allowed, Forbidden,
+    Expiry, Supervisor, Budget, Jurisdiction, Risk Level."
+
+    This is more powerful than an API key. An API key says
+    'this is a known caller.' A Delegation Passport says
+    'this caller is authorized to do exactly these things,
+    within this budget, under this supervisor, until this time.'
+    """
+    require_api_key(x_api_key, authorization)
+    ts        = datetime.now(timezone.utc).isoformat()
+    agent_id  = req.get("agent_id","")
+    passport_id = f"PAS-{hashlib.sha256((agent_id+ts).encode()).hexdigest()[:12].upper()}"
+
+    passport = {
+        "schema":      "VGS-CDI-DELEGATION-PASSPORT-v1",
+        "passport_id": passport_id,
+        "agent_id":    agent_id,
+        "agent_name":  req.get("agent_name",""),
+        "org_id":      req.get("org_id",""),
+        "allowed_actions":    req.get("allowed_actions",[]),
+        "forbidden_actions":  req.get("forbidden_actions",[]),
+        "permitted_tools":    req.get("permitted_tools",[]),
+        "permitted_data":     req.get("permitted_data",[]),
+        "allowed_destinations": req.get("allowed_destinations",[]),
+        "max_transaction_value": req.get("max_transaction_value",0),
+        "budget_remaining":      req.get("budget",0),
+        "supervisor_id":         req.get("supervisor_id",""),
+        "supervisor_name":       req.get("supervisor_name",""),
+        "jurisdiction":          req.get("jurisdiction",""),
+        "consequence_tier":      req.get("consequence_tier","OPERATIONAL"),
+        "required_approval_level": req.get("required_approval_level","SUPERVISOR"),
+        "issued_at":   ts,
+        "expires_at":  req.get("expires_at",""),
+        "revoked":     False,
+        "revoked_at":  None,
+    }
+
+    seal = {
+        "passport_id": passport_id,
+        "agent_id":    agent_id,
+        "allowed":     len(passport["allowed_actions"]),
+        "forbidden":   len(passport["forbidden_actions"]),
+        "expires_at":  passport["expires_at"],
+        "timestamp":   ts,
+    }
+    passport["governance_signature"] = sign_governance_payload(seal)
+    passport["offline_verifiable"]   = True
+    _DELEGATION_PASSPORTS[agent_id]  = passport
+
+    return {
+        **passport,
+        "enforcement": "This passport is checked at every governance gate. An action not in allowed_actions is DENY before evaluation. An action in forbidden_actions is NON_FORMATION.",
+    }
+
+
+@app.post("/v1/decision/route", tags=["Delegation Intelligence Layer"])
+async def decision_route(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Decision Routing Engine — routes every decision to the correct
+    authority tier automatically based on consequence, amount,
+    reversibility, and jurisdiction.
+
+    CDI Layer 2. Expert: "Routes every decision automatically."
+
+    Input: decision characteristics.
+    Output: exact routing path — who approves, who escalates,
+    what tier, what AO is required.
+    """
+    require_api_key(x_api_key, authorization)
+    ts = datetime.now(timezone.utc).isoformat()
+
+    action_type  = req.get("action_type","")
+    amount       = req.get("amount", 0)
+    consequence  = req.get("consequence","OPERATIONAL")
+    irreversible = req.get("irreversible", False)
+    jurisdiction = req.get("jurisdiction","")
+    agent_id     = req.get("agent_id","")
+    org_id       = req.get("org_id","")
+
+    # Check agent passport
+    passport = _DELEGATION_PASSPORTS.get(agent_id,{})
+    max_value = passport.get("max_transaction_value", 0)
+    allowed   = passport.get("allowed_actions",[])
+    forbidden = passport.get("forbidden_actions",[])
+
+    # Routing logic
+    reasons = []
+    route   = []
+
+    if action_type in forbidden:
+        return {"ruling": "NON_FORMATION", "reason": f"Action '{action_type}' is in the forbidden list of the agent's delegation passport", "timestamp": ts}
+
+    # Amount-based routing
+    if amount > 1_000_000:
+        route = ["TIER_4_EXECUTIVES","TIER_5_BOARD"]
+        tier  = "TIER_5_BOARD"
+    elif amount > 50_000:
+        route = ["TIER_3_MANAGERS","TIER_4_EXECUTIVES"]
+        tier  = "TIER_4_EXECUTIVES"
+    elif amount > 1_000:
+        route = ["TIER_2_SUPERVISORS","TIER_3_MANAGERS"]
+        tier  = "TIER_3_MANAGERS"
+    elif consequence in ("CRITICAL","EMERGENCY"):
+        route = ["TIER_4_EXECUTIVES","TIER_5_BOARD"]
+        tier  = "TIER_4_EXECUTIVES"
+    elif consequence == "HIGH" and irreversible:
+        route = ["TIER_2_SUPERVISORS","TIER_3_MANAGERS"]
+        tier  = "TIER_3_MANAGERS"
+    elif allowed and action_type not in allowed:
+        route = ["TIER_2_SUPERVISORS"]
+        tier  = "TIER_2_SUPERVISORS"
+        reasons.append(f"Action not in passport allowed list — requires supervisor approval")
+    else:
+        route = ["TIER_1_ROUTINE_AI"]
+        tier  = "TIER_1_ROUTINE_AI"
+
+    # Check passport ceiling
+    if max_value and amount > max_value:
+        reasons.append(f"Amount ${amount:,.0f} exceeds passport ceiling ${max_value:,.0f}")
+        if "TIER_3_MANAGERS" not in route:
+            route.append("TIER_3_MANAGERS")
+            tier = "TIER_3_MANAGERS"
+
+    routing_id = f"RTG-{hashlib.sha256(ts.encode()).hexdigest()[:10].upper()}"
+    seal = {"routing_id": routing_id, "tier": tier, "agent_id": agent_id, "timestamp": ts}
+
+    return {
+        "schema":        "VGS-CDI-ROUTING-v1",
+        "routing_id":    routing_id,
+        "agent_id":      agent_id,
+        "action_type":   action_type,
+        "amount":        amount,
+        "consequence":   consequence,
+        "routed_to_tier":tier,
+        "approval_path": route,
+        "reasons":       reasons,
+        "passport_verified": bool(passport),
+        "ao_tier_required": consequence if consequence in ("CRITICAL","EMERGENCY") else ("HIGH" if tier in ("TIER_3_MANAGERS","TIER_4_EXECUTIVES") else "OPERATIONAL"),
+        "governance_signature": sign_governance_payload(seal),
+        "offline_verifiable": True,
+        "timestamp": ts,
+    }
+
+
+@app.post("/v1/capable-people/register", tags=["Delegation Intelligence Layer"])
+async def capable_people_register(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Capable People Registry — stores qualifications, certifications,
+    competencies, and trust scores for every human approver.
+
+    CDI Layer 2. Expert: "Trust Capacity Score measures trusted
+    decisions per day, not just employee count."
+    """
+    require_api_key(x_api_key, authorization)
+    ts        = datetime.now(timezone.utc).isoformat()
+    person_id = req.get("person_id", f"CP-{hashlib.sha256(ts.encode()).hexdigest()[:10].upper()}")
+
+    profile = {
+        "schema":          "VGS-CDI-CAPABLE-PERSON-v1",
+        "person_id":       person_id,
+        "name":            req.get("name",""),
+        "role":            req.get("role",""),
+        "org_id":          req.get("org_id",""),
+        "qualifications":  req.get("qualifications",[]),
+        "certifications":  req.get("certifications",[]),
+        "competencies":    req.get("competencies",[]),
+        "trust_score":     req.get("trust_score", 0.8),
+        "decisions_per_day_capacity": req.get("decisions_per_day_capacity", 10),
+        "current_load":    0,
+        "authority_tiers": req.get("authority_tiers",[]),
+        "backup_for":      req.get("backup_for",[]),
+        "registered_at":   ts,
+    }
+
+    seal = {"person_id": person_id, "trust_score": profile["trust_score"], "timestamp": ts}
+    profile["governance_signature"] = sign_governance_payload(seal)
+    _CAPABLE_PEOPLE[person_id]     = profile
+    return profile
+
+
+@app.get("/v1/delegation/health/{org_id}", tags=["Delegation Intelligence Layer"])
+async def delegation_health(
+    org_id: str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Delegation Health Dashboard — shows pending approvals,
+    bottlenecks, overloaded managers, and escalation failures.
+
+    CDI Layer 2. Expert: "Shows pending approvals, bottlenecks,
+    overloaded managers, escalation failures."
+    """
+    require_api_key(x_api_key, authorization)
+    ts = datetime.now(timezone.utc).isoformat()
+
+    people  = [p for p in _CAPABLE_PEOPLE.values() if p.get("org_id") == org_id]
+    overloaded = [p for p in people if p.get("current_load",0) >= p.get("decisions_per_day_capacity",10)]
+    passports  = [p for p in _DELEGATION_PASSPORTS.values() if p.get("org_id") == org_id]
+    revoked    = [p for p in passports if p.get("revoked")]
+
+    return {
+        "schema":           "VGS-CDI-DELEGATION-HEALTH-v1",
+        "org_id":           org_id,
+        "total_approvers":  len(people),
+        "overloaded":       len(overloaded),
+        "overloaded_names": [p["name"] for p in overloaded],
+        "active_passports": len([p for p in passports if not p.get("revoked")]),
+        "revoked_passports":len(revoked),
+        "decision_nodes":   len([d for d in _DECISION_GRAPH_DB.values() if d.get("org_id") == org_id]),
+        "health_score":     round(1 - (len(overloaded) / max(len(people),1)), 2),
+        "status":           "HEALTHY" if not overloaded else "DEGRADED — authority bottleneck detected",
+        "recommendation":   "All approvers within capacity" if not overloaded else f"{len(overloaded)} approvers at capacity — add backup approvers or redistribute decisions",
+        "timestamp":        ts,
+    }
+
+
+# ============================================================
+# META LAYER 4 — AUTONOMOUS OPERATIONS (AI Workforce Registry)
+# ============================================================
+
+@app.post("/v1/ai/workforce/register", tags=["Autonomous Operations Layer"])
+async def ai_workforce_register(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    AI Workforce Registry — every AI worker has a verified identity,
+    delegation passport, authority scope, budget, supervisor, and history.
+
+    CDI Layer 4, Module 1.
+    Expert: "Every AI worker has: Identity, Passport, Authority,
+    Budget, Supervisor, History."
+
+    An AI that is not registered cannot receive a delegation passport
+    and cannot execute governed actions.
+    """
+    require_api_key(x_api_key, authorization)
+    ts        = datetime.now(timezone.utc).isoformat()
+    worker_id = f"AIW-{hashlib.sha256((req.get('name','') + ts).encode()).hexdigest()[:10].upper()}"
+
+    worker = {
+        "schema":       "VGS-CDI-AI-WORKER-v1",
+        "worker_id":    worker_id,
+        "name":         req.get("name",""),
+        "type":         req.get("type",""),  # LLM, BOT, API, VOICE_AI, AUTONOMOUS_SYSTEM
+        "provider":     req.get("provider",""),  # OpenAI, Anthropic, etc
+        "org_id":       req.get("org_id",""),
+        "department":   req.get("department",""),
+        "supervisor_id":req.get("supervisor_id",""),
+        "budget_total": req.get("budget_total",0),
+        "budget_used":  0,
+        "passport_id":  None,
+        "status":       "REGISTERED",
+        "history":      [],
+        "registered_at":ts,
+    }
+
+    seal = {"worker_id": worker_id, "name": worker["name"], "type": worker["type"], "timestamp": ts}
+    worker["governance_signature"] = sign_governance_payload(seal)
+    _WORKFORCE_REGISTRY[worker_id] = worker
+
+    return {
+        **worker,
+        "next_step": f"POST /v1/delegation/passport with agent_id={worker_id} to issue delegation passport",
+        "note": "Registered AI worker cannot execute governed actions until delegation passport is issued",
+    }
+
+
+@app.get("/v1/ai/workforce/{org_id}", tags=["Autonomous Operations Layer"])
+async def ai_workforce_list(
+    org_id: str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """List all AI workers registered for an organisation."""
+    require_api_key(x_api_key, authorization)
+    workers = [w for w in _WORKFORCE_REGISTRY.values() if w.get("org_id") == org_id]
+    by_type = {}
+    for w in workers:
+        t = w.get("type","UNKNOWN")
+        by_type[t] = by_type.get(t,0) + 1
+    return {
+        "org_id":       org_id,
+        "total_workers":len(workers),
+        "by_type":      by_type,
+        "workers":      workers,
+        "timestamp":    datetime.now(timezone.utc).isoformat(),
+    }
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=int(os.environ.get("PORT", 8000)), reload=False)
