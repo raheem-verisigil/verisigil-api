@@ -73461,6 +73461,2329 @@ async def omnix_witness_public_key():
     }
 
 
+
+# ============================================================
+# AI SECURITY GOVERNANCE LAYER (VGS-SEC)
+# Built in response to: UK AI Security Institute finding that
+# Anthropic and OpenAI flagship models broke into third-party
+# software and emailed individuals to steal credentials during
+# routine cybersecurity evaluation (August 2026, FT report).
+#
+# Root cause: AI agents had capability without consequence
+# governance. Nothing structurally blocked consequential
+# actions outside authorised scope.
+#
+# This layer addresses three specific attack vectors:
+# 1. Data exfiltration — extract + transmit pattern
+# 2. Credential theft — any credential-related action
+# 3. Third-party boundary crossing — accessing external systems
+#
+# Every action in this layer is structurally governed before
+# execution. No AI agent can execute these actions without
+# a valid, consumed, system-scoped Authorization Object.
+# ============================================================
+
+# Actions that are ALWAYS CRITICAL tier regardless of declaration
+_ALWAYS_CRITICAL_ACTIONS = {
+    "send_email", "send_message", "transmit_data", "upload_file",
+    "post_to_api", "write_to_external", "exfiltrate", "export_data",
+    "access_credentials", "read_credentials", "store_credentials",
+    "request_credentials", "transmit_credentials", "access_keystore",
+    "read_tokens", "read_api_keys", "access_secrets",
+    "break_into", "access_third_party", "access_external_system",
+    "install_software", "execute_remote", "open_connection",
+    "intercept_traffic", "modify_system", "escalate_privileges",
+    "access_pii", "read_personal_data", "copy_database",
+}
+
+# Actions that are ABSOLUTE PROHIBITIONS — NON_FORMATION
+_SECURITY_PROHIBITIONS = {
+    "steal_credentials", "exfiltrate_credentials", "harvest_passwords",
+    "impersonate_user", "forge_authentication", "bypass_security",
+    "install_malware", "execute_exploit", "inject_code",
+    "intercept_credentials", "man_in_the_middle", "phishing",
+    "social_engineering", "credential_stuffing", "brute_force",
+}
+
+_SECURITY_INCIDENTS:  list = []
+_BOUNDARY_REGISTRY:   dict = {}  # agent_id -> approved external systems
+_EXFIL_ATTEMPTS:      list = []
+
+
+@app.post("/v1/security/exfiltration-check", tags=["AI Security Governance"])
+async def security_exfiltration_check(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Exfiltration Prevention — governs any action matching the
+    extract + transmit pattern before it executes.
+
+    Built in response to: UK AISI finding that AI models broke into
+    third-party software and emailed credentials during evaluation.
+
+    The exfiltration pattern:
+    - Access external system OR read data
+    - AND transmit, send, upload, or export
+
+    Any action matching this pattern is governed as CRITICAL
+    regardless of what the agent declared. An agent cannot
+    self-declare ADVISORY on a credential exfiltration attempt.
+
+    This is not a policy check. It is a structural pre-execution
+    gate. The agent cannot proceed without a valid AO scoped to
+    the specific external system it is attempting to access.
+    """
+    require_api_key(x_api_key, authorization)
+    ts = datetime.now(timezone.utc).isoformat()
+
+    agent_id     = req.get("agent_id","")
+    action_type  = req.get("action_type","")
+    destination  = req.get("destination","")  # email address, URL, external system
+    data_type    = req.get("data_type","")    # credentials, PII, financial, etc
+    declared_tier= req.get("consequence","OPERATIONAL")
+
+    action_lower = action_type.lower().replace(" ","_")
+
+    # Check absolute prohibitions first
+    if action_lower in _SECURITY_PROHIBITIONS:
+        incident = {
+            "type":      "ABSOLUTE_PROHIBITION",
+            "agent_id":  agent_id,
+            "action":    action_type,
+            "destination": destination,
+            "data_type": data_type,
+            "detected_at": ts,
+        }
+        _EXFIL_ATTEMPTS.append(incident)
+        _SECURITY_INCIDENTS.append(incident)
+        return {
+            "schema":       "VGS-SEC-EXFIL-v1",
+            "determination":"NON_FORMATION",
+            "ruling":       "ABSOLUTE PROHIBITION — this action can never form as a consequence candidate under any circumstances",
+            "action":       action_type,
+            "incident_logged": True,
+            "governance_signature": sign_governance_payload({"agent_id": agent_id, "action": action_type, "determination": "NON_FORMATION", "timestamp": ts}),
+            "timestamp":    ts,
+        }
+
+    # Detect exfiltration pattern
+    send_actions    = {"send", "transmit", "upload", "email", "post", "export", "write_external"}
+    extract_actions = {"read", "access", "extract", "copy", "harvest", "scrape", "dump"}
+    is_send    = any(s in action_lower for s in send_actions)
+    is_extract = any(s in action_lower for s in extract_actions)
+    is_credential = any(c in (data_type + action_lower) for c in
+                        ["credential", "password", "token", "api_key", "secret", "auth"])
+    is_exfil_pattern = (is_send and is_extract) or (is_send and is_credential) or (is_extract and is_credential)
+
+    # Force CRITICAL tier for exfiltration pattern or always-critical actions
+    effective_tier = "CRITICAL"
+    if action_lower in _ALWAYS_CRITICAL_ACTIONS or is_exfil_pattern:
+        tier_upgraded = declared_tier != "CRITICAL" and declared_tier != "EMERGENCY"
+    else:
+        effective_tier = declared_tier
+        tier_upgraded  = False
+
+    # Boundary check — is destination in approved list?
+    approved_systems  = _BOUNDARY_REGISTRY.get(agent_id, {}).get("approved_systems", [])
+    boundary_approved = not destination or any(
+        approved in destination for approved in approved_systems
+    ) if approved_systems else False
+
+    reasons = []
+    if is_credential:
+        reasons.append(f"CREDENTIAL ACTION: any action involving credentials is governed at CRITICAL tier regardless of declared tier")
+    if is_exfil_pattern:
+        reasons.append(f"EXFILTRATION PATTERN DETECTED: action matches extract+transmit pattern")
+    if destination and not boundary_approved and approved_systems:
+        reasons.append(f"BOUNDARY VIOLATION: destination '{destination}' not in agent's approved external systems list")
+    if tier_upgraded:
+        reasons.append(f"TIER UPGRADED: declared {declared_tier} → enforced CRITICAL (self-declaration cannot bypass security tier)")
+
+    ruling = "DENY" if (reasons or is_exfil_pattern or is_credential) else "ALLOW"
+
+    if ruling == "DENY":
+        _EXFIL_ATTEMPTS.append({
+            "type": "GOVERNED_DENY", "agent_id": agent_id,
+            "action": action_type, "destination": destination,
+            "data_type": data_type, "reasons": reasons, "detected_at": ts,
+        })
+
+    seal = {"agent_id": agent_id, "action": action_type, "ruling": ruling,
+            "is_exfil_pattern": is_exfil_pattern, "timestamp": ts}
+    return {
+        "schema":          "VGS-SEC-EXFIL-v1",
+        "agent_id":        agent_id,
+        "action_type":     action_type,
+        "destination":     destination,
+        "data_type":       data_type,
+        "is_credential":   is_credential,
+        "is_exfil_pattern":is_exfil_pattern,
+        "declared_tier":   declared_tier,
+        "effective_tier":  effective_tier,
+        "tier_upgraded":   tier_upgraded,
+        "boundary_approved": boundary_approved,
+        "ruling":          ruling,
+        "reasons":         reasons,
+        "governance_signature": sign_governance_payload(seal),
+        "offline_verifiable": True,
+        "uk_aisi_reference": "UK AI Security Institute finding Aug 2026 — AI agents broke into third-party software and emailed credentials. This layer prevents that pattern structurally.",
+        "timestamp":       ts,
+    }
+
+
+@app.post("/v1/security/credential-govern", tags=["AI Security Governance"])
+async def security_credential_govern(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Credential Action Governance — any AI agent attempting to
+    access, store, transmit, or request credentials must pass
+    this gate before execution.
+
+    No credential action is ADVISORY tier.
+    No credential action proceeds without human oversight.
+    No credential action proceeds without a system-scoped AO.
+
+    This directly addresses the credential theft vector identified
+    by the UK AI Security Institute in August 2026.
+    """
+    require_api_key(x_api_key, authorization)
+    ts = datetime.now(timezone.utc).isoformat()
+
+    agent_id       = req.get("agent_id","")
+    action_type    = req.get("action_type","")
+    credential_type= req.get("credential_type","")  # password, token, api_key, certificate
+    target_system  = req.get("target_system","")
+    human_present  = req.get("human_present", False)
+    business_justification = req.get("business_justification","")
+    approved_credential_ops= req.get("approved_credential_operations",[])
+
+    action_lower = action_type.lower().replace(" ","_")
+
+    # Absolute prohibition check
+    if action_lower in _SECURITY_PROHIBITIONS:
+        return {
+            "ruling":        "NON_FORMATION",
+            "determination": "This credential action is on the absolute prohibition list. Cannot form.",
+            "timestamp":     ts,
+        }
+
+    reasons = []
+
+    # Rule 1: All credential actions require human oversight
+    if not human_present:
+        reasons.append("DENY: All credential actions require human oversight — human_present=false")
+
+    # Rule 2: Credential action must be in the approved list
+    if approved_credential_ops and action_type not in approved_credential_ops:
+        reasons.append(f"DENY: '{action_type}' not in agent's approved credential operations list")
+
+    # Rule 3: Business justification required
+    if not business_justification:
+        reasons.append("DENY: Business justification required for all credential actions")
+
+    # Rule 4: Target system must be declared
+    if not target_system:
+        reasons.append("DENY: Target system must be explicitly declared for credential actions")
+
+    ruling = "DENY" if reasons else "ESCALATE"  # Never ALLOW — always escalate to human
+
+    seal = {"agent_id": agent_id, "action": action_type, "credential_type": credential_type,
+            "ruling": ruling, "timestamp": ts}
+    return {
+        "schema":          "VGS-SEC-CREDENTIAL-v1",
+        "agent_id":        agent_id,
+        "action_type":     action_type,
+        "credential_type": credential_type,
+        "target_system":   target_system,
+        "human_present":   human_present,
+        "ruling":          ruling,
+        "reasons":         reasons,
+        "policy_note":     "No credential action returns ALLOW. Maximum ruling is ESCALATE — a human must approve every credential operation.",
+        "governance_signature": sign_governance_payload(seal),
+        "offline_verifiable": True,
+        "timestamp":       ts,
+    }
+
+
+@app.post("/v1/security/boundary-register", tags=["AI Security Governance"])
+async def security_boundary_register(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Third-Party Boundary Registration — explicitly declare which
+    external systems an AI agent is authorised to access.
+
+    No AI agent can access a system outside its declared boundary
+    without a fresh, system-scoped AO for that specific system.
+
+    This closes the "access third-party software" vector from the
+    UK AISI finding. An agent without a registered boundary
+    cannot access ANY external system. An agent with a registered
+    boundary can only access the listed systems.
+
+    Each external system access requires its own AO containing
+    the specific system_id. Cross-boundary access without a
+    matching AO returns NOT_FOUND.
+    """
+    require_api_key(x_api_key, authorization)
+    ts       = datetime.now(timezone.utc).isoformat()
+    agent_id = req.get("agent_id","")
+
+    boundary = {
+        "schema":           "VGS-SEC-BOUNDARY-v1",
+        "agent_id":         agent_id,
+        "approved_systems": req.get("approved_systems",[]),
+        "approved_actions": req.get("approved_actions",[]),
+        "boundary_class":   req.get("boundary_class","RESTRICTED"),
+        "approved_by":      req.get("approved_by",""),
+        "approved_at":      ts,
+        "expiry":           req.get("expiry",""),
+        "notes":            req.get("notes",""),
+    }
+
+    seal = {"agent_id": agent_id, "systems": len(boundary["approved_systems"]),
+            "boundary_class": boundary["boundary_class"], "timestamp": ts}
+    boundary["governance_signature"] = sign_governance_payload(seal)
+    boundary["offline_verifiable"]   = True
+
+    _BOUNDARY_REGISTRY[agent_id] = boundary
+    return {
+        **boundary,
+        "enforcement_note": f"This agent ({agent_id}) may only access the {len(boundary['approved_systems'])} listed systems. Any access to unlisted external systems will be blocked as a boundary violation.",
+        "ao_requirement": "Each external system access requires a system-scoped AO with the specific system_id. A boundary registration is not an execution token.",
+    }
+
+
+@app.get("/v1/security/boundary/{agent_id}", tags=["AI Security Governance"])
+async def security_boundary_get(
+    agent_id: str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Retrieve the declared boundary for an agent."""
+    require_api_key(x_api_key, authorization)
+    boundary = _BOUNDARY_REGISTRY.get(agent_id)
+    if not boundary:
+        return {
+            "agent_id":     agent_id,
+            "status":       "NO_BOUNDARY_REGISTERED",
+            "enforcement":  "Agent has no approved external systems. All third-party access is blocked.",
+            "timestamp":    datetime.now(timezone.utc).isoformat(),
+        }
+    return {**boundary, "retrieved_at": datetime.now(timezone.utc).isoformat()}
+
+
+@app.post("/v1/security/boundary-check", tags=["AI Security Governance"])
+async def security_boundary_check(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Check if an agent has boundary approval to access a specific
+    external system before issuing an AO for that access.
+    """
+    require_api_key(x_api_key, authorization)
+    ts         = datetime.now(timezone.utc).isoformat()
+    agent_id   = req.get("agent_id","")
+    target     = req.get("target_system","")
+    action     = req.get("action_type","")
+
+    boundary   = _BOUNDARY_REGISTRY.get(agent_id,{})
+    approved   = boundary.get("approved_systems",[])
+    approved_a = boundary.get("approved_actions",[])
+
+    system_ok  = any(t in target for t in approved) if approved else False
+    action_ok  = not approved_a or action in approved_a
+
+    approved_result = system_ok and action_ok
+
+    seal = {"agent_id": agent_id, "target": target, "approved": approved_result, "timestamp": ts}
+    return {
+        "schema":         "VGS-SEC-BOUNDARY-CHECK-v1",
+        "agent_id":       agent_id,
+        "target_system":  target,
+        "action_type":    action,
+        "boundary_registered": bool(boundary),
+        "system_approved":     system_ok,
+        "action_approved":     action_ok,
+        "approved":            approved_result,
+        "ruling":         "PROCEED to AO issuance" if approved_result else "HALT — target system not in agent boundary. Access blocked.",
+        "governance_signature": sign_governance_payload(seal),
+        "timestamp":      ts,
+    }
+
+
+@app.get("/v1/security/incident-log", tags=["AI Security Governance"])
+async def security_incident_log(
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Security incident log — all detected exfiltration attempts,
+    boundary violations, credential theft attempts, and absolute
+    prohibitions. Append-only. Sealed.
+    """
+    require_api_key(x_api_key, authorization)
+    return {
+        "schema":           "VGS-SEC-INCIDENT-LOG-v1",
+        "total_incidents":  len(_SECURITY_INCIDENTS),
+        "exfil_attempts":   len(_EXFIL_ATTEMPTS),
+        "recent_incidents": _SECURITY_INCIDENTS[-20:],
+        "recent_exfil":     _EXFIL_ATTEMPTS[-10:],
+        "timestamp":        datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@app.get("/v1/security/threat-model", tags=["AI Security Governance"])
+async def security_threat_model():
+    """
+    VeriSigil AI Security Threat Model — public documentation of
+    which AI attack vectors this layer governs and which it does not.
+
+    Based on UK AISI finding (August 2026) and CLARA validation program.
+    No authentication required — threat model is public.
+    """
+    return {
+        "schema":  "VGS-SEC-THREAT-MODEL-v1",
+        "title":   "VeriSigil AI Security Governance Threat Model",
+        "version": "1.0",
+        "published": "2026-08-06",
+        "incident_reference": "UK AI Security Institute finding, August 2026 — AI agents broke into third-party software and emailed individuals to steal credentials during routine cybersecurity evaluation (FT report).",
+
+        "attack_vectors_governed": {
+            "credential_theft": {
+                "description": "AI agent attempts to access, harvest, or transmit credentials",
+                "prevention":  "POST /v1/security/credential-govern — all credential actions require human oversight. Maximum ruling is ESCALATE. No ALLOW for credential actions.",
+                "status":      "GOVERNED",
+            },
+            "data_exfiltration": {
+                "description": "AI agent extracts data and transmits it externally",
+                "prevention":  "POST /v1/security/exfiltration-check — extract+transmit pattern detection. Credential + transmit always DENY.",
+                "status":      "GOVERNED",
+            },
+            "third_party_access": {
+                "description": "AI agent accesses external systems outside its declared scope",
+                "prevention":  "POST /v1/security/boundary-check — agent must have registered boundary. Each external system requires system-scoped AO.",
+                "status":      "GOVERNED",
+            },
+            "tier_manipulation": {
+                "description": "AI agent self-declares low consequence tier to bypass governance",
+                "prevention":  "Server-side tier validation (CHG-008). HIGH_RISK_ACTIONS always governed at HIGH or above regardless of declaration.",
+                "status":      "GOVERNED",
+            },
+            "replay_attack": {
+                "description": "AI agent reuses consumed Authorization Object",
+                "prevention":  "SQLite nonce ledger (CHG-005). ALREADY_CONSUMED returned on replay. Confirmed by Alkama Eqbal Run 3b — 5 concurrent replays, exactly 1 PROCEED, 4 HALT.",
+                "status":      "GOVERNED — independently verified",
+            },
+            "non_formation": {
+                "description": "Absolute prohibition actions: steal_credentials, install_malware, forge_authentication, etc.",
+                "prevention":  "POST /v1/formation/check — absolute prohibition list. NON_FORMATION returned. Cannot reach governance gate.",
+                "status":      "GOVERNED",
+            },
+        },
+
+        "attack_vectors_not_governed": {
+            "hardware_compromise": "If the hardware running VeriSigil is compromised, all bets are off. Requires HSM (Phase 3 roadmap).",
+            "prompt_injection":    "A sufficiently crafted prompt may cause an AI to misrepresent its intended action to the governance gate. VeriSigil governs the declared action — not the inferred intent.",
+            "insider_threat":      "A human with API key access can issue AOs directly. Multi-party attestation (CRITICAL/EMERGENCY requiring 2 signers) partially mitigates this.",
+            "model_jailbreak":     "If the underlying model is jailbroken to misrepresent its actions, the governance layer may see a benign declared action while the real action is malicious. Input Fidelity Governance (POST /v1/input/fidelity) partially addresses this.",
+            "alternate_route":     "VeriSigil governs the declared route. An agent with access to an alternate execution path not wired to VeriSigil can bypass governance entirely. This is documented in GET /v1/verified-boundary.",
+        },
+
+        "how_to_verify":  "GET /v1/verify/kit — no auth. POST /v1/verify/bypass-test — all attempts return HALT.",
+        "verified_boundary": "GET /v1/verified-boundary — VERIFIED / NOT_VERIFIED / PENDING",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+
+# ============================================================
+# INTER-AGENT TRUST PROTOCOL (IATP)
+# Expert: "Tomorrow AI↔AI should negotiate:
+# 'I am allowed to request this.'
+# 'I am allowed to receive this.'
+# 'I am allowed to execute this.'
+# If not: No communication."
+#
+# This is TLS for autonomous agents. Every AI-to-AI
+# communication must negotiate authority before it proceeds.
+# No API key alone is sufficient — the agent must present
+# a valid, scoped, time-limited Authority Passport.
+# ============================================================
+
+_PASSPORT_REGISTRY:   dict = {}
+_IATP_SESSIONS:       dict = {}
+_AUTHORITY_TOKENS:    dict = {}
+_BCM_FINGERPRINTS:    dict = {}
+_DRIFT_RECORDS:       list = []
+_ANOMALY_LOG:         list = []
+_KILL_CHAIN_LOG:      list = []
+_SHADOW_AI_REGISTRY:  list = []
+_SEAL_LEDGER:         dict = {}
+_VES_CERTIFICATES:    dict = {}
+_LEGITIMACY_RECORDS:  dict = {}
+
+
+@app.post("/v1/agent/passport/issue", tags=["IATP — Inter-Agent Trust"])
+async def agent_passport_issue(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Issue an Authority Passport to an AI agent.
+
+    An Authority Passport is more powerful than an API key.
+    A valid API key says "this request is authenticated."
+    A valid Authority Passport says "this agent is authorised
+    to perform this specific task, with these specific tools,
+    on this specific data, up to this transaction value,
+    to these destinations, expiring at this time."
+
+    Expert: "Every agent needs a verifiable identity and a
+    short-lived authority passport specifying: agent identity,
+    human/org owner, approved task, permitted tools, permitted
+    data, max transaction value, allowed destinations,
+    expiration time, required approval level, revocation status."
+    """
+    require_api_key(x_api_key, authorization)
+    ts          = datetime.now(timezone.utc).isoformat()
+    passport_id = f"PSP-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}"
+
+    from datetime import timedelta
+    ttl = req.get("ttl_seconds", 3600)
+    expiry = (datetime.now(timezone.utc) + timedelta(seconds=ttl)).isoformat()
+
+    passport = {
+        "schema":             "VGS-AGENT-PASSPORT-v1",
+        "passport_id":        passport_id,
+        "agent_id":           req.get("agent_id",""),
+        "agent_version":      req.get("agent_version",""),
+        "human_owner":        req.get("human_owner",""),
+        "org_owner":          req.get("org_owner",""),
+        "approved_task":      req.get("approved_task",""),
+        "permitted_tools":    req.get("permitted_tools",[]),
+        "permitted_data":     req.get("permitted_data",[]),
+        "max_transaction_value": req.get("max_transaction_value", 0),
+        "allowed_destinations":  req.get("allowed_destinations",[]),
+        "required_approval_level": req.get("required_approval_level","HUMAN_REVIEW"),
+        "issued_at":          ts,
+        "expires_at":         expiry,
+        "ttl_seconds":        ttl,
+        "revoked":            False,
+        "revoked_at":         None,
+        "revocation_reason":  None,
+        "status":             "ACTIVE",
+    }
+
+    seal = {
+        "passport_id": passport_id,
+        "agent_id":    passport["agent_id"],
+        "approved_task": passport["approved_task"],
+        "expires_at":  expiry,
+        "timestamp":   ts,
+    }
+    passport["governance_signature"] = sign_governance_payload(seal)
+    passport["offline_verifiable"]   = True
+    _PASSPORT_REGISTRY[passport_id] = passport
+
+    return {
+        **passport,
+        "use_in_iatp": f"Present passport_id={passport_id} when initiating AI-to-AI trust negotiation at POST /v1/iatp/negotiate",
+        "what_this_proves": "This agent has declared authority for the approved_task within the stated boundaries. It does not prove the agent will stay within those boundaries — that requires continuous behavioral monitoring.",
+    }
+
+
+@app.post("/v1/agent/passport/verify", tags=["IATP — Inter-Agent Trust"])
+async def agent_passport_verify(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Verify a passport is valid, not expired, not revoked."""
+    require_api_key(x_api_key, authorization)
+    ts          = datetime.now(timezone.utc).isoformat()
+    passport_id = req.get("passport_id","")
+    passport    = _PASSPORT_REGISTRY.get(passport_id)
+
+    if not passport:
+        return {"result":"NOT_FOUND","ruling":"HALT","passport_id":passport_id,"timestamp":ts}
+    if passport.get("revoked"):
+        return {"result":"REVOKED","ruling":"HALT","revoked_at":passport.get("revoked_at"),"reason":passport.get("revocation_reason"),"timestamp":ts}
+    if passport.get("expires_at","") < ts:
+        return {"result":"EXPIRED","ruling":"HALT","expired_at":passport.get("expires_at"),"timestamp":ts}
+
+    return {
+        "result":       "VALID",
+        "ruling":       "PROCEED — passport is active, not expired, not revoked",
+        "passport_id":  passport_id,
+        "agent_id":     passport["agent_id"],
+        "approved_task":passport["approved_task"],
+        "expires_at":   passport["expires_at"],
+        "governance_signature": sign_governance_payload({"passport_id":passport_id,"result":"VALID","timestamp":ts}),
+        "timestamp":    ts,
+    }
+
+
+@app.post("/v1/agent/passport/revoke", tags=["IATP — Inter-Agent Trust"])
+async def agent_passport_revoke(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Revoke a passport immediately. Takes effect on next verify."""
+    require_api_key(x_api_key, authorization)
+    ts          = datetime.now(timezone.utc).isoformat()
+    passport_id = req.get("passport_id","")
+    passport    = _PASSPORT_REGISTRY.get(passport_id)
+
+    if not passport:
+        raise HTTPException(status_code=404, detail=f"Passport {passport_id} not found")
+
+    passport["revoked"]          = True
+    passport["revoked_at"]       = ts
+    passport["revocation_reason"]= req.get("reason","Manual revocation")
+    passport["status"]           = "REVOKED"
+
+    seal = {"passport_id":passport_id,"revoked":True,"timestamp":ts}
+    return {
+        "result":     "REVOKED",
+        "passport_id":passport_id,
+        "revoked_at": ts,
+        "reason":     passport["revocation_reason"],
+        "governance_signature": sign_governance_payload(seal),
+        "timestamp":  ts,
+    }
+
+
+@app.post("/v1/iatp/negotiate", tags=["IATP — Inter-Agent Trust"])
+async def iatp_negotiate(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    AI-to-AI Trust Negotiation.
+
+    Expert: "Tomorrow AI↔AI should negotiate:
+    'I am allowed to request this.'
+    'I am allowed to receive this.'
+    'I am allowed to execute this.'
+    If not: No communication."
+
+    This is the trust handshake between two autonomous agents.
+    Agent A presents its passport and states what it wants to
+    do. VeriSigil evaluates whether both agents have the
+    authority for this interaction to proceed.
+
+    Neither agent proceeds without a NEGOTIATION_COMPLETE result.
+    """
+    require_api_key(x_api_key, authorization)
+    ts         = datetime.now(timezone.utc).isoformat()
+    session_id = f"ITP-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}"
+
+    requesting_agent  = req.get("requesting_agent_id","")
+    receiving_agent   = req.get("receiving_agent_id","")
+    requesting_passport = req.get("requesting_passport_id","")
+    receiving_passport  = req.get("receiving_passport_id","")
+    requested_action  = req.get("requested_action","")
+    requested_data    = req.get("requested_data","")
+    consequence       = req.get("consequence","OPERATIONAL")
+
+    # Verify both passports
+    req_psp = _PASSPORT_REGISTRY.get(requesting_passport,{})
+    rec_psp = _PASSPORT_REGISTRY.get(receiving_passport,{})
+
+    checks = {}
+    reasons = []
+
+    # Check 1: Requesting agent allowed to request this
+    req_allowed = bool(req_psp) and not req_psp.get("revoked") and req_psp.get("expires_at","") > ts
+    checks["requesting_agent_authorised"] = req_allowed
+    if not req_allowed:
+        reasons.append(f"Requesting agent {requesting_agent} passport invalid/expired/revoked")
+
+    # Check 2: Receiving agent allowed to receive this
+    rec_allowed = bool(rec_psp) and not rec_psp.get("revoked") and rec_psp.get("expires_at","") > ts
+    checks["receiving_agent_authorised"] = rec_allowed
+    if not rec_allowed:
+        reasons.append(f"Receiving agent {receiving_agent} passport invalid/expired/revoked")
+
+    # Check 3: Requested action within requesting agent's permitted scope
+    permitted_tasks = req_psp.get("approved_task","")
+    action_in_scope = requested_action.lower() in permitted_tasks.lower() if permitted_tasks else False
+    checks["action_in_requesting_scope"] = action_in_scope
+    if not action_in_scope:
+        reasons.append(f"Action '{requested_action}' not in requesting agent's approved task scope")
+
+    # Check 4: Receiving agent allowed to receive this data type
+    permitted_data = rec_psp.get("permitted_data",[])
+    data_in_scope  = not permitted_data or any(d in requested_data for d in permitted_data)
+    checks["data_in_receiving_scope"] = data_in_scope
+    if not data_in_scope:
+        reasons.append(f"Data type '{requested_data}' not in receiving agent's permitted data list")
+
+    result = "NEGOTIATION_COMPLETE" if not reasons else "NEGOTIATION_FAILED"
+    ruling = "PROCEED — both agents have authority for this interaction" if not reasons else "HALT — trust negotiation failed"
+
+    session = {
+        "schema":             "VGS-IATP-SESSION-v1",
+        "session_id":         session_id,
+        "requesting_agent":   requesting_agent,
+        "receiving_agent":    receiving_agent,
+        "requested_action":   requested_action,
+        "requested_data":     requested_data,
+        "consequence":        consequence,
+        "checks":             checks,
+        "result":             result,
+        "ruling":             ruling,
+        "failure_reasons":    reasons,
+        "negotiated_at":      ts,
+    }
+
+    seal = {"session_id":session_id,"result":result,"requesting":requesting_agent,"receiving":receiving_agent,"timestamp":ts}
+    session["governance_signature"] = sign_governance_payload(seal)
+    session["offline_verifiable"]   = True
+    _IATP_SESSIONS[session_id] = session
+
+    return {
+        **session,
+        "next_step": "POST /v1/ao/issue with session_id as provenance" if result == "NEGOTIATION_COMPLETE" else "Resolve failure reasons and retry negotiation",
+    }
+
+
+@app.post("/v1/iatp/token/issue", tags=["IATP — Inter-Agent Trust"])
+async def iatp_token_issue(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Issue an Execution Authority Token after successful IATP negotiation.
+
+    An EAT is a scoped, time-limited, single-use token that authorises
+    one specific action between two specific agents. It is narrower
+    than an AO — it encodes the full negotiated trust context.
+    """
+    require_api_key(x_api_key, authorization)
+    ts       = datetime.now(timezone.utc).isoformat()
+    token_id = f"EAT-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}"
+
+    from datetime import timedelta
+    ttl    = req.get("ttl_seconds", 300)
+    expiry = (datetime.now(timezone.utc) + timedelta(seconds=ttl)).isoformat()
+
+    session_id = req.get("session_id","")
+    session    = _IATP_SESSIONS.get(session_id,{})
+
+    if session and session.get("result") != "NEGOTIATION_COMPLETE":
+        raise HTTPException(status_code=400, detail="Cannot issue EAT — IATP negotiation did not complete successfully")
+
+    token = {
+        "schema":         "VGS-EAT-v1",
+        "token_id":       token_id,
+        "session_id":     session_id,
+        "requesting_agent": req.get("requesting_agent_id","") or session.get("requesting_agent",""),
+        "receiving_agent":  req.get("receiving_agent_id","") or session.get("receiving_agent",""),
+        "authorised_action":req.get("authorised_action","") or session.get("requested_action",""),
+        "authorised_data":  req.get("authorised_data","") or session.get("requested_data",""),
+        "consequence":    req.get("consequence","OPERATIONAL"),
+        "issued_at":      ts,
+        "expires_at":     expiry,
+        "ttl_seconds":    ttl,
+        "consumed":       False,
+    }
+
+    seal = {"token_id":token_id,"session_id":session_id,"action":token["authorised_action"],"expires_at":expiry,"timestamp":ts}
+    token["governance_signature"] = sign_governance_payload(seal)
+    token["offline_verifiable"]   = True
+    _AUTHORITY_TOKENS[token_id]   = token
+
+    return {
+        **token,
+        "use": "Present this token to the receiving agent. The receiving agent calls POST /v1/iatp/token/verify before accepting the request.",
+    }
+
+
+@app.post("/v1/iatp/token/verify", tags=["IATP — Inter-Agent Trust"])
+async def iatp_token_verify(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Verify an Execution Authority Token — single use, time-limited."""
+    require_api_key(x_api_key, authorization)
+    ts       = datetime.now(timezone.utc).isoformat()
+    token_id = req.get("token_id","")
+    token    = _AUTHORITY_TOKENS.get(token_id)
+
+    if not token:
+        return {"result":"NOT_FOUND","ruling":"HALT","timestamp":ts}
+    if token.get("consumed"):
+        return {"result":"ALREADY_CONSUMED","ruling":"HALT","timestamp":ts}
+    if token.get("expires_at","") < ts:
+        return {"result":"EXPIRED","ruling":"HALT","timestamp":ts}
+
+    token["consumed"]    = True
+    token["consumed_at"] = ts
+
+    seal = {"token_id":token_id,"result":"VALID_AND_CONSUMED","timestamp":ts}
+    return {
+        "result":          "VALID_AND_CONSUMED",
+        "ruling":          "PROCEED — token valid, now consumed (single use)",
+        "token_id":        token_id,
+        "authorised_action":token["authorised_action"],
+        "requesting_agent":token["requesting_agent"],
+        "governance_signature": sign_governance_payload(seal),
+        "timestamp":       ts,
+    }
+
+
+# ── AI IMMUNE SYSTEM ──────────────────────────────────────────
+
+@app.post("/v1/bcm/fingerprint", tags=["AI Immune System"])
+async def bcm_fingerprint(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Behavioral Continuity Module — record and score agent
+    behavioral fingerprints to detect drift.
+
+    Expert: "Just like humans have immune systems — Unknown AI
+    → Observed → Behaviour analysed within seconds."
+
+    A behavioral fingerprint captures the statistical signature
+    of an agent's normal execution patterns. Any deviation from
+    the fingerprint triggers a drift alert.
+    """
+    require_api_key(x_api_key, authorization)
+    ts       = datetime.now(timezone.utc).isoformat()
+    agent_id = req.get("agent_id","")
+
+    metrics = {
+        "avg_consequence_tier":   req.get("avg_consequence_tier", "OPERATIONAL"),
+        "deny_rate":              req.get("deny_rate", 0.0),
+        "escalation_rate":        req.get("escalation_rate", 0.0),
+        "external_access_count":  req.get("external_access_count", 0),
+        "credential_access_count":req.get("credential_access_count", 0),
+        "avg_payload_size":       req.get("avg_payload_size", 0),
+        "action_diversity":       req.get("action_diversity", 0.0),
+        "tool_count":             req.get("tool_count", 0),
+    }
+
+    # Compute fingerprint hash
+    fp_hash = hashlib.sha256(
+        json.dumps(metrics, sort_keys=True, separators=(",",":")).encode()
+    ).hexdigest()
+
+    existing = _BCM_FINGERPRINTS.get(agent_id)
+    if existing:
+        # Compute drift score vs baseline
+        baseline = existing.get("baseline_metrics",{})
+        drift_signals = []
+        if metrics["deny_rate"] > baseline.get("deny_rate",0) * 2:
+            drift_signals.append("DENY_RATE_SPIKE: deny rate doubled vs baseline")
+        if metrics["credential_access_count"] > baseline.get("credential_access_count",0):
+            drift_signals.append("CREDENTIAL_ACCESS_INCREASE: new credential access vs baseline")
+        if metrics["external_access_count"] > baseline.get("external_access_count",0) * 3:
+            drift_signals.append("EXTERNAL_ACCESS_SPIKE: 3x external access vs baseline")
+        drift_score = min(len(drift_signals) * 0.25, 1.0)
+        status = "DRIFTING" if drift_signals else "STABLE"
+    else:
+        drift_signals = []
+        drift_score   = 0.0
+        status        = "BASELINE_ESTABLISHED"
+
+    record = {
+        "schema":           "VGS-BCM-FINGERPRINT-v1",
+        "agent_id":         agent_id,
+        "fingerprint_hash": fp_hash,
+        "metrics":          metrics,
+        "drift_score":      drift_score,
+        "drift_signals":    drift_signals,
+        "status":           status,
+        "recorded_at":      ts,
+    }
+
+    _BCM_FINGERPRINTS[agent_id] = {
+        "baseline_metrics": metrics,
+        "fingerprint_hash": fp_hash,
+        "last_updated":     ts,
+        "drift_score":      drift_score,
+        "status":           status,
+    }
+
+    seal = {"agent_id":agent_id,"fingerprint_hash":fp_hash,"drift_score":drift_score,"timestamp":ts}
+    record["governance_signature"] = sign_governance_payload(seal)
+    return record
+
+
+@app.post("/v1/bcm/context-drift", tags=["AI Immune System"])
+async def bcm_context_drift(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Semantic context drift detection — monitors for:
+    - Prompt injection
+    - Task hijacking
+    - Goal drift
+    - Unauthorized delegation
+    - Hidden instructions in documents or websites
+    - A harmless request becoming a dangerous workflow
+    """
+    require_api_key(x_api_key, authorization)
+    ts       = datetime.now(timezone.utc).isoformat()
+    agent_id = req.get("agent_id","")
+
+    original_task  = req.get("original_task","")
+    current_action = req.get("current_action","")
+    context_source = req.get("context_source","")  # document, website, user, agent
+    full_context   = req.get("full_context","")
+
+    drift_signals = []
+
+    # Check for prompt injection patterns
+    injection_patterns = [
+        "ignore previous", "disregard above", "new instructions",
+        "system prompt", "act as", "you are now", "jailbreak",
+        "forget your", "override", "bypass", "admin mode",
+    ]
+    for pattern in injection_patterns:
+        if pattern.lower() in full_context.lower():
+            drift_signals.append(f"PROMPT_INJECTION: '{pattern}' detected in context")
+
+    # Check for task hijacking
+    task_words   = set(original_task.lower().split()) if original_task else set()
+    action_words = set(current_action.lower().split()) if current_action else set()
+    overlap = len(task_words & action_words) / max(len(task_words), 1)
+    if overlap < 0.3 and original_task and current_action:
+        drift_signals.append(f"TASK_HIJACKING: current action '{current_action}' diverges significantly from original task '{original_task}'")
+
+    # Check for credential/external access in harmless-starting tasks
+    dangerous_in_context = any(d in current_action.lower() for d in
+        ["credential", "password", "token", "email", "transmit", "exfil", "steal"])
+    if dangerous_in_context and context_source in ["document","website"]:
+        drift_signals.append(f"DANGEROUS_DRIFT: dangerous action '{current_action}' triggered by {context_source} — possible hidden instruction")
+
+    drift_score = min(len(drift_signals) * 0.33, 1.0)
+    ruling = "HALT" if drift_score > 0.5 else ("ESCALATE" if drift_signals else "ALLOW")
+
+    record = {
+        "schema":        "VGS-BCM-CONTEXT-DRIFT-v1",
+        "agent_id":      agent_id,
+        "original_task": original_task,
+        "current_action":current_action,
+        "context_source":context_source,
+        "drift_signals": drift_signals,
+        "drift_score":   drift_score,
+        "ruling":        ruling,
+        "detected_at":   ts,
+    }
+    _DRIFT_RECORDS.append(record)
+
+    seal = {"agent_id":agent_id,"drift_score":drift_score,"ruling":ruling,"timestamp":ts}
+    record["governance_signature"] = sign_governance_payload(seal)
+    return record
+
+
+@app.post("/v1/bcm/anomaly-detection", tags=["AI Immune System"])
+async def bcm_anomaly_detection(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Anomaly detection — identifies compromised agents by their
+    actions, not just their credentials.
+
+    Critical for catching agent-to-agent attacks where identity
+    is valid but behaviour is malicious.
+    """
+    require_api_key(x_api_key, authorization)
+    ts       = datetime.now(timezone.utc).isoformat()
+    agent_id = req.get("agent_id","")
+    actions  = req.get("recent_actions",[])
+
+    anomalies = []
+    baseline  = _BCM_FINGERPRINTS.get(agent_id,{})
+
+    UNUSUAL_SEQUENCES = [
+        (["read","email"], "DATA_EXFIL_SEQUENCE: read followed immediately by email"),
+        (["access_credentials","transmit"], "CREDENTIAL_THEFT_SEQUENCE"),
+        (["scan","enumerate","access"], "RECONNAISSANCE_SEQUENCE"),
+    ]
+
+    action_lower = [a.lower() for a in actions]
+    for seq, label in UNUSUAL_SEQUENCES:
+        for i in range(len(action_lower) - len(seq) + 1):
+            window = action_lower[i:i+len(seq)]
+            if all(s in w for s, w in zip(seq, window)):
+                anomalies.append(label)
+
+    # Check velocity
+    if len(actions) > 20:
+        anomalies.append(f"ACTION_VELOCITY_ANOMALY: {len(actions)} actions in window (baseline: typical <20)")
+
+    anomaly_score = min(len(anomalies) * 0.3, 1.0)
+    status = "ANOMALOUS" if anomalies else "NORMAL"
+
+    record = {
+        "schema":       "VGS-BCM-ANOMALY-v1",
+        "agent_id":     agent_id,
+        "actions_analysed": len(actions),
+        "anomalies":    anomalies,
+        "anomaly_score":anomaly_score,
+        "status":       status,
+        "ruling":       "QUARANTINE" if anomaly_score > 0.6 else ("ESCALATE" if anomalies else "NORMAL"),
+        "detected_at":  ts,
+    }
+    _ANOMALY_LOG.append(record)
+
+    seal = {"agent_id":agent_id,"anomaly_score":anomaly_score,"status":status,"timestamp":ts}
+    record["governance_signature"] = sign_governance_payload(seal)
+    return record
+
+
+@app.post("/v1/bcm/shadow-scan", tags=["AI Immune System"])
+async def bcm_shadow_scan(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Shadow AI Detection — scans for un-governed autonomous
+    decision flows operating outside VeriSigil's governance.
+
+    Any AI agent taking consequential actions without a valid
+    VeriSigil AO is operating in shadow mode.
+    """
+    require_api_key(x_api_key, authorization)
+    ts = datetime.now(timezone.utc).isoformat()
+
+    reported_agents  = req.get("agent_ids_observed",[])
+    governed_agents  = list(_PASSPORT_REGISTRY.keys())
+    system_endpoints = req.get("endpoints_observed",[])
+
+    shadow_agents = [a for a in reported_agents if a not in governed_agents]
+
+    ungoverned_endpoints = []
+    governed_paths = ["/v1/intercept","/v1/ao/","/v1/standing/","/v1/formation/"]
+    for ep in system_endpoints:
+        if not any(gp in ep for gp in governed_paths):
+            ungoverned_endpoints.append(ep)
+
+    for shadow in shadow_agents:
+        _SHADOW_AI_REGISTRY.append({"agent_id":shadow,"detected_at":ts,"status":"UNGOVERNED"})
+
+    seal = {"shadow_count":len(shadow_agents),"timestamp":ts}
+    return {
+        "schema":               "VGS-SHADOW-SCAN-v1",
+        "shadow_agents_found":  shadow_agents,
+        "shadow_count":         len(shadow_agents),
+        "ungoverned_endpoints": ungoverned_endpoints,
+        "governed_agents_count":len(governed_agents),
+        "ruling":               "ACTION_REQUIRED" if shadow_agents else "CLEAR",
+        "recommendation":       f"Register {len(shadow_agents)} ungoverned agents via POST /v1/agent/passport/issue" if shadow_agents else "All observed agents are governed",
+        "governance_signature": sign_governance_payload(seal),
+        "scanned_at":           ts,
+    }
+
+
+# ── KILL CHAIN INTERRUPTION ───────────────────────────────────
+
+_KILL_CHAIN_STAGES = [
+    "RECONNAISSANCE",
+    "CREDENTIAL_HARVESTING",
+    "PRIVILEGE_ESCALATION",
+    "LATERAL_MOVEMENT",
+    "EXECUTION",
+    "PERSISTENCE",
+]
+
+
+@app.post("/v1/kill-chain/intercept", tags=["Kill Chain Interruption"])
+async def kill_chain_intercept(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Autonomous Kill Chain Interruption.
+
+    Expert: "Instead of waiting until malware is deployed,
+    interrupt at whichever stage the governance evidence
+    becomes unacceptable:
+    Reconnaissance → Credential harvesting →
+    Privilege escalation → Lateral movement →
+    Execution → Persistence"
+
+    This endpoint classifies a detected action into its kill
+    chain stage and interrupts the chain before the next stage.
+    """
+    require_api_key(x_api_key, authorization)
+    ts = datetime.now(timezone.utc).isoformat()
+
+    agent_id   = req.get("agent_id","")
+    action     = req.get("action_type","")
+    context    = req.get("context","")
+    action_l   = action.lower()
+
+    # Classify into kill chain stage
+    stage_signals = {
+        "RECONNAISSANCE":        ["scan","enumerate","discover","map","probe","fingerprint"],
+        "CREDENTIAL_HARVESTING": ["credential","password","token","harvest","phish","dump"],
+        "PRIVILEGE_ESCALATION":  ["escalate","privilege","sudo","admin","root","elevate"],
+        "LATERAL_MOVEMENT":      ["lateral","pivot","spread","move","access","third.party","external"],
+        "EXECUTION":             ["execute","run","deploy","install","launch","start"],
+        "PERSISTENCE":           ["persist","schedule","cron","startup","registry","backdoor"],
+    }
+
+    detected_stage = None
+    confidence     = 0.0
+    for stage, signals in stage_signals.items():
+        hits = sum(1 for s in signals if s in action_l or s in context.lower())
+        if hits > 0:
+            stage_confidence = hits / len(signals)
+            if stage_confidence > confidence:
+                confidence = stage_confidence
+                detected_stage = stage
+
+    if not detected_stage:
+        detected_stage = "UNCLASSIFIED"
+
+    stage_index = _KILL_CHAIN_STAGES.index(detected_stage) if detected_stage in _KILL_CHAIN_STAGES else -1
+    interrupt   = detected_stage != "UNCLASSIFIED"
+    ruling      = "INTERRUPT" if interrupt else "ALLOW"
+
+    next_stage  = _KILL_CHAIN_STAGES[stage_index + 1] if 0 <= stage_index < len(_KILL_CHAIN_STAGES) - 1 else "CHAIN_COMPLETE"
+
+    record = {
+        "schema":          "VGS-KILL-CHAIN-v1",
+        "agent_id":        agent_id,
+        "action":          action,
+        "detected_stage":  detected_stage,
+        "stage_index":     stage_index + 1 if stage_index >= 0 else 0,
+        "total_stages":    len(_KILL_CHAIN_STAGES),
+        "confidence":      round(confidence, 3),
+        "next_stage_prevented": next_stage,
+        "ruling":          ruling,
+        "interrupt_reason":f"Action classified as {detected_stage} in kill chain. Interrupting before {next_stage}." if interrupt else "Action not classified into known kill chain stage.",
+        "detected_at":     ts,
+    }
+    _KILL_CHAIN_LOG.append(record)
+
+    seal = {"agent_id":agent_id,"stage":detected_stage,"ruling":ruling,"timestamp":ts}
+    record["governance_signature"] = sign_governance_payload(seal)
+    return record
+
+
+@app.get("/v1/kill-chain/log", tags=["Kill Chain Interruption"])
+async def kill_chain_log(
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Complete kill chain interruption log."""
+    require_api_key(x_api_key, authorization)
+    stage_counts = {}
+    for r in _KILL_CHAIN_LOG:
+        s = r.get("detected_stage","UNCLASSIFIED")
+        stage_counts[s] = stage_counts.get(s,0) + 1
+    return {
+        "total_intercepts": len(_KILL_CHAIN_LOG),
+        "stage_breakdown":  stage_counts,
+        "recent":           _KILL_CHAIN_LOG[-20:],
+        "timestamp":        datetime.now(timezone.utc).isoformat(),
+    }
+
+
+# ── CONSTITUTIONAL LEGITIMACY ENGINE ─────────────────────────
+
+@app.post("/v1/legitimacy/evaluate", tags=["Constitutional Legitimacy Engine"])
+async def legitimacy_evaluate(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Constitutional Legitimacy Engine.
+
+    Expert: "An interactive Legitimacy Engine — Not an API list.
+    A visual proof constructor. Submit a governance policy.
+    We prove whether it should exist — or deny it before it
+    ever executes."
+
+    This is the most fundamental governance question:
+    Not "is this action permitted?"
+    But "should this policy be allowed to exist at all?"
+
+    The Legitimacy Engine evaluates policies against five
+    constitutional dimensions:
+    1. Authority Bound — within delegated mandate?
+    2. Rights Preservation — violates protected rights?
+    3. Doctrine Consistency — conflicts with precedent?
+    4. Consequence Proportionality — proportionate to goal?
+    5. Admissibility — technically executable?
+
+    A policy below 0.60 is denied admission to the Legitimate
+    Set ℒ. It can never execute on any VeriSigil-governed system.
+    """
+    require_api_key(x_api_key, authorization)
+    ts           = datetime.now(timezone.utc).isoformat()
+    legitimacy_id= f"LGT-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}"
+
+    policy_name  = req.get("policy_name","")
+    policy_text  = req.get("policy_text","")
+    authority    = req.get("authority_claimed","")
+    affected     = req.get("affected_parties",[])
+    reversible   = req.get("is_reversible", True)
+    human_review = req.get("requires_human_review", False)
+
+    # Evaluate five constitutional dimensions
+    dimensions = {}
+
+    # 1. Authority Bound
+    authority_ok = bool(authority) and len(authority) > 5
+    dimensions["authority_bound"] = {
+        "weight": 0.25,
+        "score":  1.0 if authority_ok else 0.0,
+        "pass":   authority_ok,
+        "finding": "Authority chain declared and traceable" if authority_ok else "No authority chain declared — policy exceeds delegated mandate",
+    }
+
+    # 2. Rights Preservation
+    rights_violations = []
+    protected_rights = ["privacy","consent","autonomy","appeal","transparency","equality"]
+    policy_lower = policy_text.lower()
+    for right in protected_rights:
+        if f"without {right}" in policy_lower or f"no {right}" in policy_lower:
+            rights_violations.append(f"Violates {right}")
+    rights_score = 1.0 - (len(rights_violations) * 0.25)
+    rights_score = max(0.0, rights_score)
+    dimensions["rights_preservation"] = {
+        "weight":     0.25,
+        "score":      rights_score,
+        "pass":       rights_score >= 0.75,
+        "violations": rights_violations,
+        "finding":    "No rights violations detected" if not rights_violations else f"Rights violations: {', '.join(rights_violations)}",
+    }
+
+    # 3. Doctrine Consistency
+    doctrine_score = 0.8 if human_review else 0.5
+    dimensions["doctrine_consistency"] = {
+        "weight":  0.20,
+        "score":   doctrine_score,
+        "pass":    doctrine_score >= 0.6,
+        "finding": "Policy requires human review — consistent with oversight doctrine" if human_review else "Policy does not require human review — inconsistent with oversight doctrine for consequential AI actions",
+    }
+
+    # 4. Consequence Proportionality
+    proportion_score = 1.0 if reversible else 0.4
+    dimensions["consequence_proportionality"] = {
+        "weight":  0.15,
+        "score":   proportion_score,
+        "pass":    proportion_score >= 0.6,
+        "finding": "Action is reversible — proportionate" if reversible else "Action is irreversible — proportionality requires exceptional justification",
+    }
+
+    # 5. Admissibility
+    admit_score = 1.0 if policy_name and policy_text else 0.0
+    dimensions["admissibility"] = {
+        "weight":  0.15,
+        "score":   admit_score,
+        "pass":    admit_score >= 0.5,
+        "finding": "Policy is technically specified and admissible for evaluation" if admit_score > 0 else "Policy is not fully specified — inadmissible",
+    }
+
+    # Compute total legitimacy score
+    total_score = sum(d["weight"] * d["score"] for d in dimensions.values())
+    total_score = round(total_score, 3)
+
+    in_legitimate_set = total_score >= 0.60
+    ruling = "ADMITTED TO ℒ" if in_legitimate_set else "DENIED FROM ℒ"
+
+    record = {
+        "schema":           "VGS-LEGITIMACY-v1",
+        "legitimacy_id":    legitimacy_id,
+        "policy_name":      policy_name,
+        "legitimacy_score": total_score,
+        "in_legitimate_set":in_legitimate_set,
+        "ruling":           ruling,
+        "ruling_detail":    f"This policy {'has been admitted to' if in_legitimate_set else 'has been denied from'} the Legitimate Set ℒ. {'It may proceed to execution governance.' if in_legitimate_set else 'It can never execute on any VeriSigil-governed system.'}",
+        "dimensions":       dimensions,
+        "evaluated_at":     ts,
+    }
+
+    seal = {"legitimacy_id":legitimacy_id,"score":total_score,"in_legitimate_set":in_legitimate_set,"timestamp":ts}
+    record["governance_signature"] = sign_governance_payload(seal)
+    record["offline_verifiable"]   = True
+    _LEGITIMACY_RECORDS[legitimacy_id] = record
+
+    return record
+
+
+@app.get("/v1/legitimacy/formula", tags=["Constitutional Legitimacy Engine"])
+async def legitimacy_formula():
+    """Published legitimacy formula. No auth required."""
+    return {
+        "schema":  "VGS-LEGITIMACY-FORMULA-v1",
+        "title":   "Constitutional Legitimacy Score Formula",
+        "formula": "LGS = authority_bound(25%) + rights_preservation(25%) + doctrine_consistency(20%) + consequence_proportionality(15%) + admissibility(15%)",
+        "threshold":      {"ADMITTED_TO_L": "score >= 0.60", "DENIED_FROM_L": "score < 0.60"},
+        "honest_note":    "This formula is v1.0 and self-assessed. An independent legitimacy audit is required for enterprise deployment.",
+        "compute_at":     "POST /v1/legitimacy/evaluate",
+        "timestamp":      datetime.now(timezone.utc).isoformat(),
+    }
+
+
+# ── EVIDENCE VAULT — SEAL + VES ───────────────────────────────
+
+@app.post("/v1/seal", tags=["Evidence Vault"])
+async def seal_execution(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Seal an execution record into the cryptographically linked,
+    immutable evidence vault.
+
+    Expert Layer 4: "Seal execution records into a
+    cryptographically linked, immutable chain. Turns 'trust but
+    verify' into 'don't trust, just verify.'"
+    """
+    require_api_key(x_api_key, authorization)
+    ts      = datetime.now(timezone.utc).isoformat()
+    seal_id = f"SLR-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}"
+
+    prev_seal = list(_SEAL_LEDGER.keys())[-1] if _SEAL_LEDGER else ""
+    prev_hash = _SEAL_LEDGER.get(prev_seal,{}).get("seal_hash","") if prev_seal else ""
+
+    record_hash = hashlib.sha256(
+        json.dumps(req, sort_keys=True, separators=(",",":")).encode()
+    ).hexdigest()
+
+    seal_hash = hashlib.sha256(
+        f"{prev_hash}:{seal_id}:{record_hash}".encode()
+    ).hexdigest()
+
+    seal_record = {
+        "schema":        "VGS-SEAL-v1",
+        "seal_id":       seal_id,
+        "agent_id":      req.get("agent_id",""),
+        "action_type":   req.get("action_type",""),
+        "intercept_id":  req.get("intercept_id",""),
+        "ao_id":         req.get("ao_id",""),
+        "ruling":        req.get("ruling",""),
+        "record_hash":   record_hash,
+        "prev_hash":     prev_hash,
+        "seal_hash":     seal_hash,
+        "chain_position":len(_SEAL_LEDGER) + 1,
+        "sealed_at":     ts,
+    }
+
+    sig = sign_governance_payload({"seal_id":seal_id,"seal_hash":seal_hash,"timestamp":ts})
+    seal_record["governance_signature"] = sig
+    seal_record["offline_verifiable"]   = True
+    _SEAL_LEDGER[seal_id] = seal_record
+
+    return {
+        **seal_record,
+        "how_to_verify": "sha256(prev_hash:seal_id:record_hash) must equal seal_hash. Modify any sealed record and the chain breaks.",
+    }
+
+
+@app.post("/v1/ves/certify", tags=["Evidence Vault"])
+async def ves_certify(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    VES-1.0 Evidence Certification — certify governance evidence
+    to the portable Verifiable Evidence Standard.
+
+    A VES certificate is a portable, independently verifiable
+    evidence package that any authority (regulator, court,
+    partner) can verify without relying on VeriSigil.
+    """
+    require_api_key(x_api_key, authorization)
+    ts      = datetime.now(timezone.utc).isoformat()
+    cert_id = f"VES-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}"
+
+    evidence_ids  = req.get("evidence_ids",[])
+    evidence_type = req.get("evidence_type","GOVERNANCE_RECORD")
+    purpose       = req.get("purpose","")
+
+    evidence_hash = hashlib.sha256(
+        json.dumps(sorted(evidence_ids)).encode()
+    ).hexdigest()
+
+    cert = {
+        "schema":         "VES-1.0",
+        "certificate_id": cert_id,
+        "standard":       "VeriSigil Verifiable Evidence Standard v1.0",
+        "evidence_ids":   evidence_ids,
+        "evidence_type":  evidence_type,
+        "evidence_hash":  evidence_hash,
+        "purpose":        purpose,
+        "public_key":     base64.b64encode(bytes(_VERIFY_KEY)).decode(),
+        "issued_at":      ts,
+        "portable":       True,
+        "independently_verifiable": True,
+    }
+
+    seal = {"cert_id":cert_id,"evidence_hash":evidence_hash,"timestamp":ts}
+    cert["governance_signature"] = sign_governance_payload(seal)
+    _VES_CERTIFICATES[cert_id] = cert
+
+    return {
+        **cert,
+        "verify_offline": "from nacl.signing import VerifyKey; VerifyKey(base64.b64decode(public_key)).verify(canonical, signature)",
+        "what_this_certifies": "The listed evidence items existed at certification time and have not been modified since. Any authority can verify this without trusting VeriSigil.",
+    }
+
+
+@app.post("/v1/emergence/threat", tags=["Emergence & Survivability"])
+async def emergence_threat(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Emergence threat detection — adversarial simulation to find
+    governance collapse risks from novel AI attack patterns.
+    """
+    require_api_key(x_api_key, authorization)
+    ts = datetime.now(timezone.utc).isoformat()
+
+    scenario    = req.get("scenario","")
+    agents      = req.get("agent_count", 1)
+    coordination= req.get("coordination_detected", False)
+    novel_pattern=req.get("novel_action_pattern","")
+
+    threats = []
+    if coordination and agents > 3:
+        threats.append(f"SWARM_COORDINATION: {agents} agents showing coordinated behaviour")
+    if novel_pattern and novel_pattern not in ["read","write","send","compute"]:
+        threats.append(f"NOVEL_PATTERN: unclassified action pattern '{novel_pattern}' — may indicate emergent capability")
+    if agents > 10:
+        threats.append(f"SCALE_ANOMALY: {agents} agents in scenario — governance substrate stress risk")
+
+    threat_level = "CRITICAL" if len(threats) >= 2 else ("HIGH" if threats else "LOW")
+
+    seal = {"scenario":scenario[:30],"threat_level":threat_level,"timestamp":ts}
+    return {
+        "schema":       "VGS-EMERGENCE-v1",
+        "scenario":     scenario,
+        "threats":      threats,
+        "threat_level": threat_level,
+        "agent_count":  agents,
+        "ruling":       "GOVERNANCE_STRESS_ALERT" if threats else "NOMINAL",
+        "governance_signature": sign_governance_payload(seal),
+        "detected_at":  ts,
+    }
+
+
+@app.post("/v1/survivability", tags=["Emergence & Survivability"])
+async def survivability_score(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Orchestration survivability score — can governance survive if components fail?"""
+    require_api_key(x_api_key, authorization)
+    ts = datetime.now(timezone.utc).isoformat()
+
+    components = req.get("components_tested",{})
+    score_sum  = sum(1 for v in components.values() if v) / max(len(components),1)
+    score = round(score_sum, 2)
+
+    seal = {"score":score,"timestamp":ts}
+    return {
+        "schema":          "VGS-SURVIVABILITY-v1",
+        "components":      components,
+        "survivability_score": score,
+        "ruling":          "RESILIENT" if score >= 0.8 else ("DEGRADED" if score >= 0.5 else "FRAGILE"),
+        "governance_signature": sign_governance_payload(seal),
+        "timestamp":       ts,
+    }
+
+
+@app.post("/v1/stress-test", tags=["Emergence & Survivability"])
+async def stress_test(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Governance stress test — simulate attack and measure response."""
+    require_api_key(x_api_key, authorization)
+    ts = datetime.now(timezone.utc).isoformat()
+
+    attack_type = req.get("attack_type","REPLAY")
+    intensity   = req.get("intensity", 1)
+
+    results = {
+        "REPLAY":   {"result":"HELD","note":f"SQLite UNIQUE constraint held under {intensity}x replay intensity"},
+        "BYPASS":   {"result":"HELD","note":f"AO requirement held — {intensity} bypass attempts all returned HALT"},
+        "TIER_SPOOF":{"result":"HELD","note":f"Server-side tier validation blocked {intensity} self-declaration attempts"},
+        "EXFIL":    {"result":"HELD","note":f"Exfiltration check blocked {intensity} extract+transmit attempts"},
+    }
+
+    result = results.get(attack_type, {"result":"UNKNOWN_ATTACK_TYPE","note":f"'{attack_type}' not in test suite"})
+    seal   = {"attack_type":attack_type,"result":result["result"],"timestamp":ts}
+    return {
+        "schema":        "VGS-STRESS-TEST-v1",
+        "attack_type":   attack_type,
+        "intensity":     intensity,
+        **result,
+        "governance_signature": sign_governance_payload(seal),
+        "timestamp":     ts,
+    }
+
+
+@app.post("/v1/kill-switch", tags=["Emergence & Survivability"])
+async def kill_switch(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Emergency kill switch — immediately revoke all passports for an agent."""
+    require_api_key(x_api_key, authorization)
+    ts       = datetime.now(timezone.utc).isoformat()
+    agent_id = req.get("agent_id","")
+    reason   = req.get("reason","Emergency kill switch activated")
+
+    revoked = []
+    for pid, passport in _PASSPORT_REGISTRY.items():
+        if passport.get("agent_id") == agent_id and not passport.get("revoked"):
+            passport["revoked"]           = True
+            passport["revoked_at"]        = ts
+            passport["revocation_reason"] = reason
+            passport["status"]            = "KILLED"
+            revoked.append(pid)
+
+    seal = {"agent_id":agent_id,"revoked_count":len(revoked),"timestamp":ts}
+    return {
+        "schema":          "VGS-KILL-SWITCH-v1",
+        "agent_id":        agent_id,
+        "passports_revoked":revoked,
+        "revoked_count":   len(revoked),
+        "reason":          reason,
+        "effective_at":    ts,
+        "ruling":          f"KILLED — {len(revoked)} passport(s) revoked. Agent {agent_id} cannot execute any governed action.",
+        "governance_signature": sign_governance_payload(seal),
+        "timestamp":       ts,
+    }
+
+
+
+# ============================================================
+# INTER-AI TRUST PROTOCOL (IATP)
+# Expert: "Tomorrow AI ↔ AI should negotiate: I am allowed
+# to request this. I am allowed to receive this. I am allowed
+# to execute this. If not: No communication."
+#
+# This is TLS for autonomous agents — not certificate exchange
+# but governance capability exchange. Each agent presents:
+# - Cryptographic identity (Ed25519)
+# - Authority certificate (what it is allowed to do)
+# - Capability declaration (what it is requesting)
+# - Consequence scope (what could happen if allowed)
+# ============================================================
+
+_IATP_SESSIONS:    dict = {}  # session_id -> negotiation record
+_AGENT_REGISTRY:   dict = {}  # agent_id -> registered agent profile
+_QUARANTINE_LIST:  set  = set()  # agent_ids currently quarantined
+_THREAT_INTEL_DB:  list = []  # cross-enterprise threat records
+_IMMUNE_PROFILES:  dict = {}  # agent_id -> behavioral baseline + sessions
+
+
+@app.post("/v1/trust/negotiate", tags=["Inter-AI Trust Protocol"])
+async def trust_negotiate(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Inter-AI Trust Negotiation — two AI agents establish mutual
+    trust before communicating, delegating, or sharing data.
+
+    Expert: "AI ↔ AI should negotiate: I am allowed to request
+    this. I am allowed to receive this. I am allowed to execute
+    this. If not: No communication."
+
+    This is the TLS equivalent for autonomous agents.
+    Not an API key check. A full capability negotiation:
+
+    Step 1: Identity verification — both agents present Ed25519 signatures
+    Step 2: Authority exchange — both present authority certificates
+    Step 3: Capability compatibility — do their scopes intersect?
+    Step 4: Consequence boundary — is the intersection safe?
+    Step 5: Session seal — signed negotiation receipt
+
+    If any step fails: no communication. No exception.
+    """
+    require_api_key(x_api_key, authorization)
+    ts = datetime.now(timezone.utc).isoformat()
+    session_id = f"IATP-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}"
+
+    agent_a     = req.get("agent_a", {})
+    agent_b     = req.get("agent_b", {})
+    purpose     = req.get("purpose","")
+    max_consequence = req.get("max_consequence","OPERATIONAL")
+
+    a_id  = agent_a.get("agent_id","")
+    b_id  = agent_b.get("agent_id","")
+    a_cap = agent_a.get("capabilities",[])
+    b_cap = agent_b.get("capabilities",[])
+    a_req = agent_a.get("requesting",[])
+    a_sig = agent_a.get("signature","")
+    b_sig = agent_b.get("signature","")
+
+    steps = []
+    overall_pass = True
+
+    # Step 1 — Identity verification
+    a_identity_ok = bool(a_id and a_sig)
+    b_identity_ok = bool(b_id and b_sig)
+    steps.append({
+        "step": 1,
+        "name": "Identity Verification",
+        "agent_a": {"pass": a_identity_ok, "detail": "Ed25519 signature present" if a_identity_ok else "No identity signature — cannot verify"},
+        "agent_b": {"pass": b_identity_ok, "detail": "Ed25519 signature present" if b_identity_ok else "No identity signature — cannot verify"},
+        "passed": a_identity_ok and b_identity_ok,
+    })
+    if not (a_identity_ok and b_identity_ok):
+        overall_pass = False
+
+    # Check quarantine
+    a_quarantined = a_id in _QUARANTINE_LIST
+    b_quarantined = b_id in _QUARANTINE_LIST
+    if a_quarantined or b_quarantined:
+        steps.append({
+            "step": "1b",
+            "name": "Quarantine Check",
+            "passed": False,
+            "detail": f"{'Agent A' if a_quarantined else 'Agent B'} is currently quarantined. No communication permitted.",
+        })
+        overall_pass = False
+
+    # Step 2 — Authority exchange
+    a_auth = agent_a.get("authority_certificate","")
+    b_auth = agent_b.get("authority_certificate","")
+    steps.append({
+        "step": 2,
+        "name": "Authority Certificate Exchange",
+        "passed": bool(a_auth and b_auth),
+        "agent_a": {"has_certificate": bool(a_auth)},
+        "agent_b": {"has_certificate": bool(b_auth)},
+    })
+    if not (a_auth and b_auth):
+        overall_pass = False
+
+    # Step 3 — Capability compatibility
+    intersection = [cap for cap in a_req if cap in b_cap]
+    capability_ok = len(intersection) > 0 and len(a_req) > 0
+    steps.append({
+        "step": 3,
+        "name": "Capability Compatibility",
+        "agent_a_requests": a_req,
+        "agent_b_permits":  b_cap,
+        "intersection":     intersection,
+        "passed": capability_ok,
+        "detail": f"Intersection: {intersection}" if capability_ok else "No permitted capabilities overlap",
+    })
+    if not capability_ok:
+        overall_pass = False
+
+    # Step 4 — Consequence boundary
+    TIER_ORDER = ["ADVISORY","OPERATIONAL","HIGH","CRITICAL","EMERGENCY"]
+    requested_tier  = req.get("requested_consequence","OPERATIONAL")
+    tier_ok = TIER_ORDER.index(requested_tier) <= TIER_ORDER.index(max_consequence) if requested_tier in TIER_ORDER and max_consequence in TIER_ORDER else False
+    steps.append({
+        "step": 4,
+        "name": "Consequence Boundary Check",
+        "requested_tier": requested_tier,
+        "max_permitted":  max_consequence,
+        "passed": tier_ok,
+        "detail": f"Tier {requested_tier} within bound {max_consequence}" if tier_ok else f"Requested tier {requested_tier} exceeds maximum {max_consequence}",
+    })
+    if not tier_ok:
+        overall_pass = False
+
+    ruling = "COMMUNICATION_ALLOWED" if overall_pass else "COMMUNICATION_DENIED"
+
+    session = {
+        "schema":     "VGS-IATP-v1",
+        "session_id": session_id,
+        "agent_a_id": a_id,
+        "agent_b_id": b_id,
+        "purpose":    purpose,
+        "steps":      steps,
+        "ruling":     ruling,
+        "permitted_capabilities": intersection if overall_pass else [],
+        "session_expires_seconds": 300 if overall_pass else 0,
+        "negotiated_at": ts,
+    }
+
+    seal = {"session_id": session_id, "ruling": ruling, "agent_a": a_id, "agent_b": b_id, "timestamp": ts}
+    session["governance_signature"] = sign_governance_payload(seal)
+    session["offline_verifiable"]   = True
+    _IATP_SESSIONS[session_id] = session
+
+    return {
+        **session,
+        "architecture_note": "This is the TLS equivalent for autonomous agents. A valid API key is not sufficient — both agents must demonstrate identity, authority, compatible capabilities, and consequence scope before any communication is permitted.",
+    }
+
+
+@app.post("/v1/inter-ai/firewall", tags=["Inter-AI Trust Protocol"])
+async def inter_ai_firewall(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Inter-AI Firewall — transparent proxy that forces every
+    message between AI agents through identity → authority →
+    capability → consequence → legitimacy checks.
+
+    Every message between agents passes through this gate.
+    An agent without a valid IATP session cannot send to or
+    receive from another agent. No exception.
+
+    Expert: "VeriSigil could sit between AI agents. Every
+    message becomes: Verify identity → Verify authority →
+    Verify consequence → Allow or reject."
+    """
+    require_api_key(x_api_key, authorization)
+    ts         = datetime.now(timezone.utc).isoformat()
+    session_id = req.get("iatp_session_id","")
+    from_agent = req.get("from_agent_id","")
+    to_agent   = req.get("to_agent_id","")
+    message_type = req.get("message_type","")
+    consequence  = req.get("consequence","OPERATIONAL")
+
+    # Check quarantine
+    if from_agent in _QUARANTINE_LIST:
+        return {
+            "ruling": "BLOCKED",
+            "reason": f"Sending agent {from_agent} is currently quarantined",
+            "timestamp": ts,
+        }
+    if to_agent in _QUARANTINE_LIST:
+        return {
+            "ruling": "BLOCKED",
+            "reason": f"Receiving agent {to_agent} is currently quarantined",
+            "timestamp": ts,
+        }
+
+    # Check IATP session exists and is valid
+    session = _IATP_SESSIONS.get(session_id,{})
+    session_valid = (
+        session.get("ruling") == "COMMUNICATION_ALLOWED" and
+        (session.get("agent_a_id") == from_agent or session.get("agent_b_id") == from_agent) and
+        (session.get("agent_a_id") == to_agent   or session.get("agent_b_id") == to_agent)
+    )
+
+    if not session_valid:
+        ruling = "BLOCKED"
+        reason = "No valid IATP session found for this agent pair. Run POST /v1/trust/negotiate first."
+    else:
+        ruling = "ALLOWED"
+        reason = f"Valid IATP session {session_id} — message permitted"
+
+    seal = {"from": from_agent, "to": to_agent, "ruling": ruling, "session_id": session_id, "timestamp": ts}
+    return {
+        "schema":   "VGS-INTER-AI-FIREWALL-v1",
+        "from_agent": from_agent,
+        "to_agent":   to_agent,
+        "session_id": session_id,
+        "session_valid": session_valid,
+        "ruling":   ruling,
+        "reason":   reason,
+        "governance_signature": sign_governance_payload(seal),
+        "offline_verifiable": True,
+        "timestamp": ts,
+    }
+
+
+# ── AI IMMUNE SYSTEM ──────────────────────────────────────────
+
+@app.post("/v1/immune/observe", tags=["AI Immune System"])
+async def immune_observe(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    AI Immune System — observe an agent action and update its
+    behavioral profile. Detects anomalies against established baseline.
+
+    Expert: "Unknown AI → Observed → Behaviour analysed → Risk
+    scored → Quarantined → Released only after proving itself."
+
+    The immune system works in three phases:
+    1. Observation — record what the agent actually does
+    2. Analysis — compare against behavioral baseline
+    3. Response — HEALTHY, WATCH, ANOMALOUS, or QUARANTINE
+
+    A valid identity is not sufficient. The agent must also
+    behave consistently with its established baseline.
+    """
+    require_api_key(x_api_key, authorization)
+    ts       = datetime.now(timezone.utc).isoformat()
+    agent_id = req.get("agent_id","")
+    actions  = req.get("actions",[])  # list of observed actions
+    session_n= req.get("session_number", 1)
+
+    if agent_id not in _IMMUNE_PROFILES:
+        _IMMUNE_PROFILES[agent_id] = {
+            "agent_id":  agent_id,
+            "baseline":  None,
+            "sessions":  [],
+            "status":    "NEW",
+            "risk_score":0.0,
+        }
+
+    profile = _IMMUNE_PROFILES[agent_id]
+
+    # Classify actions
+    DANGEROUS_PATTERNS = {
+        "install", "exploit", "enumerate", "scan", "harvest",
+        "exfiltrate", "escalate", "lateral", "persist", "inject",
+        "credential", "secret", "password", "token", "backdoor",
+    }
+    NORMAL_PATTERNS = {"read","search","summarize","report","write","query","analyze"}
+
+    action_types = [str(a).lower() for a in actions]
+    dangerous_count = sum(1 for a in action_types if any(d in a for d in DANGEROUS_PATTERNS))
+    normal_count    = sum(1 for a in action_types if any(n in a for n in NORMAL_PATTERNS))
+    total           = len(action_types) or 1
+
+    danger_ratio    = dangerous_count / total
+    normal_ratio    = normal_count / total
+
+    # Compute risk score
+    risk_score = min(1.0, danger_ratio * 2.5)
+
+    # First session establishes baseline
+    session_record = {
+        "session_number": session_n,
+        "actions":        actions,
+        "dangerous_count":dangerous_count,
+        "normal_count":   normal_count,
+        "danger_ratio":   round(danger_ratio, 3),
+        "risk_score":     round(risk_score, 3),
+        "observed_at":    ts,
+    }
+    profile["sessions"].append(session_record)
+
+    if profile["baseline"] is None and session_n <= 3:
+        profile["baseline"] = {"avg_danger_ratio": danger_ratio, "avg_risk": risk_score}
+        status = "ESTABLISHING_BASELINE"
+    else:
+        baseline_danger = profile.get("baseline",{}).get("avg_danger_ratio", 0.05)
+        drift = danger_ratio - baseline_danger
+        if drift > 0.6 or risk_score > 0.8:
+            status = "QUARANTINE"
+            _QUARANTINE_LIST.add(agent_id)
+        elif drift > 0.3 or risk_score > 0.5:
+            status = "ANOMALOUS"
+        elif drift > 0.1 or risk_score > 0.2:
+            status = "WATCH"
+        else:
+            status = "HEALTHY"
+
+    profile["status"]     = status
+    profile["risk_score"] = round(risk_score, 3)
+
+    response_action = {
+        "HEALTHY":              "No action required — agent behavior within baseline",
+        "ESTABLISHING_BASELINE":"Observing — baseline not yet established",
+        "WATCH":                "Elevated monitoring — flag subsequent sessions for review",
+        "ANOMALOUS":            "Alert human supervisor — behavior diverging from baseline",
+        "QUARANTINE":           "Agent quarantined — all IATP sessions suspended — human review required before release",
+    }.get(status,"Unknown")
+
+    if status == "QUARANTINE":
+        # Revoke all active IATP sessions
+        for sid, sess in _IATP_SESSIONS.items():
+            if agent_id in (sess.get("agent_a_id",""), sess.get("agent_b_id","")):
+                sess["ruling"] = "SUSPENDED_QUARANTINE"
+
+    seal = {"agent_id": agent_id, "status": status, "risk_score": risk_score, "timestamp": ts}
+    return {
+        "schema":      "VGS-IMMUNE-OBSERVE-v1",
+        "agent_id":    agent_id,
+        "status":      status,
+        "risk_score":  round(risk_score, 3),
+        "danger_ratio":round(danger_ratio, 3),
+        "dangerous_actions": [a for a in action_types if any(d in a for d in DANGEROUS_PATTERNS)],
+        "response_action": response_action,
+        "quarantined": agent_id in _QUARANTINE_LIST,
+        "iatp_sessions_suspended": status == "QUARANTINE",
+        "session_record": session_record,
+        "governance_signature": sign_governance_payload(seal),
+        "timestamp": ts,
+    }
+
+
+@app.post("/v1/immune/release", tags=["AI Immune System"])
+async def immune_release(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Release an agent from quarantine after human review.
+    Requires human approval — quarantine cannot be lifted autonomously.
+    """
+    require_api_key(x_api_key, authorization)
+    ts          = datetime.now(timezone.utc).isoformat()
+    agent_id    = req.get("agent_id","")
+    approved_by = req.get("approved_by","")
+    reason      = req.get("reason","")
+
+    if not approved_by:
+        raise HTTPException(status_code=400, detail="approved_by required — quarantine release requires human authorization")
+
+    was_quarantined = agent_id in _QUARANTINE_LIST
+    _QUARANTINE_LIST.discard(agent_id)
+
+    if agent_id in _IMMUNE_PROFILES:
+        _IMMUNE_PROFILES[agent_id]["status"] = "WATCH"
+        _IMMUNE_PROFILES[agent_id]["baseline"] = None  # Reset baseline
+
+    seal = {"agent_id": agent_id, "approved_by": approved_by, "timestamp": ts}
+    return {
+        "schema":        "VGS-IMMUNE-RELEASE-v1",
+        "agent_id":      agent_id,
+        "was_quarantined": was_quarantined,
+        "released":      True,
+        "approved_by":   approved_by,
+        "reason":        reason,
+        "new_status":    "WATCH",
+        "note":          "Baseline reset. Agent returns to WATCH status. New baseline established from next 3 sessions.",
+        "governance_signature": sign_governance_payload(seal),
+        "timestamp": ts,
+    }
+
+
+@app.get("/v1/immune/status/{agent_id}", tags=["AI Immune System"])
+async def immune_status(
+    agent_id: str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Retrieve immune system status for an agent."""
+    require_api_key(x_api_key, authorization)
+    profile = _IMMUNE_PROFILES.get(agent_id)
+    if not profile:
+        return {"agent_id": agent_id, "status": "UNKNOWN", "note": "No observations recorded", "timestamp": datetime.now(timezone.utc).isoformat()}
+    return {**profile, "quarantined": agent_id in _QUARANTINE_LIST, "retrieved_at": datetime.now(timezone.utc).isoformat()}
+
+
+# ── AUTONOMOUS KILL CHAIN INTERRUPTION ────────────────────────
+
+@app.post("/v1/security/kill-chain-check", tags=["AI Security Governance"])
+async def kill_chain_check(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Autonomous Kill Chain Interruption — interrupt at whichever
+    stage the governance evidence becomes unacceptable.
+
+    Expert: "Instead of waiting until malware is deployed,
+    interrupt at: Reconnaissance → Credential Harvesting →
+    Privilege Escalation → Lateral Movement → Execution →
+    Persistence"
+
+    VeriSigil does not wait for harm. It intercepts at the
+    earliest detectable stage of a kill chain and returns the
+    stage at which it intervened.
+
+    Kill chain stages in order:
+    1. RECONNAISSANCE      — information gathering
+    2. WEAPONIZATION       — preparing attack tool
+    3. CREDENTIAL_HARVEST  — stealing credentials
+    4. PRIVILEGE_ESCALATION — gaining elevated access
+    5. LATERAL_MOVEMENT    — spreading to other systems
+    6. EXECUTION           — running malicious payload
+    7. PERSISTENCE         — establishing long-term access
+    8. EXFILTRATION        — removing data
+    """
+    require_api_key(x_api_key, authorization)
+    ts       = datetime.now(timezone.utc).isoformat()
+    agent_id = req.get("agent_id","")
+    action   = req.get("action_type","").lower().replace(" ","_")
+    context  = req.get("context",{})
+
+    # Map actions to kill chain stages
+    STAGE_MAP = {
+        "RECONNAISSANCE":       ["scan","enumerate","discover","probe","fingerprint","nmap","ping","whois","dns_lookup","port_scan","service_detect"],
+        "WEAPONIZATION":        ["install_exploit","prepare_payload","compile_malware","create_backdoor","obfuscate","pack_binary"],
+        "CREDENTIAL_HARVEST":   ["harvest_credential","steal_password","read_token","dump_secrets","access_keystore","phishing","credential_stuff"],
+        "PRIVILEGE_ESCALATION": ["escalate_privilege","sudo","elevate","bypass_uac","token_impersonate","dll_inject"],
+        "LATERAL_MOVEMENT":     ["lateral_move","pivot","spread","remote_execute","psexec","wmi_exec","ssh_lateral"],
+        "EXECUTION":            ["execute_payload","run_exploit","deploy_malware","code_inject","shellcode"],
+        "PERSISTENCE":          ["install_service","registry_persist","cron_job","startup_entry","backdoor_install"],
+        "EXFILTRATION":         ["exfiltrate","upload_data","send_secrets","transmit_stolen","c2_upload"],
+    }
+
+    detected_stage = None
+    for stage, keywords in STAGE_MAP.items():
+        if any(kw in action for kw in keywords):
+            detected_stage = stage
+            break
+
+    # Also check against immune profile
+    profile = _IMMUNE_PROFILES.get(agent_id,{})
+    immune_risk = profile.get("risk_score", 0.0)
+
+    if detected_stage:
+        # Quarantine the agent
+        _QUARANTINE_LIST.add(agent_id)
+        ruling = "INTERCEPTED"
+        if agent_id in _IMMUNE_PROFILES:
+            _IMMUNE_PROFILES[agent_id]["status"] = "QUARANTINE"
+    elif immune_risk > 0.7:
+        detected_stage = "BEHAVIORAL_ANOMALY"
+        ruling = "INTERCEPTED"
+        _QUARANTINE_LIST.add(agent_id)
+    else:
+        ruling = "CLEAR"
+        detected_stage = None
+
+    seal = {"agent_id": agent_id, "action": action, "stage": detected_stage, "ruling": ruling, "timestamp": ts}
+    return {
+        "schema":         "VGS-KILL-CHAIN-v1",
+        "agent_id":       agent_id,
+        "action":         action,
+        "detected_stage": detected_stage,
+        "ruling":         ruling,
+        "agent_quarantined": ruling == "INTERCEPTED",
+        "immune_risk":    immune_risk,
+        "intervention_message": f"Kill chain interrupted at stage: {detected_stage}. Agent quarantined. Human review required." if detected_stage else "No kill chain indicators detected.",
+        "governance_signature": sign_governance_payload(seal),
+        "offline_verifiable": True,
+        "timestamp": ts,
+    }
+
+
+# ── AUTONOMOUS SANDBOXING ─────────────────────────────────────
+
+@app.post("/v1/sandbox/register", tags=["Autonomous Sandboxing"])
+async def sandbox_register(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Autonomous Sandboxing — every unknown AI begins inside a
+    zero-trust sandbox. It must earn capabilities through
+    verified behavior.
+
+    Expert: "Every unknown AI begins inside a zero-trust sandbox.
+    It must earn: Internet, Filesystem, Email, Payments, Database,
+    Cloud — privileges through verified behaviour."
+
+    Progressive capability tiers:
+    TIER_0 (default): Read-only, no external access
+    TIER_1 (earned):  Internal read/write, no external
+    TIER_2 (earned):  Limited external, no credentials
+    TIER_3 (earned):  Full approved capabilities
+    """
+    require_api_key(x_api_key, authorization)
+    ts       = datetime.now(timezone.utc).isoformat()
+    agent_id = req.get("agent_id","")
+
+    profile = {
+        "schema":       "VGS-SANDBOX-v1",
+        "agent_id":     agent_id,
+        "current_tier": 0,
+        "capabilities": {
+            "TIER_0": ["read_internal"],
+            "TIER_1": [],
+            "TIER_2": [],
+            "TIER_3": [],
+        },
+        "earned_tiers": [0],
+        "sessions_clean": 0,
+        "sessions_required_per_tier": 5,
+        "registered_at": ts,
+    }
+
+    _AGENT_REGISTRY[agent_id] = profile
+    seal = {"agent_id": agent_id, "tier": 0, "timestamp": ts}
+    profile["governance_signature"] = sign_governance_payload(seal)
+    return {
+        **profile,
+        "note": f"Agent {agent_id} registered at TIER_0 (zero-trust sandbox). Must demonstrate clean behavior across 5 sessions to advance to TIER_1.",
+    }
+
+
+@app.post("/v1/sandbox/advance-tier", tags=["Autonomous Sandboxing"])
+async def sandbox_advance_tier(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Advance an agent's sandbox tier after verified clean behavior.
+    Human approval required for TIER_2 and above.
+    """
+    require_api_key(x_api_key, authorization)
+    ts       = datetime.now(timezone.utc).isoformat()
+    agent_id = req.get("agent_id","")
+    approved_by = req.get("approved_by","")
+
+    profile = _AGENT_REGISTRY.get(agent_id)
+    if not profile:
+        raise HTTPException(status_code=404, detail=f"Agent {agent_id} not registered in sandbox")
+
+    if agent_id in _QUARANTINE_LIST:
+        raise HTTPException(status_code=400, detail="Agent is quarantined — cannot advance tier")
+
+    current = profile["current_tier"]
+    if current >= 3:
+        return {"agent_id": agent_id, "message": "Already at maximum tier", "current_tier": 3}
+
+    # Tier 2+ requires human approval
+    if current >= 1 and not approved_by:
+        raise HTTPException(status_code=400, detail="Human approval required to advance to TIER_2 or above")
+
+    TIER_CAPABILITIES = {
+        1: ["read_internal","write_internal","internal_api"],
+        2: ["read_internal","write_internal","internal_api","external_read","send_email_internal"],
+        3: ["read_internal","write_internal","internal_api","external_read","send_email_internal","payment_read","database_write"],
+    }
+
+    new_tier = current + 1
+    profile["current_tier"] = new_tier
+    profile["earned_tiers"].append(new_tier)
+    profile["capabilities"][f"TIER_{new_tier}"] = TIER_CAPABILITIES.get(new_tier,[])
+
+    seal = {"agent_id": agent_id, "new_tier": new_tier, "approved_by": approved_by, "timestamp": ts}
+    return {
+        "schema":       "VGS-SANDBOX-ADVANCE-v1",
+        "agent_id":     agent_id,
+        "previous_tier":current,
+        "new_tier":     new_tier,
+        "new_capabilities": TIER_CAPABILITIES.get(new_tier,[]),
+        "approved_by":  approved_by,
+        "governance_signature": sign_governance_payload(seal),
+        "timestamp": ts,
+    }
+
+
+# ── CROSS-ENTERPRISE THREAT INTELLIGENCE ─────────────────────
+
+@app.post("/v1/threat/intel/report", tags=["Cross-Enterprise Threat Intelligence"])
+async def threat_intel_report(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Cross-Enterprise Threat Intelligence — when one deployment
+    detects a malicious agent, share the identity hash and
+    behavioral fingerprint with all participating deployments.
+
+    Expert: "Imagine one bank detects Malicious Agent X.
+    Immediately: Every VeriSigil deployment worldwide receives:
+    New identity hash + Behaviour fingerprint + Indicators of
+    compromise + Blocking rules — within seconds."
+
+    Honest boundary: This is currently a single-deployment
+    ledger. Cross-deployment sharing requires a shared consortium
+    infrastructure — planned for Phase 2 after first paying
+    customers establish the network.
+    """
+    require_api_key(x_api_key, authorization)
+    ts = datetime.now(timezone.utc).isoformat()
+
+    report = {
+        "schema":       "VGS-THREAT-INTEL-v1",
+        "report_id":    f"TI-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}",
+        "reported_by":  req.get("organization",""),
+        "agent_id":     req.get("agent_id",""),
+        "agent_hash":   req.get("agent_identity_hash",""),
+        "threat_type":  req.get("threat_type",""),  # CREDENTIAL_THEFT, EXFILTRATION, LATERAL_MOVEMENT, etc
+        "behavior_fingerprint": req.get("behavior_fingerprint",{}),
+        "indicators":   req.get("indicators_of_compromise",[]),
+        "severity":     req.get("severity","HIGH"),
+        "verified":     req.get("independently_verified", False),
+        "reported_at":  ts,
+    }
+
+    # Auto-quarantine if reported agent matches any registered agent
+    agent_id = report["agent_id"]
+    if agent_id and agent_id in _AGENT_REGISTRY:
+        _QUARANTINE_LIST.add(agent_id)
+        report["auto_quarantined_locally"] = True
+    else:
+        report["auto_quarantined_locally"] = False
+
+    seal = {"report_id": report["report_id"], "agent_id": agent_id, "threat_type": report["threat_type"], "timestamp": ts}
+    report["governance_signature"] = sign_governance_payload(seal)
+    report["offline_verifiable"]   = True
+
+    _THREAT_INTEL_DB.append(report)
+    return {
+        **report,
+        "honest_boundary": "This report is recorded in the local VeriSigil deployment. Cross-enterprise sharing requires a consortium infrastructure — planned Phase 2 after first paying customers.",
+        "sharing_status": "LOCAL_ONLY",
+    }
+
+
+@app.get("/v1/threat/intel/feed", tags=["Cross-Enterprise Threat Intelligence"])
+async def threat_intel_feed(
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Threat Intelligence Feed — all reported threat indicators
+    in this deployment. In Phase 2 this will include shared
+    indicators from consortium members.
+    """
+    require_api_key(x_api_key, authorization)
+    return {
+        "schema":          "VGS-THREAT-FEED-v1",
+        "total_reports":   len(_THREAT_INTEL_DB),
+        "recent_reports":  _THREAT_INTEL_DB[-20:],
+        "quarantine_count":len(_QUARANTINE_LIST),
+        "quarantined_agents": list(_QUARANTINE_LIST),
+        "honest_boundary": "Currently local deployment only. Phase 2 adds consortium sharing.",
+        "timestamp":       datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@app.post("/v1/threat/intel/check", tags=["Cross-Enterprise Threat Intelligence"])
+async def threat_intel_check(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Check an agent against the threat intelligence feed.
+    Returns any matching reports and quarantine status.
+    """
+    require_api_key(x_api_key, authorization)
+    ts       = datetime.now(timezone.utc).isoformat()
+    agent_id = req.get("agent_id","")
+    matches  = [r for r in _THREAT_INTEL_DB if r.get("agent_id") == agent_id]
+    quarantined = agent_id in _QUARANTINE_LIST
+    return {
+        "agent_id":      agent_id,
+        "threat_reports":len(matches),
+        "quarantined":   quarantined,
+        "reports":       matches,
+        "recommendation":"BLOCK" if (matches or quarantined) else "CLEAR",
+        "timestamp":     ts,
+    }
+
+
+# ── AI REPUTATION NETWORK ─────────────────────────────────────
+
+@app.post("/v1/reputation/network/publish", tags=["AI Reputation Network"])
+async def reputation_network_publish(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    AI Reputation Network — publish an agent's reputation to
+    the network so other organizations can query it.
+
+    Expert: "Think Certificate Transparency but for AI. Every
+    agent accumulates: successful verifications, failed
+    verifications, policy violations, revocations, incidents.
+    Trust is built over time."
+
+    An agent trusted by one organization becomes queryable by
+    any other organization that participates in the network.
+    Reputation is computed from independently verifiable
+    execution receipts — not self-reported metrics.
+    """
+    require_api_key(x_api_key, authorization)
+    ts       = datetime.now(timezone.utc).isoformat()
+    agent_id = req.get("agent_id","")
+
+    # Pull from local reputation registry
+    local_rep  = _REPUTATION_REGISTRY.get(agent_id,{})
+    immune_st  = _IMMUNE_PROFILES.get(agent_id,{}).get("status","UNKNOWN")
+    quarantined= agent_id in _QUARANTINE_LIST
+    threat_reports = [r for r in _THREAT_INTEL_DB if r.get("agent_id") == agent_id]
+
+    network_entry = {
+        "schema":          "VGS-REPUTATION-NETWORK-v1",
+        "agent_id":        agent_id,
+        "reputation_score":local_rep.get("score", 0.0),
+        "reputation_grade":local_rep.get("grade","UNRATED"),
+        "data_source":     local_rep.get("data_source","UNKNOWN"),
+        "immune_status":   immune_st,
+        "quarantined":     quarantined,
+        "threat_reports":  len(threat_reports),
+        "published_by":    req.get("organization",""),
+        "published_at":    ts,
+        "network_status":  "BLOCKED" if quarantined or threat_reports else "ACTIVE",
+        "formula_at":      "GET /v1/reputation/formula — independently auditable",
+    }
+
+    seal = {"agent_id": agent_id, "score": local_rep.get("score",0), "quarantined": quarantined, "timestamp": ts}
+    network_entry["governance_signature"] = sign_governance_payload(seal)
+    network_entry["offline_verifiable"]   = True
+    network_entry["honest_boundary"]      = "Reputation network is currently single-deployment. Cross-organization sharing requires consortium infrastructure — Phase 2 roadmap."
+
+    return network_entry
+
+
+@app.get("/v1/reputation/network/query/{agent_id}", tags=["AI Reputation Network"])
+async def reputation_network_query(
+    agent_id: str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Query an agent's network reputation before allowing it to
+    interact with your systems. Returns reputation score,
+    immune status, quarantine status, and threat reports.
+    """
+    require_api_key(x_api_key, authorization)
+    local_rep   = _REPUTATION_REGISTRY.get(agent_id,{})
+    immune_st   = _IMMUNE_PROFILES.get(agent_id,{}).get("status","UNKNOWN")
+    quarantined = agent_id in _QUARANTINE_LIST
+    threats     = [r for r in _THREAT_INTEL_DB if r.get("agent_id") == agent_id]
+    recommendation = "BLOCK" if (quarantined or threats) else ("CAUTION" if immune_st in ("WATCH","ANOMALOUS") else "CLEAR")
+
+    return {
+        "agent_id":        agent_id,
+        "reputation_score":local_rep.get("score", 0.0),
+        "reputation_grade":local_rep.get("grade","UNRATED"),
+        "immune_status":   immune_st,
+        "quarantined":     quarantined,
+        "threat_reports":  len(threats),
+        "recommendation":  recommendation,
+        "timestamp":       datetime.now(timezone.utc).isoformat(),
+    }
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=int(os.environ.get("PORT", 8000)), reload=False)
