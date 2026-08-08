@@ -79632,11 +79632,12 @@ async def governance_standing_evaluate(
         dimensions["delegation"] = "VALID"
 
     # Dimension 2: AI Immune System
-    immune_status = _IMMUNE_BASELINES.get(agent_id,{}).get("status","UNKNOWN")
+    immune_profile = _IMMUNE_PROFILES.get(agent_id, {})
+    immune_status = immune_profile.get("status", "UNKNOWN")
     if immune_status == "QUARANTINE":
         dimensions["immune"] = "HOLD"
         dimensions["immune_note"] = "Agent in immune quarantine — human release required"
-    elif immune_status in ("HEALTHY","WATCH","UNKNOWN"):
+    elif immune_status in ("HEALTHY", "WATCH", "UNKNOWN"):
         dimensions["immune"] = "VALID"
     else:
         dimensions["immune"] = "CONDITIONAL"
