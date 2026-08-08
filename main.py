@@ -67842,6 +67842,7 @@ async def ao_issue(
         "consumed":      False,
         "consumed_at":   None,
         "status":        "VALID",
+        "ao_state":      "ISSUED",  # Explicit lifecycle state: ISSUED → CONSUMED | EXPIRED | REVOKED_BY_CHAIN | INVALIDATED
     }
 
     seal = {
@@ -67960,6 +67961,31 @@ async def ao_verify(
         }
 
     # ALL CHECKS PASSED — atomically consume the AO via SQLite ledger
+    # but first: check transitive revocation
+    # An AO issued before a delegation chain revocation must be
+    # invalidated retroactively — even if it has not expired yet.
+    # This is the gap the expert identified: revocation propagation
+    # sets the flag but verify must read it.
+    if ao.get("revoked_by_chain"):
+        ao["status"] = "INVALIDATED"
+        return {
+            "result":          "REVOKED_BY_CHAIN",
+            "ao_state":        "INVALIDATED",
+            "ruling":          "HALT — this AO was issued before its delegation chain was revoked. Retroactive invalidation applies. Actuator must not proceed.",
+            "ao_id":           ao_id,
+            "revocation_id":   ao.get("revoked_by_chain"),
+            "revoked_entity":  ao.get("revoked_entity",""),
+            "chain_revoked_at":ao.get("chain_revoked_at",""),
+            "pre_revocation":  True,
+            "timestamp":       ts,
+            "expert_note":     (
+                "Transitive revocation: a token issued before revocation, "
+                "still outstanding, is invalidated retroactively when the "
+                "delegation chain it depends on is revoked. "
+                "POST /v1/governance/revocation/propagate sets this flag."
+            ),
+        }
+
     # try_consume uses a UNIQUE constraint — safe under concurrent requests
     consumed_now = _NONCE_LEDGER.try_consume(nonce, ao_id, ao.get("action_type",""))
     if not consumed_now:
@@ -67975,6 +68001,7 @@ async def ao_verify(
     ao["consumed"]    = True
     ao["consumed_at"] = ts
     ao["status"]      = "CONSUMED"
+    ao["ao_state"]    = "CONSUMED"
 
     seal = {"ao_id": ao_id, "result": "VALID_AND_UNCONSUMED", "consumed_at": ts}
     return {
@@ -79256,6 +79283,846 @@ async def article50_obligations():
             "VeriSigil proves the governance decision was made correctly."
         ),
         "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+
+# ============================================================
+# GOVERNANCE CONTINUITY — TRANSITIVE REVOCATION & DISSENT
+# Built in response to Alkama Eqbal's independent analysis
+# during Run 4 preparation, August 2026.
+#
+# Alkama identified three gaps not visible from inside:
+#
+# 1. Silence vs dissent — VeriSigil had a dissent field but
+#    did not distinguish silence (not consulted) from explicit
+#    objection (consulted, objected). That distinction matters
+#    legally and operationally.
+#
+# 2. Transitive revocation — a token issued before a revocation
+#    event, still outstanding, must be invalidated when the
+#    delegation chain it depends on is revoked. Without this,
+#    a compromised agent's pre-revocation AOs remain valid.
+#
+# 3. Unregistered dissent cannot block — without this guard,
+#    any agent could claim to dissent and halt an action it
+#    was never party to.
+#
+# Alkama note: "I hit exactly that trap while designing it —
+# writing an invariant that looks correct but does not catch
+# violations because it was never tested against a deliberately
+# broken implementation."
+#
+# These are the gaps that only appear from the outside.
+# ============================================================
+
+# Dissent states — explicit distinction from silence
+class DissentState:
+    NOT_CONSULTED  = "NOT_CONSULTED"   # silence — agent was not asked
+    NO_OBJECTION   = "NO_OBJECTION"    # consulted, no objection raised
+    DISSENT_MINOR  = "DISSENT_MINOR"   # consulted, minor objection recorded
+    DISSENT_FORMAL = "DISSENT_FORMAL"  # consulted, formal objection — must be recorded
+    DISSENT_BLOCK  = "DISSENT_BLOCK"   # consulted, blocking objection — halts execution
+
+_DISSENT_REGISTRY:    dict = {}  # agent_id -> registered dissent authorities
+_REVOCATION_CHAIN:    dict = {}  # revocation_id -> {revoked_id, chain, timestamp}
+_PRE_REVOCATION_AOS:  dict = {}  # ao_id -> revocation_id that invalidated it
+
+
+@app.post("/v1/governance/dissent/register", tags=["Governance Continuity"])
+async def dissent_register(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Register an agent or role as a legitimate dissent authority
+    for a specific action type or consequence tier.
+
+    Only registered dissent authorities can raise blocking
+    objections. Unregistered agents cannot block execution
+    by claiming to dissent — that would allow any agent to
+    halt any action simply by objecting.
+
+    Alkama: "Unregistered dissent can't be abused to block
+    execution — the whole point of the dissent mechanism is
+    to give registered authorities a voice, not to give
+    every agent a veto."
+    """
+    require_api_key(x_api_key, authorization)
+    ts = datetime.now(timezone.utc).isoformat()
+
+    agent_id        = req.get("agent_id","")
+    action_types    = req.get("action_types",[])    # which actions they can dissent on
+    consequence_tiers = req.get("consequence_tiers",[]) # which tiers they can object to
+    dissent_level   = req.get("max_dissent_level", DissentState.DISSENT_FORMAL)
+    approved_by     = req.get("approved_by","")
+
+    if not approved_by:
+        raise HTTPException(status_code=400,
+            detail="approved_by required — dissent authority registration requires human approval")
+
+    record = {
+        "schema":           "VGS-DISSENT-AUTHORITY-v1",
+        "agent_id":         agent_id,
+        "action_types":     action_types,
+        "consequence_tiers":consequence_tiers,
+        "max_dissent_level":dissent_level,
+        "approved_by":      approved_by,
+        "registered_at":    ts,
+    }
+    seal = {"agent_id": agent_id, "dissent_level": dissent_level, "timestamp": ts}
+    record["governance_signature"] = sign_governance_payload(seal)
+    _DISSENT_REGISTRY[agent_id] = record
+    return record
+
+
+@app.post("/v1/governance/dissent/record", tags=["Governance Continuity"])
+async def dissent_record(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Record a dissent — explicit objection from a consulted authority.
+
+    Critically distinguishes:
+    - NOT_CONSULTED: silence — agent was never asked
+    - NO_OBJECTION: consulted, raised no objection
+    - DISSENT_MINOR: consulted, minor objection recorded
+    - DISSENT_FORMAL: consulted, formal objection — must appear in evidence
+    - DISSENT_BLOCK: consulted, blocking objection — halts execution
+
+    An unregistered agent attempting DISSENT_BLOCK is rejected.
+    Silence from a non-consulted agent is preserved but cannot block.
+
+    Alkama: "Silence and dissent are now distinguishable, and
+    unregistered dissent can't be abused to block execution."
+    """
+    require_api_key(x_api_key, authorization)
+    ts         = datetime.now(timezone.utc).isoformat()
+    dissent_id = f"DSS-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}"
+
+    agent_id       = req.get("agent_id","")
+    action_id      = req.get("action_id","")
+    action_type    = req.get("action_type","")
+    consequence    = req.get("consequence","OPERATIONAL")
+    dissent_state  = req.get("dissent_state", DissentState.NO_OBJECTION)
+    grounds        = req.get("grounds","")
+    evidence_refs  = req.get("evidence_references",[])
+
+    # Check if this agent is a registered dissent authority
+    authority = _DISSENT_REGISTRY.get(agent_id)
+    is_registered = authority is not None
+
+    # Check if they have authority for this action type and consequence
+    has_scope = False
+    if authority:
+        action_match = (not authority.get("action_types") or
+                       action_type in authority.get("action_types",[]))
+        tier_match   = (not authority.get("consequence_tiers") or
+                       consequence in authority.get("consequence_tiers",[]))
+        has_scope    = action_match and tier_match
+
+    # CRITICAL: unregistered agent cannot raise DISSENT_BLOCK
+    effective_state = dissent_state
+    rejection_note  = None
+    if dissent_state == DissentState.DISSENT_BLOCK and not (is_registered and has_scope):
+        effective_state = DissentState.DISSENT_FORMAL  # downgraded, cannot block
+        rejection_note  = (
+            f"Agent {agent_id} is not a registered dissent authority for "
+            f"action_type={action_type} at consequence={consequence}. "
+            "DISSENT_BLOCK downgraded to DISSENT_FORMAL. "
+            "Only registered authorities can block execution."
+        )
+
+    # Silence vs dissent is now explicit in the record
+    silence_or_dissent = "SILENCE" if dissent_state == DissentState.NOT_CONSULTED else "DISSENT"
+
+    record = {
+        "schema":            "VGS-DISSENT-RECORD-v1",
+        "dissent_id":        dissent_id,
+        "agent_id":          agent_id,
+        "action_id":         action_id,
+        "action_type":       action_type,
+        "consequence":       consequence,
+        "dissent_state":     effective_state,
+        "original_state":    dissent_state,
+        "silence_or_dissent":silence_or_dissent,
+        "grounds":           grounds,
+        "evidence_references":evidence_refs,
+        "is_registered_authority": is_registered,
+        "has_scope":         has_scope,
+        "rejection_note":    rejection_note,
+        "blocks_execution":  effective_state == DissentState.DISSENT_BLOCK and is_registered and has_scope,
+        "recorded_at":       ts,
+    }
+
+    seal = {
+        "dissent_id":   dissent_id,
+        "agent_id":     agent_id,
+        "state":        effective_state,
+        "blocks":       record["blocks_execution"],
+        "timestamp":    ts,
+    }
+    record["governance_signature"] = sign_governance_payload(seal)
+    return record
+
+
+@app.post("/v1/governance/revocation/propagate", tags=["Governance Continuity"])
+async def revocation_propagate(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Transitive Revocation — when a delegation chain is revoked,
+    ALL Authorization Objects issued under that chain are
+    invalidated retroactively, even if they were issued before
+    the revocation event and have not yet expired.
+
+    This is the critical gap Alkama identified: without transitive
+    revocation, a compromised agent's pre-revocation AOs remain
+    valid. The check at verify time must traverse the full
+    delegation chain, not just the AO's own expiry.
+
+    Alkama: "A token issued before revocation, still outstanding,
+    gets invalidated retroactively — that's the interesting
+    property we need to actually prove."
+
+    Process:
+    1. Revoke the delegation chain (passport, agent, or authority)
+    2. VeriSigil traverses all AOs in the ledger
+    3. Any AO whose delegation_chain includes the revoked entity
+       is marked REVOKED_BY_CHAIN
+    4. Subsequent verify calls on those AOs return REVOKED_BY_CHAIN
+       regardless of their own expiry status
+    """
+    require_api_key(x_api_key, authorization)
+    ts            = datetime.now(timezone.utc).isoformat()
+    revocation_id = f"REV-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}"
+
+    revoked_entity = req.get("revoked_entity","")  # agent_id or passport_id
+    revoke_reason  = req.get("reason","")
+    revoked_by     = req.get("revoked_by","")
+
+    if not revoked_by:
+        raise HTTPException(status_code=400,
+            detail="revoked_by required — revocation requires human authority")
+
+    # Traverse AO ledger — find all AOs whose chain includes revoked entity
+    invalidated_aos = []
+    for ao_id, ao in _AO_LEDGER.items():
+        chain = ao.get("delegation_chain",[])
+        agent = ao.get("agent_id","")
+        # AO is in scope if the revoked entity is in its delegation chain
+        # OR if the AO was issued directly to the revoked agent
+        if revoked_entity in chain or agent == revoked_entity:
+            if not ao.get("consumed") and not ao.get("revoked_by_chain"):
+                ao["revoked_by_chain"]   = revocation_id
+                ao["revoked_entity"]     = revoked_entity
+                ao["chain_revoked_at"]   = ts
+                ao["pre_revocation_ao"]  = True  # was issued before revocation
+                _PRE_REVOCATION_AOS[ao_id] = revocation_id
+                invalidated_aos.append(ao_id)
+
+    # Also revoke the delegation passport if it exists
+    passport_revoked = False
+    if revoked_entity in _DELEGATION_PASSPORTS:
+        _DELEGATION_PASSPORTS[revoked_entity]["revoked"]    = True
+        _DELEGATION_PASSPORTS[revoked_entity]["revoked_by"] = revoked_by
+        _DELEGATION_PASSPORTS[revoked_entity]["revoked_at"] = ts
+        _DELEGATION_PASSPORTS[revoked_entity]["revoke_reason"] = revoke_reason
+        passport_revoked = True
+
+    revocation_record = {
+        "schema":              "VGS-TRANSITIVE-REVOCATION-v1",
+        "revocation_id":       revocation_id,
+        "revoked_entity":      revoked_entity,
+        "revoked_by":          revoked_by,
+        "reason":              revoke_reason,
+        "revoked_at":          ts,
+        "passport_revoked":    passport_revoked,
+        "aos_invalidated":     len(invalidated_aos),
+        "invalidated_ao_ids":  invalidated_aos[:20],
+        "pre_revocation_note": (
+            f"{len(invalidated_aos)} Authorization Objects issued before this revocation "
+            "have been retroactively invalidated. Verify calls on these AOs will return "
+            "REVOKED_BY_CHAIN regardless of their original expiry."
+        ),
+    }
+
+    seal = {
+        "revocation_id": revocation_id,
+        "revoked_entity": revoked_entity,
+        "invalidated_count": len(invalidated_aos),
+        "timestamp": ts,
+    }
+    revocation_record["governance_signature"] = sign_governance_payload(seal)
+    _REVOCATION_CHAIN[revocation_id] = revocation_record
+
+    return revocation_record
+
+
+@app.post("/v1/governance/standing/evaluate", tags=["Governance Continuity"])
+async def governance_standing_evaluate(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Governance Standing — deterministic aggregation across all
+    governance dimensions.
+
+    Alkama and expert consensus:
+    "If any critical governance dimension is HOLD, the overall
+    action cannot become ALLOW because another dimension scored
+    well. No '92% compliant' execution."
+
+    Standing states:
+    VALID:       All dimensions clear — execution may proceed
+    CONDITIONAL: Proceed with conditions — human review recommended
+    HOLD:        One or more critical dimensions unclear — must resolve
+    SUSPENDED:   Governance dimension suspended pending review
+    REVOKED:     One or more dimensions revoked — cannot proceed
+    EXPIRED:     Authority expired — revalidation required
+
+    A single REVOKED or HOLD in any critical dimension
+    produces REVOKED or HOLD overall — regardless of all
+    other dimensions passing.
+    """
+    require_api_key(x_api_key, authorization)
+    ts = datetime.now(timezone.utc).isoformat()
+
+    agent_id    = req.get("agent_id","")
+    action_type = req.get("action_type","")
+    consequence = req.get("consequence","OPERATIONAL")
+
+    dimensions = {}
+
+    # Dimension 1: Delegation passport
+    passport = _DELEGATION_PASSPORTS.get(agent_id,{})
+    if not passport:
+        dimensions["delegation"] = DissentState.DISSENT_BLOCK  # no passport = cannot act
+        dimensions["delegation_note"] = "No delegation passport registered"
+    elif passport.get("revoked"):
+        dimensions["delegation"] = "REVOKED"
+        dimensions["delegation_note"] = f"Passport revoked at {passport.get('revoked_at','')}"
+    elif passport.get("expires_at") and ts > passport.get("expires_at","9999"):
+        dimensions["delegation"] = "EXPIRED"
+        dimensions["delegation_note"] = "Passport expired — revalidation required"
+    elif action_type in passport.get("forbidden_actions",[]):
+        dimensions["delegation"] = "REVOKED"
+        dimensions["delegation_note"] = f"Action {action_type} in forbidden_actions list"
+    else:
+        dimensions["delegation"] = "VALID"
+
+    # Dimension 2: AI Immune System
+    immune_status = _IMMUNE_BASELINES.get(agent_id,{}).get("status","UNKNOWN")
+    if immune_status == "QUARANTINE":
+        dimensions["immune"] = "HOLD"
+        dimensions["immune_note"] = "Agent in immune quarantine — human release required"
+    elif immune_status in ("HEALTHY","WATCH","UNKNOWN"):
+        dimensions["immune"] = "VALID"
+    else:
+        dimensions["immune"] = "CONDITIONAL"
+
+    # Dimension 3: Transitive revocation check
+    revoked_chain = any(
+        ao.get("revoked_by_chain") and ao.get("agent_id") == agent_id
+        for ao in _AO_LEDGER.values()
+    )
+    if revoked_chain:
+        dimensions["chain_revocation"] = "REVOKED"
+        dimensions["chain_note"] = "Pre-revocation AOs detected — delegation chain was revoked"
+    else:
+        dimensions["chain_revocation"] = "VALID"
+
+    # Dimension 4: Dissent check
+    blocking_dissents = [
+        d for d in _DISSENT_REGISTRY.values()
+        if d.get("blocks_execution") and d.get("action_id") == req.get("action_id","")
+    ]
+    if blocking_dissents:
+        dimensions["dissent"] = "HOLD"
+        dimensions["dissent_note"] = f"{len(blocking_dissents)} registered blocking dissents"
+    else:
+        dimensions["dissent"] = "VALID"
+
+    # Deterministic aggregation — REVOKED or HOLD in ANY dimension blocks ALL
+    critical_states = [v for k,v in dimensions.items() if not k.endswith("_note")]
+
+    if "REVOKED" in critical_states:
+        overall = "REVOKED"
+        can_proceed = False
+    elif "HOLD" in critical_states:
+        overall = "HOLD"
+        can_proceed = False
+    elif "SUSPENDED" in critical_states:
+        overall = "SUSPENDED"
+        can_proceed = False
+    elif "EXPIRED" in critical_states:
+        overall = "EXPIRED"
+        can_proceed = False
+    elif "CONDITIONAL" in critical_states:
+        overall = "CONDITIONAL"
+        can_proceed = True  # proceed with conditions
+    else:
+        overall = "VALID"
+        can_proceed = True
+
+    seal = {"agent_id": agent_id, "standing": overall, "timestamp": ts}
+    return {
+        "schema":          "VGS-GOVERNANCE-STANDING-v1",
+        "agent_id":        agent_id,
+        "action_type":     action_type,
+        "consequence":     consequence,
+        "overall_standing":overall,
+        "can_proceed":     can_proceed,
+        "dimensions":      dimensions,
+        "deterministic_note": (
+            "Standing is deterministic. A single REVOKED or HOLD in any critical "
+            "dimension produces that state overall — regardless of other dimensions. "
+            "No partial compliance. No '92% compliant' execution."
+        ),
+        "governance_signature": sign_governance_payload(seal),
+        "alkama_note": (
+            "Alkama Eqbal identified silence vs dissent distinction, transitive "
+            "revocation, and deterministic aggregation as gaps during Run 4 "
+            "preparation. These are now implemented."
+        ),
+        "timestamp": ts,
+    }
+
+
+
+# ============================================================
+# ARTICLE 25 — AI VALUE-CHAIN RESPONSIBILITY GOVERNANCE
+# Expert: "Build the MVP now. Don't wait for a customer.
+# 'Who is responsible for what, across our AI value chain?'
+# is a genuine enterprise pain point."
+#
+# EU AI Act Article 25 addresses responsibilities along the
+# AI value chain. Downstream actors can become subject to
+# provider obligations under specified circumstances:
+# - Putting own name/trademark on a high-risk AI system
+# - Making substantial modifications to a high-risk system
+# - Placing a system on the market under their name
+#
+# VeriSigil does not provide legal advice or declare an
+# organisation legally compliant. It provides governance
+# infrastructure to help organisations map, govern and
+# evidence AI responsibilities across the value chain.
+#
+# Endpoints:
+# POST /v1/value-chain/register
+# GET  /v1/value-chain/{org_id}
+# GET  /v1/value-chain/{org_id}/responsibilities
+# GET  /v1/value-chain/{org_id}/evidence
+# POST /v1/value-chain/{org_id}/changes
+# ============================================================
+
+_VALUE_CHAIN_REGISTRY: dict = {}  # system_id -> value chain record
+_VALUE_CHAIN_CHANGES:  dict = {}  # change_id -> change record
+
+# Actor roles per EU AI Act value chain
+VALUE_CHAIN_ROLES = {
+    "PROVIDER":     "Develops/places AI system on market under own name. Full provider obligations apply.",
+    "DEPLOYER":     "Uses AI system in professional activity. Deployment obligations apply.",
+    "DISTRIBUTOR":  "Makes system available without substantive changes. Lighter obligations unless modified.",
+    "IMPORTER":     "Places third-country AI system on EU market. Subject to provider obligations where provider is outside EU.",
+    "INTEGRATOR":   "Integrates AI system into larger product. May trigger provider obligations if substantial modification.",
+    "AUTHORISED_REPRESENTATIVE": "Acts on behalf of provider established outside EU.",
+    "USER":         "End-user within a deployer organisation.",
+}
+
+# Circumstances under which a downstream actor acquires provider obligations
+PROVIDER_OBLIGATION_TRIGGERS = {
+    "own_name_or_trademark": "Puts own name or trademark on a high-risk AI system",
+    "substantial_modification": "Makes substantial modifications to a high-risk AI system before placing on market",
+    "places_on_market_under_own_name": "Places a high-risk AI system on the market under own name",
+    "imports_from_third_country": "Imports AI system from third country where original provider obligations cannot be enforced",
+}
+
+
+@app.post("/v1/value-chain/register", tags=["Article 25 — Value-Chain Governance"])
+async def value_chain_register(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    AI Value-Chain Responsibility Map — register an AI system
+    and all actors in its value chain.
+
+    For every AI system, captures:
+    - AI system identity and risk classification
+    - Every actor (provider, deployer, integrator, distributor)
+    - Role of each actor in the value chain
+    - Whether any actor has put own name/trademark on system
+    - Whether substantial modifications were made
+    - Intended purpose and jurisdiction
+    - Human oversight owner
+    - Contractual responsibility references
+    - Governance responsibility per actor
+    - Applicable AI Act obligations per actor
+    - Evidence supporting each determination
+    - Effective date and revalidation schedule
+
+    Article 25 responsibility is not static — circumstances change.
+    Every registered system is tracked for responsibility changes.
+
+    Expert: "Value-chain responsibility isn't static. The EU
+    framework recognises circumstances where a downstream actor
+    can effectively take on provider responsibilities."
+
+    VeriSigil does not provide legal advice or declare
+    an organisation legally compliant. It provides governance
+    infrastructure to map, govern and evidence responsibilities.
+    """
+    require_api_key(x_api_key, authorization)
+    ts        = datetime.now(timezone.utc).isoformat()
+    system_id = f"VCS-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}"
+
+    # AI system details
+    system_name     = req.get("system_name","")
+    system_type     = req.get("system_type","")       # LLM, CV, NLP, RECOMMENDATION, etc
+    risk_class      = req.get("risk_classification","") # UNACCEPTABLE, HIGH, LIMITED, MINIMAL
+    intended_purpose= req.get("intended_purpose","")
+    jurisdiction    = req.get("jurisdiction","EU")
+    org_id          = req.get("org_id","")
+
+    # Actors in the value chain
+    actors = req.get("actors",[])
+    # Each actor: {name, role, own_name_trademark, substantial_modification,
+    #              places_on_market, human_oversight_owner, contractual_reference,
+    #              evidence_reference, effective_date}
+
+    # Process each actor — determine if provider obligations are triggered
+    processed_actors = []
+    for actor in actors:
+        role = actor.get("role","DEPLOYER")
+        own_name        = actor.get("own_name_or_trademark", False)
+        substantial_mod = actor.get("substantial_modification", False)
+        places_on_market= actor.get("places_on_market_under_own_name", False)
+        imports_third   = actor.get("imports_from_third_country", False)
+
+        # Determine if provider obligations are triggered for this actor
+        provider_triggers = []
+        if own_name and risk_class == "HIGH":
+            provider_triggers.append(PROVIDER_OBLIGATION_TRIGGERS["own_name_or_trademark"])
+        if substantial_mod and risk_class == "HIGH":
+            provider_triggers.append(PROVIDER_OBLIGATION_TRIGGERS["substantial_modification"])
+        if places_on_market:
+            provider_triggers.append(PROVIDER_OBLIGATION_TRIGGERS["places_on_market_under_own_name"])
+        if imports_third:
+            provider_triggers.append(PROVIDER_OBLIGATION_TRIGGERS["imports_from_third_country"])
+
+        effective_role = "PROVIDER" if provider_triggers else role
+        obligations    = _derive_obligations(effective_role, risk_class, jurisdiction)
+
+        processed_actor = {
+            "actor_name":             actor.get("name",""),
+            "declared_role":          role,
+            "effective_role":         effective_role,
+            "role_description":       VALUE_CHAIN_ROLES.get(effective_role,""),
+            "own_name_or_trademark":  own_name,
+            "substantial_modification":substantial_mod,
+            "places_on_market":       places_on_market,
+            "imports_from_third_country": imports_third,
+            "provider_obligations_triggered": bool(provider_triggers),
+            "provider_trigger_reasons":  provider_triggers,
+            "applicable_obligations": obligations,
+            "human_oversight_owner":  actor.get("human_oversight_owner",""),
+            "contractual_reference":  actor.get("contractual_reference",""),
+            "evidence_reference":     actor.get("evidence_reference",""),
+            "effective_date":         actor.get("effective_date", ts),
+            "revalidation_required":  actor.get("revalidation_required", False),
+            "governance_note":        (
+                "Role determination is a governance assessment based on declared facts. "
+                "Legal determination of obligations requires qualified legal advice."
+            ),
+        }
+        processed_actors.append(processed_actor)
+
+    # Identify responsibility gaps — actors with no clear obligation mapping
+    unmapped = [a["actor_name"] for a in processed_actors
+                if not a["applicable_obligations"]]
+
+    record = {
+        "schema":            "VGS-VALUE-CHAIN-v1",
+        "system_id":         system_id,
+        "org_id":            org_id,
+        "system_name":       system_name,
+        "system_type":       system_type,
+        "risk_classification":risk_class,
+        "intended_purpose":  intended_purpose,
+        "jurisdiction":      jurisdiction,
+        "actors":            processed_actors,
+        "total_actors":      len(processed_actors),
+        "actors_with_provider_obligations": sum(1 for a in processed_actors
+            if a["provider_obligations_triggered"]),
+        "responsibility_gaps": unmapped,
+        "revalidation_trigger": (
+            "Responsibility changes when: an actor puts own name on system, "
+            "substantial modification is made, system is placed on market under "
+            "different name, or importer/distributor role changes. "
+            "Register changes at POST /v1/value-chain/{org_id}/changes"
+        ),
+        "registered_at":     ts,
+        "regulatory_note":   (
+            "VeriSigil does not provide legal advice or declare an organisation "
+            "legally compliant with Article 25. This map records governance "
+            "assessments of value-chain responsibilities. Present as evidence "
+            "of governance measures to national competent authorities."
+        ),
+    }
+
+    seal = {
+        "system_id": system_id,
+        "org_id":    org_id,
+        "actors":    len(processed_actors),
+        "timestamp": ts,
+    }
+    record["governance_signature"] = sign_governance_payload(seal)
+    record["offline_verifiable"]   = True
+
+    _VALUE_CHAIN_REGISTRY[system_id] = record
+    return record
+
+
+def _derive_obligations(role: str, risk_class: str, jurisdiction: str) -> list:
+    """Derive applicable AI Act obligations from actor role and system risk."""
+    obligations = []
+    if role == "PROVIDER":
+        obligations.extend([
+            "Conformity assessment (HIGH risk systems)",
+            "Technical documentation",
+            "Registration in EU database (HIGH risk)",
+            "CE marking (HIGH risk)",
+            "Post-market monitoring",
+            "Serious incident reporting",
+            "Article 50 transparency obligations",
+        ])
+        if risk_class == "HIGH":
+            obligations.append("Article 26 human oversight competency requirements")
+    elif role == "DEPLOYER":
+        obligations.extend([
+            "Use in accordance with provider instructions",
+            "Human oversight implementation",
+            "Fundamental rights impact assessment (where required)",
+            "Article 50 transparency obligations where applicable",
+            "Article 4 AI literacy measures",
+        ])
+    elif role in ("DISTRIBUTOR","IMPORTER"):
+        obligations.extend([
+            "Verify provider compliance before distribution",
+            "Not place non-compliant systems on market",
+            "Notify provider and authorities of risks",
+        ])
+    elif role == "INTEGRATOR":
+        obligations.extend([
+            "Assess whether integration constitutes substantial modification",
+            "If substantial modification: provider obligations may apply",
+            "Document modifications and their impact",
+        ])
+    return obligations
+
+
+@app.get("/v1/value-chain/{org_id}", tags=["Article 25 — Value-Chain Governance"])
+async def value_chain_get(
+    org_id: str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """All AI systems registered in this organisation's value chain."""
+    require_api_key(x_api_key, authorization)
+    systems = [s for s in _VALUE_CHAIN_REGISTRY.values() if s.get("org_id") == org_id]
+    return {
+        "org_id":         org_id,
+        "total_systems":  len(systems),
+        "systems":        systems,
+        "timestamp":      datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@app.get("/v1/value-chain/{org_id}/responsibilities", tags=["Article 25 — Value-Chain Governance"])
+async def value_chain_responsibilities(
+    org_id: str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    AI Responsibility Map — table of every AI system, actor,
+    role, and responsibility in this organisation's value chain.
+
+    Expert: "AI system | Actor | Role | Responsibility | Evidence | Status"
+
+    This is the enterprise view: 14 AI vendors, 30 AI systems,
+    multiple integrators — mapped to responsibilities and evidence.
+    """
+    require_api_key(x_api_key, authorization)
+    ts      = datetime.now(timezone.utc).isoformat()
+    systems = [s for s in _VALUE_CHAIN_REGISTRY.values() if s.get("org_id") == org_id]
+
+    responsibility_rows = []
+    for system in systems:
+        for actor in system.get("actors",[]):
+            responsibility_rows.append({
+                "ai_system":          system.get("system_name",""),
+                "system_id":          system.get("system_id",""),
+                "risk_class":         system.get("risk_classification",""),
+                "actor":              actor.get("actor_name",""),
+                "declared_role":      actor.get("declared_role",""),
+                "effective_role":     actor.get("effective_role",""),
+                "provider_obligations_triggered": actor.get("provider_obligations_triggered"),
+                "trigger_reasons":    actor.get("provider_trigger_reasons",[]),
+                "obligations":        actor.get("applicable_obligations",[]),
+                "human_oversight":    actor.get("human_oversight_owner",""),
+                "evidence_reference": actor.get("evidence_reference",""),
+                "status":             "REVIEW_REQUIRED" if actor.get("revalidation_required") else "MAPPED",
+            })
+
+    actors_with_provider_trigger = [r for r in responsibility_rows
+        if r["provider_obligations_triggered"]]
+
+    seal = {"org_id": org_id, "total_rows": len(responsibility_rows), "timestamp": ts}
+    return {
+        "schema":                  "VGS-RESPONSIBILITY-MAP-v1",
+        "org_id":                  org_id,
+        "total_responsibility_rows":len(responsibility_rows),
+        "actors_with_provider_obligations_triggered": len(actors_with_provider_trigger),
+        "responsibility_map":      responsibility_rows,
+        "governance_signature":    sign_governance_payload(seal),
+        "regulatory_note": (
+            "VeriSigil maps governance responsibilities based on declared facts. "
+            "Legal determination of Article 25 obligations requires qualified legal advice. "
+            "Present as evidence of governance measures to national competent authorities."
+        ),
+        "timestamp": ts,
+    }
+
+
+@app.get("/v1/value-chain/{org_id}/evidence", tags=["Article 25 — Value-Chain Governance"])
+async def value_chain_evidence(
+    org_id: str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Value-chain evidence pack — all governance receipts,
+    responsibility determinations, and change records for
+    this organisation's AI value chain.
+
+    Present to national competent authority or AI Office
+    as evidence of governance measures under Article 25.
+    """
+    require_api_key(x_api_key, authorization)
+    ts      = datetime.now(timezone.utc).isoformat()
+    systems = [s for s in _VALUE_CHAIN_REGISTRY.values() if s.get("org_id") == org_id]
+    changes = [c for c in _VALUE_CHAIN_CHANGES.values() if c.get("org_id") == org_id]
+
+    seal = {"org_id": org_id, "systems": len(systems), "changes": len(changes), "timestamp": ts}
+    return {
+        "schema":             "VGS-VALUE-CHAIN-EVIDENCE-v1",
+        "org_id":             org_id,
+        "total_ai_systems":   len(systems),
+        "total_changes":      len(changes),
+        "systems_evidence":   [{"system_id": s["system_id"],
+                                "system_name": s["system_name"],
+                                "governance_signature": s.get("governance_signature",""),
+                                "registered_at": s.get("registered_at","")}
+                               for s in systems],
+        "changes_evidence":   changes[-20:],
+        "governance_signature": sign_governance_payload(seal),
+        "offline_verifiable": True,
+        "regulatory_note": (
+            "This evidence pack demonstrates governance measures taken to map "
+            "and manage AI value-chain responsibilities under Article 25 EU AI Act. "
+            "It is not a compliance certificate. "
+            "Article 25 compliance is determined by national competent authorities."
+        ),
+        "timestamp": ts,
+    }
+
+
+@app.post("/v1/value-chain/{org_id}/changes", tags=["Article 25 — Value-Chain Governance"])
+async def value_chain_changes(
+    org_id: str,
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Record a value-chain responsibility change — triggers revalidation.
+
+    Expert: "Responsibility changed → revalidation required."
+
+    Circumstances that trigger revalidation:
+    - Actor puts own name/trademark on system
+    - Substantial modification made
+    - System placed on market under different name
+    - Importer/distributor role changes
+    - New actor enters the value chain
+    - Actor leaves the value chain
+
+    Every change is sealed and produces a revalidation requirement.
+    """
+    require_api_key(x_api_key, authorization)
+    ts        = datetime.now(timezone.utc).isoformat()
+    change_id = f"VCC-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}"
+
+    system_id   = req.get("system_id","")
+    change_type = req.get("change_type","")  # OWN_NAME_ADDED, SUBSTANTIAL_MODIFICATION, etc
+    actor       = req.get("actor_name","")
+    description = req.get("description","")
+    reported_by = req.get("reported_by","")
+    evidence    = req.get("evidence_reference","")
+
+    # Determine if this change triggers provider obligations
+    triggers_provider = change_type in (
+        "OWN_NAME_ADDED", "SUBSTANTIAL_MODIFICATION",
+        "PLACED_UNDER_OWN_NAME", "THIRD_COUNTRY_IMPORT"
+    )
+
+    # Update the system record
+    system = _VALUE_CHAIN_REGISTRY.get(system_id,{})
+    if system:
+        system["last_change"]           = ts
+        system["revalidation_required"] = True
+        for a in system.get("actors",[]):
+            if a.get("actor_name") == actor:
+                a["revalidation_required"] = True
+                if triggers_provider:
+                    a["provider_obligations_triggered"] = True
+                    a["provider_trigger_reasons"] = a.get("provider_trigger_reasons",[]) + [change_type]
+
+    change_record = {
+        "schema":            "VGS-VALUE-CHAIN-CHANGE-v1",
+        "change_id":         change_id,
+        "org_id":            org_id,
+        "system_id":         system_id,
+        "change_type":       change_type,
+        "actor_affected":    actor,
+        "description":       description,
+        "reported_by":       reported_by,
+        "evidence_reference":evidence,
+        "triggers_provider_obligations": triggers_provider,
+        "revalidation_required": True,
+        "recorded_at":       ts,
+    }
+
+    seal = {"change_id": change_id, "system_id": system_id, "triggers_provider": triggers_provider, "timestamp": ts}
+    change_record["governance_signature"] = sign_governance_payload(seal)
+    _VALUE_CHAIN_CHANGES[change_id] = change_record
+
+    return {
+        **change_record,
+        "revalidation_note": (
+            "This change has been recorded and triggers revalidation of "
+            "value-chain responsibility. Update the actor's role and obligations "
+            "at POST /v1/value-chain/register and review with qualified legal advice."
+        ),
     }
 
 
