@@ -80578,6 +80578,270 @@ async def lifecycle_retire(
     }
 
 
+
+# ============================================================
+# CLAIM REGISTRY — VS-CLAIM-REGISTRY-v1
+# Expert: "Every public claim should have an internal ID.
+# Marketing cannot outrun engineering.
+# If the status says PENDING, marketing cannot call it proven."
+#
+# Build order per expert:
+# Claim → Implementation → Test → Evidence →
+# Independent Validation → Marketing Claim
+#
+# Status levels:
+# VERIFIED   — independently validated by external reviewer
+# IMPLEMENTED — engineering complete, in production
+# TESTED     — internal tests pass
+# PENDING    — planned, not yet built or validated
+# NOT_CLAIMED — explicitly out of scope
+# ============================================================
+
+CLAIM_REGISTRY = {
+
+    # ── VERIFIED — independently validated by Alkama Eqbal ──
+    "VS-AO-001": {
+        "claim":       "Authorization Object is single-use — consumed AO cannot be replayed",
+        "status":      "VERIFIED",
+        "validator":   "Alkama Eqbal / CLARA Run 3b",
+        "evidence":    "5 concurrent verifies → 1 PROCEED + 4 ALREADY_CONSUMED. SQLite UNIQUE constraint confirmed under real contention.",
+        "endpoint":    "POST /v1/ao/verify",
+        "proof_id":    "VP-006",
+        "test":        "test_ao_replay",
+        "validated_at":"2026-08-07",
+    },
+    "VS-AO-002": {
+        "claim":       "Concurrent AO verification prevents replay — SQLite nonce ledger survives concurrency",
+        "status":      "VERIFIED",
+        "validator":   "Alkama Eqbal / CLARA Run 3b",
+        "evidence":    "5-hour gap replay confirmed. Process-restart persistence confirmed.",
+        "endpoint":    "POST /v1/ao/verify",
+        "proof_id":    "VP-006",
+        "test":        "test_ao_concurrency",
+        "validated_at":"2026-08-07",
+    },
+    "VS-ST-001": {
+        "claim":       "Changed state after authorization returns STATE_CHANGED + HALT",
+        "status":      "VERIFIED",
+        "validator":   "Alkama Eqbal / CLARA CV-005",
+        "evidence":    "Both directions confirmed: unchanged → FRESH/PROCEED, changed → STATE_CHANGED/HALT",
+        "endpoint":    "POST /v1/state/verify",
+        "proof_id":    "VP-008",
+        "test":        "test_state_freshness",
+        "validated_at":"2026-08-07",
+    },
+    "VS-SIG-001": {
+        "claim":       "Ed25519 governance receipt can be verified offline against published public key",
+        "status":      "VERIFIED",
+        "validator":   "Alkama Eqbal / CLARA Run 2",
+        "evidence":    "25/25 signatures verified offline. Public key: lJWG0Wabt6uATPu5Upo6UEHWGXQqMyi6LMKQC0xwpY8=",
+        "endpoint":    "GET /v1/proof/signing-diagnostic",
+        "proof_id":    "VP-006",
+        "test":        "test_ed25519_offline",
+        "validated_at":"2026-07-22",
+    },
+    "VS-INT-001": {
+        "claim":       "HIGH + irreversible + human_present produces ESCALATE, not ALLOW or DENY",
+        "status":      "VERIFIED",
+        "validator":   "Alkama Eqbal / CLARA CV-003",
+        "evidence":    "ESCALATE + HIGH_IRREVERSIBLE_ESCALATE signal confirmed. Run 3 closed 2026-08-07.",
+        "endpoint":    "POST /v1/intercept",
+        "proof_id":    "VP-007",
+        "test":        "CV-003",
+        "validated_at":"2026-08-07",
+    },
+    "VS-INT-002": {
+        "claim":       "CRITICAL + no human_present produces DENY — fail-closed",
+        "status":      "VERIFIED",
+        "validator":   "Alkama Eqbal / CLARA Run 2",
+        "evidence":    "9 DENY rulings, zero fail-opens across Run 2.",
+        "endpoint":    "POST /v1/intercept",
+        "proof_id":    "VP-001",
+        "test":        "test_intercept_critical_deny",
+        "validated_at":"2026-07-22",
+    },
+    "VS-BYP-001": {
+        "claim":       "All four bypass vectors return HALT — no AO, fabricated AO, replayed nonce, expired AO",
+        "status":      "VERIFIED",
+        "validator":   "Alkama Eqbal / CLARA Run 2",
+        "evidence":    "all_bypasses_rejected: true. custody_claim_holds: true.",
+        "endpoint":    "POST /v1/verify/bypass-test",
+        "proof_id":    "VP-006",
+        "test":        "test_bypass_vectors",
+        "validated_at":"2026-07-22",
+    },
+
+    # ── IMPLEMENTED — deployed, internal tests pass, not independently validated ──
+    "VS-GS-001": {
+        "claim":       "Unregistered agent at HIGH consequence returns HOLD, can_proceed: false",
+        "status":      "IMPLEMENTED",
+        "note":        "Deployed and testable. Not yet independently validated. Planned for Run 4.",
+        "endpoint":    "POST /v1/governance/standing/evaluate",
+        "proof_id":    None,
+        "test":        "test_standing_hold",
+        "deployed_at": "2026-08-08",
+        "bug_history": "Two 500 bugs found and fixed 2026-08-08: wrong state constant and wrong registry reference.",
+    },
+    "VS-REV-001": {
+        "claim":       "Revoked delegation chain retroactively invalidates pre-revocation AOs",
+        "status":      "IMPLEMENTED",
+        "note":        "Deployed and testable. Not yet independently validated. Planned for Run 4.",
+        "endpoint":    "POST /v1/governance/revocation/propagate",
+        "proof_id":    None,
+        "test":        "test_transitive_revocation",
+        "deployed_at": "2026-08-08",
+    },
+    "VS-DIS-001": {
+        "claim":       "Silence and explicit dissent are distinguished — unregistered dissent cannot block execution",
+        "status":      "IMPLEMENTED",
+        "note":        "Deployed and testable. Not yet independently validated.",
+        "endpoint":    "POST /v1/governance/dissent/record",
+        "proof_id":    None,
+        "test":        "test_dissent_register",
+        "deployed_at": "2026-08-08",
+    },
+    "VS-ART4-001": {
+        "claim":       "AI literacy requirements are derived from AI system risk and organisational role",
+        "status":      "IMPLEMENTED",
+        "note":        "Deployed and testable. Not yet independently validated.",
+        "endpoint":    "POST /v1/literacy/profile",
+        "proof_id":    "LP-001",
+        "test":        "test_literacy_profile",
+        "deployed_at": "2026-08-08",
+    },
+    "VS-ART25-001": {
+        "claim":       "AI value-chain actor responsibility mapping with provider obligation trigger detection",
+        "status":      "IMPLEMENTED",
+        "note":        "Deployed and testable. Not yet independently validated.",
+        "endpoint":    "POST /v1/value-chain/register",
+        "proof_id":    None,
+        "test":        "test_value_chain_register",
+        "deployed_at": "2026-08-08",
+    },
+    "VS-ART50-001": {
+        "claim":       "AI-generated content without disclosure method returns NON_COMPLIANT",
+        "status":      "IMPLEMENTED",
+        "note":        "Deployed and testable. Not yet independently validated. Planned for Run 4.",
+        "endpoint":    "POST /v1/disclosure/register",
+        "proof_id":    "VP-010",
+        "test":        "test_article50_gate",
+        "deployed_at": "2026-08-07",
+    },
+
+    # ── PENDING — planned, not yet independently validated ──
+    "VS-SINK-001": {
+        "claim":       "DENY at governance boundary prevents actuation in reference sink",
+        "status":      "PENDING",
+        "note":        "Not yet built. Expert: this is the gap that closes the difference between decision governance and execution enforcement.",
+        "endpoint":    None,
+        "proof_id":    None,
+        "test":        None,
+    },
+    "VS-RES-001": {
+        "claim":       "Unconsumed AO survives production process restart",
+        "status":      "PENDING",
+        "note":        "Planned for CLARA Run 4 with coordinated restart. Cannot be tested without external coordination.",
+        "endpoint":    "POST /v1/ao/verify",
+        "proof_id":    None,
+        "test":        "Run 4 — Alkama Eqbal",
+    },
+    "VS-RES-002": {
+        "claim":       "Consumed AO stays consumed after production process restart — no replay window",
+        "status":      "PENDING",
+        "note":        "Planned for CLARA Run 4. This is the more important of the two restart tests.",
+        "endpoint":    "POST /v1/ao/verify",
+        "proof_id":    None,
+        "test":        "Run 4 — Alkama Eqbal",
+    },
+    "VS-DEL-001": {
+        "claim":       "Delegation passport expiry prevents execution through the full authority chain",
+        "status":      "PENDING",
+        "note":        "Planned for CLARA Run 4. VP-001 is publicly testable but not independently validated.",
+        "endpoint":    "POST /v1/intercept",
+        "proof_id":    "VP-001",
+        "test":        "Run 4 — Alkama Eqbal",
+    },
+
+    # ── NOT CLAIMED — explicitly out of scope ──
+    "VS-NC-001": {
+        "claim":       "VeriSigil determines that declared authority is factually current",
+        "status":      "NOT_CLAIMED",
+        "note":        "VeriSigil evaluates authority states as declared. It does not independently establish that declared authority is factually current. DECLARED_AUTHORITY != VERIFIED_CURRENT_AUTHORITY.",
+    },
+    "VS-NC-002": {
+        "claim":       "VeriSigil certifies EU AI Act compliance",
+        "status":      "NOT_CLAIMED",
+        "note":        "VeriSigil produces evidence infrastructure. Compliance determination is made by national authorities.",
+    },
+    "VS-NC-003": {
+        "claim":       "VeriSigil prevents actions through all possible execution paths",
+        "status":      "NOT_CLAIMED",
+        "note":        "VeriSigil governs the AO-mediated execution path. Alternative paths not going through VeriSigil are not covered.",
+    },
+}
+
+
+@app.get("/v1/claims", tags=["Claim Registry"])
+async def claims_list():
+    """
+    VeriSigil AI Claim Registry — every public claim with its
+    evidence status.
+
+    Status levels:
+    VERIFIED   — independently validated by external reviewer
+    IMPLEMENTED — engineering complete, deployed, internal tests pass
+    TESTED     — internal automated tests pass
+    PENDING    — planned, not yet validated
+    NOT_CLAIMED — explicitly outside VeriSigil's scope
+
+    Marketing may only use the highest status actually supported
+    by evidence. If the status says PENDING, it is not proven.
+
+    No auth required.
+    """
+    by_status = {}
+    for claim_id, claim in CLAIM_REGISTRY.items():
+        status = claim["status"]
+        by_status.setdefault(status, []).append({
+            "claim_id": claim_id,
+            "claim":    claim["claim"],
+            "endpoint": claim.get("endpoint"),
+            "proof_id": claim.get("proof_id"),
+        })
+
+    return {
+        "schema":      "VS-CLAIM-REGISTRY-v1",
+        "total_claims":len(CLAIM_REGISTRY),
+        "by_status": {
+            "VERIFIED":      len(by_status.get("VERIFIED",[])),
+            "IMPLEMENTED":   len(by_status.get("IMPLEMENTED",[])),
+            "PENDING":       len(by_status.get("PENDING",[])),
+            "NOT_CLAIMED":   len(by_status.get("NOT_CLAIMED",[])),
+        },
+        "claims":      by_status,
+        "permanent_rule": (
+            "Claim → Implementation → Test → Evidence → "
+            "Independent Validation → Marketing Claim. "
+            "In that order. No exceptions."
+        ),
+        "timestamp":   datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@app.get("/v1/claims/{claim_id}", tags=["Claim Registry"])
+async def claim_detail(claim_id: str):
+    """Detail for a specific claim. No auth required."""
+    claim = CLAIM_REGISTRY.get(claim_id.upper())
+    if not claim:
+        raise HTTPException(status_code=404,
+            detail=f"Claim {claim_id} not found. See GET /v1/claims for all claims.")
+    return {
+        "claim_id":  claim_id.upper(),
+        **claim,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=int(os.environ.get("PORT", 8000)), reload=False)
