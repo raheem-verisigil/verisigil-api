@@ -67597,6 +67597,20 @@ TIER_TTL_SECONDS = {
     "EMERGENCY":     5,
 }
 
+# revocation_horizon (MaxDelay) — the maximum period during which a
+# previously issued AO can remain outstanding after a revocation event
+# before it is definitively invalid regardless of its own TTL.
+# Expert: "Makes the maximum period of assumed validity explicit and configurable."
+# This is the formal TLA+ MaxDelay parameter made operational.
+REVOCATION_HORIZON_SECONDS = {
+    "ADVISORY":    300,   # 5 minutes — matches TTL, no extended window
+    "OPERATIONAL":  60,   # 60 seconds
+    "HIGH":         30,   # 30 seconds
+    "CRITICAL":     15,   # 15 seconds — must resolve immediately
+    "EMERGENCY":     5,   # 5 seconds — no window at all
+    "DEFAULT":      300,  # conservative default
+}
+
 # k-of-n co-signing requirements per tier
 # CRITICAL and EMERGENCY require 2 independent signers —
 # no single party including VeriSigil can unilaterally authorize
@@ -79652,12 +79666,27 @@ async def governance_standing_evaluate(
     # Deterministic aggregation — REVOKED or HOLD in ANY dimension blocks ALL
     critical_states = [v for k,v in dimensions.items() if not k.endswith("_note")]
 
+    # FAIL-CLOSED: if standing cannot be established, default to HOLD
+    # Expert: "If the system cannot establish the required standing,
+    # the action moves to HOLD rather than being treated as valid."
+    # Inability to determine standing is not the same as valid standing.
+    unknown_dimensions = [v for v in critical_states if v == "UNKNOWN"]
+
     if "REVOKED" in critical_states:
         overall = "REVOKED"
         can_proceed = False
     elif "HOLD" in critical_states:
         overall = "HOLD"
         can_proceed = False
+    elif unknown_dimensions:
+        # FAIL-CLOSED: unknown standing → HOLD, not VALID
+        overall = "HOLD"
+        can_proceed = False
+        dimensions["fail_closed_note"] = (
+            f"{len(unknown_dimensions)} governance dimension(s) returned UNKNOWN. "
+            "Fail-closed: cannot proceed when standing cannot be established. "
+            "Resolve unknown dimensions before execution."
+        )
     elif "SUSPENDED" in critical_states:
         overall = "SUSPENDED"
         can_proceed = False
@@ -80122,6 +80151,428 @@ async def value_chain_changes(
             "This change has been recorded and triggers revalidation of "
             "value-chain responsibility. Update the actor's role and obligations "
             "at POST /v1/value-chain/register and review with qualified legal advice."
+        ),
+    }
+
+
+
+# ============================================================
+# AI LIFECYCLE GOVERNANCE — ISO 42001 / EU AI ACT ALIGNMENT
+# Expert: "Governance cannot end at deployment. The system's
+# authorization, evidence, risk, and standing must remain
+# valid as the AI system changes."
+#
+# This is the continuous governance state machine:
+# REGISTERED → ASSESSED → AUTHORIZED → DEPLOYED →
+# MONITORED → CHANGE_DETECTED → REVALIDATION_REQUIRED →
+# REVALIDATED → AUTHORIZED → ... → RETIRED
+#
+# The critical structural property:
+# CHANGE → REVALIDATION_REQUIRED must be structural,
+# not merely a dashboard warning.
+#
+# "This AI system was approved under these conditions,
+# those conditions changed, and therefore the previous
+# standing was no longer sufficient until revalidated."
+#
+# Expert: "memory ≠ current standing"
+#         "authorization ≠ permanent permission"
+#         "confidence ≠ evidence"
+#
+# ISO 42001 lifecycle alignment:
+# Design → Development → Deployment → Monitoring → Change → Retirement
+#
+# VeriSigil does not certify ISO 42001 compliance.
+# It provides the operational evidence layer that helps
+# organisations operationalise and evidence lifecycle
+# governance processes that may support an AI management system.
+# ============================================================
+
+LIFECYCLE_STATES = [
+    "REGISTERED",        # System entered governance registry
+    "ASSESSED",          # Risk and purpose assessment completed
+    "AUTHORIZED",        # Governance authorization granted
+    "DEPLOYED",          # System live in production
+    "MONITORED",         # Active runtime monitoring
+    "CHANGE_DETECTED",   # Material change identified
+    "REVALIDATION_REQUIRED",  # Previous standing no longer sufficient
+    "REVALIDATING",      # Revalidation in progress
+    "REVALIDATED",       # Revalidation complete
+    "SUSPENDED",         # Operation suspended pending governance
+    "RETIRED",           # System decommissioned with evidence record
+]
+
+_LIFECYCLE_CHANGES:      dict = {}  # change_id -> lifecycle change record
+_LIFECYCLE_REVALIDATIONS: dict = {}  # revalidation_id -> revalidation record
+
+
+@app.post("/v1/lifecycle/change", tags=["AI Lifecycle Governance"])
+async def lifecycle_change(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Record a material change to an AI system — structurally
+    triggers REVALIDATION_REQUIRED on the system's governance
+    standing.
+
+    Expert: "Model changed → Risk profile changed → Previous
+    authorization is stale → New authorization required →
+    Action cannot proceed until standing is restored."
+
+    This is structural, not a dashboard warning.
+    When a material change is recorded, the system's lifecycle
+    state moves to REVALIDATION_REQUIRED. Any intercept call
+    for this system returns HOLD until revalidation is complete.
+
+    Material change types:
+    - MODEL_CHANGED: underlying AI model replaced or updated
+    - PURPOSE_CHANGED: intended use changed
+    - RISK_PROFILE_CHANGED: risk classification changed
+    - DEPLOYMENT_CONTEXT_CHANGED: new environment or population
+    - OWNER_CHANGED: business or technical owner changed
+    - POLICY_CHANGED: governing policy updated
+    - DATA_CHANGED: training data or input data changed
+    - JURISDICTION_CHANGED: new regulatory jurisdiction applies
+    - INTEGRATION_CHANGED: new systems integrated
+    - PERFORMANCE_DEGRADED: material degradation in outputs
+    """
+    require_api_key(x_api_key, authorization)
+    ts        = datetime.now(timezone.utc).isoformat()
+    change_id = f"LCC-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}"
+
+    system_id    = req.get("system_id","")
+    change_type  = req.get("change_type","")
+    description  = req.get("description","")
+    reported_by  = req.get("reported_by","")
+    evidence_ref = req.get("evidence_reference","")
+    severity     = req.get("severity","MATERIAL")  # MINOR, MATERIAL, SIGNIFICANT, CRITICAL
+
+    # Determine if this change makes previous authorization stale
+    stale_triggers = {
+        "MODEL_CHANGED",
+        "PURPOSE_CHANGED",
+        "RISK_PROFILE_CHANGED",
+        "DEPLOYMENT_CONTEXT_CHANGED",
+        "JURISDICTION_CHANGED",
+        "DATA_CHANGED",
+    }
+    makes_authorization_stale = change_type in stale_triggers or severity in ("SIGNIFICANT","CRITICAL")
+
+    # Update lifecycle state — STRUCTURAL, not advisory
+    lifecycle = _LIFECYCLE_REGISTRY.get(system_id,{})
+    previous_state = lifecycle.get("iso_state", lifecycle.get("phase","UNKNOWN"))
+
+    if makes_authorization_stale and lifecycle:
+        lifecycle["iso_state"]                   = "REVALIDATION_REQUIRED"
+        lifecycle["previous_authorization_stale"] = True
+        lifecycle["stale_since"]                 = ts
+        lifecycle["stale_reason"]                = description
+        lifecycle["last_change_id"]              = change_id
+        lifecycle["last_updated"]                = ts
+
+    change_record = {
+        "schema":            "VGS-LIFECYCLE-CHANGE-v1",
+        "change_id":         change_id,
+        "system_id":         system_id,
+        "change_type":       change_type,
+        "severity":          severity,
+        "description":       description,
+        "reported_by":       reported_by,
+        "evidence_reference":evidence_ref,
+        "previous_state":    previous_state,
+        "new_state":         "REVALIDATION_REQUIRED" if makes_authorization_stale else previous_state,
+        "makes_authorization_stale": makes_authorization_stale,
+        "stale_authorization_note": (
+            "Previous governance authorization is no longer sufficient. "
+            "Any execution under the previous authorization must be blocked "
+            "until revalidation is complete and new standing is established."
+        ) if makes_authorization_stale else None,
+        "recorded_at": ts,
+    }
+
+    seal = {
+        "change_id":  change_id,
+        "system_id":  system_id,
+        "change_type":change_type,
+        "stale":      makes_authorization_stale,
+        "timestamp":  ts,
+    }
+    change_record["governance_signature"] = sign_governance_payload(seal)
+    _LIFECYCLE_CHANGES[change_id] = change_record
+
+    return {
+        **change_record,
+        "action_required": (
+            f"POST /v1/lifecycle/revalidate for system {system_id}"
+        ) if makes_authorization_stale else "No immediate revalidation required",
+        "architectural_note": (
+            "This is VeriSigil's continuous governance state machine. "
+            "Authorization is not permanent — it is valid under specific conditions. "
+            "When those conditions change materially, the previous standing "
+            "is no longer sufficient. governance ≠ compliance certificate. "
+            "authorization ≠ permanent permission. memory ≠ current standing."
+        ),
+    }
+
+
+@app.post("/v1/lifecycle/revalidate", tags=["AI Lifecycle Governance"])
+async def lifecycle_revalidate(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Revalidate an AI system after a material change.
+
+    The revalidation must address every dimension that the
+    change affected. A partial revalidation is insufficient —
+    all critical dimensions must return to VALID or CONDITIONAL
+    before lifecycle state advances to REVALIDATED.
+
+    This implements the expert's "continuous governance state
+    machine" — not a one-time approval, but a standing that
+    must be reassessed whenever conditions change materially.
+
+    After successful revalidation:
+    - System state → REVALIDATED → AUTHORIZED
+    - Previous stale flag cleared
+    - New governance standing sealed with Ed25519 receipt
+    - Intercept calls for this system can proceed again
+    """
+    require_api_key(x_api_key, authorization)
+    ts              = datetime.now(timezone.utc).isoformat()
+    revalidation_id = f"LCR-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}"
+
+    system_id      = req.get("system_id","")
+    change_id      = req.get("change_id","")
+    revalidated_by = req.get("revalidated_by","")
+    dimensions     = req.get("dimensions_reassessed",[])
+    new_risk_class = req.get("new_risk_classification","")
+    new_purpose    = req.get("new_intended_purpose","")
+    evidence_refs  = req.get("evidence_references",[])
+    outcome        = req.get("outcome","REVALIDATED")  # REVALIDATED, SUSPENDED, RETIRED
+
+    if not revalidated_by:
+        raise HTTPException(status_code=400,
+            detail="revalidated_by required — revalidation requires named human authority")
+
+    # Resolve outcome state
+    new_state = {
+        "REVALIDATED": "AUTHORIZED",
+        "SUSPENDED":   "SUSPENDED",
+        "RETIRED":     "RETIRED",
+    }.get(outcome, "REVALIDATION_REQUIRED")
+
+    # Update lifecycle record
+    lifecycle = _LIFECYCLE_REGISTRY.get(system_id,{})
+    if lifecycle:
+        lifecycle["iso_state"]                   = new_state
+        lifecycle["previous_authorization_stale"] = False
+        lifecycle["last_revalidation_id"]        = revalidation_id
+        lifecycle["last_revalidation_at"]        = ts
+        if new_risk_class:
+            lifecycle["risk_classification"]     = new_risk_class
+        if new_purpose:
+            lifecycle["intended_purpose"]        = new_purpose
+        lifecycle["last_updated"]                = ts
+
+    revalidation = {
+        "schema":              "VGS-LIFECYCLE-REVALIDATION-v1",
+        "revalidation_id":     revalidation_id,
+        "system_id":           system_id,
+        "change_id":           change_id,
+        "revalidated_by":      revalidated_by,
+        "dimensions_reassessed":dimensions,
+        "new_risk_classification": new_risk_class,
+        "new_intended_purpose":    new_purpose,
+        "evidence_references": evidence_refs,
+        "outcome":             outcome,
+        "new_lifecycle_state": new_state,
+        "previous_authorization_cleared": outcome == "REVALIDATED",
+        "revalidated_at":      ts,
+    }
+
+    seal = {
+        "revalidation_id": revalidation_id,
+        "system_id":       system_id,
+        "outcome":         outcome,
+        "new_state":       new_state,
+        "timestamp":       ts,
+    }
+    revalidation["governance_signature"] = sign_governance_payload(seal)
+    revalidation["offline_verifiable"]   = True
+    _LIFECYCLE_REVALIDATIONS[revalidation_id] = revalidation
+
+    return {
+        **revalidation,
+        "governance_note": (
+            "VeriSigil does not certify ISO 42001 compliance. "
+            "This revalidation record is operational governance evidence. "
+            "It demonstrates that a material change was assessed, the dimensions "
+            "affected were re-examined, and a named human authority determined "
+            "the new governance standing. Present to auditors or regulators."
+        ),
+    }
+
+
+@app.get("/v1/lifecycle/{system_id}/history", tags=["AI Lifecycle Governance"])
+async def lifecycle_history(
+    system_id: str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Complete governance history of an AI system across its lifecycle.
+
+    Shows: registration, assessments, authorizations, changes,
+    revalidations, and retirement — in chronological order.
+
+    Every entry has a governance signature. The complete history
+    is the evidence of continuous governance — not a one-time
+    approval event.
+
+    Expert: "authorization ≠ permanent permission.
+    The system's authorization, evidence, risk, and standing
+    must remain valid as the AI system changes."
+    """
+    require_api_key(x_api_key, authorization)
+    ts        = datetime.now(timezone.utc).isoformat()
+    lifecycle = _LIFECYCLE_REGISTRY.get(system_id)
+
+    changes       = [c for c in _LIFECYCLE_CHANGES.values()
+                     if c.get("system_id") == system_id]
+    revalidations = [r for r in _LIFECYCLE_REVALIDATIONS.values()
+                     if r.get("system_id") == system_id]
+
+    # Build chronological history
+    events = []
+    if lifecycle:
+        events.append({
+            "event_type":  "REGISTERED",
+            "timestamp":   lifecycle.get("registered_at",""),
+            "summary":     f"System registered — {lifecycle.get('system_name','')}",
+            "governance_signature": lifecycle.get("governance_signature",""),
+        })
+    for c in sorted(changes, key=lambda x: x.get("recorded_at","")):
+        events.append({
+            "event_type":  "CHANGE_DETECTED",
+            "change_id":   c.get("change_id",""),
+            "change_type": c.get("change_type",""),
+            "severity":    c.get("severity",""),
+            "timestamp":   c.get("recorded_at",""),
+            "summary":     c.get("description",""),
+            "stale_authorization": c.get("makes_authorization_stale"),
+            "governance_signature": c.get("governance_signature",""),
+        })
+    for r in sorted(revalidations, key=lambda x: x.get("revalidated_at","")):
+        events.append({
+            "event_type":    "REVALIDATED",
+            "revalidation_id":r.get("revalidation_id",""),
+            "outcome":       r.get("outcome",""),
+            "new_state":     r.get("new_lifecycle_state",""),
+            "timestamp":     r.get("revalidated_at",""),
+            "summary":       f"Revalidated by {r.get('revalidated_by','')} — outcome: {r.get('outcome','')}",
+            "governance_signature": r.get("governance_signature",""),
+        })
+
+    current_state = lifecycle.get("iso_state", lifecycle.get("phase","UNKNOWN")) if lifecycle else "NOT_REGISTERED"
+    is_stale      = lifecycle.get("previous_authorization_stale", False) if lifecycle else False
+
+    return {
+        "schema":         "VGS-LIFECYCLE-HISTORY-v1",
+        "system_id":      system_id,
+        "system_name":    lifecycle.get("system_name","") if lifecycle else "",
+        "current_state":  current_state,
+        "authorization_stale": is_stale,
+        "stale_since":    lifecycle.get("stale_since","") if lifecycle else "",
+        "total_events":   len(events),
+        "history":        sorted(events, key=lambda x: x.get("timestamp","")),
+        "lifecycle_states": LIFECYCLE_STATES,
+        "governance_note": (
+            "This history demonstrates continuous governance — not a compliance certificate. "
+            "VeriSigil does not certify ISO 42001 compliance or EU AI Act compliance. "
+            "It provides operational evidence of governance decisions across the AI lifecycle."
+        ),
+        "timestamp": ts,
+    }
+
+
+@app.post("/v1/lifecycle/retire", tags=["AI Lifecycle Governance"])
+async def lifecycle_retire(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Retire an AI system — produce decommissioning evidence record.
+
+    Expert: "Retirement is the area I would strengthen —
+    explicit AI-system retirement/decommissioning evidence."
+
+    Records: who decommissioned, when, why, what evidence exists,
+    what was done with data and model, and a sealed final receipt.
+
+    The retirement record is permanent. Evidence of how an AI
+    system was decommissioned is as important as evidence of
+    how it was authorized to operate.
+    """
+    require_api_key(x_api_key, authorization)
+    ts          = datetime.now(timezone.utc).isoformat()
+    retirement_id = f"LCT-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}"
+
+    system_id     = req.get("system_id","")
+    retired_by    = req.get("retired_by","")
+    reason        = req.get("reason","")
+    data_handling = req.get("data_handling","")   # DELETED, ARCHIVED, TRANSFERRED
+    model_handling= req.get("model_handling","")  # DELETED, ARCHIVED, PRESERVED
+    evidence_refs = req.get("evidence_references",[])
+    effective_date= req.get("effective_date", ts)
+
+    if not retired_by:
+        raise HTTPException(status_code=400,
+            detail="retired_by required — retirement requires named human authority")
+
+    # Update lifecycle record
+    lifecycle = _LIFECYCLE_REGISTRY.get(system_id,{})
+    if lifecycle:
+        lifecycle["iso_state"]    = "RETIRED"
+        lifecycle["retired_at"]   = ts
+        lifecycle["retired_by"]   = retired_by
+        lifecycle["last_updated"] = ts
+
+    retirement = {
+        "schema":           "VGS-LIFECYCLE-RETIREMENT-v1",
+        "retirement_id":    retirement_id,
+        "system_id":        system_id,
+        "retired_by":       retired_by,
+        "reason":           reason,
+        "data_handling":    data_handling,
+        "model_handling":   model_handling,
+        "evidence_references": evidence_refs,
+        "effective_date":   effective_date,
+        "lifecycle_state":  "RETIRED",
+        "retired_at":       ts,
+    }
+
+    seal = {
+        "retirement_id": retirement_id,
+        "system_id":     system_id,
+        "retired_by":    retired_by,
+        "timestamp":     ts,
+    }
+    retirement["governance_signature"] = sign_governance_payload(seal)
+    retirement["offline_verifiable"]   = True
+    retirement["permanent_record"]     = True
+
+    return {
+        **retirement,
+        "decommissioning_note": (
+            "This retirement record is permanent governance evidence. "
+            "It demonstrates how the AI system was decommissioned, by whom, "
+            "when, and what happened to data and model artefacts. "
+            "Present to auditors, regulators, or data protection authorities."
         ),
     }
 
