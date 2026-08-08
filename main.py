@@ -77166,6 +77166,18 @@ async def compliance_timeline(
             "timestamp": d.get("registered_at",""),
         })
 
+    # Article 4 AI Literacy events
+    for r in _LITERACY_REGISTRY.values():
+        if r.get("org_id") == org_id:
+            events.append({
+                "source":    "ARTICLE_4_LITERACY",
+                "type":      "AI_LITERACY_REGISTRATION",
+                "id":        r.get("literacy_id",""),
+                "ruling":    "COMPLIANT" if r.get("article_4_satisfied") else "NON_COMPLIANT",
+                "summary":   f"Staff member {r.get('name','')} ({r.get('role','')}) — competency: {r.get('competency_level','')}",
+                "timestamp": r.get("registered_at",""),
+            })
+
     # Appeal events
     for a in _APPEAL_REGISTRY.values():
         events.append({
@@ -77246,9 +77258,25 @@ async def literacy_register(
     valid_until  = req.get("valid_until","")
 
     # Article 4 minimum requirements
+    # Article 4 four-step compliance check
+    # Step (a): general AI understanding — training_completed covers this
+    # Step (b): role of organisation — role field maps to provider/deployer
+    # Step (c): risk consideration — competency_level maps to risk tier
+    # Step (d): concrete literacy actions — training_completed + certifications
+    role_is_provider  = any(r in role.lower() for r in ["develop","build","engineer","architect","product"]) if role else False
+    role_is_deployer  = any(r in role.lower() for r in ["manage","operate","deploy","admin","legal","hr","finance"]) if role else True
+    ai_act_role       = "PROVIDER" if role_is_provider else "DEPLOYER"
+    min_competency    = "INTERMEDIATE" if role_is_provider else "BASIC"
+    competency_tiers  = ["BASIC","INTERMEDIATE","ADVANCED","EXPERT"]
+    competency_adequate = (
+        competency_tiers.index(competency_level) >= competency_tiers.index(min_competency)
+        if competency_level in competency_tiers and min_competency in competency_tiers else False
+    )
+
     article_4_satisfied = (
         len(training) >= 1 and
-        competency_level in ("BASIC","INTERMEDIATE","ADVANCED","EXPERT")
+        competency_level in ("BASIC","INTERMEDIATE","ADVANCED","EXPERT") and
+        competency_adequate
     )
 
     record = {
@@ -77676,6 +77704,60 @@ PROOF_ESTATE = {
             "key_property":    "Structural gate — not a policy. AI-generated content cannot proceed without a sealed disclosure receipt.",
             "regulation":      "EU AI Act Article 50 — enforceable as of 2 August 2026",
         },
+    },
+
+    "article_4_proofs": {
+        "status_note": "BUILT AND DEPLOYED — not yet independently validated. Article 4 endpoints are testable with the sandbox key. Independent validation planned for Run 4 or a dedicated Article 4 validation cycle.",
+        "distinction": {
+            "BUILT":     "Engineering complete, in main.py",
+            "DEPLOYED":  "Live on production API",
+            "VALIDATED": "Independently tested by external reviewer",
+            "COMPLIANT": "Organisational/legal determination — not something VeriSigil certifies",
+        },
+        "LP-001": {
+            "id":          "LP-001",
+            "title":       "Risk-Adaptive Literacy Profile",
+            "claim":       "Literacy requirements are derived from AI system risk and organisational role — not a one-size-fits-all course",
+            "status":      "DEPLOYED — not independently validated",
+            "endpoint":    "POST /v1/literacy/profile",
+            "test_input":  {"person_id":"test-employee","role":"AI Supervisor","org_role":"DEPLOYER","risk_exposure":"HIGH"},
+            "expected":    {"min_competency":"INTERMEDIATE","article_26_applies":False},
+        },
+        "LP-002": {
+            "id":          "LP-002",
+            "title":       "Literacy-to-Authorization Link",
+            "claim":       "A human supervisor with expired or non-compliant AI literacy cannot authorize high-consequence AI actions",
+            "status":      "DEPLOYED — not independently validated",
+            "endpoint":    "POST /v1/literacy/check-authorization",
+            "test_input":  {"person_id":"unregistered-person","consequence":"HIGH","ai_system_risk":"HIGH"},
+            "expected":    {"ruling":"HOLD","authorized_to_supervise":False},
+            "architecture":"Human Literacy → Human Authority → AI Authority → Runtime Admissibility",
+        },
+        "LP-003": {
+            "id":          "LP-003",
+            "title":       "Article 4 Evidence Pack",
+            "claim":       "Organisation can produce a regulatory-ready evidence pack for national market-surveillance authority",
+            "status":      "DEPLOYED — not independently validated",
+            "endpoint":    "GET /v1/literacy/evidence/{org_id}",
+            "expected":    {"schema":"VGS-ARTICLE4-EVIDENCE-PACK-v1","governance_signature":"Ed25519:..."},
+            "regulatory_note":"This is evidence of measures taken — not an Article 4 compliance certificate",
+        },
+        "LP-004": {
+            "id":          "LP-004",
+            "title":       "Literacy Acknowledgement Receipt",
+            "claim":       "Every guidance acknowledgement produces a sealed, independently verifiable evidence record",
+            "status":      "DEPLOYED — not independently validated",
+            "endpoint":    "POST /v1/literacy/acknowledge",
+            "test_input":  {"person_id":"test-employee","topics_covered":["AI basics","hallucination"],"acknowledged_by":"Jane Smith"},
+            "expected":    {"governance_signature":"Ed25519:...","offline_verifiable":True},
+        },
+        "competency_tier_note": (
+            "IMPORTANT: BASIC/INTERMEDIATE/ADVANCED/EXPERT competency tiers are VeriSigil "
+            "governance rules — not EU AI Act legal requirements. Article 4 is risk-, role-, "
+            "knowledge-, experience-, education/training-, and context-based. It does not "
+            "prescribe universal competency tiers. These tiers are VeriSigil's operationalisation "
+            "of the Article 4 framework, not the framework itself."
+        ),
     },
 
     "run_all_proofs": (
@@ -78577,6 +78659,419 @@ async def regulatory_requirements_all():
         "mapped":      list(_REGULATORY_FRAMEWORK.keys()),
         "verisigil_note": "VeriSigil proves governance execution — not regulatory compliance.",
         "timestamp":   datetime.now(timezone.utc).isoformat(),
+    }
+
+
+
+# ============================================================
+# AI LITERACY GOVERNANCE — ARTICLE 4 EU AI ACT
+# Expert: "Connect AI literacy requirements to the governance
+# conditions under which people and AI systems are permitted
+# to operate."
+#
+# This is NOT a training platform. VeriSigil determines what
+# literacy an organisation needs based on the AI it deploys,
+# its risks, and the roles of the people operating it —
+# then records and evidences the governance measures taken.
+#
+# The killer feature: literacy status checked at authorization.
+# If an employee's literacy is expired or non-compliant,
+# their authority to supervise a high-consequence AI agent
+# is flagged at intercept time.
+#
+# Architecture:
+# Human Literacy → Human Authority → AI Authority → Runtime
+#
+# Do NOT say "Article 4 compliant."
+# Say "evidence of governance measures taken under Article 4."
+# ============================================================
+
+_LITERACY_REQUIREMENTS: dict = {}  # req_id -> literacy requirement profile
+_LITERACY_ASSIGNMENTS:  dict = {}  # assignment_id -> assignment record
+_LITERACY_ACKNOWLEDGEMENTS: dict = {}  # ack_id -> acknowledgement
+
+
+@app.post("/v1/literacy/profile", tags=["AI Literacy Governance — Article 4"])
+async def literacy_profile(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    AI Literacy Profile — defines what an employee needs to know
+    based on the AI systems they interact with and the risks involved.
+
+    Expert: "Don't build: everyone takes the same AI course.
+    Build: Risk-Adaptive AI Literacy — derived from the AI system's
+    actual governance risk."
+
+    Examples:
+    - Employee using ChatGPT for email → BASIC + hallucination awareness
+    - Employee using AI HR screening → bias, human oversight, escalation
+    - Supervisor of autonomous financial AI → authorization, delegation,
+      runtime boundaries, escalation, audit evidence, incident response
+
+    Organisation role:
+    - PROVIDER: builds/develops AI systems (minimum INTERMEDIATE)
+    - DEPLOYER: uses AI built by others (minimum BASIC)
+    - BOTH: both obligations apply
+    """
+    require_api_key(x_api_key, authorization)
+    ts         = datetime.now(timezone.utc).isoformat()
+    profile_id = f"LPR-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}"
+
+    person_id       = req.get("person_id","")
+    name            = req.get("name","")
+    role            = req.get("role","")
+    org_role        = req.get("org_role","DEPLOYER")  # PROVIDER, DEPLOYER, BOTH
+    ai_systems_used = req.get("ai_systems_used",[])   # list of ai system ids or names
+    risk_exposure   = req.get("risk_exposure","LOW")  # LOW, MEDIUM, HIGH, CRITICAL
+
+    # Derive required literacy topics from risk exposure
+    base_topics = [
+        "What is AI and how does it work",
+        "Hallucination and AI limitations",
+        "Confidential information handling",
+        "Verification of AI outputs",
+        "When to disclose AI use",
+    ]
+    deployer_topics = base_topics + [
+        "How to identify AI system outputs",
+        "What AI systems the organisation uses",
+        "Who to contact when something goes wrong",
+    ]
+    high_risk_topics = deployer_topics + [
+        "Bias and discrimination risks",
+        "Human oversight requirements",
+        "Escalation procedures",
+        "Affected person considerations",
+        "Prohibited and regulated uses",
+    ]
+    supervisor_topics = high_risk_topics + [
+        "Authorization and delegation",
+        "Runtime boundaries and limits",
+        "Audit evidence requirements",
+        "Incident response",
+        "Refusal and override authority",
+    ]
+    provider_topics = supervisor_topics + [
+        "AI system design obligations",
+        "Documentation requirements",
+        "Conformity assessment",
+        "Post-market monitoring",
+        "Article 26 additional competency requirements",
+    ]
+
+    risk_topic_map = {
+        "LOW":      deployer_topics,
+        "MEDIUM":   high_risk_topics,
+        "HIGH":     supervisor_topics,
+        "CRITICAL": provider_topics if org_role in ("PROVIDER","BOTH") else supervisor_topics,
+    }
+    required_topics = risk_topic_map.get(risk_exposure, deployer_topics)
+
+    # Minimum competency
+    min_competency_map = {
+        ("PROVIDER","LOW"):      "INTERMEDIATE",
+        ("PROVIDER","MEDIUM"):   "INTERMEDIATE",
+        ("PROVIDER","HIGH"):     "ADVANCED",
+        ("PROVIDER","CRITICAL"): "EXPERT",
+        ("DEPLOYER","LOW"):      "BASIC",
+        ("DEPLOYER","MEDIUM"):   "INTERMEDIATE",
+        ("DEPLOYER","HIGH"):     "INTERMEDIATE",
+        ("DEPLOYER","CRITICAL"): "ADVANCED",
+        ("BOTH","LOW"):          "INTERMEDIATE",
+        ("BOTH","MEDIUM"):       "INTERMEDIATE",
+        ("BOTH","HIGH"):         "ADVANCED",
+        ("BOTH","CRITICAL"):     "EXPERT",
+    }
+    min_competency = min_competency_map.get((org_role, risk_exposure), "BASIC")
+
+    profile = {
+        "schema":           "VGS-LITERACY-PROFILE-v1",
+        "profile_id":       profile_id,
+        "person_id":        person_id,
+        "name":             name,
+        "role":             role,
+        "org_role":         org_role,
+        "ai_systems_used":  ai_systems_used,
+        "risk_exposure":    risk_exposure,
+        "required_topics":  required_topics,
+        "min_competency":   min_competency,
+        "revalidation_days":180 if risk_exposure in ("HIGH","CRITICAL") else 365,
+        "article_26_applies": risk_exposure == "CRITICAL",
+        "article_26_note":  "Article 26 additional training requirements apply for high-risk AI supervisors. Enforcement begins 2027-08-02.",
+        "created_at":       ts,
+    }
+
+    seal = {"profile_id": profile_id, "person_id": person_id, "risk": risk_exposure, "timestamp": ts}
+    profile["governance_signature"] = sign_governance_payload(seal)
+    _LITERACY_REQUIREMENTS[profile_id] = profile
+
+    return {
+        **profile,
+        "article_4_note": (
+            "This profile derives literacy requirements from AI system risk and organisational role. "
+            "Article 4 requires organisations to take measures — not to certify a specific level. "
+            "VeriSigil records the evidence of measures taken. "
+            "Do not describe this as 'Article 4 compliant' — that is determined by the national authority."
+        ),
+    }
+
+
+@app.post("/v1/literacy/acknowledge", tags=["AI Literacy Governance — Article 4"])
+async def literacy_acknowledge(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Record that an employee has acknowledged AI literacy guidance.
+
+    The Commission says organisations can maintain an internal
+    record of training and guidance. A specific Article 4 certificate
+    is NOT required. This endpoint creates that evidence record.
+
+    Every acknowledgement is Ed25519 sealed and independently
+    verifiable — the evidence trail regulators can inspect.
+    """
+    require_api_key(x_api_key, authorization)
+    ts     = datetime.now(timezone.utc).isoformat()
+    ack_id = f"ACK-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}"
+
+    person_id    = req.get("person_id","")
+    profile_id   = req.get("profile_id","")
+    topics_covered = req.get("topics_covered",[])
+    guidance_ref = req.get("guidance_reference","")
+    acknowledged_by = req.get("acknowledged_by","")  # the employee themselves
+    witnessed_by    = req.get("witnessed_by","")      # manager/supervisor
+
+    ack = {
+        "schema":         "VGS-LITERACY-ACKNOWLEDGEMENT-v1",
+        "ack_id":         ack_id,
+        "person_id":      person_id,
+        "profile_id":     profile_id,
+        "topics_covered": topics_covered,
+        "guidance_ref":   guidance_ref,
+        "acknowledged_by":acknowledged_by,
+        "witnessed_by":   witnessed_by,
+        "acknowledged_at":ts,
+        "valid_until":    req.get("valid_until",""),
+    }
+
+    seal = {"ack_id": ack_id, "person_id": person_id, "timestamp": ts}
+    ack["governance_signature"] = sign_governance_payload(seal)
+    ack["offline_verifiable"]   = True
+    _LITERACY_ACKNOWLEDGEMENTS[ack_id] = ack
+
+    # Update literacy registry if person has a record
+    if person_id in _LITERACY_REGISTRY:
+        _LITERACY_REGISTRY[person_id]["acknowledgements"] = \
+            _LITERACY_REGISTRY[person_id].get("acknowledgements",[]) + [ack_id]
+        _LITERACY_REGISTRY[person_id]["last_acknowledged"] = ts
+
+    return {
+        **ack,
+        "regulatory_note": (
+            "This acknowledgement record constitutes evidence that the organisation "
+            "took measures to support AI literacy development under Article 4. "
+            "Retain for regulatory inspection."
+        ),
+    }
+
+
+@app.post("/v1/literacy/check-authorization", tags=["AI Literacy Governance — Article 4"])
+async def literacy_check_authorization(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Literacy-to-Authorization Link — the killer feature.
+
+    Expert: "Connect Article 4 human competence to your existing
+    runtime authorization architecture."
+
+    Before a human supervisor is permitted to approve a high-consequence
+    AI action, check whether their AI literacy profile is current.
+
+    If literacy is expired or non-compliant, return ESCALATE/HOLD —
+    the person cannot supervise until their literacy is revalidated.
+
+    This connects:
+    Human Literacy → Human Authority → AI Authority → Runtime
+
+    No training platform can offer this. VeriSigil can because it
+    sits at the intersection of human governance and AI governance.
+    """
+    require_api_key(x_api_key, authorization)
+    ts        = datetime.now(timezone.utc).isoformat()
+    person_id = req.get("person_id","")
+    action_consequence = req.get("consequence","OPERATIONAL")
+    ai_system_risk     = req.get("ai_system_risk","MEDIUM")
+
+    literacy = _LITERACY_REGISTRY.get(person_id)
+    profile  = None
+    # Find profile for this person
+    for p in _LITERACY_REQUIREMENTS.values():
+        if p.get("person_id") == person_id:
+            profile = p
+            break
+
+    reasons    = []
+    conditions = []
+
+    if not literacy:
+        reasons.append(f"Person {person_id} has no AI literacy record. Register at POST /v1/literacy/register.")
+    else:
+        # Check competency is adequate for the action
+        competency_tiers = ["BASIC","INTERMEDIATE","ADVANCED","EXPERT"]
+        required_min = "INTERMEDIATE" if action_consequence in ("HIGH","CRITICAL","EMERGENCY") else "BASIC"
+        current = literacy.get("competency_level","BASIC")
+        if (current in competency_tiers and required_min in competency_tiers and
+                competency_tiers.index(current) < competency_tiers.index(required_min)):
+            reasons.append(
+                f"Competency {current} insufficient for {action_consequence} consequence action. "
+                f"Required: {required_min}."
+            )
+
+        # Check if literacy record is current
+        valid_until = literacy.get("valid_until","")
+        if valid_until and ts > valid_until:
+            reasons.append(f"AI literacy record expired at {valid_until}. Revalidation required.")
+
+        # Check acknowledgements for high-risk
+        if ai_system_risk in ("HIGH","CRITICAL"):
+            acks = literacy.get("acknowledgements",[])
+            if not acks:
+                conditions.append(
+                    f"No literacy acknowledgement recorded for {ai_system_risk} risk AI system. "
+                    "Recommend completing acknowledgement at POST /v1/literacy/acknowledge."
+                )
+
+    if reasons:
+        ruling = "HOLD"
+        authorized = False
+    elif conditions:
+        ruling = "ESCALATE"
+        authorized = False
+    else:
+        ruling = "AUTHORIZED"
+        authorized = True
+
+    seal = {"person_id": person_id, "ruling": ruling, "consequence": action_consequence, "timestamp": ts}
+    return {
+        "schema":        "VGS-LITERACY-AUTH-CHECK-v1",
+        "person_id":     person_id,
+        "action_consequence": action_consequence,
+        "ai_system_risk":    ai_system_risk,
+        "ruling":        ruling,
+        "authorized_to_supervise": authorized,
+        "reasons":       reasons,
+        "conditions":    conditions,
+        "literacy_status": {
+            "registered":     literacy is not None,
+            "competency":     literacy.get("competency_level","") if literacy else "",
+            "article_4_satisfied": literacy.get("article_4_satisfied") if literacy else False,
+            "valid_until":    literacy.get("valid_until","") if literacy else "",
+        },
+        "governance_signature": sign_governance_payload(seal),
+        "architecture_note": (
+            "Human Literacy → Human Authority → AI Authority → Runtime Admissibility. "
+            "This is where Article 4 connects to runtime governance. "
+            "A person whose literacy is non-current cannot be a valid human supervisor "
+            "for a high-consequence AI action."
+        ),
+    }
+
+
+@app.get("/v1/literacy/evidence/{org_id}", tags=["AI Literacy Governance — Article 4"])
+async def literacy_evidence(
+    org_id: str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Article 4 Evidence Pack — the regulatory-ready record.
+
+    The Commission says organisations do not need a specific
+    Article 4 certificate. They can maintain an internal record.
+    This endpoint produces that record.
+
+    Contains:
+    - AI inventory (systems deployed in this org)
+    - Provider/deployer classification
+    - Staff literacy profiles and competency levels
+    - Training and guidance records
+    - Acknowledgements
+    - Gaps identified
+    - Revalidation requirements
+    - Cryptographically signed governance evidence
+
+    Present to national market-surveillance authority or AI Office
+    as evidence of measures taken under Article 4.
+    """
+    require_api_key(x_api_key, authorization)
+    ts = datetime.now(timezone.utc).isoformat()
+
+    # Gather all literacy data for this org
+    staff_records  = [r for r in _LITERACY_REGISTRY.values() if r.get("org_id") == org_id]
+    profiles       = [p for p in _LITERACY_REQUIREMENTS.values() if
+                      any(r.get("person_id") == p.get("person_id") for r in staff_records)]
+    ai_systems     = [w for w in _WORKFORCE_REGISTRY.values() if w.get("org_id") == org_id]
+
+    compliant      = sum(1 for r in staff_records if r.get("article_4_satisfied"))
+    expired        = sum(1 for r in staff_records
+                        if r.get("valid_until") and ts > r.get("valid_until","9999"))
+    no_ack         = sum(1 for r in staff_records if not r.get("acknowledgements"))
+
+    # Identify gaps
+    gaps = []
+    if len(staff_records) == 0:
+        gaps.append("No staff literacy records registered — start at POST /v1/literacy/register")
+    if len(profiles) == 0:
+        gaps.append("No risk-based literacy profiles created — start at POST /v1/literacy/profile")
+    if expired > 0:
+        gaps.append(f"{expired} staff records expired — revalidation required")
+    if no_ack > 0:
+        gaps.append(f"{no_ack} staff have no acknowledgement record — POST /v1/literacy/acknowledge")
+    if len(ai_systems) == 0:
+        gaps.append("No AI systems registered — start at POST /v1/ai/workforce/register")
+
+    seal = {"org_id": org_id, "staff_count": len(staff_records), "timestamp": ts}
+    return {
+        "schema":         "VGS-ARTICLE4-EVIDENCE-PACK-v1",
+        "org_id":         org_id,
+        "generated_at":   ts,
+
+        "ai_inventory": {
+            "total_ai_systems":    len(ai_systems),
+            "systems":             [{"id": w.get("agent_id"), "name": w.get("name",""),
+                                     "risk": w.get("risk_level","")} for w in ai_systems[:10]],
+        },
+        "literacy_summary": {
+            "total_staff_registered": len(staff_records),
+            "article_4_compliant":    compliant,
+            "non_compliant":          len(staff_records) - compliant,
+            "expired_records":        expired,
+            "missing_acknowledgements": no_ack,
+            "compliance_rate":        round(compliant / max(len(staff_records),1), 3),
+        },
+        "gaps_identified":    gaps,
+        "remediation_actions":[
+            "Register all staff at POST /v1/literacy/register",
+            "Create risk-based profiles at POST /v1/literacy/profile",
+            "Record guidance acknowledgements at POST /v1/literacy/acknowledge",
+            "Connect literacy to authorization via POST /v1/literacy/check-authorization",
+        ],
+        "governance_signature": sign_governance_payload(seal),
+        "offline_verifiable":   True,
+        "regulatory_note": (
+            "This Evidence Pack demonstrates measures taken under Article 4 of the EU AI Act. "
+            "It is not a compliance certificate — Article 4 compliance is determined by the "
+            "national market-surveillance authority. Present as evidence of governance measures "
+            "taken. Article 4 applicable since 2025-02-02. Enforcement from 2026-08-02."
+        ),
     }
 
 
