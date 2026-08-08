@@ -79617,8 +79617,8 @@ async def governance_standing_evaluate(
     # Dimension 1: Delegation passport
     passport = _DELEGATION_PASSPORTS.get(agent_id,{})
     if not passport:
-        dimensions["delegation"] = DissentState.DISSENT_BLOCK  # no passport = cannot act
-        dimensions["delegation_note"] = "No delegation passport registered"
+        dimensions["delegation"] = "HOLD"  # no passport = cannot act — fail-closed
+        dimensions["delegation_note"] = "No delegation passport registered. Register at POST /v1/delegation/passport."
     elif passport.get("revoked"):
         dimensions["delegation"] = "REVOKED"
         dimensions["delegation_note"] = f"Passport revoked at {passport.get('revoked_at','')}"
