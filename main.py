@@ -79075,6 +79075,190 @@ async def literacy_evidence(
     }
 
 
+
+# ============================================================
+# ARTICLE 50 ADEQUATE MEANS INFRASTRUCTURE
+# Expert: "The Commission says non-signatories must still
+# be able to demonstrate compliance through adequate means
+# and document how their measures achieve the obligations."
+#
+# VeriSigil is not the Code of Practice.
+# VeriSigil is the governance and evidence layer that
+# constitutes "adequate means" for non-signatories.
+#
+# The Commission is explicit: adherence to the Code
+# "does not constitute conclusive evidence of compliance."
+# VeriSigil's approach — show the decision, seal it, make
+# it independently verifiable, revalidate when conditions
+# change — applies regardless of Code signatory status.
+#
+# Source: European Commission FAQ on signing the Code,
+# Article 50 transparency obligations guidance, August 2026.
+# ============================================================
+
+ARTICLE_50_OBLIGATIONS = {
+    "Article 50(1)": {
+        "obligation":    "Inform persons that they are interacting with an AI system",
+        "applies_to":    "Deployers of AI systems intended to interact with natural persons",
+        "exception":     "Unless obvious from context or authorised by law",
+        "verisigil_controls": [
+            "POST /v1/disclosure/register — gate before AI interaction begins",
+            "disclosure_method field — LABEL, NOTICE, WATERMARK, FOOTNOTE",
+            "approved_by field — human review where required",
+            "governance_signature — sealed evidence of disclosure decision",
+        ],
+        "evidence_produced": "Disclosure receipt with timestamp, approver, method, and content hash",
+    },
+    "Article 50(2)": {
+        "obligation":    "Ensure AI-generated/manipulated content is machine-readable marked",
+        "applies_to":    "Providers of generative AI systems producing images, video, audio",
+        "note":          "VeriSigil governs and evidences the marking process. The marking itself must be applied to the content by the provider using appropriate technical means.",
+        "verisigil_controls": [
+            "POST /v1/provenance/certify — certify that marking was applied",
+            "machine_readable_metadata field — records what metadata was embedded",
+            "detection_certificate_id — accepts Hardin/TBN Certify or C2PA reference",
+            "content_hash — proves content unchanged since governance decision",
+        ],
+        "evidence_produced": "Cryptographic Governance Certificate with provenance chain",
+    },
+    "Article 50(3)": {
+        "obligation":    "Clearly disclose AI-generated deepfake content involving real persons",
+        "applies_to":    "Deployers using AI to generate deepfakes for non-satire/art purposes",
+        "verisigil_controls": [
+            "POST /v1/provenance/certify with content_type: VIDEO and ai_involvement: GENERATED",
+            "disclosure_method: LABEL required for this content type",
+            "approved_by: mandatory — deepfake release requires human decision",
+            "GET /v1/disclosure/evidence/{id} — independently verifiable evidence",
+        ],
+        "evidence_produced": "Sealed governance receipt proving deepfake was disclosed before release",
+    },
+    "Article 50(4)": {
+        "obligation":    "Disclose AI-generated text on matters of public interest",
+        "applies_to":    "Deployers using AI for public-interest content (news, elections, policy)",
+        "exception":     "Unless human review/edit of AI output has taken place",
+        "verisigil_controls": [
+            "POST /v1/disclosure/register with recipient_type: PUBLIC",
+            "approved_by field — records human reviewer where exception applies",
+            "content_type: TEXT with ai_involvement: GENERATED",
+            "jurisdiction: EU enforces Article 50(4) check automatically",
+        ],
+        "evidence_produced": "Disclosure record with human reviewer identity and timestamp",
+    },
+}
+
+
+@app.get("/v1/article50/adequate-means", tags=["Article 50 — Adequate Means Infrastructure"])
+async def article50_adequate_means():
+    """
+    Article 50 Adequate Means Infrastructure — for organisations
+    that have not signed the EU AI Act Code of Practice on
+    Transparency of AI-Generated Content.
+
+    The European Commission states that non-signatories must
+    still demonstrate compliance through "adequate means" and
+    document how their measures achieve the transparency obligations.
+
+    VeriSigil provides the governance and evidence layer that
+    constitutes adequate means for non-signatories. Every
+    governance decision is sealed, replayable, and independently
+    verifiable — without trusting VeriSigil.
+
+    Important: The Commission also states that adherence to the
+    Code "does not constitute conclusive evidence of compliance."
+    VeriSigil's evidence-first approach applies regardless of
+    Code signatory status.
+
+    No authentication required — publicly accessible.
+    """
+    return {
+        "schema":   "VGS-ARTICLE50-ADEQUATE-MEANS-v1",
+        "purpose":  (
+            "VeriSigil AI provides governance and evidence infrastructure for "
+            "Article 50 EU AI Act transparency obligations. It is not the Code "
+            "of Practice. It provides 'adequate means' infrastructure for "
+            "non-signatories to demonstrate and evidence their compliance measures."
+        ),
+        "commission_basis": (
+            "European Commission FAQ on signing the Code of Practice on Transparency "
+            "of AI-Generated Content (2026): non-signatories must demonstrate compliance "
+            "through other adequate means. Adherence to the Code does not constitute "
+            "conclusive evidence of compliance. Source: digital-strategy.ec.europa.eu"
+        ),
+        "article_50_obligations": ARTICLE_50_OBLIGATIONS,
+        "verisigil_position": {
+            "layer":       "Governance and Evidence — Layer 3 and 4",
+            "not_layer":   "Detection / Provenance / Marking — Layer 1 and 2",
+            "integrates_with": [
+                "TBN Certify (Hardin AI) — detection and content certification",
+                "C2PA — content provenance standard",
+                "Any detection or watermarking tool via detection_certificate_id",
+            ],
+            "governance_chain": (
+                "Detection/Provenance Signal "
+                "→ Disclosure Requirement Resolution "
+                "→ Human Review Gate (where required) "
+                "→ Authorization Decision "
+                "→ Disclosure Receipt (Ed25519 sealed) "
+                "→ Controlled Release "
+                "→ Audit / Replay / Revalidation"
+            ),
+        },
+        "verisigil_does_not": [
+            "Scan content to detect AI generation",
+            "Apply watermarks or steganographic embeddings",
+            "Certify that an organisation is Article 50 compliant",
+            "Substitute for legal advice or regulatory assessment",
+            "Replace the required content marking — that must be applied by the provider",
+        ],
+        "what_verisigil_proves": [
+            "That the governance decision to release AI-generated content was made",
+            "Who made the decision and when",
+            "What disclosure method was required and applied",
+            "What policy and jurisdiction governed the decision",
+            "That the content hash has not changed since the governance decision",
+            "That the decision is independently verifiable without trusting VeriSigil",
+        ],
+        "evidence_endpoints": {
+            "disclosure_gate":        "POST /v1/disclosure/register",
+            "content_label":          "POST /v1/disclosure/label",
+            "governance_certificate": "POST /v1/provenance/certify",
+            "verify_certificate":     "GET /v1/provenance/verify/{certificate_id}",
+            "compliance_timeline":    "GET /v1/compliance/timeline/{org_id}",
+            "regulatory_requirements":"GET /v1/regulatory/requirements?jurisdiction=EU",
+        },
+        "sandbox_key":    "vs-sandbox-demo-2026b",
+        "public_key":     "lJWG0Wabt6uATPu5Upo6UEHWGXQqMyi6LMKQC0xwpY8=",
+        "timestamp":      datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@app.get("/v1/article50/obligations", tags=["Article 50 — Adequate Means Infrastructure"])
+async def article50_obligations():
+    """
+    Explicit mapping of Article 50(1)-(4) obligations to
+    VeriSigil governance controls and evidence produced.
+
+    Use this to understand which VeriSigil controls apply
+    to each Article 50 obligation before building your
+    compliance workflow.
+
+    No authentication required.
+    """
+    return {
+        "schema":      "VGS-ARTICLE50-OBLIGATIONS-v1",
+        "effective":   "2026-08-02",
+        "obligations": ARTICLE_50_OBLIGATIONS,
+        "important_note": (
+            "VeriSigil governs and evidences governance decisions. "
+            "It does not substitute for the required content marking "
+            "under Article 50(2), which must be applied to the content "
+            "itself by the provider using appropriate technical means. "
+            "VeriSigil proves the governance decision was made correctly."
+        ),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=int(os.environ.get("PORT", 8000)), reload=False)
