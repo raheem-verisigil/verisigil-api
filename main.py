@@ -76940,14 +76940,50 @@ async def disclosure_register(
         json.dumps(req.get("content_preview",""), sort_keys=True).encode()
     ).hexdigest()
 
-    # Article 50 compliance check
+    # Regulatory requirement resolver
+    # VeriSigil does not certify regulatory compliance — that is the regulator's determination.
+    # VeriSigil governs the disclosure decision and produces cryptographically verifiable evidence
+    # that the required governance controls were applied. Present this evidence to regulators.
+    #
+    # Requirements per regulation:
+    # EU AI Act Article 50: AI interaction disclosure, AI-generated content marking,
+    #   deepfake disclosure, public-interest AI text disclosure
+    # California SB 942: visible disclosure label, machine-readable provenance metadata
+    # UK AI Code of Practice: disclosure, transparency, human oversight evidence
+    #
+    # VeriSigil governs whether these controls were applied — it does not substitute
+    # for the required content marking itself.
+    REGULATORY_REQUIREMENTS = {
+        "EU": {
+            "Article 50(1)": {"requires": ["disclosure_method"], "content_types": None},
+            "Article 50(2)": {"requires": ["disclosure_method", "machine_readable_metadata"], "content_types": ["IMAGE","VIDEO","AUDIO"]},
+            "Article 50(4)": {"requires": ["disclosure_method"], "recipient_types": ["PUBLIC"]},
+        },
+        "UK": {
+            "AI Code §3": {"requires": ["disclosure_method","approved_by"], "content_types": None},
+        },
+        "CA": {
+            "SB 942 §3(a)": {"requires": ["disclosure_method"], "content_types": ["IMAGE","VIDEO"]},
+            "SB 942 §3(b)": {"requires": ["machine_readable_metadata"], "content_types": ["IMAGE","VIDEO"]},
+        },
+    }
+    # Normalize jurisdiction
+    jur_map = {"SB942":"CA","US":"CA","UK":"UK","GB":"UK"}
+    resolved_jur = jur_map.get(jurisdiction, jurisdiction)
+    reqs = REGULATORY_REQUIREMENTS.get(resolved_jur, REGULATORY_REQUIREMENTS.get("EU",{}))
+
     issues = []
     if ai_generated and not disclosure_method:
-        issues.append("Article 50: AI-generated content requires a disclosure method (LABEL, NOTICE, WATERMARK, FOOTNOTE)")
+        issues.append(f"Disclosure method required — {resolved_jur} regulatory requirements apply")
     if ai_generated and not approved_by:
-        issues.append("Article 50: AI-generated content requires human approval before release")
+        issues.append("Human approver required before release — governance control not met")
     if recipient_type == "PUBLIC" and ai_generated and not disclosure_method:
-        issues.append("Article 50(4): AI-generated content for public must be clearly labelled")
+        issues.append(f"Visible disclosure required for public-facing AI-generated content ({resolved_jur})")
+    if content_type in ("IMAGE","VIDEO","AUDIO") and ai_generated and not req.get("machine_readable_metadata"):
+        issues.append(f"Machine-readable metadata required for AI-generated {content_type} ({resolved_jur})")
+    # Note: VeriSigil governs the disclosure decision. It does not substitute for the
+    # required content marking under Article 50(2) or SB 942 — that must be applied
+    # to the content itself by the content provider/generator.
 
     compliant = len(issues) == 0
 
@@ -78117,6 +78153,430 @@ async def model_revoke(
         "effect":     "All AI agents immediately blocked from using this model in governed actions",
         "governance_signature": sign_governance_payload(seal),
         "timestamp":  ts,
+    }
+
+
+
+# ============================================================
+# CONTENT TRANSPARENCY & PROVENANCE LAYER
+# Expert: "Don't only record that disclosure occurred.
+# Make the disclosure technically inspectable."
+#
+# Architectural lesson from Hardin AI / TBN Certify:
+# Detection ≠ Governance.
+# A detector says "this appears AI-generated."
+# VeriSigil says:
+#   Was this AI use authorized?
+#   Was disclosure required?
+#   Who approved it?
+#   Was the correct disclosure applied?
+#   Was the content altered after certification?
+#   Did the organization have authority to release it?
+#
+# The Content Governance Certificate answers all seven.
+# It does not replace detection — it governs what happens
+# after detection and makes the governance decision provable.
+#
+# Workflow:
+# Detect/Provenance Signal
+# → VeriSigil Content Intake
+# → Disclosure & Regulatory Rules
+# → Authority + Approval + Jurisdiction Check
+# → Visible Label + Machine-Readable Provenance
+# → Cryptographic Certificate / Governance Receipt
+# → Verification Registry
+# → Release / Distribution
+# ============================================================
+
+_CONTENT_CERTIFICATES: dict = {}  # certificate_id -> certificate
+
+
+@app.post("/v1/provenance/certify", tags=["Content Transparency & Provenance"])
+async def provenance_certify(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    VeriSigil Content Governance Certificate.
+
+    Issues a cryptographically signed, independently verifiable
+    certificate proving that AI-generated content was:
+
+    1. Identified as AI-generated
+    2. Reviewed by a named human authority
+    3. Disclosed under the applicable regulation
+    4. Authorized for release under the governing policy
+    5. Sealed before distribution
+
+    This is complementary to detection tools like TBN Certify.
+    Detection answers: "Is this AI-generated?"
+    VeriSigil answers: "Was the decision to release it properly
+    authorized, disclosed, and governed before it left?"
+
+    Supports: EU AI Act Article 50, California SB 942,
+    UK AI Code of Practice, and custom jurisdiction rules.
+
+    The certificate is independently verifiable at:
+    GET /v1/provenance/verify/{certificate_id}
+    No trust in VeriSigil required.
+    """
+    require_api_key(x_api_key, authorization)
+    ts             = datetime.now(timezone.utc).isoformat()
+    certificate_id = f"CGC-{hashlib.sha256(ts.encode()).hexdigest()[:16].upper()}"
+
+    # Content identification
+    content_raw    = req.get("content","")
+    content_hash   = hashlib.sha256(
+        json.dumps(content_raw, sort_keys=True, separators=(",",":")).encode()
+    ).hexdigest() if content_raw else req.get("content_hash","")
+
+    ai_generated   = req.get("ai_generated", False)
+    ai_model       = req.get("ai_model","")
+    ai_provider    = req.get("ai_provider","")
+    ai_involvement = req.get("ai_involvement","")  # DRAFTED, SUMMARISED, DECIDED, ENHANCED, GENERATED
+    content_type   = req.get("content_type","")    # TEXT, IMAGE, VIDEO, AUDIO, DOCUMENT
+    jurisdiction   = req.get("jurisdiction","EU")
+
+    # Governance fields
+    approved_by       = req.get("approved_by","")
+    approver_role     = req.get("approver_role","")
+    governing_policy  = req.get("governing_policy","")
+    disclosure_method = req.get("disclosure_method","")
+    disclosure_label  = req.get("disclosure_label","")
+    org_id            = req.get("org_id","")
+    release_destination = req.get("release_destination","")
+
+    # External detection reference
+    detection_provider = req.get("detection_provider","")
+    detection_cert_id  = req.get("detection_certificate_id","")
+    detection_score    = req.get("ai_detection_score", None)
+
+    # Regulatory compliance checks
+    compliance_issues = []
+    if ai_generated and not disclosure_method:
+        compliance_issues.append(f"Disclosure method required under {jurisdiction}")
+    if ai_generated and not approved_by:
+        compliance_issues.append("Human approver required before release")
+    if jurisdiction in ("EU","UK") and content_type in ("IMAGE","VIDEO") and not disclosure_label:
+        compliance_issues.append(f"Article 50(4): visible label required for AI-generated {content_type}")
+    if jurisdiction in ("US","CA","SB942") and not disclosure_method:
+        compliance_issues.append("SB 942 §3: visible disclosure required for AI-generated content")
+    if jurisdiction in ("US","CA","SB942") and not req.get("machine_readable_metadata"):
+        compliance_issues.append("SB 942 §3(b): machine-readable metadata required")
+
+    compliant = len(compliance_issues) == 0
+
+    # Build the certificate
+    certificate = {
+        "schema":             "VGS-CONTENT-GOVERNANCE-CERTIFICATE-v1",
+        "certificate_id":     certificate_id,
+        "certificate_type":   "CRYPTOGRAPHIC_GOVERNANCE_CERTIFICATE",
+
+        # Content identification
+        "content_hash":       content_hash,
+        "content_type":       content_type,
+
+        # AI provenance
+        "ai_generated":       ai_generated,
+        "ai_model":           ai_model,
+        "ai_provider":        ai_provider,
+        "ai_involvement":     ai_involvement,
+
+        # Disclosure
+        "disclosure_method":  disclosure_method,
+        "disclosure_label":   disclosure_label,
+        "jurisdiction":       jurisdiction,
+
+        # Governance decision
+        "approved_by":        approved_by,
+        "approver_role":      approver_role,
+        "governing_policy":   governing_policy,
+        "org_id":             org_id,
+        "release_destination":release_destination,
+
+        # External detection reference (complementary — not required)
+        "detection_provider":    detection_provider,
+        "detection_cert_id":     detection_cert_id,
+        "detection_score":       detection_score,
+        "detection_note":        (
+            "External detection certificate reference. "
+            "Detection answers 'Is this AI-generated?' "
+            "This certificate answers 'Was the governance decision to release it properly authorized?'"
+        ),
+
+        # Compliance assessment
+        "regulatory_compliant":  compliant,
+        "compliance_issues":     compliance_issues,
+        "ruling":                "AUTHORIZED FOR RELEASE" if compliant else "NOT AUTHORIZED — resolve compliance issues",
+
+        # Machine-readable provenance block (the technically inspectable disclosure)
+        "machine_readable_provenance": {
+            "certificate_id":      certificate_id,
+            "content_hash":        content_hash,
+            "ai_generated":        ai_generated,
+            "ai_model":            ai_model,
+            "ai_provider":         ai_provider,
+            "ai_involvement":      ai_involvement,
+            "disclosure_status":   "DISCLOSED" if (disclosure_method and approved_by) else "NOT_DISCLOSED",
+            "disclosure_method":   disclosure_method,
+            "jurisdiction":        jurisdiction,
+            "governing_policy":    governing_policy,
+            "responsible_org":     org_id,
+            "approval_authority":  approved_by,
+            "approver_role":       approver_role,
+            "verification_status": "COMPLIANT" if compliant else "NON_COMPLIANT",
+            "issued_at":           ts,
+            "verify_at":           f"GET /v1/provenance/verify/{certificate_id}",
+        },
+
+        "issued_at":  ts,
+        "valid_until": req.get("valid_until",""),
+    }
+
+    # Seal the certificate
+    seal = {
+        "certificate_id": certificate_id,
+        "content_hash":   content_hash,
+        "ai_generated":   ai_generated,
+        "compliant":      compliant,
+        "approved_by":    approved_by,
+        "timestamp":      ts,
+    }
+    certificate["governance_signature"] = sign_governance_payload(seal)
+    certificate["offline_verifiable"]   = True
+    certificate["public_key"]           = "lJWG0Wabt6uATPu5Upo6UEHWGXQqMyi6LMKQC0xwpY8="
+    certificate["verify_url"]           = f"GET /v1/provenance/verify/{certificate_id}"
+
+    _CONTENT_CERTIFICATES[certificate_id] = certificate
+
+    if not compliant:
+        _BOARD_EVENTS.append({
+            "type":           "CONTENT_NOT_AUTHORIZED",
+            "certificate_id": certificate_id,
+            "org_id":         org_id,
+            "issues":         compliance_issues,
+            "at":             ts,
+        })
+
+    return {
+        **certificate,
+        "governance_note": (
+            "This is a Cryptographically Verifiable Governance Certificate. "
+            "It proves that governance controls were applied before release — "
+            "not that the organisation is legally compliant with any regulation. "
+            "Regulatory compliance is determined by the applicable authority. "
+            "The governance signature is independently verifiable without trusting VeriSigil. "
+            "Present as evidence of governance execution to regulators on demand."
+        ),
+        "overclaim_warning": (
+            "Do not describe this as an 'EU AI Act Compliance Certificate' or "
+            "'SB 942 Compliance Certificate'. VeriSigil proves governance execution — "
+            "not regulatory compliance. That distinction matters legally."
+        ),
+    }
+
+
+@app.get("/v1/provenance/verify/{certificate_id}", tags=["Content Transparency & Provenance"])
+async def provenance_verify(certificate_id: str):
+    """
+    Verify a VeriSigil Content Governance Certificate.
+
+    No authentication required. Anyone can verify.
+    The verifier does not need to trust VeriSigil — they verify
+    the Ed25519 signature using the published public key.
+
+    Returns: certificate status, governance signature, content hash,
+    AI provenance, compliance status, and offline verification instructions.
+
+    Public key: lJWG0Wabt6uATPu5Upo6UEHWGXQqMyi6LMKQC0xwpY8=
+    """
+    cert = _CONTENT_CERTIFICATES.get(certificate_id)
+    if not cert:
+        return {
+            "certificate_id": certificate_id,
+            "status":         "NOT_FOUND",
+            "note":           "Certificate not found. May have been issued on a different server instance (in-memory store). For production use, certificates should be stored in a persistent ledger.",
+            "timestamp":      datetime.now(timezone.utc).isoformat(),
+        }
+
+    return {
+        "certificate_id":      certificate_id,
+        "status":              "VERIFIED" if cert.get("regulatory_compliant") else "NON_COMPLIANT",
+        "content_hash":        cert.get("content_hash",""),
+        "ai_generated":        cert.get("ai_generated"),
+        "ai_model":            cert.get("ai_model",""),
+        "ai_involvement":      cert.get("ai_involvement",""),
+        "disclosure_method":   cert.get("disclosure_method",""),
+        "jurisdiction":        cert.get("jurisdiction",""),
+        "approved_by":         cert.get("approved_by",""),
+        "regulatory_compliant":cert.get("regulatory_compliant"),
+        "compliance_issues":   cert.get("compliance_issues",[]),
+        "governance_signature":cert.get("governance_signature",""),
+        "issued_at":           cert.get("issued_at",""),
+        "offline_verify": (
+            "from nacl.signing import VerifyKey; import base64, hashlib, json; "
+            "payload = json.dumps(seal_dict, sort_keys=True, separators=(',',':')).encode(); "
+            "VerifyKey(base64.b64decode(public_key)).verify(payload, base64.b64decode(signature))"
+        ),
+        "public_key":          "lJWG0Wabt6uATPu5Upo6UEHWGXQqMyi6LMKQC0xwpY8=",
+        "timestamp":           datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@app.get("/v1/provenance/registry", tags=["Content Transparency & Provenance"])
+async def provenance_registry(
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """All issued Content Governance Certificates with compliance summary."""
+    require_api_key(x_api_key, authorization)
+    certs     = list(_CONTENT_CERTIFICATES.values())
+    compliant = sum(1 for c in certs if c.get("regulatory_compliant"))
+    return {
+        "schema":            "VGS-CONTENT-REGISTRY-v1",
+        "total_certificates":len(certs),
+        "compliant":         compliant,
+        "non_compliant":     len(certs) - compliant,
+        "compliance_rate":   round(compliant / max(len(certs),1), 3),
+        "recent":            certs[-20:],
+        "timestamp":         datetime.now(timezone.utc).isoformat(),
+    }
+
+
+
+# ── REGULATORY REQUIREMENT RESOLVER ──────────────────────────
+
+_REGULATORY_FRAMEWORK = {
+    "EU": {
+        "regulation":   "EU AI Act",
+        "effective":    "2024-08-01 (high-risk), 2026-08-02 (Article 50)",
+        "requirements": {
+            "Article 50(1)": {
+                "description": "AI interaction disclosure — inform persons they are interacting with AI",
+                "applies_to":  "All AI systems interacting with humans",
+                "controls":    ["disclosure_method", "approved_by"],
+                "verisigil":   "POST /v1/disclosure/register · POST /v1/provenance/certify",
+            },
+            "Article 50(2)": {
+                "description": "Machine-readable marking of AI-generated/manipulated content",
+                "applies_to":  "Providers of generative AI systems — images, video, audio, text",
+                "controls":    ["disclosure_method", "machine_readable_metadata"],
+                "verisigil":   "POST /v1/provenance/certify with content_type and machine_readable_metadata",
+                "note":        "VeriSigil governs/evidences the marking process. The marking itself must be applied to the content by the provider.",
+            },
+            "Article 50(3)": {
+                "description": "Deepfake disclosure — clearly disclose AI-generated/manipulated persons",
+                "applies_to":  "Deployers using AI to generate deepfake content",
+                "controls":    ["disclosure_method", "content_type"],
+                "verisigil":   "POST /v1/provenance/certify with content_type: VIDEO and disclosure_method: LABEL",
+            },
+            "Article 50(4)": {
+                "description": "AI-generated text disclosure for public interest topics",
+                "applies_to":  "Deployers using AI for public interest content (news, elections, etc.)",
+                "controls":    ["disclosure_method", "recipient_type"],
+                "verisigil":   "POST /v1/disclosure/register with recipient_type: PUBLIC",
+            },
+            "Article 4": {
+                "description": "AI literacy — ensure staff have adequate AI knowledge and skills",
+                "applies_to":  "All providers and deployers",
+                "controls":    ["training_completed", "competency_level"],
+                "verisigil":   "POST /v1/literacy/register · GET /v1/literacy/org/{org_id}",
+            },
+        },
+    },
+    "CA": {
+        "regulation":   "California SB 942 — AI Transparency Act",
+        "effective":    "2026-01-01",
+        "requirements": {
+            "SB 942 §3(a)": {
+                "description": "Visible disclosure label for AI-generated images and video",
+                "applies_to":  "AI systems generating or substantially modifying images/video",
+                "controls":    ["disclosure_method"],
+                "verisigil":   "POST /v1/provenance/certify with disclosure_method and content_type: IMAGE/VIDEO",
+            },
+            "SB 942 §3(b)": {
+                "description": "Machine-readable provenance metadata embedded in content",
+                "applies_to":  "AI systems generating images and video",
+                "controls":    ["machine_readable_metadata"],
+                "verisigil":   "POST /v1/provenance/certify with machine_readable_metadata block",
+            },
+        },
+    },
+    "UK": {
+        "regulation":   "UK AI Code of Practice / AI Regulation Bill",
+        "effective":    "Voluntary code — formal regulation pending",
+        "requirements": {
+            "Transparency §3": {
+                "description": "Disclose AI involvement to users and affected parties",
+                "applies_to":  "All AI system deployers",
+                "controls":    ["disclosure_method", "approved_by"],
+                "verisigil":   "POST /v1/disclosure/register",
+            },
+            "Accountability §5": {
+                "description": "Maintain records of AI decisions and human oversight",
+                "applies_to":  "High-risk AI deployments",
+                "controls":    ["approved_by", "governance_receipt"],
+                "verisigil":   "POST /v1/intercept · POST /v1/standing/certificate",
+            },
+        },
+    },
+}
+
+
+@app.get("/v1/regulatory/requirements", tags=["Content Transparency & Provenance"])
+async def regulatory_requirements(jurisdiction: str = "EU"):
+    """
+    Regulatory Requirement Resolver — maps regulations to specific
+    governance controls and the VeriSigil endpoints that implement them.
+
+    VeriSigil does not certify regulatory compliance. It governs and
+    evidences that the required controls were applied. Regulatory
+    compliance is determined by the applicable authority.
+
+    Use this endpoint to understand which VeriSigil controls apply
+    to your jurisdiction before building your compliance workflow.
+
+    No auth required.
+    """
+    jur_map = {"SB942":"CA","US":"CA","GB":"UK"}
+    resolved = jur_map.get(jurisdiction.upper(), jurisdiction.upper())
+    framework = _REGULATORY_FRAMEWORK.get(resolved)
+
+    if not framework:
+        return {
+            "jurisdiction":   jurisdiction,
+            "status":         "NOT_MAPPED",
+            "available":      list(_REGULATORY_FRAMEWORK.keys()),
+            "note":           "This jurisdiction is not yet mapped. Contact raheem@verisigilai.com to add it.",
+            "timestamp":      datetime.now(timezone.utc).isoformat(),
+        }
+
+    return {
+        "schema":       "VGS-REGULATORY-RESOLVER-v1",
+        "jurisdiction": resolved,
+        "regulation":   framework["regulation"],
+        "effective":    framework["effective"],
+        "requirements": framework["requirements"],
+        "verisigil_note": (
+            "VeriSigil governs and evidences governance execution. "
+            "It does not substitute for the required content marking, "
+            "disclosure actions, or legal compliance determination. "
+            "Present VeriSigil governance certificates as evidence of controls applied."
+        ),
+        "timestamp":    datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@app.get("/v1/regulatory/requirements/all", tags=["Content Transparency & Provenance"])
+async def regulatory_requirements_all():
+    """All mapped regulatory frameworks. No auth required."""
+    return {
+        "schema":      "VGS-REGULATORY-RESOLVER-v1",
+        "frameworks":  _REGULATORY_FRAMEWORK,
+        "mapped":      list(_REGULATORY_FRAMEWORK.keys()),
+        "verisigil_note": "VeriSigil proves governance execution — not regulatory compliance.",
+        "timestamp":   datetime.now(timezone.utc).isoformat(),
     }
 
 
