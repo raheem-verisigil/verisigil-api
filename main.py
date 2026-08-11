@@ -86097,6 +86097,288 @@ async def regulatory_change_history(
     }
 
 
+
+# ============================================================
+# GOVERNANCE REACHABILITY ASSESSMENT
+# Evelyne-Claudia Yantony (2026-08-11):
+# "Assurance asks whether the required conditions held.
+# Governability asks whether changed evidence, authority,
+# state, or consequence can still reach legitimate intervention
+# IN TIME to alter execution."
+#
+# This is the formal bridge between:
+# - REVOCATION_HORIZON_SECONDS (maximum delay — already built)
+# - Reachability as a provable property (new)
+#
+# Key distinction:
+# ASSURANCE: Did governance hold when the action executed?
+# GOVERNABILITY: Could legitimate authority still have
+#               intervened before consequence became
+#               unreachable?
+#
+# These are different claims. VeriSigil now models both.
+# ============================================================
+
+# Reachability windows per consequence tier
+# The question: given a propagation delay, was the
+# intervention signal reachable before the consequence
+# window closed?
+REACHABILITY_WINDOWS = {
+    "EMERGENCY": {
+        "consequence_window_seconds":   5,
+        "max_propagation_delay_seconds":2,
+        "intervention_margin_seconds":  3,
+        "reachable_if_delay_under_seconds": 2,
+        "note": "EMERGENCY: 5-second consequence window. Signal must arrive within 2 seconds to leave 3-second intervention margin.",
+    },
+    "CRITICAL": {
+        "consequence_window_seconds":   15,
+        "max_propagation_delay_seconds":5,
+        "intervention_margin_seconds":  10,
+        "reachable_if_delay_under_seconds": 5,
+        "note": "CRITICAL: 15-second window. Signal must arrive within 5 seconds.",
+    },
+    "HIGH": {
+        "consequence_window_seconds":   30,
+        "max_propagation_delay_seconds":10,
+        "intervention_margin_seconds":  20,
+        "reachable_if_delay_under_seconds": 10,
+        "note": "HIGH: 30-second window. Signal must arrive within 10 seconds.",
+    },
+    "OPERATIONAL": {
+        "consequence_window_seconds":   60,
+        "max_propagation_delay_seconds":20,
+        "intervention_margin_seconds":  40,
+        "reachable_if_delay_under_seconds": 20,
+        "note": "OPERATIONAL: 60-second window. Signal must arrive within 20 seconds.",
+    },
+    "ADVISORY": {
+        "consequence_window_seconds":   300,
+        "max_propagation_delay_seconds":60,
+        "intervention_margin_seconds":  240,
+        "reachable_if_delay_under_seconds": 60,
+        "note": "ADVISORY: 5-minute window. Signal must arrive within 60 seconds.",
+    },
+}
+
+_REACHABILITY_ASSESSMENTS: dict = {}
+
+
+@app.post("/v1/governance/reachability/assess", tags=["Governance Reachability"])
+async def reachability_assess(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Governance Reachability Assessment.
+
+    Formally models Evelyne-Claudia Yantony's distinction:
+    ASSURANCE vs GOVERNABILITY.
+
+    Assurance: Did governance hold when the action executed?
+    Governability: Could legitimate authority still have
+    intervened before consequence became unreachable?
+
+    Given:
+    - A revocation or governance-change event
+    - A consequence tier (EMERGENCY/CRITICAL/HIGH/etc)
+    - An observed propagation delay (how long until signal arrived)
+    - An observed intervention time (how long until execution)
+
+    Returns:
+    - REACHABLE: intervention signal could have arrived in time
+    - NOT_REACHABLE: consequence window closed before signal
+    - MARGINAL: signal arrived but intervention margin was insufficient
+    - NOT_PROVABLE: propagation delay cannot be established
+
+    Expert: "Evidence tells us whether governance held.
+    Reachability determines whether governance can still
+    matter when it no longer does."
+    """
+    require_api_key(x_api_key, authorization)
+    ts             = datetime.now(timezone.utc).isoformat()
+    assessment_id  = f"REACH-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}"
+
+    consequence_tier     = req.get("consequence_tier","HIGH")
+    event_type           = req.get("event_type","REVOCATION")  # REVOCATION, STATE_CHANGE, AUTHORITY_EXPIRY, POLICY_CHANGE
+    event_timestamp      = req.get("event_timestamp","")
+    signal_received_at   = req.get("signal_received_at","")    # when the governed system received the signal
+    execution_attempted_at = req.get("execution_attempted_at","")  # when execution was attempted
+    propagation_delay_seconds = req.get("propagation_delay_seconds", None)  # if known directly
+
+    window = REACHABILITY_WINDOWS.get(consequence_tier, REACHABILITY_WINDOWS["HIGH"])
+
+    # Calculate propagation delay if timestamps provided
+    calculated_delay = None
+    if event_timestamp and signal_received_at:
+        try:
+            from datetime import datetime as dt
+            t_event  = dt.fromisoformat(event_timestamp.replace("Z","+00:00"))
+            t_signal = dt.fromisoformat(signal_received_at.replace("Z","+00:00"))
+            calculated_delay = abs((t_signal - t_event).total_seconds())
+        except Exception:
+            calculated_delay = None
+
+    effective_delay = propagation_delay_seconds if propagation_delay_seconds is not None else calculated_delay
+
+    # Calculate intervention margin if execution time known
+    intervention_margin = None
+    if signal_received_at and execution_attempted_at:
+        try:
+            from datetime import datetime as dt
+            t_signal = dt.fromisoformat(signal_received_at.replace("Z","+00:00"))
+            t_exec   = dt.fromisoformat(execution_attempted_at.replace("Z","+00:00"))
+            intervention_margin = abs((t_exec - t_signal).total_seconds())
+        except Exception:
+            intervention_margin = None
+
+    # Determine reachability
+    if effective_delay is None:
+        reachability = "NOT_PROVABLE"
+        reachability_reason = "Propagation delay cannot be established from provided data"
+    elif effective_delay <= window["reachable_if_delay_under_seconds"]:
+        if intervention_margin is not None and intervention_margin < window["intervention_margin_seconds"]:
+            reachability = "MARGINAL"
+            reachability_reason = (
+                f"Signal arrived within the reachability window ({effective_delay:.1f}s < "
+                f"{window['reachable_if_delay_under_seconds']}s limit) but intervention "
+                f"margin ({intervention_margin:.1f}s) was less than required "
+                f"({window['intervention_margin_seconds']}s)"
+            )
+        else:
+            reachability = "REACHABLE"
+            reachability_reason = (
+                f"Signal arrived within reachability window: "
+                f"{effective_delay:.1f}s < {window['reachable_if_delay_under_seconds']}s limit. "
+                f"Intervention was possible before consequence boundary closed."
+            )
+    else:
+        reachability = "NOT_REACHABLE"
+        reachability_reason = (
+            f"Propagation delay ({effective_delay:.1f}s) exceeded reachability window "
+            f"({window['reachable_if_delay_under_seconds']}s) for {consequence_tier} tier. "
+            f"Consequence boundary closed before governance signal could reach it."
+        )
+
+    # Evelyne's key insight: inherited authority extinction
+    inherited_authority_extinguished = req.get("inherited_authority_extinguished", False)
+    dependent_paths_notified         = req.get("dependent_paths_notified", [])
+
+    assessment = {
+        "schema":              "VGS-REACHABILITY-ASSESSMENT-1.0",
+        "assessment_id":       assessment_id,
+        "event_type":          event_type,
+        "consequence_tier":    consequence_tier,
+        "reachability":        reachability,
+        "reachability_reason": reachability_reason,
+
+        "timing": {
+            "event_timestamp":         event_timestamp,
+            "signal_received_at":      signal_received_at,
+            "execution_attempted_at":  execution_attempted_at,
+            "propagation_delay_seconds": effective_delay,
+            "intervention_margin_seconds": intervention_margin,
+        },
+
+        "window": window,
+
+        "governability": {
+            "assurance_question":   "Did governance hold when the action executed?",
+            "governability_question":"Could legitimate authority have intervened before consequence became unreachable?",
+            "assurance_answer":     "Determined by REVOKED_BY_CHAIN, AUTHORITY_INVALID, revalidation results",
+            "governability_answer": reachability,
+            "distinction":          (
+                "REACHABLE does not mean governance held. "
+                "NOT_REACHABLE does not mean governance failed. "
+                "These are independent properties. "
+                "A governance decision may have been correct AND unreachable. "
+                "Evidence tells us whether governance held. "
+                "Reachability determines whether governance could still have mattered."
+            ),
+        },
+
+        "inherited_authority": {
+            "extinguished":          inherited_authority_extinguished,
+            "dependent_paths":       dependent_paths_notified,
+            "evelyne_question":      (
+                "Where authority has ceased to hold: can inherited authority be extinguished "
+                "across dependent execution paths before consequence becomes unreachable? "
+                "VeriSigil models this through transitive revocation + REVOCATION_HORIZON_SECONDS. "
+                "Full reachability proof across distributed paths requires integration evidence "
+                "beyond the VeriSigil reference implementation."
+            ),
+        },
+
+        "VALID_AT_TIME":       ts,
+        "CURRENT_STATUS":      reachability,
+
+        "non_claims": [
+            "Does not prove that intervention actually occurred",
+            "Does not prove distributed propagation was complete",
+            "Reachability window is based on declared consequence tier — not independently measured latency",
+            "Does not substitute for real-time monitoring of governance signal propagation",
+        ],
+
+        "assessed_at":         ts,
+    }
+
+    seal = {"assessment_id": assessment_id, "reachability": reachability, "timestamp": ts}
+    assessment["governance_signature"] = sign_governance_payload(seal)
+    _REACHABILITY_ASSESSMENTS[assessment_id] = assessment
+
+    return assessment
+
+
+@app.get("/v1/governance/reachability/windows", tags=["Governance Reachability"])
+async def reachability_windows():
+    """
+    Reachability windows per consequence tier.
+
+    Shows the maximum propagation delay within which
+    a governance signal remains reachable before the
+    consequence window closes.
+
+    Expert: "REVOCATION_HORIZON_SECONDS makes the maximum
+    period of assumed validity explicit. Reachability windows
+    make the intervention timing formal."
+
+    No auth required.
+    """
+    return {
+        "schema":     "VGS-REACHABILITY-WINDOWS-1.0",
+        "windows":    REACHABILITY_WINDOWS,
+        "principle":  (
+            "Assurance and governability are different properties. "
+            "Assurance: did the required conditions hold at execution? "
+            "Governability: could legitimate authority have intervened "
+            "before consequence became unreachable? "
+            "A governance system should be able to answer both."
+        ),
+        "evelyne_distinction": (
+            "Evidence tells us whether governance held. "
+            "Reachability determines whether governance can still matter "
+            "when it no longer does."
+        ),
+        "timestamp":  datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@app.get("/v1/governance/reachability/{assessment_id}", tags=["Governance Reachability"])
+async def get_reachability_assessment(
+    assessment_id: str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Retrieve a specific reachability assessment."""
+    require_api_key(x_api_key, authorization)
+    assessment = _REACHABILITY_ASSESSMENTS.get(assessment_id)
+    if not assessment:
+        raise HTTPException(status_code=404,
+            detail=f"Assessment {assessment_id} not found")
+    return assessment
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=int(os.environ.get("PORT", 8000)), reload=False)
