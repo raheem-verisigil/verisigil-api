@@ -84535,8 +84535,17 @@ def _run_question(question_id: int, proposal: dict, ts: str) -> dict:
 
     # Q4: Can you prove the decision is bound to the EXACT action?
     elif question_id == 4:
-        binding_id  = next((bid for bid, b in _BINDING_REGISTRY.items()
-                           if b.get("proposal_id") == proposal.get("proposal_id","")),"")
+        # Find the most recent VALID binding for this proposal
+        # (earlier invalid bindings should not block a later valid one)
+        proposal_bindings = [(bid, b) for bid, b in _BINDING_REGISTRY.items()
+                            if b.get("proposal_id") == proposal.get("proposal_id","")]
+        valid_bindings = [(bid, b) for bid, b in proposal_bindings if b.get("binding_valid")]
+        if valid_bindings:
+            binding_id, binding = sorted(valid_bindings, key=lambda x: x[1].get("created_at",""))[-1]
+        elif proposal_bindings:
+            binding_id, binding = sorted(proposal_bindings, key=lambda x: x[1].get("created_at",""))[-1]
+        else:
+            binding_id, binding = "", {}
         binding     = _BINDING_REGISTRY.get(binding_id,{})
         has_binding = bool(binding)
         binding_valid = binding.get("binding_valid", False) if binding else False
