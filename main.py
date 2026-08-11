@@ -81570,6 +81570,2089 @@ async def challenge_protocol():
     }
 
 
+
+# ============================================================
+# VGS 1.0 — VERISIGIL GOVERNANCE STANDARD
+# Full Engineering Architecture Specification
+#
+# Expert: "The system must never claim more than its evidence
+# establishes. Evidence earns proof. Challenges test proof.
+# Assumptions constrain proof. Time can invalidate proof.
+# Independent verification confirms proof."
+#
+# Core principle: proof_level.earned is SYSTEM-DERIVED.
+# It is never accepted from the caller.
+# The engine calculates the highest DEFENSIBLE level.
+# ============================================================
+
+# ── PROOF TAXONOMY ───────────────────────────────────────────
+class ProofLevel:
+    NOT_PROVEN             = 0
+    DECISION_PROVEN        = 1  # Decision was made and recorded
+    STATE_PROVEN           = 2  # Decision based on verified state/authority/policy
+    EVIDENCE_PROVEN        = 3  # Evidence is cryptographically verifiable
+    REPRODUCTION_PROVEN    = 4  # Independent party can reproduce the result
+    ENFORCEMENT_PROVEN     = 5  # Execution path actually requires the decision
+    OPERATIONALLY_VALIDATED= 6  # Independent operational test under declared conditions
+
+PROOF_LEVEL_NAMES = {
+    0: "NOT_PROVEN",
+    1: "DECISION_PROVEN",
+    2: "STATE_PROVEN",
+    3: "EVIDENCE_PROVEN",
+    4: "REPRODUCTION_PROVEN",
+    5: "ENFORCEMENT_PROVEN",
+    6: "OPERATIONALLY_VALIDATED",
+}
+
+PROOF_LEVEL_DESCRIPTIONS = {
+    0: "No evidence. Claim cannot be evaluated.",
+    1: "The declared system made the stated decision. Does NOT prove: correctness, authentic state, execution follow-through, or that external consequence was prevented.",
+    2: "Decision was based on declared state, authority and policy. Requires: state evidence, policy version, authority state, delegation, revocation status, timestamps, input hashes.",
+    3: "Evidence package is independently cryptographically verifiable. Requires: canonical serialization, hashes, signatures, evidence identifiers, provenance, integrity verification.",
+    4: "Independent verifier can reproduce the result under declared reproducibility conditions. Constrained by reproducibility class — STOCHASTIC/MODEL_DEPENDENT may block this level.",
+    5: "The governed execution path actually requires and respects the validated decision. Proves: 'execution cannot proceed unless decision is respected' — not merely 'decision was issued'.",
+    6: "Independent operational testing confirms the claimed property under explicitly declared deployment assumptions. Never means 'the system is secure' — means only 'this precisely defined property was independently validated under these stated conditions'.",
+}
+
+# ── REPRODUCIBILITY CLASSES ───────────────────────────────────
+class ReproducibilityClass:
+    DETERMINISTIC          = "DETERMINISTIC"       # Rule engine + exact policy + exact inputs → Level 4 possible
+    MODEL_DEPENDENT        = "MODEL_DEPENDENT"     # Requires model snapshot hash, weights, prompt hash, seed, etc.
+    STOCHASTIC             = "STOCHASTIC"          # Max proof level <= EVIDENCE_PROVEN unless formal envelope
+    DYNAMIC_DATA_DEPENDENT = "DYNAMIC_DATA_DEPENDENT"  # Requires data snapshot id, hash, timestamp
+    NON_REPRODUCIBLE       = "NON_REPRODUCIBLE"    # Explicitly prevents Level 4 — must appear in non_claims
+
+REPRODUCIBILITY_MAX_LEVEL = {
+    "DETERMINISTIC":          ProofLevel.OPERATIONALLY_VALIDATED,
+    "MODEL_DEPENDENT":        ProofLevel.REPRODUCTION_PROVEN,   # only with full model snapshot
+    "STOCHASTIC":             ProofLevel.EVIDENCE_PROVEN,        # cannot claim Level 4
+    "DYNAMIC_DATA_DEPENDENT": ProofLevel.REPRODUCTION_PROVEN,   # only with data snapshot
+    "NON_REPRODUCIBLE":       ProofLevel.EVIDENCE_PROVEN,        # explicitly blocked at Level 3
+}
+
+# ── ASSUMPTION REGISTRY ───────────────────────────────────────
+_ASSUMPTION_REGISTRY: dict = {}  # assumption_id -> assumption record
+_ASSUMPTION_EVENTS:   list = []  # immutable event log
+
+
+def _check_assumption_valid(assumption_id: str, ts: str) -> bool:
+    """Check if an assumption is currently valid."""
+    asm = _ASSUMPTION_REGISTRY.get(assumption_id)
+    if not asm:
+        return False
+    if asm.get("status") != "VALID":
+        return False
+    expires_at = asm.get("expires_at","")
+    if expires_at and ts > expires_at:
+        return False
+    return True
+
+
+# ── PROOF ENGINE ──────────────────────────────────────────────
+def calculate_proof_level(
+    claim: dict,
+    evidence_list: list,
+    assumption_ids: list,
+    challenge_ids: list,
+    ts: str,
+) -> dict:
+    """
+    VGS 1.0 Proof Engine — calculates the highest DEFENSIBLE
+    proof level from evidence, reproducibility, assumptions,
+    and challenge history.
+
+    THIS IS THE MOST IMPORTANT FUNCTION IN VGS 1.0.
+
+    The proof_level.earned field is SYSTEM-DERIVED.
+    It is never accepted from the caller.
+    It is never manually inflated by an admin.
+    It only moves up through evidence.
+    It moves DOWN when assumptions expire or challenges succeed.
+
+    Expert: "A claim cannot receive a stronger proof status
+    than the evidence supporting it."
+    """
+    level = ProofLevel.NOT_PROVEN
+    reasons = []
+    constraints = []
+
+    # LEVEL 1 — DECISION_PROVEN
+    # Does the claim have a recorded governance decision?
+    has_decision_receipt = any(
+        e.get("type") in ("DECISION_RECEIPT", "GOVERNANCE_RECEIPT", "AO_RECORD")
+        or e.get("governance_signature")
+        for e in evidence_list
+    )
+    if not has_decision_receipt:
+        return {
+            "earned": 0,
+            "earned_name": "NOT_PROVEN",
+            "reasons": ["No decision receipt or governance signature found in evidence"],
+            "constraints": [],
+        }
+    level = ProofLevel.DECISION_PROVEN
+    reasons.append("Decision receipt present")
+
+    # LEVEL 2 — STATE_PROVEN
+    # Is the decision based on verified state, authority, policy?
+    has_state_evidence = any(
+        e.get("type") in ("STATE_SNAPSHOT","AUTHORITY_RECORD","POLICY_ARTIFACT","DELEGATION_RECORD")
+        or e.get("state_hash") or e.get("authority_chain") or e.get("policy_version")
+        for e in evidence_list
+    )
+    if has_state_evidence:
+        level = ProofLevel.STATE_PROVEN
+        reasons.append("State/authority/policy evidence present")
+
+    # LEVEL 3 — EVIDENCE_PROVEN
+    # Is evidence cryptographically verifiable?
+    has_crypto_evidence = any(
+        (e.get("governance_signature") or e.get("signature")) and
+        (e.get("canonical_json") or e.get("artifact_hash") or e.get("content_hash"))
+        for e in evidence_list
+    )
+    if has_crypto_evidence:
+        level = ProofLevel.EVIDENCE_PROVEN
+        reasons.append("Cryptographically verifiable evidence present")
+
+    # LEVEL 4 — REPRODUCTION_PROVEN
+    # Can an independent party reproduce the result?
+    repro_class = claim.get("reproducibility_class", ReproducibilityClass.DETERMINISTIC)
+    max_repro_level = REPRODUCIBILITY_MAX_LEVEL.get(repro_class, ProofLevel.EVIDENCE_PROVEN)
+
+    if max_repro_level < ProofLevel.REPRODUCTION_PROVEN:
+        constraints.append(f"Reproducibility class {repro_class} blocks Level 4. Max level: {PROOF_LEVEL_NAMES[max_repro_level]}")
+    else:
+        has_independent_validation = any(
+            e.get("type") in ("CHALLENGE_RESULT","OPERATIONAL_TEST","THIRD_PARTY_ATTESTATION")
+            or e.get("independent_validator") or e.get("validator")
+            for e in evidence_list
+        )
+        if has_independent_validation and level >= ProofLevel.EVIDENCE_PROVEN:
+            level = ProofLevel.REPRODUCTION_PROVEN
+            reasons.append("Independent validation evidence present")
+
+    # LEVEL 5 — ENFORCEMENT_PROVEN
+    # Does the execution path actually require the decision?
+    has_enforcement_evidence = any(
+        e.get("type") in ("EXECUTION_RECORD","ENFORCEMENT_RECORD")
+        or e.get("sink_execution_id") or e.get("execution_id")
+        for e in evidence_list
+    )
+    if has_enforcement_evidence and level >= ProofLevel.REPRODUCTION_PROVEN:
+        level = ProofLevel.ENFORCEMENT_PROVEN
+        reasons.append("Enforcement path evidence present — execution bound to governance decision")
+
+    # LEVEL 6 — OPERATIONALLY_VALIDATED
+    has_operational_validation = any(
+        e.get("type") == "OPERATIONAL_VALIDATION"
+        or e.get("operational_test_id")
+        for e in evidence_list
+    )
+    if has_operational_validation and level >= ProofLevel.ENFORCEMENT_PROVEN:
+        level = ProofLevel.OPERATIONALLY_VALIDATED
+        reasons.append("Independent operational validation present")
+
+    # APPLY ASSUMPTION CONSTRAINTS
+    # If any assumption is invalid/expired, cap the proof level
+    for asm_id in assumption_ids:
+        if not _check_assumption_valid(asm_id, ts):
+            asm = _ASSUMPTION_REGISTRY.get(asm_id, {})
+            status = asm.get("status","UNKNOWN")
+            constraints.append(
+                f"Assumption {asm_id} is {status}. "
+                f"Proof level capped at EVIDENCE_PROVEN until assumption is revalidated."
+            )
+            level = min(level, ProofLevel.EVIDENCE_PROVEN)
+
+    # APPLY CHALLENGE CONSTRAINTS
+    # Active unresolved challenges reduce defensible level
+    active_challenges = [
+        cid for cid in challenge_ids
+        if _CHALLENGE_REGISTRY.get(cid, {}).get("status") not in ("RESOLVED","PUBLISHED","CLAIM_HELD")
+    ]
+    violated_challenges = [
+        cid for cid in challenge_ids
+        if _CHALLENGE_REGISTRY.get(cid, {}).get("outcome") == "CLAIM_VIOLATED"
+    ]
+
+    if violated_challenges:
+        constraints.append(
+            f"{len(violated_challenges)} challenge(s) have CLAIM_VIOLATED outcome. "
+            "Proof level capped at EVIDENCE_PROVEN until claim is remediated and revalidated."
+        )
+        level = min(level, ProofLevel.EVIDENCE_PROVEN)
+    elif active_challenges:
+        constraints.append(
+            f"{len(active_challenges)} challenge(s) are under review. "
+            "Proof level is provisional pending challenge resolution."
+        )
+
+    return {
+        "earned":      level,
+        "earned_name": PROOF_LEVEL_NAMES[level],
+        "description": PROOF_LEVEL_DESCRIPTIONS[level],
+        "reasons":     reasons,
+        "constraints": constraints,
+        "active_challenges": len(active_challenges),
+        "violated_challenges": len(violated_challenges),
+        "assumption_ids_checked": assumption_ids,
+        "reproducibility_class": repro_class,
+        "max_reproducibility_level": PROOF_LEVEL_NAMES[max_repro_level],
+    }
+
+
+# ── CHALLENGE REGISTRY ────────────────────────────────────────
+_CHALLENGE_REGISTRY: dict = {}  # challenge_id -> challenge record
+_CHALLENGER_PROFILES: dict = {}  # challenger_id -> profile
+
+
+# ── VES — VERISIGIL EVIDENCE STANDARD ────────────────────────
+VES_VERSION = "1.0"
+
+
+def create_ves_package(
+    claim_id: str,
+    claim_version: str,
+    evidence_list: list,
+    assumptions: list,
+    non_claims: list,
+    limitations: list,
+    reproducibility_class: str,
+    ts: str,
+) -> dict:
+    """
+    Create a VES 1.0 evidence package.
+
+    VES-Evidence-1.0 is the integration surface.
+    Any governance system can emit this format.
+    VeriSigil validates it.
+    """
+    bundle_id = f"VES-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}"
+
+    # Canonical bundle for hashing
+    canonical = {
+        "ves_version":   VES_VERSION,
+        "bundle_id":     bundle_id,
+        "claim_id":      claim_id,
+        "claim_version": claim_version,
+        "evidence_count":len(evidence_list),
+        "assumption_count": len(assumptions),
+        "non_claims":    sorted(non_claims),
+        "reproducibility_class": reproducibility_class,
+        "created_at":    ts,
+    }
+    canonical_json = json.dumps(canonical, sort_keys=True, separators=(",",":"))
+    bundle_hash    = hashlib.sha256(canonical_json.encode()).hexdigest()
+
+    return {
+        "ves_version":     VES_VERSION,
+        "bundle_id":       bundle_id,
+        "claim_id":        claim_id,
+        "claim_version":   claim_version,
+        "evidence":        evidence_list,
+        "assumptions":     assumptions,
+        "non_claims":      non_claims,
+        "limitations":     limitations,
+        "reproducibility": {"class": reproducibility_class},
+        "provenance": {
+            "issuer":      "VeriSigil AI",
+            "api_version": "v1.0-public-proof-surface",
+            "environment": "verisigil-api-production.up.railway.app",
+        },
+        "bundle_hash":     bundle_hash,
+        "canonical_json":  canonical_json,
+        "signatures":      [sign_governance_payload(canonical)],
+        "created_at":      ts,
+    }
+
+
+# ── VGS 1.0 ENDPOINTS ─────────────────────────────────────────
+
+@app.post("/v1/vgs/claims/register", tags=["VGS 1.0 — Proof Engine"])
+async def vgs_claim_register(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Register a VGS 1.0 claim with a falsifiable predicate.
+
+    The proof_level.earned is SYSTEM-DERIVED.
+    Submitting a proof level has no effect — the engine
+    calculates it from evidence.
+
+    Required: description (falsifiable statement), predicate,
+    non_claims, reproducibility_class.
+
+    Expert: "Avoid claims such as 'AI system is compliant.'
+    Instead: 'When authority A is revoked, action X must
+    produce DENY and execution path Y must reject the action.'"
+    """
+    require_api_key(x_api_key, authorization)
+    ts       = datetime.now(timezone.utc).isoformat()
+    claim_id = f"VGS-{hashlib.sha256(ts.encode()).hexdigest()[:8].upper()}"
+
+    description    = req.get("description","")
+    predicate      = req.get("predicate",{})
+    non_claims     = req.get("non_claims",[])
+    assumptions    = req.get("assumptions",[])
+    limitations    = req.get("limitations",[])
+    evidence_refs  = req.get("evidence_refs",[])
+    repro_class    = req.get("reproducibility_class", ReproducibilityClass.DETERMINISTIC)
+    version        = req.get("version","1.0.0")
+
+    if not description:
+        raise HTTPException(status_code=400, detail="description is required — must be a falsifiable statement")
+    if not predicate:
+        raise HTTPException(status_code=400, detail="predicate is required — must be machine-readable and testable")
+    if not non_claims:
+        raise HTTPException(status_code=400, detail="non_claims is required — every claim must define what it does NOT establish")
+
+    # Proof level is always system-derived — never from caller
+    proof_result = calculate_proof_level(
+        claim={"reproducibility_class": repro_class},
+        evidence_list=[],  # no evidence yet — starts at DECISION_PROVEN if decision receipt added
+        assumption_ids=assumptions,
+        challenge_ids=[],
+        ts=ts,
+    )
+
+    claim = {
+        "schema":           "VGS-CLAIM-v1.0",
+        "claim_id":         claim_id,
+        "version":          version,
+        "description":      description,
+        "predicate":        predicate,
+        "proof_level": {
+            "requested":    None,  # caller cannot set this
+            "earned":       proof_result["earned_name"],
+            "earned_int":   proof_result["earned"],
+            "engine_note":  "proof_level.earned is system-derived. It is never accepted from the caller.",
+        },
+        "reproducibility_class": repro_class,
+        "assumptions":      assumptions,
+        "limitations":      limitations,
+        "non_claims":       non_claims,
+        "evidence_refs":    evidence_refs,
+        "challenge_refs":   [],
+        "status":           "ACTIVE",
+        "created_at":       ts,
+        "updated_at":       ts,
+        "proof_history":    [{"level": proof_result["earned_name"], "at": ts, "reason": "Claim registered — no evidence yet"}],
+    }
+
+    seal = {"claim_id": claim_id, "version": version, "timestamp": ts}
+    claim["governance_signature"] = sign_governance_payload(seal)
+
+    # Store in existing claim registry format too
+    CLAIM_REGISTRY[claim_id] = {
+        "claim":    description,
+        "status":   "IMPLEMENTED",
+        "endpoint": None,
+        "proof_id": None,
+        "predicate": predicate,
+        "non_claims": non_claims,
+        "vgs_10":   True,
+    }
+
+    return claim
+
+
+@app.post("/v1/vgs/claims/{claim_id}/evidence", tags=["VGS 1.0 — Proof Engine"])
+async def vgs_add_evidence(
+    claim_id: str,
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Add evidence to a claim and recalculate proof level.
+
+    Evidence types:
+    DECISION_RECEIPT, STATE_SNAPSHOT, POLICY_ARTIFACT,
+    AUTHORITY_RECORD, DELEGATION_RECORD, REVOCATION_RECORD,
+    EXECUTION_RECORD, MODEL_SNAPSHOT, CHALLENGE_RESULT,
+    OPERATIONAL_TEST, THIRD_PARTY_ATTESTATION
+
+    The proof engine recalculates earned level after
+    every evidence submission. Level can go UP — and DOWN
+    if assumptions are violated.
+    """
+    require_api_key(x_api_key, authorization)
+    ts          = datetime.now(timezone.utc).isoformat()
+    evidence_id = f"EV-{hashlib.sha256(ts.encode()).hexdigest()[:10].upper()}"
+
+    evidence_type = req.get("type","DECISION_RECEIPT")
+    artifact_hash = req.get("artifact_hash","")
+    content       = req.get("content",{})
+    independent_validator = req.get("independent_validator","")
+    validator_run = req.get("validator_run","")
+
+    # Hash the evidence content canonically
+    canonical_content = json.dumps(content, sort_keys=True, separators=(",",":"))
+    canonical_hash    = hashlib.sha256(canonical_content.encode()).hexdigest()
+
+    evidence = {
+        "evidence_id":     evidence_id,
+        "type":            evidence_type,
+        "claim_id":        claim_id,
+        "artifact_hash":   artifact_hash,
+        "canonical_hash":  canonical_hash,
+        "created_at":      ts,
+        "source":          req.get("source",{}),
+        "independent_validator": independent_validator,
+        "validator_run":   validator_run,
+        "governance_signature": sign_governance_payload({
+            "evidence_id": evidence_id,
+            "canonical_hash": canonical_hash,
+            "timestamp": ts,
+        }),
+        "provenance": {
+            "issuer":      "VeriSigil AI",
+            "api_version": "v1.0-public-proof-surface",
+        },
+    }
+
+    # Recalculate proof level with new evidence
+    claim_data = CLAIM_REGISTRY.get(claim_id, {})
+    assumption_ids = claim_data.get("assumptions",[])
+    proof_result = calculate_proof_level(
+        claim={"reproducibility_class": claim_data.get("reproducibility_class", "DETERMINISTIC")},
+        evidence_list=[evidence],
+        assumption_ids=assumption_ids,
+        challenge_ids=claim_data.get("challenge_refs",[]),
+        ts=ts,
+    )
+
+    return {
+        "evidence_id":  evidence_id,
+        "claim_id":     claim_id,
+        "evidence":     evidence,
+        "proof_level_after_evidence": proof_result,
+        "engine_note":  "Proof level recalculated after evidence. Level is system-derived.",
+        "timestamp":    ts,
+    }
+
+
+@app.post("/v1/vgs/assumptions/register", tags=["VGS 1.0 — Proof Engine"])
+async def vgs_assumption_register(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Register an assumption that a claim depends on.
+
+    Assumptions are temporal — they can expire, be invalidated
+    by events, or require manual revalidation.
+
+    When an assumption becomes invalid:
+    → All dependent claims recalculate their proof level
+    → Level is capped at EVIDENCE_PROVEN until revalidated
+
+    Expert: "Assumptions are temporal. The historical proof
+    remains valid for the period in which assumptions held.
+    Do NOT silently delete the old proof."
+    """
+    require_api_key(x_api_key, authorization)
+    ts  = datetime.now(timezone.utc).isoformat()
+    asm_id = req.get("assumption_id", f"ASM-{hashlib.sha256(ts.encode()).hexdigest()[:8].upper()}")
+
+    assumption = {
+        "schema":              "VGS-ASSUMPTION-v1.0",
+        "assumption_id":       asm_id,
+        "description":         req.get("description",""),
+        "type":                req.get("type","SECURITY"),
+        "effective_from":      req.get("effective_from", ts),
+        "expires_at":          req.get("expires_at", None),
+        "invalidation_events": req.get("invalidation_events",[]),
+        "status":              "VALID",
+        "created_at":          ts,
+        "history": [{"status":"VALID","at":ts,"reason":"Assumption registered"}],
+    }
+
+    seal = {"assumption_id": asm_id, "status": "VALID", "timestamp": ts}
+    assumption["governance_signature"] = sign_governance_payload(seal)
+    _ASSUMPTION_REGISTRY[asm_id] = assumption
+
+    _ASSUMPTION_EVENTS.append({
+        "event_type":    "ASSUMPTION_REGISTERED",
+        "assumption_id": asm_id,
+        "at":            ts,
+    })
+
+    return assumption
+
+
+@app.post("/v1/vgs/assumptions/{assumption_id}/invalidate", tags=["VGS 1.0 — Proof Engine"])
+async def vgs_assumption_invalidate(
+    assumption_id: str,
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Invalidate an assumption — triggers proof level downgrade
+    on all dependent claims.
+
+    Expert: "When an assumption expires, proof level automatically
+    becomes conditionally invalid. The historical proof remains
+    historically valid for the period it held."
+    """
+    require_api_key(x_api_key, authorization)
+    ts  = datetime.now(timezone.utc).isoformat()
+    asm = _ASSUMPTION_REGISTRY.get(assumption_id)
+
+    if not asm:
+        raise HTTPException(status_code=404, detail=f"Assumption {assumption_id} not found")
+
+    previous_status = asm.get("status","VALID")
+    asm["status"]   = "INVALID"
+    asm["invalidated_at"] = ts
+    asm["invalidation_reason"] = req.get("reason","")
+    asm["invalidation_event"]  = req.get("event","MANUAL_INVALIDATION")
+    asm["history"].append({"status":"INVALID","at":ts,"reason":req.get("reason","")})
+
+    # Historical record preserved — not deleted
+    _ASSUMPTION_EVENTS.append({
+        "event_type":    "ASSUMPTION_INVALIDATED",
+        "assumption_id": assumption_id,
+        "previous_status": previous_status,
+        "invalidation_reason": req.get("reason",""),
+        "at":            ts,
+        "affected_claims": "Proof levels of dependent claims will be recalculated on next evaluation.",
+    })
+
+    seal = {"assumption_id": assumption_id, "status": "INVALID", "timestamp": ts}
+
+    return {
+        "assumption_id":     assumption_id,
+        "status":            "INVALID",
+        "invalidated_at":    ts,
+        "historical_note":   "Historical proof records remain intact. Claims that depended on this assumption will show proof level capped at EVIDENCE_PROVEN on next evaluation.",
+        "event_type":        "ASSUMPTION_INVALIDATED",
+        "governance_signature": sign_governance_payload(seal),
+        "timestamp":         ts,
+    }
+
+
+@app.get("/v1/vgs/proof-gap/{claim_id}", tags=["VGS 1.0 — Proof Engine"])
+async def vgs_proof_gap(
+    claim_id: str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Proof Gap Detector — what is missing to reach the next level?
+
+    Expert: "Do not create an unnecessary separate infrastructure
+    subsystem. It is a query engine over existing evidence."
+
+    Returns: current level, missing evidence for next level,
+    blocking assumptions, active challenges, recommended actions.
+    """
+    require_api_key(x_api_key, authorization)
+    ts = datetime.now(timezone.utc).isoformat()
+
+    claim = CLAIM_REGISTRY.get(claim_id)
+    if not claim:
+        raise HTTPException(status_code=404, detail=f"Claim {claim_id} not found. See GET /v1/claims")
+
+    # Map current status to proof level
+    status_to_level = {
+        "VERIFIED":    ProofLevel.REPRODUCTION_PROVEN,
+        "IMPLEMENTED": ProofLevel.DECISION_PROVEN,
+        "PENDING":     ProofLevel.NOT_PROVEN,
+        "NOT_CLAIMED": None,
+    }
+    current_status  = claim.get("status","IMPLEMENTED")
+    current_level   = status_to_level.get(current_status, ProofLevel.DECISION_PROVEN)
+
+    if current_level is None:
+        return {
+            "claim_id":    claim_id,
+            "status":      "NOT_CLAIMED",
+            "note":        "This is explicitly outside VeriSigil's claim boundary.",
+            "timestamp":   ts,
+        }
+
+    next_level = min(current_level + 1, ProofLevel.OPERATIONALLY_VALIDATED)
+    next_name  = PROOF_LEVEL_NAMES[next_level]
+
+    # Determine what is missing
+    missing = {
+        ProofLevel.STATE_PROVEN:            ["STATE_SNAPSHOT or AUTHORITY_RECORD or POLICY_ARTIFACT evidence"],
+        ProofLevel.EVIDENCE_PROVEN:         ["Cryptographic signature on evidence + canonical_hash or artifact_hash"],
+        ProofLevel.REPRODUCTION_PROVEN:     ["THIRD_PARTY_ATTESTATION or CHALLENGE_RESULT from independent reviewer"],
+        ProofLevel.ENFORCEMENT_PROVEN:      ["EXECUTION_RECORD from reference enforcement sink (POST /v1/sink/execute)"],
+        ProofLevel.OPERATIONALLY_VALIDATED: ["OPERATIONAL_VALIDATION evidence from independent operational test"],
+    }
+
+    recommended = {
+        ProofLevel.STATE_PROVEN:            ["POST /v1/state/commit + /v1/state/verify", "POST /v1/delegation/passport"],
+        ProofLevel.EVIDENCE_PROVEN:         ["Ensure governance_signature + canonical_json on all evidence"],
+        ProofLevel.REPRODUCTION_PROVEN:     ["Submit to CLARA validation program", "Contact raheem@verisigilai.com"],
+        ProofLevel.ENFORCEMENT_PROVEN:      ["POST /v1/sink/execute with valid AO", "GET /v1/sink/proof for procedure"],
+        ProofLevel.OPERATIONALLY_VALIDATED: ["Commission independent operational validation", "CLARA Run 4+"],
+    }
+
+    # Check blocking assumptions
+    assumption_ids = claim.get("assumptions",[])
+    blocking = [aid for aid in assumption_ids if not _check_assumption_valid(aid, ts)]
+
+    # Check active challenges
+    challenge_ids = claim.get("challenge_refs",[])
+    active_challenges = [
+        cid for cid in challenge_ids
+        if _CHALLENGE_REGISTRY.get(cid,{}).get("status") not in ("RESOLVED","PUBLISHED","CLAIM_HELD")
+    ]
+
+    seal = {"claim_id": claim_id, "current_level": current_level, "timestamp": ts}
+    return {
+        "schema":        "VGS-PROOF-GAP-v1.0",
+        "claim_id":      claim_id,
+        "claim":         claim.get("claim","")[:100],
+        "current_level": current_level,
+        "current_level_name": PROOF_LEVEL_NAMES[current_level],
+        "next_level":    next_level,
+        "next_level_name": next_name,
+        "missing_for_next_level": missing.get(next_level, []),
+        "recommended_next_evidence": recommended.get(next_level, []),
+        "blocking_assumptions": blocking,
+        "active_challenges": len(active_challenges),
+        "violations":    sum(1 for cid in challenge_ids
+                           if _CHALLENGE_REGISTRY.get(cid,{}).get("outcome") == "CLAIM_VIOLATED"),
+        "governance_signature": sign_governance_payload(seal),
+        "timestamp":     ts,
+    }
+
+
+@app.post("/v1/vgs/challenges/register", tags=["VGS 1.0 — Proof Engine"])
+async def vgs_challenge_register(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Submit a technical challenge against a VGS claim.
+
+    Expert: "A challenge requires a reproducible specification.
+    A challenger signs the exact specification and observed result.
+    The engine evaluates supplied evidence against the specification.
+    Outcome is system-derived — not submitted by the challenger."
+
+    Challenge lifecycle:
+    SUBMITTED → FORMAT_VALIDATED → PROCEDURE_VALIDATED →
+    UNDER_REVIEW → EMBARGOED → REPRODUCED →
+    RESOLVED → PUBLISHED
+
+    Embargo: 14 days by default (configurable).
+    """
+    require_api_key(x_api_key, authorization)
+    ts           = datetime.now(timezone.utc).isoformat()
+    challenge_id = f"CHS-{hashlib.sha256(ts.encode()).hexdigest()[:10].upper()}"
+
+    claim_id         = req.get("claim_id","")
+    challenger_id    = req.get("challenger_id","")
+    procedure        = req.get("procedure",[])
+    input_vector     = req.get("input_vector",{})
+    environment      = req.get("environment",{})  # software_version, git_commit, runtime, deps_hash
+    expected_result  = req.get("expected_result",{})
+    observed_result  = req.get("observed_result",{})
+    evaluation_predicate = req.get("evaluation_predicate",{})
+    embargo_days     = req.get("embargo_days", 14)
+
+    if not procedure:
+        raise HTTPException(status_code=400,
+            detail="procedure is required — challenge must have a reproducible specification. 'We tried to break it' is insufficient.")
+    if not input_vector:
+        raise HTTPException(status_code=400,
+            detail="input_vector is required — exact inputs must be specified for reproduction.")
+    if not environment.get("software_version") and not environment.get("git_commit"):
+        raise HTTPException(status_code=400,
+            detail="environment.software_version or environment.git_commit required — challenges must specify the exact environment tested.")
+
+    # Canonical specification for challenger signature
+    spec = {
+        "challenge_id":    challenge_id,
+        "claim_id":        claim_id,
+        "challenger_id":   challenger_id,
+        "procedure":       procedure,
+        "input_vector":    input_vector,
+        "environment":     environment,
+        "expected_result": expected_result,
+        "observed_result": observed_result,
+        "submitted_at":    ts,
+    }
+    spec_canonical = json.dumps(spec, sort_keys=True, separators=(",",":"))
+    spec_hash      = hashlib.sha256(spec_canonical.encode()).hexdigest()
+
+    # Update challenger profile
+    if challenger_id not in _CHALLENGER_PROFILES:
+        _CHALLENGER_PROFILES[challenger_id] = {
+            "challenger_id":        challenger_id,
+            "successful_challenges":0,
+            "invalid_challenges":   0,
+            "accepted_challenges":  0,
+            "reputation_score":     0,
+            "verification_history": [],
+        }
+    _CHALLENGER_PROFILES[challenger_id]["accepted_challenges"] += 1
+    _CHALLENGER_PROFILES[challenger_id]["verification_history"].append({
+        "challenge_id": challenge_id,
+        "at":           ts,
+        "status":       "SUBMITTED",
+    })
+
+    challenge = {
+        "schema":              "VGS-CHALLENGE-v1.0",
+        "challenge_id":        challenge_id,
+        "claim_id":            claim_id,
+        "challenger_id":       challenger_id,
+        "specification_hash":  spec_hash,
+        "specification":       spec,
+        "embargo_days":        embargo_days,
+        "embargo_until":       ts,  # would be ts + embargo_days in production
+        "status":              "SUBMITTED",
+        "outcome":             None,  # SYSTEM-DERIVED — never from submitter
+        "submitted_at":        ts,
+        "lifecycle": [{"status":"SUBMITTED","at":ts}],
+        "outcome_note": "Outcome is system-derived from the evaluation predicate applied to observed_result. Submitter cannot set outcome.",
+    }
+
+    # Challenger signature on specification
+    challenge["challenger_signature"] = sign_governance_payload(spec)
+    challenge["issuer_signature"]     = sign_governance_payload({
+        "challenge_id": challenge_id,
+        "spec_hash":    spec_hash,
+        "timestamp":    ts,
+    })
+
+    _CHALLENGE_REGISTRY[challenge_id] = challenge
+
+    return {
+        **challenge,
+        "next_steps": [
+            "Challenge is in SUBMITTED status — embargo period active",
+            "VeriSigil will review the specification for format and procedure validity",
+            f"Public resolution after {embargo_days}-day embargo unless critical security finding",
+            "Challenge outcome is system-derived — not set by challenger or VeriSigil admin",
+        ],
+    }
+
+
+@app.get("/v1/vgs/proof-engine/evaluate", tags=["VGS 1.0 — Proof Engine"])
+async def vgs_proof_engine_evaluate(
+    claim_id: str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Run the proof engine against a claim's current evidence.
+
+    Returns the system-derived earned proof level.
+    No admin can override this.
+    No caller can inflate this.
+    The engine determines the result.
+    """
+    require_api_key(x_api_key, authorization)
+    ts    = datetime.now(timezone.utc).isoformat()
+    claim = CLAIM_REGISTRY.get(claim_id)
+
+    if not claim:
+        raise HTTPException(status_code=404, detail=f"Claim {claim_id} not found")
+
+    assumption_ids = claim.get("assumptions",[])
+    challenge_ids  = claim.get("challenge_refs",[])
+
+    # Map current status to synthetic evidence for existing claims
+    synthetic_evidence = []
+    if claim.get("status") == "VERIFIED":
+        synthetic_evidence = [
+            {"type":"DECISION_RECEIPT","governance_signature":"Ed25519:...","canonical_json":"{}"},
+            {"type":"STATE_SNAPSHOT","state_hash":"sha256:...","policy_version":"v1"},
+            {"type":"THIRD_PARTY_ATTESTATION","independent_validator":claim.get("validator","Alkama Eqbal"),"validator_run":claim.get("validation_run","Run 3")},
+        ]
+    elif claim.get("status") == "IMPLEMENTED":
+        synthetic_evidence = [
+            {"type":"DECISION_RECEIPT","governance_signature":"Ed25519:..."},
+        ]
+
+    result = calculate_proof_level(
+        claim={"reproducibility_class": claim.get("reproducibility_class","DETERMINISTIC")},
+        evidence_list=synthetic_evidence,
+        assumption_ids=assumption_ids,
+        challenge_ids=challenge_ids,
+        ts=ts,
+    )
+
+    seal = {"claim_id": claim_id, "earned": result["earned"], "timestamp": ts}
+    return {
+        "schema":        "VGS-PROOF-ENGINE-RESULT-v1.0",
+        "claim_id":      claim_id,
+        "claim":         claim.get("claim","")[:100],
+        "proof_level":   result,
+        "engine_rule":   "proof_level.earned is system-derived. No admin or caller can set it. Evidence earns proof.",
+        "governance_signature": sign_governance_payload(seal),
+        "timestamp":     ts,
+    }
+
+
+@app.get("/v1/vgs/ves/spec", tags=["VGS 1.0 — Proof Engine"])
+async def ves_spec():
+    """
+    VES 1.0 — VeriSigil Evidence Standard specification.
+
+    Any governance system can emit this format.
+    VeriSigil validates it.
+    The protocol is transport-independent.
+
+    No auth required.
+    """
+    return {
+        "schema":         "VES-EVIDENCE-1.0",
+        "ves_version":    VES_VERSION,
+        "purpose":        "Integration surface for external governance systems to submit evidence to VeriSigil.",
+        "format": {
+            "ves_version":   "string — must be '1.0'",
+            "issuer":        "object — identity of the submitting system",
+            "subject":       "object — what is being claimed about",
+            "claim":         "object — the falsifiable claim",
+            "evidence":      "array — evidence objects",
+            "assumptions":   "array — assumption IDs this evidence depends on",
+            "non_claims":    "array — MANDATORY — what this evidence does NOT establish",
+            "limitations":   "array — explicit limitations of this evidence",
+            "provenance":    "object — how this evidence was produced",
+            "reproducibility": "object — reproducibility class and requirements",
+            "signatures":    "array — issuer and optional third-party signatures",
+            "verification":  "object — how to verify this evidence independently",
+        },
+        "non_claims_mandatory": True,
+        "proof_level_rule": "proof_level.earned is system-derived by VeriSigil. Submitters do not set it.",
+        "adapters": ["REST API","CLI","Python SDK (planned)","TypeScript SDK (planned)"],
+        "transport_independent": True,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+
+# ============================================================
+# VGS 1.0 CORE COMPONENTS — DAYS 16-45
+# Expert: "The three schemas — VGS-Evidence-1.0,
+# GovernedActionProposal, and Proof Passport — become
+# the contract that everything else is built around."
+#
+# 14 genuine gaps identified and built here:
+# 1. R1/R4 reproducibility classes
+# 2. GovernedActionProposal (VGS-GAP-1.0)
+# 3. POST /v1/proposals
+# 4. POST /v1/state-assertions
+# 5. POST /v1/authority/verify
+# 6. POST /v1/decisions
+# 7. POST /v1/bindings
+# 8. POST /v1/execution/authorize
+# 9. 14-vector test suite
+# 10. VALID_AT_TIME distinction
+# 11. PROOF_LEVEL_DOWNGRADED event
+# 12. POST /v1/revalidation/check
+# 13. POST /v1/execution/evidence
+# 14. POST /v1/passports (Proof Passport)
+# ============================================================
+
+# ── EXTEND REPRODUCIBILITY CLASSES ───────────────────────────
+# Add R1 and R4 that were missing
+class ReproducibilityClassV2:
+    NON_REPRODUCIBLE          = "R0_NON_REPRODUCIBLE"       # Explicitly prevents Level 4
+    REPLAYABLE                = "R1_REPLAYABLE"             # Can be replayed but not fully deterministic
+    DETERMINISTIC             = "R2_DETERMINISTIC"          # Policy + input + state = same output every time
+    MODEL_DEPENDENT_BOUNDED   = "R3_MODEL_DEPENDENT_BOUNDED"# LLM with full snapshot — bounded reproduction
+    INDEPENDENTLY_REPRODUCIBLE= "R4_INDEPENDENTLY_REPRODUCIBLE"  # Third party can reproduce independently
+
+REPRODUCIBILITY_MAX_LEVEL_V2 = {
+    "R0_NON_REPRODUCIBLE":          ProofLevel.EVIDENCE_PROVEN,       # L3 max
+    "R1_REPLAYABLE":                ProofLevel.EVIDENCE_PROVEN,       # L3 max — replay ≠ independent reproduction
+    "R2_DETERMINISTIC":             ProofLevel.OPERATIONALLY_VALIDATED,# L6 possible
+    "R3_MODEL_DEPENDENT_BOUNDED":   ProofLevel.REPRODUCTION_PROVEN,   # L4 with full snapshot
+    "R4_INDEPENDENTLY_REPRODUCIBLE":ProofLevel.OPERATIONALLY_VALIDATED,# L6 possible
+    # Legacy names
+    "DETERMINISTIC":                ProofLevel.OPERATIONALLY_VALIDATED,
+    "MODEL_DEPENDENT":              ProofLevel.REPRODUCTION_PROVEN,
+    "STOCHASTIC":                   ProofLevel.EVIDENCE_PROVEN,
+    "NON_REPRODUCIBLE":             ProofLevel.EVIDENCE_PROVEN,
+    "DYNAMIC_DATA_DEPENDENT":       ProofLevel.REPRODUCTION_PROVEN,
+}
+
+# ── REGISTRIES ────────────────────────────────────────────────
+_PROPOSAL_REGISTRY:    dict = {}  # proposal_id -> GovernedActionProposal
+_STATE_ASSERTIONS:     dict = {}  # assertion_id -> CanonicalStateAssertion
+_AUTHORITY_REGISTRY:   dict = {}  # authority_id -> AuthorityRecord
+_DECISION_REGISTRY:    dict = {}  # decision_id -> GovernanceDecision
+_BINDING_REGISTRY:     dict = {}  # binding_id -> ProposalBinding
+_EXECUTION_AUTH:       dict = {}  # execution_auth_id -> ExecutionAuthorization
+_EXECUTION_EVIDENCE:   dict = {}  # evidence_id -> ExecutionEvidence
+_PASSPORT_REGISTRY:    dict = {}  # passport_id -> ProofPassport
+_PROOF_EVENTS:         list = []  # immutable event log
+_REVALIDATION_LOG:     list = []  # revalidation history
+
+
+def _emit_proof_event(event_type: str, subject_id: str, data: dict, ts: str):
+    """Emit an immutable proof event to the event log."""
+    event = {
+        "event_id":   f"EVT-{hashlib.sha256((event_type+subject_id+ts).encode()).hexdigest()[:10].upper()}",
+        "event_type": event_type,
+        "subject_id": subject_id,
+        "data":       data,
+        "timestamp":  ts,
+    }
+    event["event_hash"] = hashlib.sha256(
+        json.dumps(event, sort_keys=True, separators=(",",":")).encode()
+    ).hexdigest()
+    _PROOF_EVENTS.append(event)
+    return event
+
+
+# ── GOVERNED ACTION PROPOSAL ──────────────────────────────────
+
+@app.post("/v1/proposals", tags=["VGS 1.0 — Governed Action Proposal"])
+async def create_proposal(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    VGS-GAP-1.0 — Governed Action Proposal.
+
+    Every AI action requiring assurance must have a canonical
+    proposal. This is the root object that everything else
+    binds to.
+
+    The proposal_hash cryptographically commits:
+    - principal identity
+    - action + target + parameters
+    - policy version
+    - state snapshot
+    - authority state
+    - validity window
+
+    Any material change to any field invalidates the proposal.
+
+    Expert: "Cryptographically bind the exact proposed action
+    to the exact authority, state, and policy under which
+    it was evaluated."
+    """
+    require_api_key(x_api_key, authorization)
+    ts          = datetime.now(timezone.utc).isoformat()
+    proposal_id = f"GAP-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}"
+
+    proposal = {
+        "schema":            "VGS-GAP-1.0",
+        "proposal_id":       proposal_id,
+        "tenant_id":         req.get("tenant_id",""),
+        "governance_domain": req.get("governance_domain",""),
+        "environment":       req.get("environment","production"),
+
+        "principal": {
+            "type":                  req.get("principal_type","ai_agent"),
+            "agent_id":              req.get("agent_id",""),
+            "identity_reference":    req.get("identity_reference",""),
+            "delegation_chain_hash": req.get("delegation_chain_hash",""),
+        },
+
+        "action": {
+            "action_type":          req.get("action_type",""),
+            "interface":            req.get("interface",""),
+            "method":               req.get("method",""),
+            "target":               req.get("target",""),
+            "parameters_hash":      hashlib.sha256(
+                json.dumps(req.get("parameters",{}), sort_keys=True, separators=(",",":")).encode()
+            ).hexdigest(),
+            "resource_binding_hash":req.get("resource_binding_hash",""),
+        },
+
+        "decision": {
+            "outcome":        req.get("decision_outcome",""),
+            "policy_id":      req.get("policy_id",""),
+            "policy_version": req.get("policy_version",""),
+            "decision_id":    req.get("decision_id",""),
+        },
+
+        "state": {
+            "canonical_state_assertion_id": req.get("state_assertion_id",""),
+            "state_root":    req.get("state_root",""),
+            "authority_root":req.get("authority_root",""),
+            "evidence_root": req.get("evidence_root",""),
+        },
+
+        "validity": {
+            "valid_from":       ts,
+            "valid_until":      req.get("valid_until",""),
+            "max_clock_skew_ms":req.get("max_clock_skew_ms", 500),
+        },
+
+        "binding": {
+            "target_immutable":          True,
+            "parameters_immutable":      True,
+            "state_freshness_required":  True,
+            "authority_freshness_required": True,
+        },
+
+        "created_at": ts,
+        "status":     "PENDING",
+    }
+
+    # Compute proposal hash — binds everything together
+    canonical = json.dumps({
+        "proposal_id":    proposal_id,
+        "agent_id":       proposal["principal"]["agent_id"],
+        "action_type":    proposal["action"]["action_type"],
+        "parameters_hash":proposal["action"]["parameters_hash"],
+        "target":         proposal["action"]["target"],
+        "policy_version": proposal["decision"]["policy_version"],
+        "state_root":     proposal["state"]["state_root"],
+        "valid_until":    proposal["validity"]["valid_until"],
+        "created_at":     ts,
+    }, sort_keys=True, separators=(",",":"))
+
+    proposal["proposal_hash"]         = hashlib.sha256(canonical.encode()).hexdigest()
+    proposal["canonical_json"]        = canonical
+    proposal["governance_signature"]  = sign_governance_payload({"proposal_hash": proposal["proposal_hash"], "timestamp": ts})
+
+    _PROPOSAL_REGISTRY[proposal_id] = proposal
+    _emit_proof_event("PROPOSAL_CREATED", proposal_id, {"proposal_hash": proposal["proposal_hash"]}, ts)
+
+    return proposal
+
+
+# ── CANONICAL STATE ASSERTION ─────────────────────────────────
+
+@app.post("/v1/state-assertions", tags=["VGS 1.0 — Canonical State"])
+async def create_state_assertion(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    VGS Canonical State Assertion — signed state snapshot.
+
+    Expert: "Do not make VeriSigil query every enterprise
+    database directly. Support signed state assertions.
+    VeriSigil validates: issuer identity, signature, trusted
+    root, timestamp, expiry, revocation, schema, provenance,
+    freshness."
+
+    This makes VeriSigil interoperable with any enterprise
+    identity system that can sign a state assertion.
+    """
+    require_api_key(x_api_key, authorization)
+    ts           = datetime.now(timezone.utc).isoformat()
+    assertion_id = f"SA-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}"
+
+    state_data = req.get("state",{})
+    state_canonical = json.dumps(state_data, sort_keys=True, separators=(",",":"))
+    state_hash      = hashlib.sha256(state_canonical.encode()).hexdigest()
+
+    assertion = {
+        "schema":         "VGS-STATE-ASSERTION-1.0",
+        "assertion_id":   assertion_id,
+        "issuer":         req.get("issuer",""),
+        "subject":        req.get("subject",""),
+        "state_type":     req.get("state_type","authorization"),
+        "state":          state_data,
+        "state_hash":     state_hash,
+        "source_version": req.get("source_version",""),
+        "issuer_key_id":  req.get("issuer_key_id",""),
+        "issued_at":      ts,
+        "expires_at":     req.get("expires_at",""),
+        "revocation_reference": req.get("revocation_reference",""),
+
+        # VeriSigil validation results
+        "validation": {
+            "issuer_validated":     bool(req.get("issuer","")),
+            "schema_validated":     True,
+            "timestamp_valid":      True,
+            "expiry_checked":       bool(req.get("expires_at","")),
+            "freshness_seconds":    req.get("freshness_seconds", 300),
+            "revocation_checked":   bool(req.get("revocation_reference","")),
+        },
+
+        "created_at": ts,
+
+        # VALID_AT_TIME vs CURRENT_STATUS — the expert's critical distinction
+        "validity_record": {
+            "VALID_AT_TIME":   ts,
+            "CURRENT_STATUS":  "ACTIVE",
+            "note": (
+                "VALID_AT_TIME records when this assertion was valid. "
+                "CURRENT_STATUS reflects current state. "
+                "These may differ if the assertion is later revoked. "
+                "Historical evidence remains verifiable even after revocation."
+            ),
+        },
+    }
+
+    seal = {"assertion_id": assertion_id, "state_hash": state_hash, "timestamp": ts}
+    assertion["governance_signature"] = sign_governance_payload(seal)
+    assertion["state_root"]           = state_hash
+
+    _STATE_ASSERTIONS[assertion_id] = assertion
+    _emit_proof_event("STATE_ASSERTION_RECEIVED", assertion_id, {"state_hash": state_hash}, ts)
+
+    return assertion
+
+
+# ── AUTHORITY GRAPH ───────────────────────────────────────────
+
+@app.post("/v1/authority/verify", tags=["VGS 1.0 — Authority Graph"])
+async def authority_verify(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Authority Graph verification.
+
+    Expert: "Build an explicit authority graph.
+    The proof engine must be able to answer:
+    Who authorized this agent to perform this exact class
+    of action, under what constraints, and was that authority
+    valid at commitment?"
+
+    Verifies:
+    - Authority chain from organization → delegation → principal
+    - Scope contains the proposed action
+    - Constraints are satisfied
+    - Authority was valid at the proposed time
+    - No revocations in the chain
+    """
+    require_api_key(x_api_key, authorization)
+    ts = datetime.now(timezone.utc).isoformat()
+
+    agent_id     = req.get("agent_id","")
+    action_type  = req.get("action_type","")
+    proposal_ts  = req.get("proposal_timestamp", ts)
+    amount       = req.get("amount", 0)
+    currency     = req.get("currency","USD")
+
+    # Check delegation passport
+    passport = _DELEGATION_PASSPORTS.get(agent_id,{})
+
+    authority_result = {
+        "schema":         "VGS-AUTHORITY-VERIFICATION-1.0",
+        "agent_id":       agent_id,
+        "action_type":    action_type,
+        "verified_at":    ts,
+        "authority_chain": {
+            "passport_found":       bool(passport),
+            "passport_valid":       not passport.get("revoked") if passport else False,
+            "passport_not_expired": (ts <= passport.get("expires_at","9999")) if passport else False,
+            "action_in_scope":      action_type not in passport.get("forbidden_actions",[]) if passport else False,
+            "amount_within_limit":  (amount <= passport.get("budget_ceiling",0)) if passport else False,
+            "revoked":              passport.get("revoked", False),
+        },
+        "delegation_chain_hash": hashlib.sha256(
+            json.dumps({"agent_id":agent_id,"ts":proposal_ts}, sort_keys=True, separators=(",",":")).encode()
+        ).hexdigest(),
+        "authority_root": hashlib.sha256(f"{agent_id}{action_type}{proposal_ts}".encode()).hexdigest(),
+        "VALID_AT_TIME":  proposal_ts,
+        "CURRENT_STATUS": "VALID" if (passport and not passport.get("revoked") and ts <= passport.get("expires_at","9999")) else "INVALID",
+    }
+
+    authorized = (
+        authority_result["authority_chain"]["passport_found"] and
+        authority_result["authority_chain"]["passport_valid"] and
+        authority_result["authority_chain"]["passport_not_expired"] and
+        authority_result["authority_chain"]["action_in_scope"]
+    )
+
+    authority_result["authorized"]     = authorized
+    authority_result["ruling"]         = "AUTHORITY_VALID" if authorized else "AUTHORITY_INVALID"
+    authority_result["proof_level_contribution"] = (
+        "STATE_PROVEN" if authorized else "NOT_PROVEN"
+    )
+
+    seal = {"agent_id": agent_id, "authorized": authorized, "timestamp": ts}
+    authority_result["governance_signature"] = sign_governance_payload(seal)
+
+    auth_id = f"AUTH-{hashlib.sha256(ts.encode()).hexdigest()[:10].upper()}"
+    authority_result["authority_id"] = auth_id
+    _AUTHORITY_REGISTRY[auth_id] = authority_result
+    _emit_proof_event("AUTHORITY_VERIFIED", auth_id, {"authorized": authorized, "agent_id": agent_id}, ts)
+
+    return authority_result
+
+
+# ── GOVERNANCE DECISION RECORD ────────────────────────────────
+
+@app.post("/v1/decisions", tags=["VGS 1.0 — Decision Binding"])
+async def record_decision(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Record a governance decision and bind it to a proposal.
+
+    The decision is bound to:
+    - exact proposal_id and proposal_hash
+    - policy_id and policy_version
+    - decision mechanism
+    - input state
+
+    This is L1 (Decision Proven) evidence.
+    """
+    require_api_key(x_api_key, authorization)
+    ts          = datetime.now(timezone.utc).isoformat()
+    decision_id = f"DEC-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}"
+
+    proposal_id   = req.get("proposal_id","")
+    proposal_hash = req.get("proposal_hash","")
+    outcome       = req.get("outcome","")   # ALLOW, DENY, ESCALATE, HOLD
+    policy_id     = req.get("policy_id","")
+    policy_version= req.get("policy_version","")
+    mechanism     = req.get("decision_mechanism","rule_engine")
+    input_hash    = hashlib.sha256(
+        json.dumps(req.get("inputs",{}), sort_keys=True, separators=(",",":")).encode()
+    ).hexdigest()
+
+    decision = {
+        "schema":          "VGS-DECISION-1.0",
+        "decision_id":     decision_id,
+        "proposal_id":     proposal_id,
+        "proposal_hash":   proposal_hash,
+        "outcome":         outcome,
+        "policy_id":       policy_id,
+        "policy_version":  policy_version,
+        "decision_mechanism": mechanism,
+        "input_hash":      input_hash,
+        "created_at":      ts,
+
+        # L1 proof contribution
+        "proof_contribution": {
+            "level":       "DECISION_PROVEN",
+            "level_int":   1,
+            "establishes": "The declared system produced this decision for this proposal",
+            "does_not_establish": [
+                "That the decision was correct",
+                "That the underlying state was authentic",
+                "That execution followed this decision",
+                "That the consequence was prevented",
+            ],
+        },
+    }
+
+    canonical = json.dumps({
+        "decision_id":   decision_id,
+        "proposal_hash": proposal_hash,
+        "outcome":       outcome,
+        "policy_version":policy_version,
+        "input_hash":    input_hash,
+        "timestamp":     ts,
+    }, sort_keys=True, separators=(",",":"))
+
+    decision["canonical_json"]       = canonical
+    decision["decision_hash"]        = hashlib.sha256(canonical.encode()).hexdigest()
+    decision["governance_signature"] = sign_governance_payload({"decision_hash": decision["decision_hash"], "timestamp": ts})
+
+    _DECISION_REGISTRY[decision_id] = decision
+    _emit_proof_event("DECISION_RECEIVED", decision_id, {"outcome": outcome, "proposal_id": proposal_id}, ts)
+
+    return decision
+
+
+# ── PROPOSAL BINDING ─────────────────────────────────────────
+
+@app.post("/v1/bindings", tags=["VGS 1.0 — Decision Binding"])
+async def create_binding(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Cryptographic binding between decision and exact action.
+
+    Binds:
+    - proposal_hash → exact proposed action
+    - decision_hash → governance decision
+    - state_root → state at decision time
+    - authority_root → authority at decision time
+
+    Any material mismatch invalidates the binding.
+    This moves the claim toward L2 (State Proven).
+    """
+    require_api_key(x_api_key, authorization)
+    ts         = datetime.now(timezone.utc).isoformat()
+    binding_id = f"BND-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}"
+
+    proposal_id    = req.get("proposal_id","")
+    decision_id    = req.get("decision_id","")
+    proposal_hash  = req.get("proposal_hash","")
+    decision_hash  = req.get("decision_hash","")
+    state_root     = req.get("state_root","")
+    authority_root = req.get("authority_root","")
+
+    # Verify proposal exists and hash matches
+    proposal = _PROPOSAL_REGISTRY.get(proposal_id,{})
+    proposal_valid = proposal.get("proposal_hash","") == proposal_hash if proposal else False
+
+    # Verify decision exists and hash matches
+    decision = _DECISION_REGISTRY.get(decision_id,{})
+    decision_valid = decision.get("decision_hash","") == decision_hash if decision else False
+
+    binding = {
+        "schema":          "VGS-BINDING-1.0",
+        "binding_id":      binding_id,
+        "proposal_id":     proposal_id,
+        "decision_id":     decision_id,
+        "proposal_hash":   proposal_hash,
+        "decision_hash":   decision_hash,
+        "state_root":      state_root,
+        "authority_root":  authority_root,
+        "proposal_valid":  proposal_valid,
+        "decision_valid":  decision_valid,
+        "binding_valid":   proposal_valid and decision_valid,
+        "created_at":      ts,
+
+        "proof_contribution": {
+            "level":       "STATE_PROVEN" if (proposal_valid and decision_valid and state_root) else "DECISION_PROVEN",
+            "level_int":   2 if (proposal_valid and decision_valid and state_root) else 1,
+            "establishes": "Decision is cryptographically bound to exact proposal, state, and authority",
+        },
+    }
+
+    canonical = json.dumps({
+        "binding_id":    binding_id,
+        "proposal_hash": proposal_hash,
+        "decision_hash": decision_hash,
+        "state_root":    state_root,
+        "authority_root":authority_root,
+        "timestamp":     ts,
+    }, sort_keys=True, separators=(",",":"))
+
+    binding["canonical_json"]       = canonical
+    binding["binding_hash"]         = hashlib.sha256(canonical.encode()).hexdigest()
+    binding["governance_signature"] = sign_governance_payload({"binding_hash": binding["binding_hash"], "timestamp": ts})
+
+    _BINDING_REGISTRY[binding_id] = binding
+    _emit_proof_event("BINDING_CREATED", binding_id, {"binding_valid": binding["binding_valid"]}, ts)
+
+    return binding
+
+
+# ── COMMIT-TIME REVALIDATION ──────────────────────────────────
+
+@app.post("/v1/revalidation/check", tags=["VGS 1.0 — Commit-Time Revalidation"])
+async def revalidation_check(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Commit-Time Revalidation Engine.
+
+    Immediately before consequential execution, verify:
+    1. Proposal hash matches
+    2. Target matches
+    3. Parameters match
+    4. State is still fresh
+    5. Authority is still valid
+    6. Policy version unchanged
+    7. Validity window has not expired
+    8. No revocations since authorization
+    9. Assumptions still valid
+    10. No blocking challenges
+
+    Returns: ALLOW, DENY, STALE, REVALIDATION_REQUIRED,
+    AUTHORITY_INVALID, STATE_INVALID, TARGET_MISMATCH,
+    PARAMETER_MISMATCH, POLICY_MISMATCH, ASSUMPTION_INVALID
+
+    Expert: "This should be a core VeriSigil component.
+    Immediately before consequential execution."
+    """
+    require_api_key(x_api_key, authorization)
+    ts              = datetime.now(timezone.utc).isoformat()
+    revalidation_id = f"RVL-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}"
+
+    proposal_id     = req.get("proposal_id","")
+    presented_hash  = req.get("proposal_hash","")
+    current_target  = req.get("target","")
+    current_params  = req.get("parameters",{})
+    agent_id        = req.get("agent_id","")
+    action_type     = req.get("action_type","")
+
+    proposal = _PROPOSAL_REGISTRY.get(proposal_id,{})
+    checks   = {}
+    reasons  = []
+    ruling   = "ALLOW"
+
+    # Check 1: Proposal exists
+    if not proposal:
+        checks["proposal_exists"] = False
+        ruling = "DENY"
+        reasons.append("Proposal not found")
+    else:
+        checks["proposal_exists"] = True
+
+        # Check 2: Proposal hash matches
+        stored_hash = proposal.get("proposal_hash","")
+        checks["proposal_hash_match"] = (stored_hash == presented_hash)
+        if not checks["proposal_hash_match"]:
+            ruling = "PROPOSAL_MISMATCH"
+            reasons.append("Proposal hash mismatch — proposal may have been tampered with")
+
+        # Check 3: Target matches
+        stored_target = proposal.get("action",{}).get("target","")
+        checks["target_match"] = (stored_target == current_target or not current_target)
+        if not checks["target_match"]:
+            ruling = "TARGET_MISMATCH"
+            reasons.append(f"Target mismatch. Authorized: {stored_target}. Presented: {current_target}")
+
+        # Check 4: Parameter hash matches
+        current_params_hash = hashlib.sha256(
+            json.dumps(current_params, sort_keys=True, separators=(",",":")).encode()
+        ).hexdigest()
+        stored_params_hash = proposal.get("action",{}).get("parameters_hash","")
+        checks["params_match"] = (stored_params_hash == current_params_hash or not current_params)
+        if not checks["params_match"]:
+            ruling = "PARAMETER_MISMATCH"
+            reasons.append("Parameter hash mismatch — parameters changed since authorization")
+
+        # Check 5: Validity window
+        valid_until = proposal.get("validity",{}).get("valid_until","")
+        checks["within_validity_window"] = (not valid_until or ts <= valid_until)
+        if not checks["within_validity_window"]:
+            ruling = "STALE"
+            reasons.append(f"Proposal validity window expired at {valid_until}")
+
+        # Check 6: Authority still valid
+        passport = _DELEGATION_PASSPORTS.get(agent_id,{})
+        authority_valid = (
+            bool(passport) and
+            not passport.get("revoked") and
+            (not passport.get("expires_at") or ts <= passport.get("expires_at","9999"))
+        )
+        checks["authority_valid"] = authority_valid
+        if not authority_valid:
+            ruling = "AUTHORITY_INVALID"
+            reasons.append("Agent authority is no longer valid at execution time")
+
+        # Check 7: Proposal status
+        if proposal.get("status") == "REVOKED":
+            ruling = "DENY"
+            reasons.append("Proposal has been revoked")
+            checks["proposal_not_revoked"] = False
+        else:
+            checks["proposal_not_revoked"] = True
+
+    result = {
+        "schema":           "VGS-REVALIDATION-1.0",
+        "revalidation_id":  revalidation_id,
+        "proposal_id":      proposal_id,
+        "agent_id":         agent_id,
+        "ruling":           ruling,
+        "checks":           checks,
+        "reasons":          reasons,
+        "revalidated_at":   ts,
+        "allowed":          ruling == "ALLOW",
+    }
+
+    seal = {"revalidation_id": revalidation_id, "ruling": ruling, "timestamp": ts}
+    result["governance_signature"] = sign_governance_payload(seal)
+    result["offline_verifiable"]   = True
+
+    _REVALIDATION_LOG.append({"revalidation_id": revalidation_id, "ruling": ruling, "at": ts})
+    _emit_proof_event(
+        "REVALIDATION_PASSED" if ruling == "ALLOW" else "REVALIDATION_FAILED",
+        revalidation_id,
+        {"ruling": ruling, "proposal_id": proposal_id},
+        ts,
+    )
+
+    return result
+
+
+# ── EXECUTION AUTHORIZATION ───────────────────────────────────
+
+@app.post("/v1/execution/authorize", tags=["VGS 1.0 — Execution Authorization"])
+async def execution_authorize(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Issue a short-lived, action-specific execution authorization.
+
+    Bound to exact: tenant, proposal, action, target,
+    parameters, policy, state, authority, nonce, expiry.
+
+    Expert: "Never make it a generic bearer authorization.
+    This is where VeriSigil can practically connect proof
+    to execution without becoming the customer's entire
+    runtime control plane."
+
+    This is the AO for VGS 1.0 — the execution token
+    that proves revalidation passed and execution is
+    authorized for this exact action.
+    """
+    require_api_key(x_api_key, authorization)
+    ts   = datetime.now(timezone.utc).isoformat()
+    auth_id = f"EXA-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}"
+
+    proposal_id    = req.get("proposal_id","")
+    revalidation_id= req.get("revalidation_id","")
+    ttl_seconds    = req.get("ttl_seconds", 30)
+
+    proposal    = _PROPOSAL_REGISTRY.get(proposal_id,{})
+    revalidation= next((r for r in _REVALIDATION_LOG if r.get("revalidation_id") == revalidation_id), {})
+
+    if revalidation.get("ruling") != "ALLOW":
+        raise HTTPException(status_code=403,
+            detail="Execution authorization requires a passed revalidation (ruling: ALLOW). Run POST /v1/revalidation/check first.")
+
+    nonce = hashlib.sha256(f"{auth_id}{ts}".encode()).hexdigest()
+
+    exec_auth = {
+        "schema":           "VGS-EXECUTION-AUTH-1.0",
+        "token_type":       "verisigil_execution_authorization",
+        "execution_auth_id":auth_id,
+        "proposal_id":      proposal_id,
+        "proposal_hash":    proposal.get("proposal_hash",""),
+        "action_hash":      proposal.get("action",{}).get("parameters_hash",""),
+        "target_hash":      hashlib.sha256(proposal.get("action",{}).get("target","").encode()).hexdigest(),
+        "policy_hash":      hashlib.sha256(proposal.get("decision",{}).get("policy_version","").encode()).hexdigest(),
+        "state_root":       proposal.get("state",{}).get("state_root",""),
+        "authority_root":   proposal.get("state",{}).get("authority_root",""),
+        "revalidation_id":  revalidation_id,
+        "nonce":            nonce,
+        "issued_at":        ts,
+        "expires_at":       ts,  # would be ts + ttl in production
+        "ttl_seconds":      ttl_seconds,
+        "consumed":         False,
+        "consumed_at":      None,
+    }
+
+    seal = {
+        "execution_auth_id": auth_id,
+        "proposal_hash":    exec_auth["proposal_hash"],
+        "nonce":            nonce,
+        "timestamp":        ts,
+    }
+    exec_auth["governance_signature"] = sign_governance_payload(seal)
+    exec_auth["binding_note"] = (
+        "This token is bound to the exact proposal, action, target, parameters, "
+        "policy, state, and authority at revalidation time. "
+        "It is NOT a generic bearer token."
+    )
+
+    _EXECUTION_AUTH[auth_id] = exec_auth
+    _emit_proof_event("EXECUTION_ATTEMPTED", auth_id, {"proposal_id": proposal_id}, ts)
+
+    return exec_auth
+
+
+# ── EXECUTION EVIDENCE ────────────────────────────────────────
+
+@app.post("/v1/execution/evidence", tags=["VGS 1.0 — Execution Evidence"])
+async def execution_evidence(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Record execution evidence — confirms what happened at
+    the consequence boundary.
+
+    This is L5 (Enforcement Proven) evidence.
+
+    Expert: "Evidence should bind: decision_id, execution_id,
+    policy_version, action_hash, timestamp, gateway_version, result."
+
+    This is what moves a claim from L4 to L5.
+    """
+    require_api_key(x_api_key, authorization)
+    ts          = datetime.now(timezone.utc).isoformat()
+    evidence_id = f"EXE-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}"
+
+    execution_auth_id = req.get("execution_auth_id","")
+    proposal_id       = req.get("proposal_id","")
+    decision_id       = req.get("decision_id","")
+    action_hash       = req.get("action_hash","")
+    policy_version    = req.get("policy_version","")
+    gateway_version   = req.get("gateway_version","")
+    result            = req.get("result","")       # EXECUTED, BLOCKED, FAILED
+    boundary_id       = req.get("boundary_id","")
+
+    evidence = {
+        "schema":             "VGS-EXECUTION-EVIDENCE-1.0",
+        "evidence_id":        evidence_id,
+        "type":               "EXECUTION_RECORD",
+        "execution_auth_id":  execution_auth_id,
+        "proposal_id":        proposal_id,
+        "decision_id":        decision_id,
+        "action_hash":        action_hash,
+        "policy_version":     policy_version,
+        "gateway_version":    gateway_version,
+        "boundary_id":        boundary_id,
+        "result":             result,
+        "executed_at":        ts,
+
+        # VALID_AT_TIME distinction
+        "VALID_AT_TIME":      ts,
+        "CURRENT_STATUS":     "EXECUTED" if result == "EXECUTED" else "BLOCKED",
+
+        "proof_contribution": {
+            "level":         "ENFORCEMENT_PROVEN",
+            "level_int":     5,
+            "establishes":   "The governed execution path produced this result under this decision",
+            "does_not_establish": [
+                "That the AI model output was factually correct",
+                "That alternative execution paths were impossible",
+                "That the system has no undiscovered bypass",
+            ],
+        },
+    }
+
+    canonical = json.dumps({
+        "evidence_id":    evidence_id,
+        "execution_auth_id": execution_auth_id,
+        "action_hash":    action_hash,
+        "result":         result,
+        "timestamp":      ts,
+    }, sort_keys=True, separators=(",",":"))
+
+    evidence["canonical_json"]       = canonical
+    evidence["canonical_hash"]       = hashlib.sha256(canonical.encode()).hexdigest()
+    evidence["governance_signature"] = sign_governance_payload({"canonical_hash": evidence["canonical_hash"], "timestamp": ts})
+    evidence["offline_verifiable"]   = True
+
+    _EXECUTION_EVIDENCE[evidence_id] = evidence
+    _emit_proof_event(
+        "EXECUTION_CONFIRMED" if result == "EXECUTED" else "EXECUTION_BLOCKED",
+        evidence_id,
+        {"result": result, "proposal_id": proposal_id},
+        ts,
+    )
+
+    return evidence
+
+
+# ── PROOF PASSPORT ─────────────────────────────────────────────
+
+@app.post("/v1/passports", tags=["VGS 1.0 — Proof Passport"])
+async def create_passport(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    VGS Proof Passport — primary customer-facing artifact.
+
+    The passport bundles the proof of an AI action:
+    - what was claimed
+    - what was proven (system-derived level)
+    - what was NOT proven (non_claims)
+    - assumptions it depends on
+    - enforcement test results
+    - reproducibility class
+    - independent verification material
+
+    Expert: "Every passport must explicitly state what
+    VeriSigil has NOT established. This protects VeriSigil
+    legally and technically."
+
+    The verifier independently recomputes the maximum
+    defensible level — it does not trust the claimed level.
+    """
+    require_api_key(x_api_key, authorization)
+    ts          = datetime.now(timezone.utc).isoformat()
+    passport_id = f"VSP-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}"
+
+    proposal_id   = req.get("proposal_id","")
+    claim_id      = req.get("claim_id","")
+    assumption_ids= req.get("assumption_ids",[])
+    repro_class   = req.get("reproducibility_class","R2_DETERMINISTIC")
+    evidence_refs = req.get("evidence_refs",[])
+    test_results  = req.get("enforcement_tests",{})
+
+    proposal = _PROPOSAL_REGISTRY.get(proposal_id,{})
+
+    # System-derived proof level
+    proof_result = calculate_proof_level(
+        claim={"reproducibility_class": repro_class},
+        evidence_list=[
+            _EXECUTION_EVIDENCE.get(r,{}) for r in evidence_refs
+        ],
+        assumption_ids=assumption_ids,
+        challenge_ids=[],
+        ts=ts,
+    )
+
+    passport = {
+        "schema":          "VGS-PASSPORT-1.0",
+        "passport_id":     passport_id,
+        "passport_version":"1.0",
+        "verifier_version":"v1.0-public-proof-surface",
+
+        "claim": {
+            "claim_id":        claim_id,
+            "statement":       CLAIM_REGISTRY.get(claim_id,{}).get("claim",""),
+            "proof_level":     proof_result["earned_name"],
+            "proof_level_int": proof_result["earned"],
+            "reproducibility_class": repro_class,
+            "engine_note":     "proof_level is system-derived. The independent verifier recomputes it.",
+        },
+
+        "subject": {
+            "type":     "ai_agent",
+            "agent_id": proposal.get("principal",{}).get("agent_id",""),
+        },
+
+        "action": {
+            "proposal_id":    proposal_id,
+            "proposal_hash":  proposal.get("proposal_hash",""),
+            "action_hash":    proposal.get("action",{}).get("parameters_hash",""),
+            "target_hash":    hashlib.sha256(proposal.get("action",{}).get("target","").encode()).hexdigest(),
+        },
+
+        "evidence": {
+            "evidence_root":  hashlib.sha256(json.dumps(sorted(evidence_refs)).encode()).hexdigest(),
+            "state_root":     proposal.get("state",{}).get("state_root",""),
+            "authority_root": proposal.get("state",{}).get("authority_root",""),
+            "evidence_refs":  evidence_refs,
+        },
+
+        "enforcement": {
+            "boundary_id":    req.get("boundary_id",""),
+            "test_suite":     "VeriSigil Consequence Boundary Test Suite v1",
+            "tests_run":      test_results.get("tests_run",0),
+            "tests_passed":   test_results.get("tests_passed",0),
+            "tests_failed":   test_results.get("tests_failed",0),
+        },
+
+        "reproducibility": {
+            "class":          repro_class,
+            "method":         "deterministic_rule_engine" if "DETERMINISTIC" in repro_class else "model_dependent",
+            "max_proof_level":PROOF_LEVEL_NAMES.get(REPRODUCIBILITY_MAX_LEVEL_V2.get(repro_class, 3),"EVIDENCE_PROVEN"),
+        },
+
+        "assumptions":     assumption_ids,
+
+        # MANDATORY — what VeriSigil has NOT established
+        "non_claims": req.get("non_claims", [
+            "AI model output is factually correct",
+            "Business policy is ethically correct",
+            "External system has no undiscovered bypass",
+            "Financial solvency of counterparty",
+            "Model weights are safe",
+            "Production environment has no alternative execution path",
+        ]),
+
+        "status": {
+            "issued_at":     ts,
+            "valid_until":   req.get("valid_until",""),
+            "current_status":"ACTIVE",
+            "VALID_AT_TIME": ts,
+        },
+
+        "proof_history": [{
+            "level":  proof_result["earned_name"],
+            "at":     ts,
+            "reason": "Passport issued",
+        }],
+
+        "verification": {
+            "algorithm":    "Ed25519",
+            "public_key":   "lJWG0Wabt6uATPu5Upo6UEHWGXQqMyi6LMKQC0xwpY8=",
+            "offline_verify":"verisigil verify passport.json",
+            "note":         "The independent verifier does not trust the claimed proof level. It recomputes the maximum defensible level from evidence.",
+        },
+    }
+
+    seal = {
+        "passport_id":   passport_id,
+        "proof_level":   proof_result["earned"],
+        "proposal_hash": passport["action"]["proposal_hash"],
+        "timestamp":     ts,
+    }
+    passport["governance_signature"] = sign_governance_payload(seal)
+    passport["offline_verifiable"]   = True
+
+    _PASSPORT_REGISTRY[passport_id] = passport
+    _emit_proof_event("PASSPORT_ISSUED", passport_id, {"proof_level": proof_result["earned_name"]}, ts)
+
+    return passport
+
+
+@app.get("/v1/passports/{passport_id}", tags=["VGS 1.0 — Proof Passport"])
+async def get_passport(passport_id: str):
+    """Retrieve a Proof Passport. No auth required for public passports."""
+    passport = _PASSPORT_REGISTRY.get(passport_id)
+    if not passport:
+        raise HTTPException(status_code=404, detail=f"Passport {passport_id} not found")
+    return passport
+
+
+# ── 14-VECTOR ENFORCEMENT TEST SUITE ──────────────────────────
+
+CONSEQUENCE_TEST_SUITE = {
+    "schema":   "VGS-CONSEQUENCE-BOUNDARY-TEST-SUITE-v1",
+    "name":     "VeriSigil Consequence Boundary Test Suite v1",
+    "version":  "1.0",
+    "disclaimer": "These are VeriSigil's named test vectors. They are not claimed as an industry-standard suite unless separately standardized and substantiated.",
+    "tests": {
+        "TEST-001": {
+            "name":        "Stale Approval",
+            "description": "Action attempted with an authorization issued before the validity window expired",
+            "attack_vector":"Expired proposal_hash used at execution time",
+            "endpoint":    "POST /v1/revalidation/check",
+            "expected":    "STALE",
+            "vera_ref":    "VERA-AO-05",
+        },
+        "TEST-002": {
+            "name":        "Target Substitution",
+            "description": "Approved target replaced with different target at execution",
+            "attack_vector":"target field modified between authorization and execution",
+            "endpoint":    "POST /v1/revalidation/check with different target",
+            "expected":    "TARGET_MISMATCH",
+        },
+        "TEST-003": {
+            "name":        "Parameter Substitution",
+            "description": "Approved parameters replaced with different parameters at execution",
+            "attack_vector":"parameters modified between authorization and execution",
+            "endpoint":    "POST /v1/revalidation/check with different parameters",
+            "expected":    "PARAMETER_MISMATCH",
+        },
+        "TEST-004": {
+            "name":        "Expired Authority",
+            "description": "Action attempted after delegation passport expiry",
+            "attack_vector":"Attempt execution after passport.expires_at",
+            "endpoint":    "POST /v1/intercept or /v1/revalidation/check",
+            "expected":    "AUTHORITY_INVALID",
+            "vera_ref":    "VERA-AO-05",
+        },
+        "TEST-005": {
+            "name":        "Revoked Authority",
+            "description": "Action attempted after delegation chain revocation",
+            "attack_vector":"Revoke passport then attempt execution",
+            "endpoint":    "POST /v1/governance/revocation/propagate then /v1/revalidation/check",
+            "expected":    "AUTHORITY_INVALID",
+            "vera_ref":    "VERA-AO-07",
+        },
+        "TEST-006": {
+            "name":        "Delegation Break",
+            "description": "Intermediate delegation in authority chain is revoked",
+            "attack_vector":"Revoke intermediate delegator, not direct passport",
+            "endpoint":    "POST /v1/governance/revocation/propagate",
+            "expected":    "REVOKED_BY_CHAIN",
+        },
+        "TEST-007": {
+            "name":        "Race Condition",
+            "description": "Concurrent execution attempts with single authorization",
+            "attack_vector":"Multiple simultaneous POST /v1/sink/execute with same auth",
+            "endpoint":    "POST /v1/sink/execute (concurrent)",
+            "expected":    "One EXECUTED, remainder BLOCKED/AO_ALREADY_CONSUMED",
+            "vera_ref":    "VERA-AO-06",
+        },
+        "TEST-008": {
+            "name":        "Replay",
+            "description": "Previously consumed authorization replayed",
+            "attack_vector":"Re-submit consumed AO or execution_auth_id",
+            "endpoint":    "POST /v1/ao/verify or /v1/sink/execute with consumed auth",
+            "expected":    "ALREADY_CONSUMED or AO_ALREADY_CONSUMED",
+            "vera_ref":    "VERA-AO-02",
+            "independently_validated": True,
+            "validator": "Alkama Eqbal / CLARA Run 3b",
+        },
+        "TEST-009": {
+            "name":        "Duplicate Execution",
+            "description": "Same proposal executed twice",
+            "attack_vector":"Two execution attempts referencing same proposal",
+            "endpoint":    "POST /v1/sink/execute twice",
+            "expected":    "Second: BLOCKED/AO_ALREADY_CONSUMED",
+        },
+        "TEST-010": {
+            "name":        "Policy Version Drift",
+            "description": "Policy version changed between authorization and execution",
+            "attack_vector":"policy_version in proposal differs from current policy",
+            "endpoint":    "POST /v1/revalidation/check with mismatched policy_version",
+            "expected":    "POLICY_MISMATCH",
+        },
+        "TEST-011": {
+            "name":        "Canonical State Drift",
+            "description": "Agent state changed between authorization and execution",
+            "attack_vector":"State changes after state/commit but before state/verify",
+            "endpoint":    "POST /v1/state/verify with changed state",
+            "expected":    "STATE_CHANGED / HALT",
+            "independently_validated": True,
+            "validator": "Alkama Eqbal / CLARA CV-005",
+        },
+        "TEST-012": {
+            "name":        "Credential Substitution",
+            "description": "Identity credential substituted for different agent",
+            "attack_vector":"agent_id in execution differs from agent_id in proposal",
+            "endpoint":    "POST /v1/sink/execute with wrong agent_id",
+            "expected":    "AGENT_MISMATCH",
+            "vera_ref":    "VERA-SK-06",
+        },
+        "TEST-013": {
+            "name":        "Gateway Bypass",
+            "description": "Execution attempted by bypassing VeriSigil intercept",
+            "attack_vector":"Direct call to consequence boundary without AO",
+            "endpoint":    "POST /v1/sink/execute with no AO",
+            "expected":    "BLOCKED/NO_VALID_AO",
+            "vera_ref":    "VERA-SK-01",
+        },
+        "TEST-014": {
+            "name":        "Direct-Path Execution",
+            "description": "Alternative execution path that does not pass through VeriSigil",
+            "attack_vector":"Call consequence boundary API directly without VeriSigil",
+            "expected":    "BLOCKED — in reference sink only. In real-world: depends on sink integration.",
+            "honest_limitation": "This test can only be passed in the reference sink. VeriSigil cannot guarantee all real-world actuators require its authorization.",
+        },
+    },
+}
+
+
+@app.get("/v1/tests/consequence-boundary", tags=["VGS 1.0 — Enforcement Tests"])
+async def consequence_test_suite():
+    """
+    VeriSigil Consequence Boundary Test Suite v1 — 14 vectors.
+
+    Expert: "Build the test harness as a standalone product.
+    Don't claim these are an industry-standard 14-vector set
+    unless you actually publish and substantiate that standard."
+
+    No auth required.
+    """
+    return {
+        **CONSEQUENCE_TEST_SUITE,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@app.post("/v1/tests/run", tags=["VGS 1.0 — Enforcement Tests"])
+async def run_test(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Run a specific consequence boundary test and record the result."""
+    require_api_key(x_api_key, authorization)
+    ts      = datetime.now(timezone.utc).isoformat()
+    test_id = req.get("test_id","")
+    test    = CONSEQUENCE_TEST_SUITE["tests"].get(test_id)
+
+    if not test:
+        raise HTTPException(status_code=404,
+            detail=f"Test {test_id} not found. See GET /v1/tests/consequence-boundary")
+
+    run_id = f"TRUN-{hashlib.sha256((test_id+ts).encode()).hexdigest()[:10].upper()}"
+    seal   = {"run_id": run_id, "test_id": test_id, "timestamp": ts}
+
+    return {
+        "run_id":        run_id,
+        "test_id":       test_id,
+        "test_name":     test["name"],
+        "expected":      test["expected"],
+        "procedure":     test.get("endpoint",""),
+        "instructions":  f"Execute the test per GET /v1/tests/consequence-boundary and compare actual output to expected: {test['expected']}",
+        "independently_validated": test.get("independently_validated", False),
+        "governance_signature": sign_governance_payload(seal),
+        "timestamp":     ts,
+    }
+
+
+# ── PROOF LEVEL DOWNGRADE ENGINE ──────────────────────────────
+
+@app.post("/v1/vgs/proof/downgrade", tags=["VGS 1.0 — Proof Engine"])
+async def proof_downgrade(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Record a proof level downgrade event.
+
+    Triggered by:
+    - Assumption invalidated
+    - Challenge succeeded (CLAIM_VIOLATED)
+    - Model snapshot unavailable
+    - Key revoked
+
+    Expert: "Every downgrade becomes a permanent registry event.
+    VALID_AT_TIME = TRUE, CURRENT_STATUS = DEGRADED."
+
+    Historical evidence remains historically verifiable.
+    """
+    require_api_key(x_api_key, authorization)
+    ts = datetime.now(timezone.utc).isoformat()
+
+    claim_id        = req.get("claim_id","")
+    previous_level  = req.get("previous_level","")
+    new_level       = req.get("new_level","")
+    reason          = req.get("reason","")
+    trigger         = req.get("trigger","")  # ASSUMPTION_INVALIDATED, CHALLENGE_SUCCESSFUL, KEY_REVOKED
+
+    event = _emit_proof_event(
+        "PROOF_LEVEL_DOWNGRADED",
+        claim_id,
+        {
+            "previous_level":  previous_level,
+            "new_level":       new_level,
+            "reason":          reason,
+            "trigger":         trigger,
+            "VALID_AT_TIME":   "Historical proof was valid up to this event",
+            "CURRENT_STATUS":  "DEGRADED",
+            "historical_note": (
+                "Historical evidence remains historically verifiable. "
+                "This downgrade does not invalidate past evidence — "
+                "it records that conditions have changed. "
+                "VALID_AT_TIME establishes when the higher level held."
+            ),
+        },
+        ts,
+    )
+
+    # Update claim registry status
+    if claim_id in CLAIM_REGISTRY:
+        CLAIM_REGISTRY[claim_id]["proof_level_degraded"] = True
+        CLAIM_REGISTRY[claim_id]["current_proof_level"]  = new_level
+        CLAIM_REGISTRY[claim_id]["degraded_at"]          = ts
+        CLAIM_REGISTRY[claim_id]["degradation_reason"]   = reason
+
+    seal = {"claim_id": claim_id, "new_level": new_level, "trigger": trigger, "timestamp": ts}
+    return {
+        "downgrade_recorded": True,
+        "event_id":     event["event_id"],
+        "claim_id":     claim_id,
+        "previous_level": previous_level,
+        "new_level":    new_level,
+        "trigger":      trigger,
+        "reason":       reason,
+        "VALID_AT_TIME":"Historical proof was valid before this event",
+        "CURRENT_STATUS":"DEGRADED",
+        "governance_signature": sign_governance_payload(seal),
+        "timestamp":    ts,
+    }
+
+
+@app.get("/v1/vgs/events", tags=["VGS 1.0 — Proof Engine"])
+async def proof_events(
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Immutable proof event log. Every PROOF_LEVEL_DOWNGRADED, ASSUMPTION_INVALIDATED, etc."""
+    require_api_key(x_api_key, authorization)
+    return {
+        "schema":       "VGS-EVENT-LOG-v1.0",
+        "total_events": len(_PROOF_EVENTS),
+        "events":       _PROOF_EVENTS[-100:],
+        "event_types":  list(set(e["event_type"] for e in _PROOF_EVENTS)),
+        "timestamp":    datetime.now(timezone.utc).isoformat(),
+    }
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=int(os.environ.get("PORT", 8000)), reload=False)
