@@ -666,7 +666,112 @@ def _get_supabase():
             pass
     return None
 
-# In-memory fallback stores (sandbox / local dev only)
+# ============================================================
+# VGS 1.0 PERSISTENCE LAYER
+# Write-through to Supabase. In-memory dict = fast cache.
+# On restart: load all registries from Supabase into memory.
+# If Supabase unavailable: falls back to in-memory only.
+# ============================================================
+
+async def _vgs_persist(table: str, id_val: str, record: dict, extra_fields: dict = None):
+    """Write a VGS record to Supabase. Non-blocking — errors are logged, not raised."""
+    try:
+        row = {"id": id_val, "data": record}
+        if extra_fields:
+            row.update(extra_fields)
+        await db_insert(table, row)
+    except Exception as e:
+        print(f"[VGS PERSIST] table={table} id={id_val} error={e}")
+
+
+async def _vgs_load(table: str, registry: dict, id_field: str = "id"):
+    """Load all records from a Supabase table into an in-memory registry."""
+    try:
+        async with httpx.AsyncClient() as c:
+            r = await c.get(
+                f"{SUPABASE_URL}/rest/v1/{table}?select=*&order=created_at.asc",
+                headers=get_headers(write=False),
+                timeout=10,
+            )
+            if r.status_code == 200:
+                rows = r.json()
+                if isinstance(rows, list):
+                    for row in rows:
+                        key = row.get("agent_id") or row.get("id","")
+                        if key and "data" in row:
+                            registry[key] = row["data"]
+                    print(f"[VGS LOAD] {table}: loaded {len(rows)} records")
+    except Exception as e:
+        print(f"[VGS LOAD] {table}: error={e} (falling back to empty registry)")
+
+
+async def _vgs_upsert_passport(agent_id: str, record: dict):
+    """Upsert a delegation passport (uses agent_id as primary key)."""
+    try:
+        async with httpx.AsyncClient() as c:
+            r = await c.post(
+                f"{SUPABASE_URL}/rest/v1/vgs_delegation_passports",
+                headers={**get_headers(write=True), "Prefer": "resolution=merge-duplicates,return=representation"},
+                json={"agent_id": agent_id, "data": record},
+                timeout=10,
+            )
+            if r.status_code >= 400:
+                print(f"[VGS UPSERT PASSPORT] agent={agent_id} status={r.status_code}")
+    except Exception as e:
+        print(f"[VGS UPSERT PASSPORT] agent={agent_id} error={e}")
+
+
+@app.on_event("startup")
+async def vgs_startup_load():
+    """
+    On Railway restart: reload all VGS registries from Supabase.
+    This is what makes evidence survive restarts.
+    """
+    print("[VGS STARTUP] Loading registries from Supabase...")
+    await _vgs_load("vgs_proposals",           _PROPOSAL_REGISTRY)
+    await _vgs_load("vgs_state_assertions",     _STATE_ASSERTIONS)
+    await _vgs_load("vgs_bindings",             _BINDING_REGISTRY)
+    await _vgs_load("vgs_decisions",            _DECISION_REGISTRY)
+    await _vgs_load("vgs_delegation_passports", _DELEGATION_PASSPORTS)
+    await _vgs_load("vgs_assurance_runs",       _ASSURANCE_RUNS)
+    await _vgs_load("vgs_challenges",           _CHALLENGE_REGISTRY)
+    await _vgs_load("vgs_assumptions",          _ASSUMPTION_REGISTRY)
+
+    # Load sink log (list not dict)
+    try:
+        async with httpx.AsyncClient() as c:
+            r = await c.get(
+                f"{SUPABASE_URL}/rest/v1/vgs_sink_log?select=data&order=created_at.asc",
+                headers=get_headers(write=False), timeout=10,
+            )
+            if r.status_code == 200:
+                rows = r.json()
+                for row in rows:
+                    if "data" in row:
+                        _SINK_EXECUTION_LOG.append(row["data"])
+                print(f"[VGS LOAD] vgs_sink_log: loaded {len(rows)} records")
+    except Exception as e:
+        print(f"[VGS LOAD] vgs_sink_log: error={e}")
+
+    # Load proof events (list not dict)
+    try:
+        async with httpx.AsyncClient() as c:
+            r = await c.get(
+                f"{SUPABASE_URL}/rest/v1/vgs_proof_events?select=data&order=created_at.asc",
+                headers=get_headers(write=False), timeout=10,
+            )
+            if r.status_code == 200:
+                rows = r.json()
+                for row in rows:
+                    if "data" in row:
+                        _PROOF_EVENTS.append(row["data"])
+                print(f"[VGS LOAD] vgs_proof_events: loaded {len(rows)} records")
+    except Exception as e:
+        print(f"[VGS LOAD] vgs_proof_events: error={e}")
+
+    print("[VGS STARTUP] Registry load complete.")
+
+
 _mem_agents      = {}
 _mem_passports   = {}
 _mem_evidence    = {}
@@ -76376,6 +76481,7 @@ async def delegation_passport(
     passport["governance_signature"] = sign_governance_payload(seal)
     passport["offline_verifiable"]   = True
     _DELEGATION_PASSPORTS[agent_id]  = passport
+    await _vgs_upsert_passport(agent_id, passport)
 
     return {
         **passport,
@@ -82076,6 +82182,7 @@ async def vgs_assumption_register(
     seal = {"assumption_id": asm_id, "status": "VALID", "timestamp": ts}
     assumption["governance_signature"] = sign_governance_payload(seal)
     _ASSUMPTION_REGISTRY[asm_id] = assumption
+    await _vgs_persist("vgs_assumptions", asm_id, assumption)
 
     _ASSUMPTION_EVENTS.append({
         "event_type":    "ASSUMPTION_REGISTERED",
@@ -82331,6 +82438,8 @@ async def vgs_challenge_register(
     })
 
     _CHALLENGE_REGISTRY[challenge_id] = challenge
+    await _vgs_persist("vgs_challenges", challenge_id, challenge,
+                       extra_fields={"claim_id": claim_id})
 
     return {
         **challenge,
@@ -82620,6 +82729,7 @@ async def create_proposal(
     proposal["governance_signature"]  = sign_governance_payload({"proposal_hash": proposal["proposal_hash"], "timestamp": ts})
 
     _PROPOSAL_REGISTRY[proposal_id] = proposal
+    await _vgs_persist("vgs_proposals", proposal_id, proposal)
     _emit_proof_event("PROPOSAL_CREATED", proposal_id, {"proposal_hash": proposal["proposal_hash"]}, ts)
 
     return proposal
@@ -82697,6 +82807,7 @@ async def create_state_assertion(
     assertion["state_root"]           = state_hash
 
     _STATE_ASSERTIONS[assertion_id] = assertion
+    await _vgs_persist("vgs_state_assertions", assertion_id, assertion)
     _emit_proof_event("STATE_ASSERTION_RECEIVED", assertion_id, {"state_hash": state_hash}, ts)
 
     return assertion
@@ -82856,6 +82967,8 @@ async def record_decision(
     decision["governance_signature"] = sign_governance_payload({"decision_hash": decision["decision_hash"], "timestamp": ts})
 
     _DECISION_REGISTRY[decision_id] = decision
+    await _vgs_persist("vgs_decisions", decision_id, decision,
+                       extra_fields={"proposal_id": proposal_id})
     _emit_proof_event("DECISION_RECEIVED", decision_id, {"outcome": outcome, "proposal_id": proposal_id}, ts)
 
     return decision
@@ -82935,6 +83048,8 @@ async def create_binding(
     binding["governance_signature"] = sign_governance_payload({"binding_hash": binding["binding_hash"], "timestamp": ts})
 
     _BINDING_REGISTRY[binding_id] = binding
+    await _vgs_persist("vgs_bindings", binding_id, binding,
+                       extra_fields={"proposal_id": proposal_id, "binding_valid": binding["binding_valid"]})
     _emit_proof_event("BINDING_CREATED", binding_id, {"binding_valid": binding["binding_valid"]}, ts)
 
     return binding
@@ -84892,6 +85007,8 @@ async def assurance_run(
     run["offline_verifiable"]   = True
 
     _ASSURANCE_RUNS[run_id] = run
+    await _vgs_persist("vgs_assurance_runs", run_id, run,
+                       extra_fields={"proposal_id": proposal_id})
     return run
 
 
