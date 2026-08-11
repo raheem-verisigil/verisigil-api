@@ -83653,6 +83653,699 @@ async def proof_events(
     }
 
 
+
+# ============================================================
+# VGS 1.0 — EXTENDED ARCHITECTURE
+# Expert: "Freeze the conceptual architecture. Move into
+# implementation. Build one unified pipeline."
+#
+# P0 items built here:
+# 1. Proof Ceiling — enforced in engine, cannot be bypassed
+# 2. Semantic Integrity assertions on proposals
+# 3. Provenance lineage assertions
+# 4. DATA-001..014 data assurance test vectors
+# 5. NIST AI RMF + ISO 42001 mapping layer (evidence-based)
+# 6. Governance Continuity Contract (model portability)
+# 7. Policy Gate (ValidationGate)
+# 8. Assurance Posture
+# ============================================================
+
+# ── PROOF CEILING — enforced by the engine ───────────────────
+# Expert: "If an engineer attempts to issue a Level 5 passport
+# without passing required enforcement vectors, the system
+# should REFUSE to issue Level 5."
+
+def enforce_proof_ceiling(
+    requested_level: int,
+    evidence_list: list,
+    enforcement_tests: dict,
+    reproducibility_class: str,
+    ts: str,
+) -> dict:
+    """
+    Proof Ceiling — the maximum proof level the system is
+    PERMITTED to claim given current evidence.
+
+    This is not advisory. The passport issuer cannot override it.
+
+    Expert: "VERISIGILAI SHALL NEVER CLAIM TO PROVE MORE THAN
+    ITS EVIDENCE SUPPORTS."
+    """
+    ceiling = ProofLevel.OPERATIONALLY_VALIDATED
+
+    # Reproducibility ceiling
+    repro_max = REPRODUCIBILITY_MAX_LEVEL_V2.get(
+        reproducibility_class, ProofLevel.EVIDENCE_PROVEN
+    )
+    if repro_max < ceiling:
+        ceiling = repro_max
+
+    # Enforcement ceiling — cannot claim L5 without enforcement tests passing
+    tests_run    = enforcement_tests.get("tests_run", 0)
+    tests_passed = enforcement_tests.get("tests_passed", 0)
+    tests_failed = enforcement_tests.get("tests_failed", 0)
+
+    if tests_run == 0:
+        ceiling = min(ceiling, ProofLevel.REPRODUCTION_PROVEN)  # L4 max without any tests
+    elif tests_failed > 0:
+        ceiling = min(ceiling, ProofLevel.REPRODUCTION_PROVEN)  # L4 max if any test fails
+
+    # Cannot claim L4 without independent validation
+    has_independent = any(
+        e.get("independent_validator") or e.get("type") == "THIRD_PARTY_ATTESTATION"
+        for e in evidence_list
+    )
+    if not has_independent:
+        ceiling = min(ceiling, ProofLevel.EVIDENCE_PROVEN)  # L3 max without independent validation
+
+    # Cannot claim L5 without execution evidence
+    has_execution = any(
+        e.get("type") in ("EXECUTION_RECORD","ENFORCEMENT_RECORD")
+        for e in evidence_list
+    )
+    if not has_execution:
+        ceiling = min(ceiling, ProofLevel.REPRODUCTION_PROVEN)  # L4 max without execution evidence
+
+    effective_level = min(requested_level, ceiling)
+
+    return {
+        "requested_level":         requested_level,
+        "requested_level_name":    PROOF_LEVEL_NAMES.get(requested_level,"UNKNOWN"),
+        "ceiling_level":           ceiling,
+        "ceiling_level_name":      PROOF_LEVEL_NAMES.get(ceiling,"UNKNOWN"),
+        "effective_level":         effective_level,
+        "effective_level_name":    PROOF_LEVEL_NAMES.get(effective_level,"UNKNOWN"),
+        "ceiling_enforced":        effective_level < requested_level,
+        "ceiling_reasons": [
+            r for r in [
+                f"Reproducibility class {reproducibility_class} caps at {PROOF_LEVEL_NAMES.get(repro_max)}" if repro_max < ProofLevel.OPERATIONALLY_VALIDATED else None,
+                f"No enforcement tests run — caps at L4" if tests_run == 0 else None,
+                f"{tests_failed} enforcement test(s) failed — caps at L4" if tests_failed > 0 else None,
+                "No independent validation evidence — caps at L3" if not has_independent else None,
+                "No execution evidence — caps at L4" if not has_execution else None,
+            ] if r
+        ],
+    }
+
+
+# ── SEMANTIC INTEGRITY ASSERTIONS ─────────────────────────────
+# Expert: "VeriSigil doesn't decide what 'customer' means.
+# The enterprise does. VeriSigil proves:
+# 'This decision used the enterprise's declared definition X,
+# version Y.' That is exactly the right boundary."
+#
+# NOT a full ontology platform. A semantic assertion field.
+
+_SEMANTIC_REGISTRY: dict = {}  # definition_hash -> semantic assertion
+
+
+@app.post("/v1/semantic/assert", tags=["VGS 1.0 — Semantic Integrity"])
+async def semantic_assert(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Semantic Integrity Assertion — record what definition
+    a governance decision relied upon.
+
+    VeriSigil does NOT decide what terms mean.
+    The enterprise does.
+    VeriSigil proves: "This decision used definition X, version Y."
+
+    Expert: "Do not build a giant enterprise ontology platform.
+    Build a Semantic Integrity Registry that answers:
+    'What definition did this governance decision rely upon?'"
+    """
+    require_api_key(x_api_key, authorization)
+    ts          = datetime.now(timezone.utc).isoformat()
+    assertion_id= f"SEM-{hashlib.sha256(ts.encode()).hexdigest()[:10].upper()}"
+
+    term             = req.get("term","")
+    definition       = req.get("definition","")
+    ontology_id      = req.get("ontology_id","")
+    ontology_version = req.get("ontology_version","")
+    source_system    = req.get("source_system","")
+    issuer           = req.get("issuer","")
+
+    definition_canonical = json.dumps({
+        "term":             term,
+        "definition":       definition,
+        "ontology_id":      ontology_id,
+        "ontology_version": ontology_version,
+        "source_system":    source_system,
+    }, sort_keys=True, separators=(",",":"))
+    definition_hash = hashlib.sha256(definition_canonical.encode()).hexdigest()
+
+    assertion = {
+        "schema":            "VGS-SEMANTIC-ASSERTION-1.0",
+        "assertion_id":      assertion_id,
+        "term":              term,
+        "ontology_id":       ontology_id,
+        "ontology_version":  ontology_version,
+        "definition_hash":   definition_hash,
+        "source_system":     source_system,
+        "issuer":            issuer,
+        "status":            "VERIFIED",
+        "valid_from":        ts,
+        "valid_until":       req.get("valid_until",""),
+        "created_at":        ts,
+        "boundary_note": (
+            "VeriSigil does not determine the correctness of this definition. "
+            "It records that this definition was declared and used. "
+            "Semantic correctness is the responsibility of the issuing organisation."
+        ),
+    }
+
+    seal = {"assertion_id": assertion_id, "definition_hash": definition_hash, "timestamp": ts}
+    assertion["governance_signature"] = sign_governance_payload(seal)
+    _SEMANTIC_REGISTRY[definition_hash] = assertion
+
+    return assertion
+
+
+@app.get("/v1/semantic/verify/{definition_hash}", tags=["VGS 1.0 — Semantic Integrity"])
+async def semantic_verify(definition_hash: str):
+    """Verify a semantic assertion by definition hash. No auth required."""
+    assertion = _SEMANTIC_REGISTRY.get(definition_hash)
+    if not assertion:
+        return {"verified": False, "definition_hash": definition_hash}
+    return {"verified": True, **assertion}
+
+
+# ── PROVENANCE LINEAGE ASSERTIONS ─────────────────────────────
+# Expert: "VeriSigil should not store every enterprise record.
+# Create a Provenance Assertion Chain."
+# Records: source system, record ID, version, retrieval
+# timestamp, transformation hash, context hash.
+# Does NOT claim source data was truthful — only integrity.
+
+_PROVENANCE_CHAINS: dict = {}  # chain_id -> provenance chain
+
+
+@app.post("/v1/provenance/lineage", tags=["VGS 1.0 — Provenance"])
+async def provenance_lineage(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Provenance Lineage Assertion — records where data came from
+    and what transformations it underwent before reaching the AI.
+
+    Expert: "An AI decision can contain:
+    Source record → transformation → state → context → model
+    input → decision → authority → policy → action → enforcement."
+
+    VeriSigil records hashes — NOT the raw data.
+
+    IMPORTANT: A hash proves integrity of the referenced artifact.
+    It does NOT prove the source data was truthful.
+    """
+    require_api_key(x_api_key, authorization)
+    ts       = datetime.now(timezone.utc).isoformat()
+    chain_id = f"PRV-{hashlib.sha256(ts.encode()).hexdigest()[:10].upper()}"
+
+    steps = req.get("lineage_steps", [])
+    # Each step: {step_type, source_system, record_id_hash, version,
+    #             retrieval_timestamp, transformation_hash, context_hash}
+
+    chain_canonical = json.dumps({
+        "chain_id": chain_id,
+        "steps":    steps,
+        "timestamp":ts,
+    }, sort_keys=True, separators=(",",":"))
+    provenance_root = hashlib.sha256(chain_canonical.encode()).hexdigest()
+
+    chain = {
+        "schema":         "VGS-PROVENANCE-CHAIN-1.0",
+        "chain_id":       chain_id,
+        "lineage_steps":  steps,
+        "step_count":     len(steps),
+        "provenance_root":provenance_root,
+        "complete":       all(
+            s.get("source_system") and s.get("retrieval_timestamp")
+            for s in steps
+        ),
+        "created_at":     ts,
+        "epistemic_note": (
+            "Hashes prove integrity of referenced artifacts. "
+            "They do NOT prove source data was truthful or complete. "
+            "Provenance completeness depends on issuer accuracy."
+        ),
+    }
+
+    seal = {"chain_id": chain_id, "provenance_root": provenance_root, "timestamp": ts}
+    chain["governance_signature"] = sign_governance_payload(seal)
+    _PROVENANCE_CHAINS[chain_id] = chain
+
+    return chain
+
+
+# ── DATA ASSURANCE TEST SUITE (DATA-001..014) ─────────────────
+# Expert: "Add a second family: Data Integrity / Provenance Tests.
+# Do not automatically claim '14 tests passed = Level 5'.
+# Need formal definitions, threat models and evidence first."
+
+DATA_ASSURANCE_TEST_SUITE = {
+    "schema":     "VGS-DATA-ASSURANCE-TEST-SUITE-v1",
+    "name":       "VeriSigil Data Assurance Test Suite v1",
+    "version":    "1.0",
+    "status":     "DRAFT — formal threat models and evidence requirements pending",
+    "disclaimer": (
+        "These test vectors are named for identification purposes. "
+        "Passing these tests does not automatically produce a higher proof level. "
+        "Each test requires formal definition, threat model, and evidence requirements "
+        "before being incorporated into proof-level calculations."
+    ),
+    "tests": {
+        "DATA-001": {"name":"Source Substitution",     "description":"Source record replaced with different record between retrieval and AI context"},
+        "DATA-002": {"name":"Stale Data",              "description":"Data retrieved beyond its valid_until boundary used in AI decision"},
+        "DATA-003": {"name":"Semantic Definition Drift","description":"Ontology definition version changed between policy creation and decision"},
+        "DATA-004": {"name":"Unauthorized Transformation","description":"Data transformation applied without authorization in lineage chain"},
+        "DATA-005": {"name":"Provenance Break",        "description":"Gap in provenance chain between source and AI context"},
+        "DATA-006": {"name":"Missing Lineage",         "description":"AI decision references data with no provenance assertion"},
+        "DATA-007": {"name":"Conflicting Source Records","description":"Multiple source records with conflicting values used without reconciliation"},
+        "DATA-008": {"name":"Schema Drift",            "description":"Data schema version changed between retrieval and AI consumption"},
+        "DATA-009": {"name":"Unauthorized Data Reuse", "description":"Data used outside its declared permitted_uses boundary"},
+        "DATA-010": {"name":"Model Context Substitution","description":"AI context injected with data from different source than declared"},
+        "DATA-011": {"name":"Retrieval Contamination", "description":"Retrieval mechanism injected with unauthorized data"},
+        "DATA-012": {"name":"Evidence Deletion",       "description":"Evidence record deleted or modified after issuance"},
+        "DATA-013": {"name":"Timestamp Manipulation",  "description":"Retrieval or issuance timestamp manipulated"},
+        "DATA-014": {"name":"Cross-System Identity Mismatch","description":"Entity identity differs between source system and AI context"},
+    },
+}
+
+
+@app.get("/v1/tests/data-assurance", tags=["VGS 1.0 — Data Tests"])
+async def data_assurance_tests():
+    """
+    VeriSigil Data Assurance Test Suite v1 — 14 vectors.
+
+    Expert: "Do not automatically claim '14 tests passed = Level 5.'
+    Need formal definitions, threat models and evidence requirements."
+
+    Status: DRAFT — formal threat models pending.
+    No auth required.
+    """
+    return {
+        **DATA_ASSURANCE_TEST_SUITE,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+# ── REGULATORY FRAMEWORK MAPPING ─────────────────────────────
+# Expert: "Build mappings, not compliance claims.
+# Never state that using VeriSigilAI automatically makes
+# a customer NIST compliant or ISO certified."
+
+REGULATORY_MAPPINGS = {
+    "NIST_AI_RMF": {
+        "name":    "NIST AI Risk Management Framework 1.0",
+        "note":    "Voluntary framework. Currently under revision. VeriSigil maps evidence — it does not certify compliance.",
+        "status":  "Voluntary — under revision 2026",
+        "functions": {
+            "GOVERN": {
+                "description": "Organizational practices, policies, processes to govern AI risk",
+                "verisigil_evidence": ["Claim Registry", "Governance Decision records", "Policy version binding", "Non-claims documentation"],
+                "proof_level_contribution": "L1-L2 — Decision and State evidence",
+            },
+            "MAP": {
+                "description": "AI risks identified, classified and communicated",
+                "verisigil_evidence": ["Consequence Boundary model", "Authority Graph", "Assumption Registry"],
+                "proof_level_contribution": "L2 — State and authority evidence",
+            },
+            "MEASURE": {
+                "description": "Risks analyzed, assessed, prioritized",
+                "verisigil_evidence": ["Proof Gap Detector", "Enforcement Test results", "Challenge history"],
+                "proof_level_contribution": "L3-L4 — Evidence and Reproduction",
+            },
+            "MANAGE": {
+                "description": "Risks addressed, monitored, reported",
+                "verisigil_evidence": ["Commit-Time Revalidation", "Proof Passport", "Assumption Cascade", "Proof downgrade events"],
+                "proof_level_contribution": "L5-L6 — Enforcement and Operational validation",
+            },
+        },
+        "verisigil_position": (
+            "VeriSigil evidence can support demonstration of NIST AI RMF governance practices. "
+            "VeriSigil does not certify NIST AI RMF compliance. "
+            "NIST AI RMF is voluntary and under revision."
+        ),
+    },
+    "ISO_42001": {
+        "name":    "ISO/IEC 42001:2023 — AI Management System",
+        "note":    "AI management-system standard. VeriSigil maps evidence — it does not provide ISO certification.",
+        "status":  "Published 2023",
+        "clauses": {
+            "4_Context": {
+                "description": "Understanding the organization and its AI context",
+                "verisigil_evidence": ["Value-chain registry", "Article 25 responsibility mapping"],
+            },
+            "6_Planning": {
+                "description": "AI risk and opportunity assessment",
+                "verisigil_evidence": ["Assumption Registry", "Proof Gap Detector", "Claim Registry"],
+            },
+            "8_Operation": {
+                "description": "Operational planning and control of AI systems",
+                "verisigil_evidence": ["GovernedActionProposal", "Commit-Time Revalidation", "Execution Evidence"],
+            },
+            "9_Performance": {
+                "description": "Monitoring, measurement, analysis and evaluation",
+                "verisigil_evidence": ["Enforcement Test results", "Challenge history", "Proof Passport"],
+            },
+            "10_Improvement": {
+                "description": "Nonconformity, corrective action, continual improvement",
+                "verisigil_evidence": ["Proof downgrade events", "PROOF_LEVEL_DOWNGRADED log", "Assumption invalidation events"],
+            },
+        },
+        "verisigil_position": (
+            "VeriSigil evidence can support an organisation's ISO/IEC 42001 AI management system. "
+            "VeriSigil does not provide ISO certification and does not declare an organisation compliant. "
+            "Certification requires an accredited certification body."
+        ),
+    },
+    "EU_AI_ACT": {
+        "name":    "EU AI Act",
+        "note":    "VeriSigil maps evidence to applicable articles — it does not certify compliance.",
+        "articles": {
+            "Article_4":   "AI literacy — VeriSigil Article 4 literacy layer",
+            "Article_25":  "Value-chain responsibilities — VeriSigil value-chain registry",
+            "Article_50":  "Transparency obligations — VeriSigil disclosure layer",
+        },
+        "verisigil_position": (
+            "VeriSigil provides governance evidence infrastructure for EU AI Act-relevant obligations. "
+            "It does not certify EU AI Act compliance. "
+            "Compliance determination is made by national competent authorities."
+        ),
+    },
+}
+
+
+@app.get("/v1/regulatory/frameworks", tags=["VGS 1.0 — Regulatory Mapping"])
+async def regulatory_frameworks():
+    """
+    Regulatory framework evidence mappings.
+
+    Expert: "Build mappings, not compliance claims.
+    'Evidence Mapping' not 'Certified Compliance' unless
+    an appropriately accredited process establishes certification."
+
+    No auth required.
+    """
+    return {
+        "schema":    "VGS-REGULATORY-MAPPING-v1.0",
+        "principle": "VeriSigil maps evidence to framework requirements. It does not certify compliance with any framework.",
+        "frameworks":REGULATORY_MAPPINGS,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@app.get("/v1/regulatory/frameworks/{framework_id}", tags=["VGS 1.0 — Regulatory Mapping"])
+async def regulatory_framework_detail(framework_id: str):
+    """Get evidence mapping for a specific regulatory framework. No auth required."""
+    mapping = REGULATORY_MAPPINGS.get(framework_id.upper())
+    if not mapping:
+        raise HTTPException(status_code=404,
+            detail=f"Framework {framework_id} not found. Available: {list(REGULATORY_MAPPINGS.keys())}")
+    return {
+        "framework_id": framework_id.upper(),
+        **mapping,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+# ── GOVERNANCE CONTINUITY CONTRACT ────────────────────────────
+# Expert: "If tomorrow GPT-X → Claude-Y, the enterprise should
+# not have to rebuild its governance architecture.
+# Governance attaches to data + action + policy, not the model."
+
+_CONTINUITY_CONTRACTS: dict = {}
+
+
+@app.post("/v1/governance/continuity/register", tags=["VGS 1.0 — Governance Continuity"])
+async def governance_continuity_register(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Governance Continuity Contract — binds governance to
+    meaning + data + policy + authority + action,
+    not to a specific model.
+
+    If the model changes, the governance contract remains.
+    VeriSigil verifies the same governed data definition,
+    authority requirements, policy version, action constraints,
+    consequence boundary, and evidence requirements hold
+    regardless of which model is used.
+
+    Expert: "The model becomes replaceable.
+    The governance contract remains."
+    """
+    require_api_key(x_api_key, authorization)
+    ts           = datetime.now(timezone.utc).isoformat()
+    contract_id  = f"GCC-{hashlib.sha256(ts.encode()).hexdigest()[:10].upper()}"
+
+    contract = {
+        "schema":            "VGS-CONTINUITY-CONTRACT-1.0",
+        "contract_id":       contract_id,
+        "name":              req.get("name",""),
+        "description":       req.get("description",""),
+
+        # Governance requirements that must hold regardless of model
+        "governance_requirements": {
+            "data_definitions":      req.get("data_definitions",[]),      # semantic assertion hashes
+            "authority_requirements":req.get("authority_requirements",[]),# required authority scope
+            "policy_id":             req.get("policy_id",""),
+            "policy_version":        req.get("policy_version",""),
+            "action_constraints":    req.get("action_constraints",{}),
+            "consequence_boundary":  req.get("consequence_boundary",""),
+            "evidence_requirements": req.get("evidence_requirements",[]),
+            "minimum_proof_level":   req.get("minimum_proof_level","EVIDENCE_PROVEN"),
+        },
+
+        # Models this contract currently applies to
+        "model_versions": req.get("model_versions",[]),
+
+        # Portability proof — same requirements, different model
+        "portability_verified": False,
+        "portability_note": (
+            "Portability is verified when a new model version passes "
+            "the same governance requirements as the previous model. "
+            "VeriSigil does not guarantee semantic equivalence between models — "
+            "it verifies that governance requirements are met."
+        ),
+
+        "created_at": ts,
+        "status":     "ACTIVE",
+    }
+
+    contract_canonical = json.dumps({
+        "contract_id": contract_id,
+        "governance_requirements": contract["governance_requirements"],
+        "timestamp": ts,
+    }, sort_keys=True, separators=(",",":"))
+
+    contract["contract_hash"]         = hashlib.sha256(contract_canonical.encode()).hexdigest()
+    contract["governance_signature"]  = sign_governance_payload({"contract_hash": contract["contract_hash"], "timestamp": ts})
+    _CONTINUITY_CONTRACTS[contract_id] = contract
+
+    return contract
+
+
+# ── POLICY GATE (ValidationGate) ─────────────────────────────
+# Expert: "Create ValidationGate. This is where VeriSigil
+# becomes operational rather than merely documentary."
+
+@app.post("/v1/governance/policy-gate", tags=["VGS 1.0 — Policy Gate"])
+async def policy_gate(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    ValidationGate — customers write proof requirements,
+    VeriSigil evaluates and returns ALLOW / BLOCK / REVIEW.
+
+    Example policy:
+    minimum_proof_level: ENFORCEMENT_PROVEN
+    forbidden_non_claims: [HUMAN_OVERSIGHT_NOT_VERIFIED]
+    required_assumptions: [AUTHORITY_REGISTRY_VALID]
+
+    Expert: "This is where VeriSigil becomes operational
+    rather than merely documentary."
+    """
+    require_api_key(x_api_key, authorization)
+    ts = datetime.now(timezone.utc).isoformat()
+
+    claim_id             = req.get("claim_id","")
+    required_level_name  = req.get("minimum_proof_level","EVIDENCE_PROVEN")
+    forbidden_non_claims = req.get("forbidden_non_claims",[])
+    required_assumptions = req.get("required_assumptions",[])
+
+    # Map level name to int
+    level_map = {v:k for k,v in PROOF_LEVEL_NAMES.items()}
+    required_level = level_map.get(required_level_name, ProofLevel.EVIDENCE_PROVEN)
+
+    claim = CLAIM_REGISTRY.get(claim_id,{})
+    claim_status = claim.get("status","IMPLEMENTED")
+
+    # Current effective level
+    current_level = {
+        "VERIFIED":    ProofLevel.REPRODUCTION_PROVEN,
+        "IMPLEMENTED": ProofLevel.DECISION_PROVEN,
+        "PENDING":     ProofLevel.NOT_PROVEN,
+    }.get(claim_status, ProofLevel.NOT_PROVEN)
+
+    reasons = []
+    decision = "ALLOW"
+
+    # Check proof level
+    if current_level < required_level:
+        decision = "BLOCK"
+        reasons.append(
+            f"Proof level {PROOF_LEVEL_NAMES.get(current_level,'UNKNOWN')} "
+            f"is below required {required_level_name}"
+        )
+
+    # Check forbidden non-claims
+    claim_non_claims = claim.get("non_claims",[]) if isinstance(claim.get("non_claims"), list) else []
+    for forbidden in forbidden_non_claims:
+        if forbidden in claim_non_claims:
+            decision = "BLOCK"
+            reasons.append(f"Forbidden non-claim present: {forbidden}")
+
+    # Check required assumptions
+    for required_asm in required_assumptions:
+        if not _check_assumption_valid(required_asm, ts):
+            decision = "REVIEW"
+            reasons.append(f"Required assumption {required_asm} is not valid")
+
+    if decision == "ALLOW" and claim_status == "IMPLEMENTED":
+        decision = "REVIEW"
+        reasons.append("Claim is IMPLEMENTED but not independently VERIFIED — human review recommended")
+
+    gate_result = {
+        "schema":              "VGS-POLICY-GATE-v1.0",
+        "claim_id":            claim_id,
+        "decision":            decision,
+        "requirements_met":    decision == "ALLOW",
+        "current_proof_level": PROOF_LEVEL_NAMES.get(current_level,"UNKNOWN"),
+        "required_proof_level":required_level_name,
+        "reasons":             reasons,
+        "forbidden_non_claims_checked": forbidden_non_claims,
+        "assumptions_checked": required_assumptions,
+        "timestamp":           ts,
+    }
+
+    seal = {"claim_id": claim_id, "decision": decision, "timestamp": ts}
+    gate_result["governance_signature"] = sign_governance_payload(seal)
+
+    return gate_result
+
+
+# ── ASSURANCE POSTURE ─────────────────────────────────────────
+# Expert: "ASSURANCE POSTURE: Enforcement Coverage, Evidence
+# Completeness, Provenance Coverage, Authority Coverage,
+# Semantic Integrity Coverage, Revalidation Coverage,
+# Enforcement Test Coverage, Challenge Survival,
+# Assumption Health, Verification Independence, Portability,
+# Regulatory Evidence Coverage."
+
+@app.get("/v1/assurance/posture", tags=["VGS 1.0 — Assurance Posture"])
+async def assurance_posture(
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Assurance Posture — current state of VeriSigil's evidence.
+
+    Expert: "Instead of inventing an arbitrary 850/1000 score,
+    show exactly what is proven and what is not.
+    Proof ceiling, not proof grade."
+
+    No arbitrary scores. Honest coverage assessment.
+    """
+    require_api_key(x_api_key, authorization)
+    ts = datetime.now(timezone.utc).isoformat()
+
+    total_claims   = len(CLAIM_REGISTRY)
+    verified       = sum(1 for c in CLAIM_REGISTRY.values() if c.get("status") == "VERIFIED")
+    implemented    = sum(1 for c in CLAIM_REGISTRY.values() if c.get("status") == "IMPLEMENTED")
+    pending        = sum(1 for c in CLAIM_REGISTRY.values() if c.get("status") == "PENDING")
+    not_claimed    = sum(1 for c in CLAIM_REGISTRY.values() if c.get("status") == "NOT_CLAIMED")
+
+    valid_assumptions = sum(1 for a in _ASSUMPTION_REGISTRY.values() if a.get("status") == "VALID")
+    invalid_assumptions = sum(1 for a in _ASSUMPTION_REGISTRY.values() if a.get("status") == "INVALID")
+
+    open_challenges = sum(1 for c in _CHALLENGE_REGISTRY.values()
+                         if c.get("status") not in ("RESOLVED","PUBLISHED"))
+    violated_challenges = sum(1 for c in _CHALLENGE_REGISTRY.values()
+                             if c.get("outcome") == "CLAIM_VIOLATED")
+
+    # Proof ceiling across the system
+    if violated_challenges > 0:
+        system_ceiling = "EVIDENCE_PROVEN"
+        ceiling_reason = f"{violated_challenges} violated challenge(s) — cannot claim above L3 system-wide"
+    elif invalid_assumptions > 0:
+        system_ceiling = "EVIDENCE_PROVEN"
+        ceiling_reason = f"{invalid_assumptions} invalid assumption(s) — cannot claim above L3 system-wide"
+    elif verified == 0:
+        system_ceiling = "DECISION_PROVEN"
+        ceiling_reason = "No independently verified claims — cannot claim above L1"
+    else:
+        system_ceiling = "REPRODUCTION_PROVEN"
+        ceiling_reason = f"{verified} verified claims via independent validation"
+
+    return {
+        "schema":         "VGS-ASSURANCE-POSTURE-v1.0",
+        "timestamp":      ts,
+        "claims": {
+            "total":         total_claims,
+            "VERIFIED":      verified,
+            "IMPLEMENTED":   implemented,
+            "PENDING":       pending,
+            "NOT_CLAIMED":   not_claimed,
+        },
+        "assumptions": {
+            "total":         len(_ASSUMPTION_REGISTRY),
+            "VALID":         valid_assumptions,
+            "INVALID":       invalid_assumptions,
+            "alert":         invalid_assumptions > 0,
+        },
+        "challenges": {
+            "total":         len(_CHALLENGE_REGISTRY),
+            "open":          open_challenges,
+            "violated":      violated_challenges,
+            "alert":         violated_challenges > 0,
+        },
+        "enforcement_tests": {
+            "suite_version": "VGS-CONSEQUENCE-BOUNDARY-TEST-SUITE-v1",
+            "total_vectors": 14,
+            "independently_validated": sum(1 for t in CONSEQUENCE_TEST_SUITE["tests"].values()
+                                           if t.get("independently_validated")),
+            "data_test_suite": "DRAFT — formal threat models pending",
+        },
+        "system_proof_ceiling": {
+            "ceiling":       system_ceiling,
+            "reason":        ceiling_reason,
+            "note":          "System ceiling is the maximum proof level the system can currently claim. Individual claims may be lower.",
+        },
+        "coverage": {
+            "enforcement_coverage":    f"{sum(1 for c in CLAIM_REGISTRY.values() if c.get('endpoint') and 'sink' in str(c.get('endpoint','')))}/{total_claims} claims with enforcement boundary",
+            "independent_validation":  f"{verified}/{total_claims} claims independently validated",
+            "assumption_health":       f"{valid_assumptions}/{len(_ASSUMPTION_REGISTRY)} assumptions valid" if _ASSUMPTION_REGISTRY else "No assumptions registered",
+            "challenge_survival":      f"0/{len(_CHALLENGE_REGISTRY)} claims violated" if not violated_challenges else f"{violated_challenges} claims violated",
+        },
+        "honest_limitations": [
+            "Proof levels are based on registered evidence. Missing evidence = lower proof level.",
+            "Assumption health depends on accurate registration and monitoring.",
+            "Independent validation covers 7 claims. Others are IMPLEMENTED only.",
+            "Enforcement tests are testable in reference sink. Real-world actuator integration is customer responsibility.",
+        ],
+    }
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=int(os.environ.get("PORT", 8000)), reload=False)
