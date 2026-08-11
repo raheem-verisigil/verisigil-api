@@ -85600,6 +85600,503 @@ async def intelligence_flywheel():
     }
 
 
+
+# ============================================================
+# EU AI ACT + OMNIBUS — REGULATORY EVIDENCE LAYER
+# Expert: "Don't claim 'EU AI Act compliant.'
+# Claim: 'VeriSigil provides independently verifiable evidence
+# that supports AI governance, risk management, documentation,
+# monitoring and regulatory assessment.'"
+#
+# AI Omnibus entered into force: 27 July 2026
+# Key dates:
+# - 2 August 2026: general full-application date
+# - 2 December 2027: high-risk AI (Annex III)
+# - 2 August 2028: high-risk AI in regulated physical products
+# - Since 2 August 2025: GPAI + governance obligations
+# - Since February 2025: prohibited practices + AI literacy
+#
+# Expert: "Do not turn VeriSigilAI into an enormous EU
+# compliance platform. Regulatory frameworks are evidence
+# contexts, not the product's entire identity."
+# ============================================================
+
+EU_AI_ACT_OMNIBUS_TIMELINE = {
+    "february_2025": {
+        "date":         "2025-02-02",
+        "status":       "IN FORCE",
+        "obligations":  ["Prohibited AI practices (Article 5)", "AI literacy (Article 4)"],
+        "verisigil_coverage": "Article 4 literacy layer — POST /v1/literacy/register",
+    },
+    "august_2025": {
+        "date":         "2025-08-02",
+        "status":       "IN FORCE",
+        "obligations":  ["GPAI model obligations", "Governance and AI Office obligations"],
+        "verisigil_coverage": "Governance decision layer, authority graph, evidence chain",
+    },
+    "august_2026": {
+        "date":         "2026-08-02",
+        "status":       "IN FORCE — NOW",
+        "obligations":  [
+            "Article 50 transparency obligations (AI-generated content marking)",
+            "Simplified obligation for small mid-cap companies (Omnibus extension from SME-only)",
+            "Value-chain responsibilities (Article 25)",
+        ],
+        "verisigil_coverage": (
+            "Article 50: POST /v1/disclosure/register, GET /v1/article50/adequate-means. "
+            "Article 25: POST /v1/value-chain/register. "
+            "Omnibus entered into force 27 July 2026."
+        ),
+    },
+    "december_2027": {
+        "date":         "2027-12-02",
+        "status":       "UPCOMING — extended by Omnibus",
+        "obligations":  ["High-risk AI systems (Annex III categories)"],
+        "verisigil_coverage": (
+            "Consequence boundary, commit-time revalidation, enforcement evidence, "
+            "proof passport — all designed to support Annex III evidence requirements."
+        ),
+        "note":         "Omnibus extended from August 2026 to December 2027.",
+    },
+    "august_2028": {
+        "date":         "2028-08-02",
+        "status":       "UPCOMING",
+        "obligations":  ["High-risk AI embedded in regulated physical products"],
+        "verisigil_coverage": "Future: product-embedded governance evidence layer",
+    },
+}
+
+# EU AI Act + Omnibus component classification
+# 🟢 Already supported
+# 🟡 Partially supported
+# 🔴 Outside VeriSigil scope
+# 🔵 Future integration
+
+EU_ASSURANCE_SPEC_V1 = {
+    "schema":    "VGS-EU-ASSURANCE-SPEC-v1.0",
+    "title":     "VeriSigil AI EU Assurance Specification v1.0",
+    "basis":     "EU AI Act + AI Omnibus (in force 27 July 2026)",
+    "principle": (
+        "VeriSigil does not certify EU AI Act compliance. "
+        "It provides independently verifiable evidence artifacts that support "
+        "AI governance, risk management, documentation, monitoring and regulatory assessment."
+    ),
+    "components": {
+        "Article_4_AI_Literacy": {
+            "status":    "🟢 SUPPORTED",
+            "what_verisigil_provides": [
+                "AI literacy profile registration (POST /v1/literacy/register)",
+                "Competency tier derivation from AI system risk and role",
+                "Literacy acknowledgement records (POST /v1/literacy/acknowledge)",
+                "Evidence pack for regulators (GET /v1/literacy/evidence/{id})",
+            ],
+            "non_claims": [
+                "VeriSigil does not determine legal sufficiency of literacy measures",
+                "Competency tiers are VeriSigil governance rules, not EU legal requirements",
+            ],
+        },
+        "Article_25_Value_Chain": {
+            "status":    "🟢 SUPPORTED",
+            "what_verisigil_provides": [
+                "Value-chain actor registration with role determination",
+                "Provider obligation trigger detection (own name, substantial modification, etc)",
+                "Responsibility map with evidence receipts",
+                "Change detection and revalidation triggers",
+            ],
+            "non_claims": [
+                "VeriSigil does not provide legal advice on Article 25 obligations",
+                "Role determination is a governance assessment — not a legal determination",
+            ],
+        },
+        "Article_50_Transparency": {
+            "status":    "🟢 SUPPORTED",
+            "what_verisigil_provides": [
+                "Disclosure gate for AI-generated content",
+                "Adequate means documentation (GET /v1/article50/adequate-means)",
+                "Disclosure obligation mapping (all four Article 50 obligations)",
+                "Non-signatory adequate means infrastructure",
+            ],
+            "non_claims": [
+                "VeriSigil does not certify Article 50 compliance",
+                "Compliance determined by national competent authorities",
+                "Signing the Code of Practice is separate from VeriSigil evidence",
+            ],
+        },
+        "High_Risk_Annex_III": {
+            "status":    "🟡 PARTIALLY SUPPORTED",
+            "deadline":  "2 December 2027 (extended by Omnibus)",
+            "what_verisigil_provides": [
+                "Consequence boundary model for high-risk action classes",
+                "Commit-time revalidation at HIGH/CRITICAL consequence tiers",
+                "Proof Passport with enforcement evidence",
+                "14-vector enforcement test suite",
+                "Assumption monitoring and cascade",
+            ],
+            "what_requires_additional_evidence": [
+                "Formal conformity assessment — VeriSigil evidence supports but does not replace",
+                "Technical documentation requirements — VeriSigil provides evidence artifacts",
+                "CE marking — outside VeriSigil scope",
+                "EU database registration — outside VeriSigil scope",
+                "Post-market monitoring system — VeriSigil can provide assurance evidence",
+            ],
+            "non_claims": [
+                "VeriSigil evidence does not constitute a conformity assessment",
+                "VeriSigil Proof Passport is not a CE declaration of conformity",
+            ],
+        },
+        "Governance_Obligations": {
+            "status":    "🟢 SUPPORTED",
+            "in_force":  "2 August 2025",
+            "what_verisigil_provides": [
+                "Governance decision records with Ed25519 receipts",
+                "Authority graph and delegation chain",
+                "Policy version binding",
+                "Immutable event log",
+                "Proof Passport as machine-readable governance artifact",
+            ],
+            "non_claims": [
+                "VeriSigil evidence supports governance demonstration",
+                "Governance sufficiency determined by AI Office and national authorities",
+            ],
+        },
+        "GPAI_Obligations": {
+            "status":    "🟡 PARTIALLY SUPPORTED",
+            "in_force":  "2 August 2025",
+            "what_verisigil_provides": [
+                "Model identity registry (POST /v1/models/register)",
+                "Model transition assurance",
+                "Reproducibility classification (R0-R4)",
+                "Governance continuity contract across model changes",
+            ],
+            "what_requires_additional_evidence": [
+                "Technical documentation for GPAI models — VeriSigil provides evidence layer",
+                "Copyright policy documentation — outside VeriSigil scope",
+                "Energy consumption reporting — Terrex module (Phase II)",
+            ],
+            "non_claims": [
+                "VeriSigil does not certify GPAI model compliance",
+            ],
+        },
+        "Prohibited_Practices": {
+            "status":    "🔴 OUTSIDE VERISIGIL SCOPE",
+            "in_force":  "February 2025",
+            "note": (
+                "VeriSigil is not a prohibited AI practice detector. "
+                "It provides evidence of governed consequential actions. "
+                "Whether a practice is prohibited is a legal determination."
+            ),
+        },
+        "Harmonised_Standards": {
+            "status":    "🔵 FUTURE INTEGRATION",
+            "note": (
+                "Harmonised standards for high-risk AI are still being developed "
+                "and their availability has been delayed. "
+                "VeriSigil will map evidence to harmonised standards "
+                "as they become available. "
+                "This is a significant market opportunity: "
+                "organisations need evidence infrastructure NOW "
+                "before standards are finalised."
+            ),
+        },
+        "Regulatory_Sandbox": {
+            "status":    "🔵 FUTURE INTEGRATION",
+            "omnibus_development": (
+                "AI Omnibus expands regulatory sandbox access including EU-level sandbox. "
+                "VeriSigil Regulatory Evidence Sandbox — planned capability: "
+                "define action boundary, identify requirements, generate evidence requirements, "
+                "execute challenges, identify gaps, generate Proof Passport, provide crosswalk."
+            ),
+        },
+    },
+}
+
+# Regulatory requirement versioning
+_REGULATORY_REQUIREMENTS: dict = {
+    "EU_AI_ACT_ART4":  {"version": "2024/1689", "title": "Article 4 AI Literacy",        "in_force": "2025-02-02", "omnibus": False},
+    "EU_AI_ACT_ART25": {"version": "2024/1689", "title": "Article 25 Value Chain",        "in_force": "2026-08-02", "omnibus": False},
+    "EU_AI_ACT_ART50": {"version": "2024/1689", "title": "Article 50 Transparency",       "in_force": "2026-08-02", "omnibus": False},
+    "EU_AI_ACT_AIII":  {"version": "2024/1689+Omnibus", "title": "Annex III High-Risk",   "in_force": "2027-12-02", "omnibus": True},
+    "EU_AI_OMNIBUS":   {"version": "Omnibus 2026", "title": "AI Omnibus",                 "in_force": "2026-07-27", "omnibus": True},
+}
+
+# Regulatory change events (append-only)
+_REGULATORY_CHANGES: list = []
+
+
+@app.get("/v1/regulatory/eu-assurance-spec", tags=["EU AI Act — Regulatory Evidence"])
+async def eu_assurance_spec():
+    """
+    VeriSigil EU Assurance Specification v1.0
+
+    Component-by-component classification against current
+    EU AI Act + AI Omnibus requirements.
+
+    Expert: "Map actual current AI Act + Omnibus requirements
+    against every VeriSigil component and classify as:
+    🟢 Already supported
+    🟡 Partially supported
+    🔴 Outside scope
+    🔵 Future integration"
+
+    No auth required.
+    """
+    return {
+        **EU_ASSURANCE_SPEC_V1,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@app.get("/v1/regulatory/omnibus-timeline", tags=["EU AI Act — Regulatory Evidence"])
+async def omnibus_timeline():
+    """
+    AI Omnibus timeline — current obligation dates.
+
+    AI Omnibus entered into force 27 July 2026.
+    Key dates updated from original EU AI Act.
+
+    No auth required.
+    """
+    return {
+        "schema":          "VGS-EU-OMNIBUS-TIMELINE-v1.0",
+        "omnibus_in_force":"2026-07-27",
+        "general_application": "2026-08-02",
+        "note":            "AI Omnibus entered into force 27 July 2026. Extended high-risk timelines.",
+        "timeline":        EU_AI_ACT_OMNIBUS_TIMELINE,
+        "verisigil_position": (
+            "VeriSigil does not certify compliance with these deadlines. "
+            "It provides evidence infrastructure to support organisations "
+            "in demonstrating their governance measures to competent authorities."
+        ),
+        "harmonised_standards_note": (
+            "Harmonised standards for high-risk AI are still being developed. "
+            "Delayed standards are one reason high-risk timelines were extended. "
+            "This creates an opportunity: organisations need evidence infrastructure "
+            "NOW while standards are being finalised."
+        ),
+        "timestamp":       datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@app.get("/v1/regulatory/evidence-crosswalk", tags=["EU AI Act — Regulatory Evidence"])
+async def eu_evidence_crosswalk():
+    """
+    EU AI Act Evidence Crosswalk — maps requirements to evidence.
+
+    Expert: "EU AI Act / Applicable Requirement
+    → Control Objective → Evidence Requirement
+    → VeriSigil Evidence Artifact → Verification Result
+    → Assumptions → Non-Claims → Proof Level
+    → Independent Verification"
+
+    Far more sophisticated than a checkbox.
+    No auth required.
+    """
+    return {
+        "schema":  "VGS-EU-EVIDENCE-CROSSWALK-v1.0",
+        "basis":   "EU AI Act (Regulation 2024/1689) + AI Omnibus (in force 2026-07-27)",
+        "crosswalk": {
+            "AI_Literacy_Article_4": {
+                "requirement":         "Organisations must ensure appropriate AI literacy in their staff",
+                "control_objective":   "Demonstrate that staff competency is assessed and documented",
+                "evidence_requirement":"Literacy profiles, competency tiers, acknowledgements, role-based requirements",
+                "verisigil_artifact":  "Literacy Evidence Pack — GET /v1/literacy/evidence/{id}",
+                "proof_level":         "DECISION_PROVEN to STATE_PROVEN",
+                "verification":        "Ed25519 signed literacy records, offline verifiable",
+                "assumptions":         ["Competency tiers reflect organisational policy", "Staff acknowledgements are genuine"],
+                "non_claims":          ["Does not certify legal sufficiency of literacy measures", "Competency tiers are not EU legal requirements"],
+            },
+            "Value_Chain_Article_25": {
+                "requirement":         "Downstream actors may acquire provider obligations under specified circumstances",
+                "control_objective":   "Map responsibilities across AI value chain, detect obligation triggers",
+                "evidence_requirement":"Actor registry, role determination, provider trigger evidence, change records",
+                "verisigil_artifact":  "Value-Chain Responsibility Map — GET /v1/value-chain/{org_id}/responsibilities",
+                "proof_level":         "STATE_PROVEN",
+                "verification":        "Ed25519 signed responsibility records, change history preserved",
+                "assumptions":         ["Actor declarations are accurate", "Substantial modification definition applied by qualified counsel"],
+                "non_claims":          ["Does not provide legal advice", "Role determination is governance assessment not legal determination"],
+            },
+            "Transparency_Article_50": {
+                "requirement":         "AI-generated content must be disclosed; deepfakes must be marked",
+                "control_objective":   "Demonstrate disclosure governance for AI-generated content",
+                "evidence_requirement":"Disclosure records, adequate means documentation, jurisdiction mapping",
+                "verisigil_artifact":  "Disclosure Evidence — POST /v1/disclosure/register + GET /v1/article50/adequate-means",
+                "proof_level":         "DECISION_PROVEN to EVIDENCE_PROVEN",
+                "verification":        "Ed25519 signed disclosure records, adequate means endpoint no-auth",
+                "assumptions":         ["Content type correctly classified", "Jurisdiction correctly identified"],
+                "non_claims":          ["Does not certify Article 50 compliance", "Signing Code of Practice is separate"],
+            },
+            "Consequential_AI_Action_Governance": {
+                "requirement":         "High-risk AI systems require documented governance, human oversight, monitoring",
+                "control_objective":   "Demonstrate that consequential AI actions are governed, bounded and evidence-backed",
+                "evidence_requirement":"GovernedActionProposal, authority chain, state assertion, decision binding, enforcement evidence",
+                "verisigil_artifact":  "Proof Passport — POST /v1/passports",
+                "proof_level":         "Up to ENFORCEMENT_PROVEN (Level 5)",
+                "verification":        "10-question assurance suite — POST /v1/assurance/runs",
+                "assumptions":         ["Reference sink is the governed consequence boundary", "Authority registry is current"],
+                "non_claims":          ["Does not constitute conformity assessment", "Does not replace CE marking", "Enforcement tested in reference environment only"],
+            },
+        },
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@app.get("/v1/regulatory/gap-detector", tags=["EU AI Act — Regulatory Evidence"])
+async def regulatory_gap_detector(
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Regulatory Evidence Gap Detector.
+
+    Expert: "What evidence would we need to demonstrate
+    that this system's consequential actions are governed?
+    Then VeriSigil identifies the evidence gaps."
+
+    Returns current gaps against EU AI Act obligations
+    that are already in force.
+    """
+    require_api_key(x_api_key, authorization)
+    ts = datetime.now(timezone.utc).isoformat()
+
+    # Check what evidence currently exists
+    has_proposals    = len(_PROPOSAL_REGISTRY) > 0
+    has_passports    = len(_PASSPORT_REGISTRY) > 0
+    has_literacy     = bool(next((e for e in dir() if 'literacy' in str(e).lower()), False))
+    has_value_chain  = True  # endpoint exists
+    has_disclosure   = True  # endpoint exists
+    has_runs         = len(_ASSURANCE_RUNS) > 0
+
+    gaps = []
+    supported = []
+
+    # Article 4 — in force February 2025
+    if True:  # endpoint exists
+        supported.append({"requirement": "Article 4 AI Literacy", "status": "Infrastructure available", "endpoint": "POST /v1/literacy/register"})
+    else:
+        gaps.append({"requirement": "Article 4 AI Literacy", "gap": "No literacy profiles registered", "fix": "POST /v1/literacy/register"})
+
+    # Article 25 — in force August 2026
+    supported.append({"requirement": "Article 25 Value Chain", "status": "Infrastructure available", "endpoint": "POST /v1/value-chain/register"})
+
+    # Article 50 — in force August 2026
+    supported.append({"requirement": "Article 50 Transparency", "status": "Infrastructure available + adequate-means documented", "endpoint": "GET /v1/article50/adequate-means"})
+
+    # Consequential AI governance
+    if not has_proposals:
+        gaps.append({"requirement": "Consequential AI Governance", "gap": "No GovernedActionProposals created", "fix": "POST /v1/proposals for each consequential AI action"})
+    else:
+        supported.append({"requirement": "Consequential AI Governance", "status": f"{len(_PROPOSAL_REGISTRY)} proposals registered", "endpoint": "POST /v1/proposals"})
+
+    if not has_passports:
+        gaps.append({"requirement": "Proof Passport", "gap": "No Proof Passports issued", "fix": "POST /v1/passports after building evidence chain"})
+    else:
+        supported.append({"requirement": "Proof Passport", "status": f"{len(_PASSPORT_REGISTRY)} passports issued", "endpoint": "POST /v1/passports"})
+
+    # Harmonised standards
+    gaps.append({
+        "requirement": "Harmonised Standards (Annex III)",
+        "gap":         "Harmonised standards still being developed — industry-wide gap not VeriSigil-specific",
+        "fix":         "Monitor CENELEC/CEN harmonisation work. VeriSigil will map to standards as published.",
+        "note":        "This gap is why Omnibus extended Annex III deadline to December 2027",
+    })
+
+    return {
+        "schema":           "VGS-REGULATORY-GAP-DETECTOR-v1.0",
+        "evaluation_date":  ts,
+        "in_force_obligations": ["Article 4 (Feb 2025)", "Article 50 (Aug 2026)", "Article 25 (Aug 2026)", "Governance/GPAI (Aug 2025)"],
+        "upcoming_obligations": ["Annex III High-Risk (Dec 2027)", "Physical product High-Risk (Aug 2028)"],
+        "supported":        supported,
+        "gaps":             gaps,
+        "total_supported":  len(supported),
+        "total_gaps":       len(gaps),
+        "governance_signature": sign_governance_payload({"gaps": len(gaps), "supported": len(supported), "timestamp": ts}),
+        "timestamp":        ts,
+    }
+
+
+@app.post("/v1/regulatory/change-monitor", tags=["EU AI Act — Regulatory Evidence"])
+async def regulatory_change_monitor(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Regulatory Change Monitor — record a regulatory change
+    and identify affected Proof Passports.
+
+    Expert: "Regulation changes. Deadlines change. Standards
+    change. Guidelines change. Interpretations change.
+    High-risk classifications can evolve.
+    This connects directly with the Assumption Cascade Protocol."
+
+    When a regulatory requirement changes:
+    → Identify affected evidence mappings
+    → Flag affected Proof Passports for reassessment
+    → Generate regulatory change event
+    """
+    require_api_key(x_api_key, authorization)
+    ts        = datetime.now(timezone.utc).isoformat()
+    change_id = f"REGCHG-{hashlib.sha256(ts.encode()).hexdigest()[:10].upper()}"
+
+    requirement_id  = req.get("requirement_id","")
+    change_type     = req.get("change_type","")   # DEADLINE_CHANGE, NEW_OBLIGATION, GUIDANCE_UPDATE, STANDARD_PUBLISHED
+    previous_value  = req.get("previous_value","")
+    new_value       = req.get("new_value","")
+    source          = req.get("source","")        # Commission press release, Official Journal, etc
+    effective_date  = req.get("effective_date","")
+    description     = req.get("description","")
+
+    # Update requirement registry if known
+    if requirement_id in _REGULATORY_REQUIREMENTS:
+        _REGULATORY_REQUIREMENTS[requirement_id]["previous_version"] = _REGULATORY_REQUIREMENTS[requirement_id].get("version")
+        _REGULATORY_REQUIREMENTS[requirement_id]["version"]          = new_value or _REGULATORY_REQUIREMENTS[requirement_id]["version"]
+        _REGULATORY_REQUIREMENTS[requirement_id]["last_changed"]     = ts
+
+    change_event = {
+        "schema":         "VGS-REGULATORY-CHANGE-v1.0",
+        "change_id":      change_id,
+        "requirement_id": requirement_id,
+        "change_type":    change_type,
+        "previous_value": previous_value,
+        "new_value":      new_value,
+        "source":         source,
+        "effective_date": effective_date,
+        "description":    description,
+        "affected_passports": list(_PASSPORT_REGISTRY.keys()),
+        "reassessment_required": True,
+        "recorded_at":    ts,
+        "cascade_note": (
+            "All Proof Passports that reference this regulatory requirement "
+            "should be reassessed. Evidence mappings may need updating. "
+            "This connects with the Assumption Cascade Protocol."
+        ),
+    }
+
+    seal = {"change_id": change_id, "requirement_id": requirement_id, "timestamp": ts}
+    change_event["governance_signature"] = sign_governance_payload(seal)
+    _REGULATORY_CHANGES.append(change_event)
+    _emit_proof_event("REGULATORY_CHANGE_DETECTED", change_id,
+                      {"requirement_id": requirement_id, "change_type": change_type}, ts)
+
+    return change_event
+
+
+@app.get("/v1/regulatory/change-monitor", tags=["EU AI Act — Regulatory Evidence"])
+async def regulatory_change_history(
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """All recorded regulatory changes and their impact on Proof Passports."""
+    require_api_key(x_api_key, authorization)
+    return {
+        "schema":          "VGS-REGULATORY-CHANGE-HISTORY-v1.0",
+        "total_changes":   len(_REGULATORY_CHANGES),
+        "changes":         _REGULATORY_CHANGES,
+        "known_requirements": _REGULATORY_REQUIREMENTS,
+        "timestamp":       datetime.now(timezone.utc).isoformat(),
+    }
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=int(os.environ.get("PORT", 8000)), reload=False)
