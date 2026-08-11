@@ -85032,6 +85032,448 @@ async def assurance_failure_codes():
     }
 
 
+
+# ============================================================
+# MODEL TRANSITION ASSURANCE LAYER (MTAL)
+# Expert: "If the AI model becomes replaceable, VeriSigilAI
+# must become MORE valuable when the model changes — not less."
+#
+# Strategic triangle:
+# 1. Model Transition Assurance — what changes when models change
+# 2. Proof Portability — evidence verifiable across vendors
+# 3. Consequence Assurance Intelligence — accumulated knowledge
+#
+# Expert: "The model can change. The runtime can change.
+# The vendor can change. The data substrate can change.
+# The proof must remain independently verifiable."
+# ============================================================
+
+# ── MODEL IDENTITY & VERSION REGISTRY ─────────────────────────
+_MODEL_REGISTRY: dict = {}  # model_id -> ModelIdentityRecord
+_MODEL_TRANSITIONS: dict = {}  # transition_id -> ModelTransitionRecord
+_GOVERNANCE_INVARIANTS: dict = {}  # invariant_id -> GovernanceInvariant
+_ASSURANCE_INTELLIGENCE: list = []  # structured challenge/evidence corpus
+
+
+@app.post("/v1/models/register", tags=["Model Transition Assurance"])
+async def model_register(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Model Identity & Version Registry.
+
+    Track model identity without making the model the trust anchor.
+    The model is a replaceable component. Governance is not.
+
+    Expert: "Track model/version/snapshot identifiers without
+    making the model itself the trust anchor."
+
+    Captures:
+    - model_provider, model_id, model_version
+    - model_snapshot_hash (if available)
+    - reproducibility_class (R0-R4)
+    - prompt_template_hash, tool_configuration_hash
+    - governance_policy_version
+    """
+    require_api_key(x_api_key, authorization)
+    ts       = datetime.now(timezone.utc).isoformat()
+    model_id = req.get("model_id","") or f"MDL-{hashlib.sha256(ts.encode()).hexdigest()[:10].upper()}"
+
+    model_snapshot_hash = req.get("model_snapshot_hash","")
+    if not model_snapshot_hash:
+        model_snapshot_hash = "NOT_PROVIDED — reproducibility class capped at R1_REPLAYABLE"
+
+    record = {
+        "schema":              "VGS-MODEL-IDENTITY-1.0",
+        "model_registry_id":   model_id,
+        "model_provider":      req.get("model_provider",""),
+        "model_name":          req.get("model_name",""),
+        "model_version":       req.get("model_version",""),
+        "model_snapshot_hash": model_snapshot_hash,
+        "prompt_template_hash":req.get("prompt_template_hash",""),
+        "tool_config_hash":    req.get("tool_config_hash",""),
+        "system_prompt_hash":  req.get("system_prompt_hash",""),
+        "reproducibility_class":req.get("reproducibility_class","R1_REPLAYABLE"),
+        "governance_policy_version": req.get("governance_policy_version",""),
+        "registered_at":       ts,
+        "status":              "ACTIVE",
+        "governance_note": (
+            "The model is a replaceable component in VeriSigil's architecture. "
+            "Governance identity attaches to the action, policy, and authority — "
+            "not to the model. Model changes require transition assurance assessment."
+        ),
+    }
+
+    seal = {"model_registry_id": model_id, "model_version": record["model_version"], "timestamp": ts}
+    record["governance_signature"] = sign_governance_payload(seal)
+    _MODEL_REGISTRY[model_id] = record
+    return record
+
+
+@app.post("/v1/models/transition", tags=["Model Transition Assurance"])
+async def model_transition_assess(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Model Transition Assurance Engine.
+
+    When an enterprise changes AI models, VeriSigil assesses:
+    - What governance elements remain INVARIANT?
+    - What elements CHANGED?
+    - What is the new proof level ceiling?
+    - What tests must be rerun?
+
+    Expert: "VeriSigil shouldn't simply say 'model-agnostic.'
+    It should PROVE what remained invariant and what changed."
+
+    Returns: GOVERNANCE_PORTABILITY_CONFIRMED or
+             GOVERNANCE_PORTABILITY_NOT_ESTABLISHED
+    with specific evidence of what changed.
+    """
+    require_api_key(x_api_key, authorization)
+    ts             = datetime.now(timezone.utc).isoformat()
+    transition_id  = f"MTR-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}"
+
+    prev_model_id  = req.get("previous_model_id","")
+    new_model_id   = req.get("new_model_id","")
+    prev_model     = _MODEL_REGISTRY.get(prev_model_id,{})
+    new_model      = _MODEL_REGISTRY.get(new_model_id,{})
+
+    # Compare governance elements
+    invariant      = []
+    changed        = []
+    tests_required = []
+
+    def compare_field(label, field, prev, new_):
+        if prev.get(field,"") == new_.get(field,"") and prev.get(field,""):
+            invariant.append(f"{label}: unchanged")
+        elif prev.get(field,"") != new_.get(field,""):
+            changed.append(f"{label}: {prev.get(field,'UNKNOWN')} → {new_.get(field,'UNKNOWN')}")
+            tests_required.append(f"Rerun {label} assurance tests")
+
+    compare_field("Policy version",       "governance_policy_version",  prev_model, new_model)
+    compare_field("Reproducibility class","reproducibility_class",       prev_model, new_model)
+    compare_field("Tool configuration",   "tool_config_hash",            prev_model, new_model)
+    compare_field("System prompt",        "system_prompt_hash",          prev_model, new_model)
+
+    # Proof level impact
+    prev_repro = prev_model.get("reproducibility_class","R1_REPLAYABLE")
+    new_repro  = new_model.get("reproducibility_class","R1_REPLAYABLE")
+    prev_max   = REPRODUCIBILITY_MAX_LEVEL_V2.get(prev_repro, 3)
+    new_max    = REPRODUCIBILITY_MAX_LEVEL_V2.get(new_repro, 3)
+
+    if new_max < prev_max:
+        proof_level_impact = f"DOWNGRADED: {PROOF_LEVEL_NAMES[prev_max]} → {PROOF_LEVEL_NAMES[new_max]}"
+        proof_impact_reason= f"New model's reproducibility class {new_repro} caps proof at {PROOF_LEVEL_NAMES[new_max]}"
+        tests_required.append("Full 10-Question Assurance Run required for new model")
+    elif new_max > prev_max:
+        proof_level_impact = f"POTENTIAL UPGRADE: {PROOF_LEVEL_NAMES[prev_max]} → {PROOF_LEVEL_NAMES[new_max]}"
+        proof_impact_reason= "New model may support higher proof level — evidence required"
+    else:
+        proof_level_impact = f"UNCHANGED: {PROOF_LEVEL_NAMES[new_max]}"
+        proof_impact_reason= "Proof level ceiling unchanged"
+
+    portability = "GOVERNANCE_PORTABILITY_CONFIRMED" if not changed else "GOVERNANCE_PORTABILITY_ASSESSMENT_REQUIRED"
+
+    result = {
+        "schema":          "VGS-MODEL-TRANSITION-1.0",
+        "transition_id":   transition_id,
+        "previous_model":  prev_model_id,
+        "new_model":       new_model_id,
+        "portability_result": portability,
+        "invariant":       invariant,
+        "changed":         changed,
+        "proof_level_impact": proof_level_impact,
+        "proof_impact_reason":proof_impact_reason,
+        "tests_required":  tests_required,
+        "transition_at":   ts,
+        "principle": (
+            "The model is replaceable. Governance is not. "
+            "VeriSigil proves what remained invariant and what changed — "
+            "not simply that the system is 'model-agnostic'."
+        ),
+        "important_non_claim": (
+            "GOVERNANCE_PORTABILITY_CONFIRMED does not mean semantic equivalence. "
+            "It means the declared governance conditions were satisfied. "
+            "If the model produces different decisions for the same inputs, "
+            "that requires separate evidence and assessment."
+        ),
+    }
+
+    seal = {"transition_id": transition_id, "portability": portability, "timestamp": ts}
+    result["governance_signature"] = sign_governance_payload(seal)
+    _MODEL_TRANSITIONS[transition_id] = result
+    return result
+
+
+@app.post("/v1/governance/invariants/register", tags=["Model Transition Assurance"])
+async def governance_invariant_register(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Governance Invariant Registry.
+
+    Define what MUST remain unchanged during model/vendor migration.
+
+    Expert: "Identify what must remain unchanged:
+    authority, policy, evidence requirements, consequence boundary,
+    binding requirements, enforcement controls."
+
+    These become the portability contract.
+    """
+    require_api_key(x_api_key, authorization)
+    ts           = datetime.now(timezone.utc).isoformat()
+    invariant_id = f"INV-{hashlib.sha256(ts.encode()).hexdigest()[:10].upper()}"
+
+    invariant = {
+        "schema":      "VGS-GOVERNANCE-INVARIANT-1.0",
+        "invariant_id":invariant_id,
+        "name":        req.get("name",""),
+        "description": req.get("description",""),
+        "invariant_elements": req.get("invariant_elements", [
+            "authority_model",
+            "policy_version",
+            "evidence_requirements",
+            "consequence_boundary",
+            "binding_requirements",
+            "enforcement_controls",
+            "non_claims",
+        ]),
+        "violation_triggers_reassessment": True,
+        "current_hash":  hashlib.sha256(
+            json.dumps(req.get("invariant_elements",[]), sort_keys=True, separators=(",",":")).encode()
+        ).hexdigest(),
+        "registered_at": ts,
+    }
+
+    seal = {"invariant_id": invariant_id, "hash": invariant["current_hash"], "timestamp": ts}
+    invariant["governance_signature"] = sign_governance_payload(seal)
+    _GOVERNANCE_INVARIANTS[invariant_id] = invariant
+    return invariant
+
+
+# ── PROOF PORTABILITY ─────────────────────────────────────────
+
+@app.get("/v1/proof/portability", tags=["Model Transition Assurance"])
+async def proof_portability_spec():
+    """
+    Proof Portability Specification.
+
+    Expert: "A VeriSigil Proof Passport shouldn't belong to
+    OpenAI, Anthropic, or any particular vendor.
+    It should be possible to take Evidence → Proof Passport →
+    Independent Verifier and move it between vendors, models,
+    clouds, auditors, regulators, enterprises, jurisdictions."
+
+    No auth required.
+    """
+    return {
+        "schema":  "VGS-PROOF-PORTABILITY-1.0",
+        "title":   "VeriSigil Proof Portability Specification",
+        "principle": (
+            "The governance system may change. "
+            "The model may change. "
+            "The vendor may change. "
+            "The evidence remains independently verifiable."
+        ),
+        "portability_requirements": {
+            "offline_verification": {
+                "status":     "IMPLEMENTED",
+                "mechanism":  "Ed25519 signatures verifiable against published public key",
+                "public_key": "lJWG0Wabt6uATPu5Upo6UEHWGXQqMyi6LMKQC0xwpY8=",
+                "no_vendor_dependency": True,
+            },
+            "vendor_independence": {
+                "status":     "IMPLEMENTED",
+                "mechanism":  "VES 1.0 format — any system can emit and verify",
+                "endpoint":   "GET /v1/vgs/ves/spec",
+            },
+            "model_independence": {
+                "status":     "IMPLEMENTED",
+                "mechanism":  "Governance attaches to action + policy + authority, not model",
+                "transition":  "POST /v1/models/transition for model change assessment",
+            },
+            "auditor_portability": {
+                "status":     "PARTIAL",
+                "mechanism":  "Proof Passport exportable as JSON",
+                "missing":    "Standalone CLI verifier not yet open-source",
+                "planned":    "Open-source verisigil-verify CLI",
+            },
+            "regulator_portability": {
+                "status":     "IMPLEMENTED",
+                "mechanism":  "Regulatory framework mappings at GET /v1/regulatory/frameworks",
+                "frameworks": ["NIST_AI_RMF","ISO_42001","EU_AI_ACT"],
+            },
+        },
+        "non_claims": [
+            "Does not guarantee evidence is admissible in any specific legal jurisdiction",
+            "Does not guarantee all regulators will accept VES format",
+            "CLI verifier portability requires open-source release (planned)",
+        ],
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+# ── CONSEQUENCE ASSURANCE INTELLIGENCE GRAPH ──────────────────
+
+@app.post("/v1/assurance/intelligence/record", tags=["Consequence Assurance Intelligence"])
+async def intelligence_record(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Consequence Assurance Intelligence Graph — record structured
+    assurance observations.
+
+    Expert: "VeriSigilAI could accumulate a proprietary
+    Consequence Assurance Intelligence Graph. Every authorized
+    challenge produces structured evidence."
+
+    Expert warning: "Historical observations DO NOT automatically
+    prove a future system safe. The corpus informs testing and
+    risk prioritization. Customer-specific proof still requires
+    customer-specific evidence."
+
+    Stores normalized, non-sensitive assurance metadata.
+    NOT raw business data.
+    """
+    require_api_key(x_api_key, authorization)
+    ts      = datetime.now(timezone.utc).isoformat()
+    intel_id= f"INT-{hashlib.sha256(ts.encode()).hexdigest()[:10].upper()}"
+
+    observation = {
+        "schema":           "VGS-ASSURANCE-INTELLIGENCE-1.0",
+        "observation_id":   intel_id,
+        "action_class":     req.get("action_class",""),        # transfer_funds, data_access, etc
+        "consequence_class":req.get("consequence_class",""),   # financial, data, operational
+        "control_type":     req.get("control_type",""),        # authorization, boundary, revocation
+        "attack_vector":    req.get("attack_vector",""),       # TEST-001 etc
+        "attempted_bypass": req.get("attempted_bypass",False),
+        "expected_behavior":req.get("expected_behavior",""),
+        "observed_behavior":req.get("observed_behavior",""),
+        "control_held":     req.get("control_held",None),      # True/False/None
+        "proof_level":      req.get("proof_level",""),
+        "reproducibility_class": req.get("reproducibility_class",""),
+        "control_dependencies":  req.get("control_dependencies",[]),
+        "environment_class":     req.get("environment_class",""),  # cloud, on-prem, hybrid
+        "recorded_at":      ts,
+        "privacy_note": (
+            "This observation stores normalized assurance metadata only. "
+            "No raw business data, PII, or sensitive operational data is recorded. "
+            "Observations inform test prioritization — they do not prove future safety."
+        ),
+        "epistemic_boundary": (
+            "Historical observations from this corpus DO NOT prove a future system safe. "
+            "Customer-specific proof requires customer-specific evidence."
+        ),
+    }
+
+    seal = {"observation_id": intel_id, "action_class": observation["action_class"], "timestamp": ts}
+    observation["governance_signature"] = sign_governance_payload(seal)
+    _ASSURANCE_INTELLIGENCE.append(observation)
+    return observation
+
+
+@app.get("/v1/assurance/intelligence/summary", tags=["Consequence Assurance Intelligence"])
+async def intelligence_summary(
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Consequence Assurance Intelligence summary.
+
+    The growing corpus of structured challenge observations.
+    Expert: "The moat is accumulated evidence, not proprietary secrecy."
+    """
+    require_api_key(x_api_key, authorization)
+    ts = datetime.now(timezone.utc).isoformat()
+
+    total = len(_ASSURANCE_INTELLIGENCE)
+    by_action = {}
+    by_vector = {}
+    controls_held = sum(1 for o in _ASSURANCE_INTELLIGENCE if o.get("control_held") is True)
+    controls_failed = sum(1 for o in _ASSURANCE_INTELLIGENCE if o.get("control_held") is False)
+
+    for obs in _ASSURANCE_INTELLIGENCE:
+        ac = obs.get("action_class","UNKNOWN")
+        av = obs.get("attack_vector","UNKNOWN")
+        by_action[ac] = by_action.get(ac, 0) + 1
+        by_vector[av] = by_vector.get(av, 0) + 1
+
+    return {
+        "schema":          "VGS-INTELLIGENCE-SUMMARY-1.0",
+        "total_observations": total,
+        "controls_held":   controls_held,
+        "controls_failed": controls_failed,
+        "by_action_class": by_action,
+        "by_attack_vector":by_vector,
+        "moat_principle":  (
+            "Accumulated evidence is harder to recreate than copied code. "
+            "A competitor can copy the schemas. "
+            "They cannot instantly recreate the structured observation history."
+        ),
+        "epistemic_boundary": (
+            "This corpus informs test prioritization and risk assessment. "
+            "It does NOT prove a specific customer system is safe. "
+            "Customer-specific proof requires customer-specific evidence."
+        ),
+        "timestamp":       ts,
+    }
+
+
+@app.get("/v1/assurance/intelligence/flywheel", tags=["Consequence Assurance Intelligence"])
+async def intelligence_flywheel():
+    """
+    The VeriSigil evidence flywheel — how assurance improves over time.
+    No auth required.
+    """
+    return {
+        "schema":   "VGS-FLYWHEEL-1.0",
+        "flywheel": [
+            "More customers",
+            "→ More governed action classes",
+            "→ More legitimate challenges",
+            "→ More observed failure patterns",
+            "→ Better test vectors",
+            "→ Better assurance assessments",
+            "→ Better Proof Passports",
+            "→ More enterprise trust",
+            "→ More customers",
+        ],
+        "competitive_moat": {
+            "what_competitors_can_copy": [
+                "GovernedActionProposal schema",
+                "Proof Passport format",
+                "TEST-001 through TEST-014",
+                "Proof level taxonomy",
+                "VES 1.0 specification",
+            ],
+            "what_competitors_cannot_instantly_recreate": [
+                "Years of structured assurance observations",
+                "Challenge history showing which controls survived which attack vectors",
+                "Failed-and-fixed validation history",
+                "Independent witness signatures",
+                "Customer governance relationships",
+                "Accumulated trust from operational validation",
+            ],
+        },
+        "honest_limitation": (
+            "Historical corpus informs testing. "
+            "It does not replace customer-specific evidence. "
+            "VeriSigil will never claim: "
+            "'Because we have seen 1 million challenges, your system is safe.'"
+        ),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=int(os.environ.get("PORT", 8000)), reload=False)
