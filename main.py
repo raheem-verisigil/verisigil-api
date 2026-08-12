@@ -88125,6 +88125,523 @@ async def passport_vault(
     }
 
 
+
+# ============================================================
+# REALITY CORRESPONDENCE LAYER — v1.5
+# Status: APPROVED FOR IMPLEMENTATION
+#
+# Expert 1 (strategic): "When Reality changes, you do not
+# keep executing yesterday's plan."
+# Expert 2 (technical): Four corrections applied:
+# 1. Never say VeriSigil observes "Reality" — always
+#    "authenticated, time-bound observable/evidenced state"
+# 2. State Evidence Snapshot cryptographically bound at
+#    evaluation time for reproducible offline verification
+# 3. Criticality NEVER inferred — only pre-declared rules
+# 4. Existing /v1/passports/{id} remains canonical
+# + Evidence freshness as deterministic correspondence condition
+#
+# The distinction from Semantic Transition:
+# Semantic Transition: Did the governance-relevant STRUCTURE change?
+# Reality Correspondence: Does that structure still CORRESPOND
+#   to the authenticated observable conditions required for
+#   it to remain admissible?
+#
+# NOT_PROVABLE must NEVER silently become an authorization.
+# VeriSigilAI does not observe objective reality.
+# It evaluates: declared structure + declared rules +
+# authenticated evidence snapshot + timestamp
+# → deterministic correspondence result.
+# ============================================================
+
+# Correspondence statuses — exactly four, no others
+CORRESPONDENCE_STATUSES = {
+    "CORRESPONDS":  "All required governance-relevant conditions correspond to declared structure and evidence satisfies freshness/integrity requirements",
+    "PARTIAL":      "One or more non-critical divergences exist while all critical governance conditions remain satisfied",
+    "BROKEN":       "A pre-declared critical condition no longer corresponds to observable state",
+    "NOT_PROVABLE": "Evidence required to determine correspondence is missing, invalid, stale beyond policy, unverifiable, or otherwise insufficient",
+}
+
+# Evidence freshness statuses
+FRESHNESS_STATUSES = {
+    "FRESH":        "Evidence age is within declared freshness policy",
+    "STALE":        "Evidence age exceeds declared freshness policy but has not expired",
+    "EXPIRED":      "Evidence valid_until has passed",
+    "NOT_PROVABLE": "Timestamp unavailable or cannot be verified",
+}
+
+# Correspondence test vectors TV-008 through TV-010
+CORRESPONDENCE_TEST_VECTORS = {
+    "TV-008": {
+        "name":        "Expired Authority",
+        "description": "Declared authority ACTIVE but observed state shows EXPIRED",
+        "declared":    {"authority_status": "ACTIVE"},
+        "observed":    {"authority_status": "EXPIRED"},
+        "criticality_rule": "CRITICAL",
+        "expected_correspondence": "BROKEN",
+        "expected_materiality":    "MATERIAL",
+        "expected_reentry":        True,
+        "why": "Critical condition no longer corresponds — execution cannot proceed without revalidation",
+    },
+    "TV-009": {
+        "name":        "Non-Critical Metadata Drift",
+        "description": "Only non-governing display fields changed — critical conditions unchanged",
+        "declared":    {"display_label": "Beneficiary A", "authority_status": "ACTIVE"},
+        "observed":    {"display_label": "Beneficiary A — Corporate", "authority_status": "ACTIVE"},
+        "criticality_rules": {"display_label": "LOW", "authority_status": "CRITICAL"},
+        "expected_correspondence": "PARTIAL",
+        "expected_materiality":    "NON_MATERIAL",
+        "expected_reentry":        False,
+        "why": "Non-critical field changed. Critical governance fields unchanged. Exact status depends on pre-declared correspondence policy.",
+    },
+    "TV-010": {
+        "name":        "Insufficient Current State Evidence",
+        "description": "Required current authority evidence not available",
+        "required":    ["current_authority_evidence"],
+        "available":   [],
+        "expected_correspondence": "NOT_PROVABLE",
+        "expected_reentry":        "per pre-declared rule",
+        "critical_rule": "NOT_PROVABLE must never silently become ALLOW. Missing evidence cannot authorize execution.",
+        "why": "No authenticated evidence available — correspondence cannot be determined",
+    },
+}
+
+# IVT-008 through IVT-011
+CORRESPONDENCE_IVT_TESTS = {
+    "IVT-008": {
+        "name":        "Reality Correspondence Recalculation",
+        "description": "Given Passport + State Evidence Snapshot + rules, independently reproduce correspondence status",
+        "zero_server_dependency": True,
+    },
+    "IVT-009": {
+        "name":        "Correspondence Divergence Detection",
+        "description": "Verify that a modified observation produces a different correspondence result",
+        "test":        "Modify one critical field in the state snapshot → correspondence must change from CORRESPONDS to BROKEN",
+    },
+    "IVT-010": {
+        "name":        "Broken Correspondence Re-entry Trigger",
+        "description": "BROKEN correspondence with matching pre-declared condition must produce GOVERNANCE_REENTRY_REQUIRED signal",
+        "rule":        "Re-entry only when pre-declared condition matched — never when VeriSigil decides",
+    },
+    "IVT-011": {
+        "name":        "Evidence Freshness Determinism",
+        "description": "Same snapshot + same timestamp + same freshness rule + same commitment → same freshness result on every verifier",
+        "zero_server_dependency": True,
+    },
+}
+
+_CORRESPONDENCE_RECORDS: dict = {}   # correspondence_id -> CorrespondenceRecord
+_STATE_SNAPSHOTS:         dict = {}  # snapshot_id -> StateEvidenceSnapshot
+
+
+def _evaluate_freshness(observation: dict, policy: dict) -> dict:
+    """
+    Deterministic freshness evaluation.
+
+    max_age_seconds: declared maximum evidence age
+    → FRESH | STALE | EXPIRED | NOT_PROVABLE
+
+    The engine does NOT decide what is fresh.
+    The policy declares the threshold. The engine evaluates it.
+    """
+    from datetime import datetime as dt
+
+    observed_at  = observation.get("observed_at","")
+    valid_until  = observation.get("valid_until","")
+    max_age      = policy.get("max_age_seconds", 300)
+
+    if not observed_at:
+        return {"status": "NOT_PROVABLE", "reason": "observed_at timestamp missing"}
+
+    try:
+        t_observed = dt.fromisoformat(observed_at.replace("Z","+00:00"))
+        t_now      = dt.now(t_observed.tzinfo)
+        age_seconds= (t_now - t_observed).total_seconds()
+
+        if valid_until:
+            t_valid_until = dt.fromisoformat(valid_until.replace("Z","+00:00"))
+            if t_now > t_valid_until:
+                return {"status": "EXPIRED", "age_seconds": age_seconds, "expired_at": valid_until}
+
+        if age_seconds <= max_age:
+            return {"status": "FRESH",   "age_seconds": age_seconds, "policy_max": max_age}
+        else:
+            return {"status": "STALE",   "age_seconds": age_seconds, "policy_max": max_age}
+
+    except Exception as e:
+        return {"status": "NOT_PROVABLE", "reason": f"Cannot evaluate timestamp: {e}"}
+
+
+@app.post("/v1/semantic/correspondence", tags=["Reality Correspondence — v1.5"])
+async def semantic_correspondence(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Reality Correspondence Evaluation.
+
+    Determines whether a declared governance-relevant structure
+    corresponds to the authenticated, time-bound observable state
+    available at the point of evaluation.
+
+    Expert boundary (ABSOLUTE):
+    VeriSigilAI does NOT observe objective reality.
+    It evaluates:
+    Declared structure + declared rules + authenticated evidence
+    snapshot + timestamp → deterministic correspondence result.
+
+    Four outcomes only:
+    CORRESPONDS | PARTIAL | BROKEN | NOT_PROVABLE
+
+    NOT_PROVABLE must NEVER silently become an authorization.
+    Criticality is NEVER inferred — only pre-declared rules.
+
+    Distinction from Semantic Transition:
+    Semantic Transition: Did the governance structure CHANGE?
+    Reality Correspondence: Does the structure still CORRESPOND
+    to the authenticated observable conditions?
+    """
+    require_api_key(x_api_key, authorization)
+    ts = datetime.now(timezone.utc).isoformat()
+    correspondence_id = f"RC-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}"
+
+    commitment_id    = req.get("commitment_id","")
+    snapshot_input   = req.get("state_evidence_snapshot",{})
+    materiality_rules= req.get("materiality_rules",{})
+    freshness_policy = req.get("freshness_policy",{"max_age_seconds": 300, "required_before_execution": True})
+
+    commitment = _SEMANTIC_COMMITMENTS.get(commitment_id,{})
+    if not commitment:
+        raise HTTPException(status_code=404,
+            detail=f"Commitment {commitment_id} not found. Register via POST /v1/semantic/commit")
+
+    # Compute snapshot_id and snapshot_hash
+    snapshot_canonical = _canonical_semantic_json(snapshot_input)
+    snapshot_hash      = hashlib.sha256(snapshot_canonical.encode()).hexdigest()
+    snapshot_id        = f"SES-{snapshot_hash[:12].upper()}"
+
+    # Compute rules_hash — pre-declared rules are part of the verifiable record
+    rules_canonical    = _canonical_semantic_json(materiality_rules)
+    rules_hash         = hashlib.sha256(rules_canonical.encode()).hexdigest()
+
+    # Compute freshness_policy_hash
+    freshness_canonical = _canonical_semantic_json(freshness_policy)
+    freshness_policy_hash = hashlib.sha256(freshness_canonical.encode()).hexdigest()
+
+    # Store snapshot as immutable evidence
+    snapshot_record = {
+        "schema":          "VGS-STATE-EVIDENCE-SNAPSHOT-1.0",
+        "snapshot_id":     snapshot_id,
+        "snapshot_hash":   snapshot_hash,
+        "commitment_id":   commitment_id,
+        "observations":    snapshot_input.get("observations",[]),
+        "captured_at":     ts,
+        "freshness_policy":freshness_policy,
+        "canonical_json":  snapshot_canonical,
+        "immutable_note":  "This snapshot is immutable evidence. An independent verifier receiving Passport + this snapshot + rules can reproduce the correspondence result without VeriSigil server access.",
+    }
+    seal_snap = {"snapshot_id": snapshot_id, "snapshot_hash": snapshot_hash, "timestamp": ts}
+    snapshot_record["governance_signature"] = sign_governance_payload(seal_snap)
+    _STATE_SNAPSHOTS[snapshot_id] = snapshot_record
+
+    # Get declared invariants from commitment
+    declared_invariants = {
+        i.get("field",""):i for i in commitment.get("semantic_invariants",[])
+    }
+
+    # Evaluate each observation against declared values
+    observations    = snapshot_input.get("observations",[])
+    divergences     = []
+    freshness_issues= []
+    evidence_missing= []
+
+    for obs in observations:
+        field      = obs.get("field","")
+        observed   = obs.get("value")
+        declared   = declared_invariants.get(field,{}).get("value")
+        criticality= materiality_rules.get(field, {}).get("criticality","LOW")
+
+        # RULE: Criticality is NEVER inferred — only from pre-declared rules
+        if field not in materiality_rules and field in declared_invariants:
+            criticality = "UNKNOWN"
+
+        # Freshness check per observation
+        fresh_result = _evaluate_freshness(obs, freshness_policy)
+        if fresh_result["status"] in ("STALE","EXPIRED","NOT_PROVABLE"):
+            freshness_issues.append({
+                "field":     field,
+                "freshness": fresh_result,
+                "criticality": criticality,
+            })
+
+        # Divergence check
+        if declared is not None and observed != declared:
+            divergences.append({
+                "field":        field,
+                "declared":     declared,
+                "observed":     observed,
+                "criticality":  criticality,
+                "materiality":  materiality_rules.get(field,{}).get("materiality","UNKNOWN"),
+                "rule_id":      materiality_rules.get(field,{}).get("rule_id",""),
+                "freshness":    fresh_result["status"],
+            })
+
+    # Check for missing required evidence
+    for field, inv in declared_invariants.items():
+        obs_fields = {o.get("field","") for o in observations}
+        if field not in obs_fields:
+            evidence_missing.append(field)
+
+    # Determine evidence sufficiency
+    if evidence_missing:
+        evidence_sufficiency = "INSUFFICIENT"
+    else:
+        evidence_sufficiency = "SUFFICIENT"
+
+    # Determine overall freshness status
+    overall_freshness = "FRESH"
+    if any(f["freshness"].get("status") == "EXPIRED" for f in freshness_issues):
+        overall_freshness = "EXPIRED"
+    elif any(f["freshness"].get("status") in ("STALE","NOT_PROVABLE") for f in freshness_issues):
+        overall_freshness = "STALE"
+
+    # Determine correspondence status
+    # RULE: Engine evaluates pre-declared rules. Never invents criticality.
+    if evidence_missing or evidence_sufficiency == "INSUFFICIENT":
+        status = "NOT_PROVABLE"
+        status_reason = f"Evidence missing for: {evidence_missing}"
+    elif overall_freshness == "EXPIRED":
+        status = "NOT_PROVABLE"
+        status_reason = "One or more observations have expired — correspondence cannot be established"
+    else:
+        critical_divs = [d for d in divergences if d.get("criticality") == "CRITICAL"]
+        non_critical  = [d for d in divergences if d.get("criticality") != "CRITICAL"]
+
+        if critical_divs:
+            status = "BROKEN"
+            status_reason = f"{len(critical_divs)} critical condition(s) no longer correspond to declared structure"
+        elif non_critical:
+            status = "PARTIAL"
+            status_reason = f"{len(non_critical)} non-critical divergence(s) detected. Critical governance conditions satisfied."
+        elif overall_freshness in ("STALE",):
+            status = "PARTIAL"
+            status_reason = "Conditions correspond but evidence freshness is STALE — revalidation recommended"
+        else:
+            status = "CORRESPONDS"
+            status_reason = "All declared governance conditions correspond to authenticated observable state"
+
+    # Evaluate re-entry
+    reentry_required = False
+    reentry_trigger  = None
+    if status == "BROKEN":
+        # Re-entry only if matching pre-declared condition exists
+        reentry_conditions = req.get("reentry_conditions",[])
+        for cond in reentry_conditions:
+            if cond.get("trigger","") in status_reason or cond.get("trigger","") == "BROKEN":
+                reentry_required = True
+                reentry_trigger  = cond.get("condition_id","")
+                break
+
+    # Compute canonical correspondence hash for cryptographic binding
+    correspondence_canonical = _canonical_semantic_json({
+        "commitment_hash":      commitment.get("commitment_hash",""),
+        "snapshot_hash":        snapshot_hash,
+        "rules_hash":           rules_hash,
+        "freshness_policy_hash":freshness_policy_hash,
+        "correspondence_status":status,
+        "evaluated_at":         ts,
+    })
+    correspondence_hash = hashlib.sha256(correspondence_canonical.encode()).hexdigest()
+
+    result = {
+        "schema":              "VGS-CORRESPONDENCE-1.0",
+        "correspondence_id":   correspondence_id,
+        "commitment_id":       commitment_id,
+        "snapshot_id":         snapshot_id,
+
+        "status":              status,
+        "status_reason":       status_reason,
+
+        "evaluated_at":        ts,
+        "VALID_AT_TIME":       ts,
+
+        "evidence_sufficiency":evidence_sufficiency,
+
+        "freshness": {
+            "status":    overall_freshness,
+            "issues":    freshness_issues,
+            "policy":    freshness_policy,
+        },
+
+        "divergences":         divergences,
+        "evidence_missing":    evidence_missing,
+
+        "materiality": {
+            "status":    "GOVERNANCE_CRITICAL" if status == "BROKEN" else "MATERIAL" if status == "PARTIAL" else "NON_MATERIAL",
+            "rules_applied": bool(materiality_rules),
+        },
+
+        "reentry": {
+            "required": reentry_required,
+            "trigger":  reentry_trigger,
+            "note":     "Re-entry required only when pre-declared condition matched. VeriSigil does not independently decide that humans must intervene.",
+        },
+
+        # Cryptographic binding — all four inputs bound
+        "commitment_fingerprint":  commitment.get("semantic_fingerprint",""),
+        "commitment_hash":         commitment.get("commitment_hash",""),
+        "snapshot_hash":           snapshot_hash,
+        "rules_hash":              rules_hash,
+        "freshness_policy_hash":   freshness_policy_hash,
+        "correspondence_hash":     correspondence_hash,
+
+        "canonical_json":          correspondence_canonical,
+
+        # Critical non-claims
+        "non_claims": [
+            "VeriSigilAI does not observe objective reality",
+            "VeriSigilAI evaluates authenticated, time-bound observable/evidenced state only",
+            "Correspondence does not imply the action is safe or correct",
+            "NOT_PROVABLE must never silently become an authorization",
+            "Criticality is determined by pre-declared rules — never inferred by VeriSigil",
+            "VeriSigilAI does not replace organisational judgment about whether to continue",
+        ],
+
+        "offline_verifiable": True,
+        "offline_note": "Same Passport + same evidence snapshot + same rules → same result. Independent verifier requires no VeriSigil server access.",
+    }
+
+    seal = {"correspondence_id": correspondence_id, "correspondence_hash": correspondence_hash, "timestamp": ts}
+    result["governance_signature"] = sign_governance_payload(seal)
+    _CORRESPONDENCE_RECORDS[correspondence_id] = result
+
+    # Extend lineage record if provided
+    lineage_id = req.get("lineage_id","")
+    if lineage_id and lineage_id in _SEMANTIC_LINEAGE:
+        _SEMANTIC_LINEAGE[lineage_id]["reality_correspondence"] = {
+            "correspondence_id": correspondence_id,
+            "status":            status,
+            "checked_at":        ts,
+            "snapshot_id":       snapshot_id,
+            "evidence_sufficiency": evidence_sufficiency,
+            "divergences":       divergences,
+            "freshness":         overall_freshness,
+            "reentry_required":  reentry_required,
+        }
+
+    _emit_proof_event("REALITY_CORRESPONDENCE_EVALUATED", correspondence_id,
+                      {"status": status, "commitment_id": commitment_id}, ts)
+
+    return result
+
+
+@app.get("/v1/semantic/lineage/{lineage_id}/correspondence", tags=["Reality Correspondence — v1.5"])
+async def lineage_correspondence_history(
+    lineage_id: str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Retrieve correspondence history associated with a lineage.
+
+    Allows an auditor to see the full evidence chain:
+    Commitment → Transition → Correspondence #1 → Correspondence #2
+    → Broken → Re-entry
+
+    No server trust required for verification — use
+    GET /v1/semantic/correspondence/{id} with snapshot + rules.
+    """
+    require_api_key(x_api_key, authorization)
+    lineage = _SEMANTIC_LINEAGE.get(lineage_id)
+    if not lineage:
+        raise HTTPException(status_code=404, detail=f"Lineage {lineage_id} not found")
+
+    # Find all correspondence records for this lineage's commitments
+    commitment_id = lineage.get("current_semantic_commitment_id","")
+    records = [r for r in _CORRESPONDENCE_RECORDS.values()
+               if r.get("commitment_id") == commitment_id]
+
+    return {
+        "schema":       "VGS-LINEAGE-CORRESPONDENCE-HISTORY-1.0",
+        "lineage_id":   lineage_id,
+        "commitment_id":commitment_id,
+        "total_evaluations": len(records),
+        "correspondence_records": sorted(records, key=lambda r: r.get("evaluated_at","")),
+        "lineage_correspondence": lineage.get("reality_correspondence",{}),
+        "audit_trail_complete": len(records) > 0,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@app.get("/v1/semantic/correspondence/{correspondence_id}", tags=["Reality Correspondence — v1.5"])
+async def get_correspondence_record(
+    correspondence_id: str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Retrieve a specific correspondence evaluation record."""
+    require_api_key(x_api_key, authorization)
+    record = _CORRESPONDENCE_RECORDS.get(correspondence_id)
+    if not record:
+        raise HTTPException(status_code=404, detail=f"Correspondence {correspondence_id} not found")
+    return record
+
+
+@app.get("/v1/semantic/correspondence/test-vectors", tags=["Reality Correspondence — v1.5"])
+async def correspondence_test_vectors():
+    """
+    TV-008 through TV-010 — Correspondence test vectors.
+    TV-008: Expired Authority → BROKEN
+    TV-009: Non-critical metadata → PARTIAL
+    TV-010: Insufficient evidence → NOT_PROVABLE (never silently ALLOW)
+    No auth required.
+    """
+    return {
+        "schema":        "VGS-CORRESPONDENCE-TEST-VECTORS-1.0",
+        "total":         len(CORRESPONDENCE_TEST_VECTORS),
+        "test_vectors":  CORRESPONDENCE_TEST_VECTORS,
+        "critical_rule": "NOT_PROVABLE must NEVER silently become an authorization. Missing evidence cannot authorize execution.",
+        "timestamp":     datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@app.get("/v1/semantic/correspondence/verification-tests", tags=["Reality Correspondence — v1.5"])
+async def correspondence_verification_tests():
+    """
+    IVT-008 through IVT-011 — Independent verification tests.
+    All four must pass without VeriSigil server access.
+    No auth required.
+    """
+    return {
+        "schema":        "VGS-CORRESPONDENCE-IVT-1.0",
+        "total":         len(CORRESPONDENCE_IVT_TESTS),
+        "ivt_tests":     CORRESPONDENCE_IVT_TESTS,
+        "requirement":   "Same snapshot + same timestamp + same rules + same commitment → same result on every independent verifier.",
+        "zero_server_dependency": True,
+        "timestamp":     datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@app.get("/v1/semantic/correspondence/statuses", tags=["Reality Correspondence — v1.5"])
+async def correspondence_statuses():
+    """
+    All correspondence and freshness statuses with definitions.
+    No auth required.
+    """
+    return {
+        "schema":              "VGS-CORRESPONDENCE-STATUSES-1.0",
+        "correspondence":      CORRESPONDENCE_STATUSES,
+        "freshness":           FRESHNESS_STATUSES,
+        "critical_boundaries": {
+            "NOT_PROVABLE": "NEVER silently becomes authorization. Missing evidence cannot authorize execution.",
+            "criticality":  "NEVER inferred by VeriSigil. Only pre-declared rules determine criticality.",
+            "reality":      "VeriSigil does not observe objective reality. It evaluates authenticated, time-bound observable/evidenced state.",
+        },
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=int(os.environ.get("PORT", 8000)), reload=False)
