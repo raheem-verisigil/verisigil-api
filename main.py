@@ -81528,11 +81528,31 @@ async def proof_boundaries():
     return {
         "schema":     "VGS-BOUNDARY-REGISTRY-v1",
         "boundaries": BOUNDARY_REGISTRY,
-        "core_principle": (
-            "VeriSigilAI provides governance decision and evidence infrastructure. "
-            "It is not a universal enforcement layer. "
-            "A decision is not enforcement unless the governed boundary controls the effect."
+        "approved_public_claim": (
+            "VeriSigilAI does not claim to understand what an AI means internally. "
+            "It provides a cryptographically bound representation of declared "
+            "governance-relevant structure and constraints, tracks how that structure "
+            "changes across defined transformations, tests those changes against declared "
+            "invariants and reproducible test vectors, and records whether the resulting "
+            "structure is admissible under the declared rules. "
+            "When a pre-declared governance-critical condition is triggered, VeriSigilAI "
+            "produces an independently verifiable governance re-entry signal. "
+            "Every conclusion is bounded by its evidence; where evidence is insufficient, "
+            "VeriSigilAI returns NOT_PROVABLE with structured reasons."
         ),
+        "proof_ladder": {
+            "description": "Internal discipline — never jump from architecture to public claim",
+            "steps": [
+                "1. Architecture — design specified",
+                "2. Implementation — code deployed",
+                "3. Deterministic tests — automated tests pass",
+                "4. Independent verification — external party verifies",
+                "5. External challenge — adversarial testing",
+                "6. Published evidence — evidence record public",
+                "7. Public claim — marketing may use this claim",
+            ],
+            "rule": "A capability exists at the stage it has actually reached. Not the stage we intend to reach.",
+        },
         "engineering_principle": (
             "Decision evidence is not enforcement evidence. "
             "HALT, DENY, ESCALATE prove governance decisions were made. "
@@ -87794,7 +87814,19 @@ async def passport_issue(
     recipient                    = req.get("recipient", {})
     org_id                       = recipient.get("organisation_id","")
 
-    # Any evidenced event qualifies — not just EQUIVALENT
+    # Any evidenced governance event qualifies — not just EQUIVALENT or successful flows
+    # Expert: "A Passport records an evidenced governance event and its verification state.
+    # It does NOT imply the action was approved, successful, safe, or correct."
+    # Valid passport-producing events include:
+    #   BLOCKED (shows enforcement worked)
+    #   CONFLICTING (shows semantic drift detected)
+    #   NOT_PROVABLE (shows honest evidence boundary)
+    #   REENTRY_REQUIRED (shows governance triggered)
+    # NOT auto-issued for HIGH/CRITICAL solely because of consequence tier.
+    # Issuance is driven by evidence generation + customer policy.
+    # Proof Ladder (permanent internal discipline — never jump from architecture to claim):
+    # Architecture → Implementation → Deterministic tests → Independent verification
+    # → External challenge → Published evidence → Public claim.
     # The passport records WHAT HAPPENED, not that it was approved/correct
     evidence_type = req.get("evidence_type","SEMANTIC_COMMITMENT")  # SEMANTIC_COMMITMENT, BLOCKED_ACTION, REENTRY_SIGNAL, GOVERNANCE_DECISION
     result        = req.get("result","")  # EQUIVALENT, CONFLICTING, NOT_PROVABLE, BLOCKED, REENTRY_REQUIRED, etc
@@ -87831,7 +87863,7 @@ async def passport_issue(
             "name":         "VeriSigil AI",
             "identifier":   "verisigilai.com",
             "key":          "lJWG0Wabt6uATPu5Upo6UEHWGXQqMyi6LMKQC0xwpY8=",
-            "rule":         "Issuer is always VeriSigilAI. Customer appears as Subject/For only.",
+            "rule":         "Issuer is always VeriSigilAI. Customer appears as Subject/For only. Cryptographic issuer identity is never obscured. White-label branding applies to presentation layer only.",
         },
 
         # Subject
