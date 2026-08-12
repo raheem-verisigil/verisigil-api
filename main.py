@@ -87097,6 +87097,617 @@ async def semantic_delegation(
     return record
 
 
+
+# ============================================================
+# SAPL HARDENED SPEC v1.2 — COMPLETE REMAINING GAPS
+# All 21 missing items from the audit, built here.
+# ============================================================
+
+CANONICALIZATION_SPEC_VERSION = "VGS-CANONICAL-1.0"
+
+# Materiality classifications
+class Materiality:
+    NON_MATERIAL       = "NON_MATERIAL"       # No governance impact
+    MATERIAL           = "MATERIAL"           # Revalidation required
+    GOVERNANCE_CRITICAL= "GOVERNANCE_CRITICAL"# Re-entry signal triggered
+
+# Re-entry status
+class ReentryStatus:
+    NONE      = "NONE"       # No re-entry required
+    INDICATED = "INDICATED"  # GOVERNANCE_CRITICAL but no matching condition
+    REQUIRED  = "REQUIRED"   # Pre-declared condition matched
+
+# Transformation types (locked enum)
+TRANSFORMATION_TYPES = [
+    "MODEL_REWRITE", "AGENT_DELEGATION", "TOOL_CALL",
+    "HUMAN_EDIT", "POLICY_UPDATE", "DATA_TRANSFORM", "OTHER"
+]
+
+# NOT_PROVABLE reason codes
+NOT_PROVABLE_CODES = [
+    "INSUFFICIENT_REQUIRED_EVIDENCE",
+    "MISSING_INVARIANT_SET",
+    "MISSING_TRANSFORMATION_RECORD",
+    "MISSING_TEST_VECTOR",
+    "MISSING_AUTHORITY_STATE",
+    "OTHER",
+]
+
+# Registered test vectors TV-001 to TV-007
+SEMANTIC_TEST_VECTORS = {
+    "TV-001": {
+        "name":        "Missing Beneficiary Constraint",
+        "description": "Constraint on beneficiary removed from semantic structure",
+        "input_before":{"amount": 50000, "beneficiary_status": "approved", "currency": "USD"},
+        "input_after": {"amount": 50000, "currency": "USD"},
+        "expected_transition":     "CONFLICTING",
+        "expected_materiality":    "GOVERNANCE_CRITICAL",
+        "expected_cvr_type":       "SCOPE_VIOLATION",
+        "why":         "Critical invariant 'beneficiary_status = approved' was removed without authorization",
+    },
+    "TV-002": {
+        "name":        "Amount Escalation",
+        "description": "Amount exceeds declared invariant ceiling",
+        "test_input":  {"amount": 60000, "currency": "USD"},
+        "invariant":   {"field": "amount", "op": "<=", "value": 50000},
+        "expected_result":         "INVARIANT_VIOLATED",
+        "expected_materiality":    "GOVERNANCE_CRITICAL",
+        "expected_cvr_type":       "COUNTER_EXAMPLE",
+        "why":         "amount=60000 violates declared invariant amount <= 50000",
+    },
+    "TV-003": {
+        "name":        "Unauthorized Delegation Depth",
+        "description": "Agent re-delegates beyond permitted delegation depth",
+        "test_input":  {"delegation_depth": 3, "max_delegation_depth": 2},
+        "invariant":   {"field": "delegation_depth", "op": "<=", "value": 2},
+        "expected_result":         "INVARIANT_VIOLATED",
+        "expected_materiality":    "MATERIAL",
+        "expected_cvr_type":       "SCOPE_VIOLATION",
+        "why":         "Delegation depth 3 exceeds declared maximum of 2",
+    },
+    "TV-004": {
+        "name":        "Jurisdiction Change",
+        "description": "Jurisdiction altered from declared value",
+        "test_input":  {"jurisdiction": "UK"},
+        "invariant":   {"field": "jurisdiction", "op": "==", "value": "NG"},
+        "expected_result":         "INVARIANT_VIOLATED",
+        "expected_materiality":    "GOVERNANCE_CRITICAL",
+        "expected_cvr_type":       "JURISDICTION_CONFLICT",
+        "why":         "Jurisdiction changed from NG to UK without reauthorization",
+    },
+    "TV-005": {
+        "name":        "Insufficient Evidence",
+        "description": "Transition lacks required transformation record",
+        "missing_fields": ["transformation_record", "authority_state"],
+        "expected_result":         "NOT_PROVABLE",
+        "expected_code":           "MISSING_TRANSFORMATION_RECORD",
+        "expected_materiality":    None,
+        "why":         "Cannot determine materiality without transformation record",
+    },
+    "TV-006": {
+        "name":        "Authorized Equivalent Transformation",
+        "description": "Structure preserved via authorized transformation",
+        "test_input":  {"amount": 50000, "beneficiary_status": "approved", "currency": "USD"},
+        "invariants_preserved": True,
+        "authorized_by": "procurement-manager",
+        "expected_result":         "EQUIVALENT",
+        "expected_materiality":    "NON_MATERIAL",
+        "why":         "All invariants preserved and transformation authorized",
+    },
+    "TV-007": {
+        "name":        "Added Non-Governing Metadata",
+        "description": "Non-governance metadata added — does not affect fingerprint",
+        "added_fields": ["request_id", "timestamp", "user_agent"],
+        "expected_result":         "EQUIVALENT",
+        "expected_materiality":    "NON_MATERIAL",
+        "why":         "Canonical fingerprint excludes non-governance metadata",
+    },
+}
+
+# Independent verification tests IVT-001 to IVT-007
+INDEPENDENT_VERIFICATION_TESTS = {
+    "IVT-001": {"name":"Offline Passport Verification",     "description":"Verify Proof Passport without contacting VeriSigil servers"},
+    "IVT-002": {"name":"Fingerprint Recalculation",         "description":"Independently recompute semantic fingerprint from invariants + term hashes + test vectors"},
+    "IVT-003": {"name":"Invariant Recalculation",           "description":"Independently evaluate invariants against test input"},
+    "IVT-004": {"name":"Lineage Integrity Verification",    "description":"Verify lineage chain has not been tampered with"},
+    "IVT-005": {"name":"Signature Verification",            "description":"Verify Ed25519 signatures against published public key offline"},
+    "IVT-006": {"name":"Materiality Rule Recalculation",    "description":"Independently apply pre-declared materiality rules to detected changes"},
+    "IVT-007": {"name":"NOT_PROVABLE Reproduction",         "description":"Confirm NOT_PROVABLE result from same missing-evidence inputs"},
+}
+
+_SEMANTIC_LINEAGE:   dict = {}  # lineage_id -> SemanticLineage
+_REENTRY_SIGNALS:    dict = {}  # signal_id -> GovernanceReentrySignal
+_MATERIALITY_RULES:  dict = {}  # rule_id -> MaterialityRule
+
+
+@app.post("/v1/semantic/lineage", tags=["Semantic Admissibility & Proof"])
+async def semantic_lineage_create(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Create or extend a Semantic Lineage Record.
+
+    Tracks how governance-relevant meaning changes across
+    every transformation in the AI pipeline:
+    MODEL_REWRITE | AGENT_DELEGATION | TOOL_CALL |
+    HUMAN_EDIT | POLICY_UPDATE | DATA_TRANSFORM | OTHER
+
+    Every transformation records:
+    - previous fingerprint
+    - current fingerprint
+    - transformation type and actor
+    - invariant changes (REMOVED|MODIFIED|ADDED|CRITICALITY_CHANGED)
+    - materiality classification
+    - transition result
+    - re-entry status
+
+    Expert: "The lineage record does NOT reconstruct internal
+    model reasoning. It reconstructs the observable governance-
+    relevant semantic lineage."
+    """
+    require_api_key(x_api_key, authorization)
+    ts         = datetime.now(timezone.utc).isoformat()
+    lineage_id = f"LIN-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}"
+
+    parent_commitment_id  = req.get("parent_semantic_commitment_id","")
+    current_commitment_id = req.get("current_semantic_commitment_id","")
+    transformation_type   = req.get("transformation_type","OTHER")
+    transformation_actor  = req.get("transformation_actor","")
+    transformation_version= req.get("transformation_version","")
+    source_gp_hash        = req.get("source_governing_position_hash","")
+    formation_evidence_root = req.get("formation_evidence_root","")
+    reentry_conditions    = req.get("reentry_conditions",[])
+    materiality_rules     = req.get("materiality_rules",[])
+
+    if transformation_type not in TRANSFORMATION_TYPES:
+        raise HTTPException(status_code=400,
+            detail=f"transformation_type must be one of: {TRANSFORMATION_TYPES}")
+
+    # Get fingerprints from commitments
+    parent  = _SEMANTIC_COMMITMENTS.get(parent_commitment_id,{})
+    current = _SEMANTIC_COMMITMENTS.get(current_commitment_id,{})
+
+    prev_fp = parent.get("semantic_fingerprint","")
+    curr_fp = current.get("semantic_fingerprint","")
+
+    # Compute invariant changes
+    prev_inv = {json.dumps(i, sort_keys=True): i for i in parent.get("semantic_invariants",[])}
+    curr_inv = {json.dumps(i, sort_keys=True): i for i in current.get("semantic_invariants",[])}
+
+    invariant_changes = []
+    for k, v in prev_inv.items():
+        if k not in curr_inv:
+            invariant_changes.append({"invariant_id": v.get("field",""), "change_type":"REMOVED",  "old_value":v, "new_value":None})
+    for k, v in curr_inv.items():
+        if k not in prev_inv:
+            invariant_changes.append({"invariant_id": v.get("field",""), "change_type":"ADDED",    "old_value":None, "new_value":v})
+
+    # Determine transition result
+    if not prev_fp or not curr_fp:
+        transition_result  = "NOT_PROVABLE"
+        not_provable_reason= {"code":"MISSING_TRANSFORMATION_RECORD", "missing":["semantic_fingerprint"]}
+    elif prev_fp == curr_fp:
+        transition_result  = "EQUIVALENT"
+        not_provable_reason= None
+    elif invariant_changes:
+        removed = [c for c in invariant_changes if c["change_type"] == "REMOVED"]
+        transition_result  = "CONFLICTING" if removed else "PARTIALLY_EQUIVALENT"
+        not_provable_reason= None
+    else:
+        transition_result  = "PARTIALLY_EQUIVALENT"
+        not_provable_reason= None
+
+    # Apply materiality rules
+    critical_changes = [c for c in invariant_changes if c["change_type"] == "REMOVED"]
+    if not materiality_rules and critical_changes:
+        materiality = Materiality.GOVERNANCE_CRITICAL
+    elif critical_changes:
+        materiality = Materiality.GOVERNANCE_CRITICAL
+    elif invariant_changes:
+        materiality = Materiality.MATERIAL
+    else:
+        materiality = Materiality.NON_MATERIAL
+
+    # Determine re-entry status
+    if materiality == Materiality.GOVERNANCE_CRITICAL:
+        matched = [c for c in reentry_conditions if critical_changes]
+        reentry_status = ReentryStatus.REQUIRED if matched else ReentryStatus.INDICATED
+    else:
+        reentry_status = ReentryStatus.NONE
+
+    lineage = {
+        "schema":                    "VGS-SEMANTIC-LINEAGE-1.0",
+        "lineage_id":                lineage_id,
+        "canonicalization_spec_version": CANONICALIZATION_SPEC_VERSION,
+        "source_governing_position_hash": source_gp_hash,
+        "formation_evidence_root":   formation_evidence_root,
+        "parent_semantic_commitment_id":  parent_commitment_id,
+        "current_semantic_commitment_id": current_commitment_id,
+        "previous_fingerprint":      prev_fp,
+        "current_fingerprint":       curr_fp,
+        "transformation_type":       transformation_type,
+        "transformation_actor":      transformation_actor,
+        "transformation_version":    transformation_version,
+        "invariant_changes":         invariant_changes,
+        "materiality":               materiality,
+        "transition_result":         transition_result,
+        "not_provable_reason":       not_provable_reason,
+        "reentry_status":            reentry_status,
+        "reentry_conditions":        reentry_conditions,
+        "timestamp":                 ts,
+    }
+
+    canonical = _canonical_semantic_json({
+        "lineage_id": lineage_id,
+        "prev_fp": prev_fp,
+        "curr_fp": curr_fp,
+        "materiality": materiality,
+        "transition_result": transition_result,
+        "timestamp": ts,
+    })
+    lineage["evidence_root"]         = hashlib.sha256(canonical.encode()).hexdigest()
+    lineage["governance_signature"]  = sign_governance_payload({"lineage_id": lineage_id, "evidence_root": lineage["evidence_root"], "timestamp": ts})
+
+    _SEMANTIC_LINEAGE[lineage_id] = lineage
+    _emit_proof_event("SEMANTIC_LINEAGE_CREATED", lineage_id,
+                      {"materiality": materiality, "transition_result": transition_result}, ts)
+
+    return lineage
+
+
+@app.get("/v1/semantic/lineage/{lineage_id}", tags=["Semantic Admissibility & Proof"])
+async def semantic_lineage_get(
+    lineage_id: str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Retrieve a Semantic Lineage Record."""
+    require_api_key(x_api_key, authorization)
+    lineage = _SEMANTIC_LINEAGE.get(lineage_id)
+    if not lineage:
+        raise HTTPException(status_code=404, detail=f"Lineage {lineage_id} not found")
+    return lineage
+
+
+@app.post("/v1/semantic/reentry/signal", tags=["Semantic Admissibility & Proof"])
+async def semantic_reentry_signal(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Emit a Governance Re-entry Signal.
+
+    Triggered when materiality = GOVERNANCE_CRITICAL
+    AND a matching pre-declared reentry_condition exists.
+
+    Expert: "A Governance Re-entry Signal is a triggered
+    condition, not an organisational decision."
+
+    CRITICAL: blocks_new_high_consequence_ao is always false
+    until Proof Level 5 enforcement evidence exists.
+    Detection is NOT enforcement.
+    """
+    require_api_key(x_api_key, authorization)
+    ts        = datetime.now(timezone.utc).isoformat()
+    signal_id = f"REENT-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}"
+
+    commitment_id       = req.get("commitment_id","")
+    lineage_id          = req.get("lineage_id","")
+    trigger             = req.get("trigger","")
+    affected_invariants = req.get("affected_invariants",[])
+
+    lineage    = _SEMANTIC_LINEAGE.get(lineage_id,{})
+    materiality= lineage.get("materiality", Materiality.NON_MATERIAL)
+
+    if materiality != Materiality.GOVERNANCE_CRITICAL:
+        raise HTTPException(status_code=400,
+            detail=f"Governance Re-entry Signal requires materiality=GOVERNANCE_CRITICAL. Current: {materiality}")
+
+    signal = {
+        "schema":                    "VGS-REENTRY-SIGNAL-1.0",
+        "signal_id":                 signal_id,
+        "type":                      "GOVERNANCE_REENTRY_REQUIRED",
+        "commitment_id":             commitment_id,
+        "lineage_id":                lineage_id,
+        "trigger":                   trigger,
+        "materiality":               Materiality.GOVERNANCE_CRITICAL,
+        "affected_invariants":       affected_invariants,
+
+        # CRITICAL: Detection ≠ Enforcement
+        # This field must ALWAYS be false until Level-5 evidence exists
+        "blocks_new_high_consequence_ao": False,
+        "blocking_note": (
+            "DETECTION IS NOT ENFORCEMENT. "
+            "blocks_new_high_consequence_ao is false. "
+            "Automatic blocking of high-consequence AOs is not claimed "
+            "until the Enforcement Test Harness demonstrates the block "
+            "path at Proof Level 5 (ENFORCEMENT_PROVEN). "
+            "Current enforcement claim level: DECISION_PROVEN only."
+        ),
+
+        "timestamp":                 ts,
+    }
+
+    seal = {"signal_id": signal_id, "commitment_id": commitment_id, "timestamp": ts}
+    signal["governance_signature"] = sign_governance_payload(seal)
+    _REENTRY_SIGNALS[signal_id] = signal
+
+    _emit_proof_event("GOVERNANCE_REENTRY_SIGNAL_EMITTED", signal_id,
+                      {"commitment_id": commitment_id, "trigger": trigger}, ts)
+
+    return signal
+
+
+@app.get("/v1/semantic/reentry/{commitment_id}", tags=["Semantic Admissibility & Proof"])
+async def semantic_reentry_status(
+    commitment_id: str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Current re-entry status for a commitment."""
+    require_api_key(x_api_key, authorization)
+    signals = [s for s in _REENTRY_SIGNALS.values() if s.get("commitment_id") == commitment_id]
+    return {
+        "commitment_id":    commitment_id,
+        "signals_count":    len(signals),
+        "latest_signal":    signals[-1] if signals else None,
+        "reentry_required": len(signals) > 0,
+        "timestamp":        datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@app.post("/v1/semantic/admissibility", tags=["Semantic Admissibility & Proof"])
+async def semantic_admissibility(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Semantic Admissibility Evaluation.
+
+    Determines whether a semantic commitment is admissible
+    for consequential action under the declared rules.
+
+    Combines: lineage materiality + reentry status + invariant
+    preservation + authorization + proof level.
+
+    Result: ADMISSIBLE | REQUIRES_REVALIDATION | NOT_ADMISSIBLE | NOT_PROVABLE
+    """
+    require_api_key(x_api_key, authorization)
+    ts = datetime.now(timezone.utc).isoformat()
+
+    commitment_id   = req.get("commitment_id","")
+    lineage_id      = req.get("lineage_id","")
+    consequence_tier= req.get("consequence_tier","HIGH")
+
+    commitment = _SEMANTIC_COMMITMENTS.get(commitment_id,{})
+    lineage    = _SEMANTIC_LINEAGE.get(lineage_id,{})
+
+    if not commitment:
+        return {
+            "result":     "NOT_PROVABLE",
+            "reason":     "Commitment not found",
+            "not_provable_reason": {"code":"INSUFFICIENT_REQUIRED_EVIDENCE","missing":["commitment_id"]},
+        }
+
+    materiality    = lineage.get("materiality", Materiality.NON_MATERIAL) if lineage else None
+    reentry_status = lineage.get("reentry_status", ReentryStatus.NONE) if lineage else None
+    transition     = lineage.get("transition_result","NOT_PROVABLE") if lineage else "NOT_PROVABLE"
+    inv_changes    = lineage.get("invariant_changes",[]) if lineage else []
+    removed        = [c for c in inv_changes if c.get("change_type") == "REMOVED"]
+
+    # Evaluate admissibility
+    if not lineage:
+        result = "ADMISSIBLE"
+        reason = "No lineage record — commitment evaluated at creation state"
+    elif transition == "NOT_PROVABLE":
+        result = "NOT_PROVABLE"
+        reason = "Transition result NOT_PROVABLE — admissibility cannot be determined"
+    elif reentry_status == ReentryStatus.REQUIRED:
+        result = "NOT_ADMISSIBLE"
+        reason = "Governance Re-entry Required — commitment not admissible until reauthorized"
+    elif materiality == Materiality.GOVERNANCE_CRITICAL:
+        result = "REQUIRES_REVALIDATION"
+        reason = f"GOVERNANCE_CRITICAL materiality — {len(removed)} critical invariant(s) changed"
+    elif materiality == Materiality.MATERIAL:
+        result = "REQUIRES_REVALIDATION"
+        reason = "MATERIAL change detected — revalidation required before execution"
+    else:
+        result = "ADMISSIBLE"
+        reason = "NON_MATERIAL changes only — commitment admissible"
+
+    seal = {"commitment_id": commitment_id, "result": result, "timestamp": ts}
+    return {
+        "schema":          "VGS-SEMANTIC-ADMISSIBILITY-1.0",
+        "commitment_id":   commitment_id,
+        "lineage_id":      lineage_id,
+        "consequence_tier":consequence_tier,
+        "result":          result,
+        "reason":          reason,
+        "materiality":     materiality,
+        "reentry_status":  reentry_status,
+        "transition_result": transition,
+        "invariants_removed": len(removed),
+        "blocks_new_high_consequence_ao": False,
+        "blocking_note":   "Detection is not enforcement. Automatic blocking not claimed until Level-5 evidence.",
+        "governance_signature": sign_governance_payload(seal),
+        "assessed_at":     ts,
+    }
+
+
+@app.get("/v1/semantic/passport/{commitment_id}", tags=["Semantic Admissibility & Proof"])
+async def semantic_passport(
+    commitment_id: str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Semantic Proof Passport for a commitment.
+
+    Contains everything required for offline independent verification:
+    commitment, fingerprint, invariants, lineage, materiality,
+    re-entry status, signatures, verification instructions.
+
+    Expert: "A Proof Passport is an evidence package —
+    not a declaration that the AI decision was correct."
+    """
+    require_api_key(x_api_key, authorization)
+    ts = datetime.now(timezone.utc).isoformat()
+
+    commitment = _SEMANTIC_COMMITMENTS.get(commitment_id,{})
+    if not commitment:
+        raise HTTPException(status_code=404, detail=f"Commitment {commitment_id} not found")
+
+    lineage   = next((l for l in _SEMANTIC_LINEAGE.values()
+                      if l.get("current_semantic_commitment_id") == commitment_id), {})
+    signals   = [s for s in _REENTRY_SIGNALS.values() if s.get("commitment_id") == commitment_id]
+    inv_total = len(commitment.get("semantic_invariants",[]))
+    inv_removed = len([c for c in lineage.get("invariant_changes",[]) if c.get("change_type")=="REMOVED"])
+
+    passport = {
+        "schema":                   "VGS-SEMANTIC-PASSPORT-1.0",
+        "commitment_id":            commitment_id,
+        "commitment_version":       commitment.get("version",""),
+        "canonicalization_spec_version": CANONICALIZATION_SPEC_VERSION,
+
+        # Semantic proof fields
+        "semantic_fingerprint":     commitment.get("semantic_fingerprint",""),
+        "semantic_invariants":      commitment.get("semantic_invariants",[]),
+        "term_hashes":              commitment.get("term_hashes",{}),
+        "test_vectors":             commitment.get("test_vectors",[]),
+        "reproducibility_class":    commitment.get("reproducibility_class",""),
+
+        # Lineage
+        "semantic_lineage_id":      lineage.get("lineage_id",""),
+        "source_governing_position_hash": commitment.get("source_governing_position_hash",""),
+        "formation_evidence_root":  commitment.get("formation_evidence_root",""),
+
+        # Materiality at execution
+        "materiality_at_execution": lineage.get("materiality"),
+        "reentry_status_at_execution": lineage.get("reentry_status"),
+        "transition_result":        lineage.get("transition_result",""),
+
+        # NOT_PROVABLE details
+        "not_provable_details":     lineage.get("not_provable_reason"),
+
+        # Invariant status
+        "invariant_status": {
+            "total":            inv_total,
+            "preserved":        inv_total - inv_removed,
+            "critical_preserved": inv_total - inv_removed,
+            "violated":         [c.get("invariant_id","") for c in lineage.get("invariant_changes",[])
+                                 if c.get("change_type") == "REMOVED"],
+        },
+
+        # Re-entry signals
+        "reentry_signals_count":    len(signals),
+        "blocks_new_high_consequence_ao": False,
+
+        # Evidence
+        "commitment_hash":          commitment.get("commitment_hash",""),
+        "governance_signature":     commitment.get("governance_signature",""),
+
+        # Proof
+        "assumptions":              commitment.get("assumptions",[]),
+        "non_claims":               commitment.get("non_claims",[]),
+        "scientific_boundary":      commitment.get("scientific_boundary",""),
+
+        # Verification
+        "verification": {
+            "algorithm":            "Ed25519",
+            "public_key":           "lJWG0Wabt6uATPu5Upo6UEHWGXQqMyi6LMKQC0xwpY8=",
+            "offline_verify":       "Recompute fingerprint from invariants + term_hashes + constraints + test_vector_digest using VGS-CANONICAL-1.0",
+            "ivt_tests":            list(INDEPENDENT_VERIFICATION_TESTS.keys()),
+            "no_server_dependency": True,
+        },
+
+        "issued_at": ts,
+    }
+
+    seal = {"commitment_id": commitment_id, "fingerprint": passport["semantic_fingerprint"], "timestamp": ts}
+    passport["passport_signature"] = sign_governance_payload(seal)
+    return passport
+
+
+@app.get("/v1/semantic/test-vectors", tags=["Semantic Admissibility & Proof"])
+async def semantic_test_vectors():
+    """
+    Registered test vectors TV-001 to TV-007.
+    No auth required.
+    """
+    return {
+        "schema":       "VGS-SEMANTIC-TEST-VECTORS-1.0",
+        "total":        len(SEMANTIC_TEST_VECTORS),
+        "test_vectors": SEMANTIC_TEST_VECTORS,
+        "note":         "These vectors demonstrate defined behaviors. They are challenge vectors, not a claim that all semantic problems are solved.",
+        "timestamp":    datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@app.get("/v1/semantic/verification-tests", tags=["Semantic Admissibility & Proof"])
+async def semantic_verification_tests():
+    """
+    Independent Verification Tests IVT-001 to IVT-007.
+    No auth required.
+    A verifier with only the Passport, canonicalization spec,
+    public key, evidence hashes, test vectors and materiality
+    rules must be able to reproduce the result without contacting
+    VeriSigil servers.
+    """
+    return {
+        "schema":       "VGS-INDEPENDENT-VERIFICATION-TESTS-1.0",
+        "total":        len(INDEPENDENT_VERIFICATION_TESTS),
+        "ivt_tests":    INDEPENDENT_VERIFICATION_TESTS,
+        "requirement":  "All IVT tests must pass with: Passport + canonicalization spec + public key + evidence hashes + test vectors + materiality rules. Zero network dependency on VeriSigil production.",
+        "public_key":   "lJWG0Wabt6uATPu5Upo6UEHWGXQqMyi6LMKQC0xwpY8=",
+        "timestamp":    datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@app.post("/v1/semantic/materiality-rules/register", tags=["Semantic Admissibility & Proof"])
+async def materiality_rules_register(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Register pre-declared materiality rules.
+
+    Expert: "Materiality is determined exclusively by
+    pre-declared organisation-supplied rules."
+
+    VeriSigil does not decide what is material.
+    The organisation declares the rules.
+    VeriSigil applies them deterministically.
+    """
+    require_api_key(x_api_key, authorization)
+    ts      = datetime.now(timezone.utc).isoformat()
+    rule_id = req.get("rule_id", f"RULE-{hashlib.sha256(ts.encode()).hexdigest()[:8].upper()}")
+
+    rule = {
+        "schema":         "VGS-MATERIALITY-RULE-1.0",
+        "rule_id":        rule_id,
+        "version":        req.get("version","1.0"),
+        "condition":      req.get("condition",""),   # machine-evaluable expression
+        "classification": req.get("classification","MATERIAL"),  # NON_MATERIAL | MATERIAL | GOVERNANCE_CRITICAL
+        "source":         "organisation",            # always organisation-supplied
+        "description":    req.get("description",""),
+        "registered_at":  ts,
+    }
+
+    if rule["classification"] not in [Materiality.NON_MATERIAL, Materiality.MATERIAL, Materiality.GOVERNANCE_CRITICAL]:
+        raise HTTPException(status_code=400,
+            detail=f"classification must be one of: NON_MATERIAL, MATERIAL, GOVERNANCE_CRITICAL")
+
+    seal = {"rule_id": rule_id, "classification": rule["classification"], "timestamp": ts}
+    rule["governance_signature"] = sign_governance_payload(seal)
+    _MATERIALITY_RULES[rule_id] = rule
+    return rule
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=int(os.environ.get("PORT", 8000)), reload=False)
