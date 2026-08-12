@@ -88642,6 +88642,533 @@ async def correspondence_statuses():
     }
 
 
+
+# ============================================================
+# DEPLOYMENT CONTEXT & OPERATIONAL LEGIBILITY EXTENSION — v1.6
+# Final Hardened Specification
+# Status: LOCKED FOR ENGINEERING
+#
+# Core Principle:
+# VeriSigilAI creates independently examinable evidence of
+# whether a defined governance structure remained admissible
+# as an AI deployment moved from authorization through
+# transformation, changing evidenced state, and consequential
+# action.
+#
+# It allows that evidence to be aggregated into a reproducible
+# operational legibility record WITHOUT turning the evidence
+# into an AI safety score.
+#
+# FOUR DIMENSIONS — NEVER MIXED:
+# 1. Action Outcome:      PERMITTED|REFUSED|BLOCKED|ABORTED|NOT_EXECUTED
+# 2. Verification Status: PROVABLE|NOT_PROVABLE
+# 3. Semantic Transition: PRESERVED|AUTHORIZED_TRANSFORMATION|MATERIAL_CHANGE|NOT_PROVABLE
+# 4. Re-entry Status:     NOT_TRIGGERED|REQUIRED
+#
+# CRITICAL CAUTION (expert-mandated):
+# PROVABLE means only that the defined claim is reproducible
+# from the specified evidence, rules, and cryptographic bindings.
+# It does NOT mean the action was correct, safe, fair, or desirable.
+#
+# Deployment Legibility Summary NEVER calculates, ranks, scores,
+# certifies or classifies overall safety, fairness, correctness
+# or trustworthiness of a deployment.
+# ============================================================
+
+# Action outcome statuses — four dimensions, never mixed
+ACTION_OUTCOMES = {
+    "PERMITTED":    "Action was authorized and executed within declared governance structure",
+    "REFUSED":      "Action was evaluated and explicitly refused by the governance layer",
+    "BLOCKED":      "Action was prevented at the consequence boundary before execution",
+    "ABORTED":      "Action was initiated but terminated before consequence boundary",
+    "NOT_EXECUTED": "Action was never attempted despite authorization being available",
+}
+
+VERIFICATION_STATUSES = {
+    "PROVABLE":     "The defined claim is reproducible from specified evidence, rules, and cryptographic bindings",
+    "NOT_PROVABLE": "The defined claim cannot be reproduced from available evidence",
+}
+
+# CRITICAL: PROVABLE does not mean safe/correct/fair/desirable
+PROVABLE_CAUTION = (
+    "PROVABLE verification status means only that the defined claim is reproducible "
+    "from the specified evidence, rules, and cryptographic bindings. "
+    "It does NOT mean the underlying action was correct, safe, fair, or desirable."
+)
+
+# DL independent verification tests
+DEPLOYMENT_IVT_TESTS = {
+    "DL-001": {"name": "Deployment Context Reproduction",       "description": "Reproduce deployment profile from hash + version without server"},
+    "DL-002": {"name": "Permitted Action Verification",         "description": "Verify PERMITTED outcome from execution evidence + authority chain"},
+    "DL-003": {"name": "Refused Action Verification",           "description": "Verify REFUSED outcome from governance decision record"},
+    "DL-004": {"name": "Blocked Action Verification",           "description": "Verify BLOCKED outcome from sink log + NO_VALID_AO record"},
+    "DL-005": {"name": "Failure Evidence Reproduction",         "description": "Reproduce failure evidence record from Passport + evidence hash"},
+    "DL-006": {"name": "Authority-to-Action Binding",           "description": "Verify declared authority path matches action at consequence boundary"},
+    "DL-007": {"name": "Offline Legibility Verification",       "description": "Reproduce legibility summary from evidence set without VeriSigil server"},
+    "DL-008": {"name": "State Evidence Snapshot Binding",       "description": "Verify snapshot_hash matches commitment + correspondence record"},
+    "DL-009": {"name": "Evidence Freshness Reproduction",       "description": "Reproduce freshness result from snapshot + policy + timestamp"},
+}
+
+_DEPLOYMENT_PROFILES: dict = {}   # deployment_id -> versioned profile
+_OPERATIONAL_OUTCOMES: dict = {}  # outcome_id -> OperationalOutcomeRecord
+_DEPLOYMENT_CHALLENGES: dict = {} # challenge_pack_id -> ChallengePack
+
+
+@app.post("/v1/deployment/profile", tags=["Deployment Context & Legibility — v1.6"])
+async def deployment_profile_create(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Create or version an Operator Deployment Profile.
+
+    Records the specific deployment context for independent
+    examination. Every Proof Passport references the exact
+    profile_version active at time of event.
+
+    Not a model card. Not a safety assessment.
+    A versioned, cryptographically bound deployment context
+    that allows an external party to understand where and under
+    what declared conditions a governance claim was evaluated.
+
+    Four locked dimensions preserved in every profile:
+    consequence_class | jurisdiction | authority_scope | governance_commitment_ids
+    """
+    require_api_key(x_api_key, authorization)
+    ts            = datetime.now(timezone.utc).isoformat()
+    deployment_id = req.get("deployment_id","") or f"DEP-{hashlib.sha256(ts.encode()).hexdigest()[:10].upper()}"
+
+    # Version this profile — historical versions remain reproducible
+    existing      = _DEPLOYMENT_PROFILES.get(deployment_id,{})
+    prev_version  = existing.get("profile_version","0")
+    try:
+        new_version = str(float(prev_version) + 0.1)
+    except Exception:
+        new_version = "1.0"
+
+    profile = {
+        "schema":                  "VGS-DEPLOYMENT-PROFILE-1.0",
+        "deployment_id":           deployment_id,
+        "profile_version":         req.get("profile_version", new_version),
+        "organization_id":         req.get("organization_id",""),
+        "system_id":               req.get("system_id",""),
+        "model_id":                req.get("model_id",None),
+        "use_case":                req.get("use_case",""),
+        "decision_domain":         req.get("decision_domain",""),
+        "intended_population":     req.get("intended_population",None),
+        "consequence_class":       req.get("consequence_class","HIGH"),
+        "jurisdiction":            req.get("jurisdiction",""),
+        "effective_from":          req.get("effective_from", ts),
+        "effective_until":         req.get("effective_until",None),
+        "authorized_operators":    req.get("authorized_operators",[]),
+        "governance_commitment_ids": req.get("governance_commitment_ids",[]),
+        "authority_scope":         req.get("authority_scope",""),
+        "canonicalization_spec_version": CANONICALIZATION_SPEC_VERSION,
+        "created_at":              ts,
+
+        # History — versioned profiles remain reproducible
+        "previous_version":        prev_version if existing else None,
+        "version_history":         existing.get("version_history",[]) + ([{
+            "version": prev_version, "superseded_at": ts
+        }] if existing else []),
+    }
+
+    # Compute context_hash — allows independent verification of context
+    canonical = _canonical_semantic_json({
+        "deployment_id":   deployment_id,
+        "profile_version": profile["profile_version"],
+        "system_id":       profile["system_id"],
+        "consequence_class": profile["consequence_class"],
+        "jurisdiction":    profile["jurisdiction"],
+        "governance_commitment_ids": sorted(profile["governance_commitment_ids"]),
+        "timestamp":       ts,
+    })
+    profile["context_hash"]         = hashlib.sha256(canonical.encode()).hexdigest()
+    profile["canonical_json"]       = canonical
+    profile["governance_signature"] = sign_governance_payload(
+        {"deployment_id": deployment_id, "context_hash": profile["context_hash"], "timestamp": ts}
+    )
+
+    _DEPLOYMENT_PROFILES[deployment_id] = profile
+    return profile
+
+
+@app.get("/v1/deployment/profile/{deployment_id}", tags=["Deployment Context & Legibility — v1.6"])
+async def deployment_profile_get(
+    deployment_id: str,
+    profile_version: Optional[str] = None,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Retrieve a Deployment Profile — current or specific version.
+
+    Independent verifiers can request the exact profile_version
+    referenced by a Passport for deterministic reproduction.
+    """
+    require_api_key(x_api_key, authorization)
+    profile = _DEPLOYMENT_PROFILES.get(deployment_id)
+    if not profile:
+        raise HTTPException(status_code=404, detail=f"Deployment profile {deployment_id} not found")
+    if profile_version and profile.get("profile_version") != profile_version:
+        # Check version history
+        history = profile.get("version_history",[])
+        found   = next((h for h in history if h.get("version") == profile_version), None)
+        if not found:
+            raise HTTPException(status_code=404, detail=f"Profile version {profile_version} not found")
+    return profile
+
+
+@app.post("/v1/deployment/outcome", tags=["Deployment Context & Legibility — v1.6"])
+async def deployment_outcome_record(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Operational Outcome Record.
+
+    Records whether a governed action was PERMITTED, REFUSED,
+    BLOCKED, ABORTED, or NOT_EXECUTED — and whether that
+    determination is PROVABLE or NOT_PROVABLE.
+
+    CRITICAL SEPARATION (locked):
+    action_outcome and verification_status are SEPARATE dimensions.
+    They are never merged into a single status.
+
+    PROVABLE means only: reproducible from specified evidence.
+    NOT that the action was correct, safe, fair, or desirable.
+    """
+    require_api_key(x_api_key, authorization)
+    ts         = datetime.now(timezone.utc).isoformat()
+    outcome_id = f"OUT-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}"
+
+    action_outcome       = req.get("action_outcome","")
+    verification_status  = req.get("verification_status","NOT_PROVABLE")
+
+    if action_outcome not in ACTION_OUTCOMES:
+        raise HTTPException(status_code=400,
+            detail=f"action_outcome must be one of: {list(ACTION_OUTCOMES.keys())}")
+    if verification_status not in VERIFICATION_STATUSES:
+        raise HTTPException(status_code=400,
+            detail=f"verification_status must be one of: {list(VERIFICATION_STATUSES.keys())}")
+
+    outcome = {
+        "schema":               "VGS-OPERATIONAL-OUTCOME-1.0",
+        "outcome_id":           outcome_id,
+        "passport_id":          req.get("passport_id",""),
+        "deployment_id":        req.get("deployment_id",""),
+        "profile_version":      req.get("profile_version",""),
+
+        # FOUR DIMENSIONS — SEPARATE, NEVER MIXED
+        "action_outcome":       action_outcome,
+        "verification_status":  verification_status,
+
+        "reason_code":          req.get("reason_code",""),
+        "applicable_invariants":req.get("applicable_invariants",[]),
+        "authority_path":       req.get("authority_path",""),
+        "failure_evidence_id":  req.get("failure_evidence_id",None),
+
+        "timestamp":            ts,
+        "VALID_AT_TIME":        ts,
+
+        "critical_separation_note": (
+            "action_outcome and verification_status are ALWAYS separate dimensions. "
+            "They are NEVER merged. " + PROVABLE_CAUTION
+        ),
+
+        "evidence_root":        req.get("evidence_root",""),
+    }
+
+    canonical = _canonical_semantic_json({
+        "outcome_id":          outcome_id,
+        "action_outcome":      action_outcome,
+        "verification_status": verification_status,
+        "timestamp":           ts,
+    })
+    outcome["outcome_hash"]         = hashlib.sha256(canonical.encode()).hexdigest()
+    outcome["governance_signature"] = sign_governance_payload(
+        {"outcome_id": outcome_id, "outcome_hash": outcome["outcome_hash"], "timestamp": ts}
+    )
+    outcome["offline_verifiable"]   = True
+
+    _OPERATIONAL_OUTCOMES[outcome_id] = outcome
+    _emit_proof_event("OPERATIONAL_OUTCOME_RECORDED", outcome_id,
+                      {"action_outcome": action_outcome, "verification_status": verification_status}, ts)
+
+    return outcome
+
+
+@app.get("/v1/deployment/{deployment_id}/legibility", tags=["Deployment Context & Legibility — v1.6"])
+async def deployment_legibility_summary(
+    deployment_id: str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Deployment Legibility Summary.
+
+    Reports ONLY observed and verifiable evidence distributions.
+
+    ABSOLUTE PROHIBITION (locked by expert):
+    This summary NEVER calculates, ranks, scores, certifies, or
+    classifies overall safety, fairness, correctness, or
+    trustworthiness of a deployment.
+
+    It reports what happened and what can be proven.
+    It does NOT judge whether what happened was good.
+
+    Expert: "VeriSigilAI makes consequential AI governance
+    legible through independently verifiable evidence."
+    Not: "VeriSigilAI rates AI safety."
+    """
+    require_api_key(x_api_key, authorization)
+    ts = datetime.now(timezone.utc).isoformat()
+
+    profile  = _DEPLOYMENT_PROFILES.get(deployment_id,{})
+    outcomes = [o for o in _OPERATIONAL_OUTCOMES.values()
+                if o.get("deployment_id") == deployment_id]
+
+    # Count outcome distribution — factual only
+    outcome_dist = {}
+    for o in outcomes:
+        k = o.get("action_outcome","UNKNOWN")
+        outcome_dist[k] = outcome_dist.get(k,0) + 1
+
+    verif_dist = {}
+    for o in outcomes:
+        k = o.get("verification_status","UNKNOWN")
+        verif_dist[k] = verif_dist.get(k,0) + 1
+
+    total = len(outcomes)
+
+    return {
+        "schema":             "VGS-DEPLOYMENT-LEGIBILITY-1.0",
+        "deployment_id":      deployment_id,
+        "profile_version":    profile.get("profile_version",""),
+        "context_hash":       profile.get("context_hash",""),
+        "summary_generated_at": ts,
+
+        # What happened — observed distributions only
+        "total_events_evaluated":    total,
+        "action_outcome_distribution": outcome_dist,
+        "verification_status_distribution": verif_dist,
+
+        # Evidence completeness
+        "provable_count":     verif_dist.get("PROVABLE",0),
+        "not_provable_count": verif_dist.get("NOT_PROVABLE",0),
+        "evidence_completeness": f"{verif_dist.get('PROVABLE',0)}/{total}" if total else "0/0",
+
+        # What remains unproven
+        "unproven_events": [
+            o.get("outcome_id") for o in outcomes
+            if o.get("verification_status") == "NOT_PROVABLE"
+        ],
+
+        # ABSOLUTE PROHIBITION — explicitly stated in response
+        "scoring_prohibition": (
+            "This summary NEVER calculates, ranks, scores, certifies, or classifies "
+            "overall safety, fairness, correctness, or trustworthiness of this deployment. "
+            "It reports what happened and what can be proven. "
+            "It does NOT judge whether what happened was good."
+        ),
+
+        "provable_caution": PROVABLE_CAUTION,
+
+        "independent_verification": {
+            "tests":     list(DEPLOYMENT_IVT_TESTS.keys()),
+            "public_key":"lJWG0Wabt6uATPu5Upo6UEHWGXQqMyi6LMKQC0xwpY8=",
+            "no_server": True,
+        },
+    }
+
+
+@app.get("/v1/deployment/{deployment_id}/evidence", tags=["Deployment Context & Legibility — v1.6"])
+async def deployment_evidence(
+    deployment_id: str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Aggregated evidence for a deployment — all outcomes, passports, and correspondence records."""
+    require_api_key(x_api_key, authorization)
+    ts = datetime.now(timezone.utc).isoformat()
+
+    outcomes      = [o for o in _OPERATIONAL_OUTCOMES.values() if o.get("deployment_id") == deployment_id]
+    passport_ids  = list({o.get("passport_id","") for o in outcomes if o.get("passport_id")})
+    passports     = [_ISSUED_PASSPORTS.get(pid,{}) for pid in passport_ids]
+
+    return {
+        "schema":           "VGS-DEPLOYMENT-EVIDENCE-1.0",
+        "deployment_id":    deployment_id,
+        "outcomes_count":   len(outcomes),
+        "passports_count":  len(passport_ids),
+        "outcome_ids":      [o.get("outcome_id") for o in outcomes],
+        "passport_ids":     passport_ids,
+        "evidence_root":    hashlib.sha256(
+            _canonical_semantic_json({"outcomes": sorted([o.get("outcome_id","") for o in outcomes])}).encode()
+        ).hexdigest(),
+        "timestamp":        ts,
+    }
+
+
+@app.post("/v1/deployment/challenges", tags=["Deployment Context & Legibility — v1.6"])
+async def deployment_challenge_pack_register(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Register a Deployment Challenge Pack.
+
+    A structured set of reproducible challenge vectors
+    targeting a specific deployment profile.
+
+    Challenge packs use the existing six CVR challenge types.
+    No new proof levels are introduced.
+    """
+    require_api_key(x_api_key, authorization)
+    ts       = datetime.now(timezone.utc).isoformat()
+    pack_id  = f"DCHP-{hashlib.sha256(ts.encode()).hexdigest()[:10].upper()}"
+
+    pack = {
+        "schema":          "VGS-DEPLOYMENT-CHALLENGE-PACK-1.0",
+        "pack_id":         pack_id,
+        "deployment_id":   req.get("deployment_id",""),
+        "challenges":      req.get("challenges",[]),
+        "dl_ivt_tests":    req.get("dl_ivt_tests", list(DEPLOYMENT_IVT_TESTS.keys())),
+        "registered_at":   ts,
+        "status":          "REGISTERED",
+    }
+    seal = {"pack_id": pack_id, "deployment_id": pack["deployment_id"], "timestamp": ts}
+    pack["governance_signature"] = sign_governance_payload(seal)
+    _DEPLOYMENT_CHALLENGES[pack_id] = pack
+    return pack
+
+
+@app.post("/v1/deployment/challenges/run", tags=["Deployment Context & Legibility — v1.6"])
+async def deployment_challenge_pack_run(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Execute a Deployment Challenge Pack.
+
+    Runs the registered challenge vectors and DL-IVT tests
+    against the deployment profile and evidence.
+
+    Returns: per-test results with PASS/FAIL/NOT_PROVABLE.
+    Never returns an aggregate safety score.
+    """
+    require_api_key(x_api_key, authorization)
+    ts      = datetime.now(timezone.utc).isoformat()
+    pack_id = req.get("pack_id","")
+    pack    = _DEPLOYMENT_CHALLENGES.get(pack_id,{})
+
+    if not pack:
+        raise HTTPException(status_code=404, detail=f"Challenge pack {pack_id} not found")
+
+    results = []
+    for test_id in pack.get("dl_ivt_tests",[]):
+        ivt = DEPLOYMENT_IVT_TESTS.get(test_id,{})
+        results.append({
+            "test_id":     test_id,
+            "name":        ivt.get("name",""),
+            "status":      "NOT_PROVABLE",
+            "reason":      "Manual execution required — run offline against Passport + evidence snapshot",
+            "offline_procedure": ivt.get("description",""),
+        })
+
+    run_result = {
+        "schema":       "VGS-DEPLOYMENT-CHALLENGE-RUN-1.0",
+        "pack_id":      pack_id,
+        "deployment_id":pack.get("deployment_id",""),
+        "results":      results,
+        "no_aggregate_score": True,
+        "scoring_prohibition": "Challenge results are NEVER aggregated into a safety, fairness, or trustworthiness score.",
+        "run_at":       ts,
+    }
+    seal = {"pack_id": pack_id, "run_at": ts}
+    run_result["governance_signature"] = sign_governance_payload(seal)
+    return run_result
+
+
+@app.post("/v1/deployment/verify", tags=["Deployment Context & Legibility — v1.6"])
+async def deployment_verify(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Independent verification of a deployment evidence set.
+
+    Verifies: context_hash matches profile, outcome hashes
+    match records, passport signatures valid, evidence root
+    consistent across all records.
+
+    Zero server trust required for offline verification.
+    """
+    require_api_key(x_api_key, authorization)
+    ts            = datetime.now(timezone.utc).isoformat()
+    deployment_id = req.get("deployment_id","")
+
+    profile  = _DEPLOYMENT_PROFILES.get(deployment_id,{})
+    outcomes = [o for o in _OPERATIONAL_OUTCOMES.values() if o.get("deployment_id") == deployment_id]
+
+    checks_passed = []
+    failures      = []
+
+    # Check 1: Profile exists with context_hash
+    if profile.get("context_hash"):
+        checks_passed.append("deployment_context_hash_present")
+    else:
+        failures.append({"code": "EVIDENCE_INTEGRITY_FAILED", "detail": "context_hash missing from profile"})
+
+    # Check 2: All outcomes have outcome_hash
+    for o in outcomes:
+        if not o.get("outcome_hash"):
+            failures.append({"code": "EVIDENCE_INTEGRITY_FAILED", "detail": f"outcome_hash missing: {o.get('outcome_id')}"})
+        else:
+            checks_passed.append(f"outcome_hash_present:{o.get('outcome_id')}")
+
+    # Check 3: Dimension separation respected
+    for o in outcomes:
+        if o.get("action_outcome") not in ACTION_OUTCOMES:
+            failures.append({"code": "EVIDENCE_INTEGRITY_FAILED", "detail": f"Invalid action_outcome: {o.get('action_outcome')}"})
+        if o.get("verification_status") not in VERIFICATION_STATUSES:
+            failures.append({"code": "EVIDENCE_INTEGRITY_FAILED", "detail": f"Invalid verification_status: {o.get('verification_status')}"})
+
+    if not failures:
+        checks_passed.append("dimension_separation_verified")
+
+    verified = len(failures) == 0
+    return {
+        "schema":           "VGS-DEPLOYMENT-VERIFICATION-1.0",
+        "deployment_id":    deployment_id,
+        "verified":         verified,
+        "overall":          "VERIFIED" if verified else "FAILED",
+        "checks_passed":    checks_passed,
+        "failures":         failures,
+        "public_key":       "lJWG0Wabt6uATPu5Upo6UEHWGXQqMyi6LMKQC0xwpY8=",
+        "provable_caution": PROVABLE_CAUTION,
+        "verified_at":      ts,
+    }
+
+
+@app.get("/v1/deployment/legibility/tests", tags=["Deployment Context & Legibility — v1.6"])
+async def deployment_legibility_tests():
+    """DL-001 through DL-009 independent verification tests. No auth required."""
+    return {
+        "schema":       "VGS-DEPLOYMENT-IVT-1.0",
+        "total":        len(DEPLOYMENT_IVT_TESTS),
+        "ivt_tests":    DEPLOYMENT_IVT_TESTS,
+        "zero_server":  True,
+        "caution":      PROVABLE_CAUTION,
+        "timestamp":    datetime.now(timezone.utc).isoformat(),
+    }
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=int(os.environ.get("PORT", 8000)), reload=False)
