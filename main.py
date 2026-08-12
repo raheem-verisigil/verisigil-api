@@ -89169,6 +89169,559 @@ async def deployment_legibility_tests():
     }
 
 
+
+# ============================================================
+# VERISIGILAI ARCHITECTURE v1.7
+# Governance Evidence & Operational Reality Layer
+# Status: ENGINEERING BASELINE — NOT PRODUCTION CLAIM
+#
+# Expert corrections applied:
+# 1. Governance Control Registry binds to authoritative source
+# 2. Human Oversight Evidence uses reviewer_reference (not identity)
+# 3. Runtime Adapter explicitly bounded — enforcement only where implemented
+# 4. Shadow AI detection bounded — "where detectable" with required telemetry
+# 5. EVIDENCE_COMPLETENESS added (COMPLETE|INCOMPLETE|NOT_ASSESSABLE)
+# 6. First vertical workflow documented
+#
+# ARCHITECTURE NOT PRODUCTION:
+# "The architecture is now sufficiently mature to move from
+# 'what should VeriSigilAI become?' to:
+# 'Can we actually prove this works under adversarial conditions?'"
+#
+# Priority: Prove one complete vertical chain end-to-end.
+# Attack it. Have a third party reproduce the result.
+# ============================================================
+
+EVIDENCE_COMPLETENESS_STATUSES = {
+    "COMPLETE":       "All declared evidence inputs were present and verified",
+    "INCOMPLETE":     "One or more declared evidence inputs were missing or unverifiable",
+    "NOT_ASSESSABLE": "The completeness of evidence cannot be determined from available information",
+}
+
+FIRST_VERTICAL_WORKFLOW = {
+    "name":        "AI-Assisted Financial Approval → Payment Instruction",
+    "description": "Recommended first vertical proof — one complete chain end-to-end",
+    "steps": [
+        "AI proposes payment",
+        "Deployment Profile identified",
+        "Applicable governance control identified (Governance Control Registry)",
+        "Authority verified (Authority Graph)",
+        "Current evidence snapshot captured (State Evidence Snapshot)",
+        "Evidence freshness checked (FRESH/STALE/EXPIRED)",
+        "Semantic transition evaluated (PRESERVED/AUTHORIZED_TRANSFORMATION/MATERIAL_CHANGE)",
+        "Correspondence evaluated (CORRESPONDS/PARTIAL/BROKEN/NOT_PROVABLE)",
+        "Materiality evaluated (pre-declared rules)",
+        "Human approval required? (Human Oversight Evidence)",
+        "Authority/delegation checked",
+        "PERMIT/REFUSE/BLOCK/ESCALATE (Action Outcome)",
+        "Execution evidence captured (L5 ENFORCEMENT_PROVEN)",
+        "Proof Passport generated",
+        "Independent verifier reproduces result without trusting VeriSigil",
+    ],
+    "adversarial_tests": [
+        "Authority expired between approval and execution",
+        "Approval withdrawn after issued",
+        "Payment limit changed",
+        "Jurisdiction changed",
+        "Policy version changed",
+        "Evidence becomes stale",
+        "Human approval missing",
+        "Unauthorised override attempted",
+        "Execution differs from authorised instruction",
+        "Required evidence disappears",
+    ],
+    "acceptance_criterion": (
+        "Can a third party reproduce what VeriSigilAI says happened "
+        "without trusting VeriSigilAI's narrative? "
+        "If yes: take to market. If no: fix before claiming."
+    ),
+}
+
+_GOVERNANCE_CONTROLS: dict = {}     # control_id -> GovernanceControlRecord
+_HUMAN_OVERSIGHT:     dict = {}     # oversight_id -> HumanOversightEvidence
+_EXCEPTION_OVERRIDES: dict = {}     # override_id -> ExceptionOverrideEvidence
+
+
+@app.post("/v1/governance/controls/register", tags=["Governance Control Registry — v1.7"])
+async def governance_control_register(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Governance Control Registry.
+
+    Cryptographically bound registry of the organisation's
+    actual controls that VeriSigilAI is asked to evidence.
+
+    Expert correction 1: Must bind to the authoritative source.
+    Records source → version → effective period → authority →
+    jurisdiction → deployment → hash/reference.
+
+    This answers: "Was this control actually applicable when
+    the action occurred?" — not just "does the policy exist?"
+    """
+    require_api_key(x_api_key, authorization)
+    ts         = datetime.now(timezone.utc).isoformat()
+    control_id = req.get("control_id","") or f"GCR-{hashlib.sha256(ts.encode()).hexdigest()[:10].upper()}"
+
+    policy_source = req.get("policy_source","")      # e.g. "policy.v3.2026-01-01"
+    policy_version= req.get("policy_version","")
+    policy_hash   = req.get("policy_hash","")        # hash of the authoritative policy document
+
+    if not policy_source or not policy_version:
+        raise HTTPException(status_code=400,
+            detail="policy_source and policy_version are required. VeriSigil must bind to the authoritative source.")
+
+    control = {
+        "schema":          "VGS-GOVERNANCE-CONTROL-1.0",
+        "control_id":      control_id,
+
+        # BINDING TO AUTHORITATIVE SOURCE (expert correction 1)
+        "policy_source":   policy_source,
+        "policy_version":  policy_version,
+        "policy_hash":     policy_hash,
+        "source_note":     (
+            "This control is bound to the declared authoritative policy source and version. "
+            "VeriSigilAI does not create or validate the policy itself. "
+            "It records that this control was declared as applicable and evaluates "
+            "whether the consequential action was within its declared scope."
+        ),
+
+        "owner":               req.get("owner",""),
+        "authority":           req.get("authority",""),
+        "deployment_ids":      req.get("deployment_ids",[]),
+        "jurisdiction":        req.get("jurisdiction",""),
+        "effective_from":      req.get("effective_from", ts),
+        "effective_until":     req.get("effective_until",None),
+        "protected_conditions":req.get("protected_conditions",[]),
+        "required_human_involvement": req.get("required_human_involvement", False),
+        "evidence_requirements":      req.get("evidence_requirements",[]),
+        "reentry_conditions":         req.get("reentry_conditions",[]),
+        "challenge_tests":            req.get("challenge_tests",[]),
+
+        "canonicalization_spec_version": CANONICALIZATION_SPEC_VERSION,
+        "created_at":      ts,
+    }
+
+    canonical = _canonical_semantic_json({
+        "control_id":    control_id,
+        "policy_source": policy_source,
+        "policy_version":policy_version,
+        "policy_hash":   policy_hash,
+        "jurisdiction":  control["jurisdiction"],
+        "effective_from":control["effective_from"],
+        "timestamp":     ts,
+    })
+    control["control_hash"]         = hashlib.sha256(canonical.encode()).hexdigest()
+    control["canonical_json"]       = canonical
+    control["governance_signature"] = sign_governance_payload(
+        {"control_id": control_id, "control_hash": control["control_hash"], "timestamp": ts}
+    )
+
+    _GOVERNANCE_CONTROLS[control_id] = control
+    return control
+
+
+@app.get("/v1/governance/controls/{control_id}", tags=["Governance Control Registry — v1.7"])
+async def governance_control_get(
+    control_id: str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Retrieve a governance control record."""
+    require_api_key(x_api_key, authorization)
+    control = _GOVERNANCE_CONTROLS.get(control_id)
+    if not control:
+        raise HTTPException(status_code=404, detail=f"Control {control_id} not found")
+    return control
+
+
+@app.post("/v1/human/oversight", tags=["Human Oversight Evidence — v1.7"])
+async def human_oversight_record(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Human Oversight Evidence.
+
+    Records the governance event of human involvement.
+    NEVER records the quality of the human's judgement.
+
+    Expert correction 2: Uses reviewer_reference (pseudonymous)
+    rather than full identity, unless governance requirements
+    specifically require identifiable records.
+
+    Records: reviewer_reference, authority, time, information
+    presented (type/hash — not content), decision, applicable
+    policy, delegation path, evidence, validity of authority
+    at moment of review.
+
+    VeriSigilAI proves:
+    "A properly authorised human review occurred under these conditions."
+    It does NOT become a repository of personal information.
+    """
+    require_api_key(x_api_key, authorization)
+    ts          = datetime.now(timezone.utc).isoformat()
+    oversight_id= f"HO-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}"
+
+    oversight = {
+        "schema":            "VGS-HUMAN-OVERSIGHT-1.0",
+        "oversight_id":      oversight_id,
+        "passport_id":       req.get("passport_id",""),
+        "deployment_id":     req.get("deployment_id",""),
+        "control_id":        req.get("control_id",""),
+
+        # PRIVACY MINIMISATION (expert correction 2)
+        "reviewer_reference":req.get("reviewer_reference",""),  # pseudonymous identifier
+        "reviewer_authority":req.get("reviewer_authority",""),  # authority role, not personal data
+        "authority_valid_at_review": req.get("authority_valid_at_review", True),
+        "delegation_path":   req.get("delegation_path",""),
+
+        # What was presented — type/category + hash only, never the content itself
+        "information_presented_type":  req.get("information_presented_type",""),
+        "information_presented_hash":  req.get("information_presented_hash",""),
+        "privacy_note":     (
+            "VeriSigilAI records the type and cryptographic hash of information "
+            "presented for review. It does NOT store the underlying content unless "
+            "explicitly required by the customer's governance requirements. "
+            "Reviewer identity is recorded by reference only."
+        ),
+
+        # Decision
+        "decision":          req.get("decision",""),  # APPROVE / REJECT / ESCALATE / DEFER
+        "decision_rationale_hash": req.get("decision_rationale_hash",""),  # hash only
+        "applicable_policy_version": req.get("applicable_policy_version",""),
+        "review_timestamp":  ts,
+        "VALID_AT_TIME":     ts,
+    }
+
+    canonical = _canonical_semantic_json({
+        "oversight_id":      oversight_id,
+        "reviewer_reference":oversight["reviewer_reference"],
+        "decision":          oversight["decision"],
+        "timestamp":         ts,
+    })
+    oversight["oversight_hash"]        = hashlib.sha256(canonical.encode()).hexdigest()
+    oversight["governance_signature"]  = sign_governance_payload(
+        {"oversight_id": oversight_id, "oversight_hash": oversight["oversight_hash"], "timestamp": ts}
+    )
+    oversight["offline_verifiable"]    = True
+
+    _HUMAN_OVERSIGHT[oversight_id] = oversight
+    _emit_proof_event("HUMAN_OVERSIGHT_RECORDED", oversight_id,
+                      {"decision": oversight["decision"], "deployment_id": oversight["deployment_id"]}, ts)
+
+    return oversight
+
+
+@app.post("/v1/exception/override", tags=["Exception & Override Evidence — v1.7"])
+async def exception_override_record(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Exception & Override Evidence.
+
+    Makes every exception, emergency override, manual
+    intervention or temporary bypass auditable.
+
+    Records the full chain:
+    normal control → override request → authority verified →
+    exception recorded → action → evidence → re-entry/restoration
+
+    An exception without this record is NOT verifiable.
+    VeriSigilAI treats unrecorded exceptions as governance gaps
+    in the Deployment Legibility Summary.
+    """
+    require_api_key(x_api_key, authorization)
+    ts          = datetime.now(timezone.utc).isoformat()
+    override_id = f"EX-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}"
+
+    override = {
+        "schema":            "VGS-EXCEPTION-OVERRIDE-1.0",
+        "override_id":       override_id,
+        "deployment_id":     req.get("deployment_id",""),
+        "control_id":        req.get("control_id",""),
+        "passport_id":       req.get("passport_id",""),
+
+        # The chain
+        "normal_control_bypassed": req.get("normal_control_bypassed",""),
+        "override_type":           req.get("override_type",""),  # EMERGENCY | EXCEPTION | MANUAL_BYPASS | TEMPORARY
+        "override_authority":      req.get("override_authority",""),
+        "authority_verified":      req.get("authority_verified", False),
+        "override_reason_hash":    req.get("override_reason_hash",""),
+        "action_taken":            req.get("action_taken",""),
+        "reentry_triggered":       req.get("reentry_triggered", False),
+        "restoration_required":    req.get("restoration_required", True),
+        "restoration_completed_at":req.get("restoration_completed_at",None),
+
+        "timestamp":  ts,
+        "VALID_AT_TIME": ts,
+
+        "audit_note": (
+            "Every exception and override must be recorded here to remain "
+            "verifiable in the Deployment Legibility Summary. "
+            "Unrecorded exceptions appear as governance gaps."
+        ),
+    }
+
+    canonical = _canonical_semantic_json({
+        "override_id":   override_id,
+        "override_type": override["override_type"],
+        "control_id":    override["control_id"],
+        "timestamp":     ts,
+    })
+    override["override_hash"]        = hashlib.sha256(canonical.encode()).hexdigest()
+    override["governance_signature"] = sign_governance_payload(
+        {"override_id": override_id, "override_hash": override["override_hash"], "timestamp": ts}
+    )
+    override["offline_verifiable"]   = True
+
+    _EXCEPTION_OVERRIDES[override_id] = override
+    _emit_proof_event("EXCEPTION_OVERRIDE_RECORDED", override_id,
+                      {"override_type": override["override_type"], "authority_verified": override["authority_verified"]}, ts)
+
+    return override
+
+
+@app.get("/v1/runtime/adapter/spec", tags=["Runtime Evidence Adapter — v1.7"])
+async def runtime_adapter_spec():
+    """
+    Runtime Evidence Adapter Specification.
+
+    Standard interface between agent frameworks and VeriSigil.
+
+    EXPERT CORRECTION 3 — CRITICAL:
+    Runtime enforcement exists ONLY for integrations that have
+    been implemented AND independently tested.
+
+    VeriSigil does NOT claim universal runtime enforcement.
+    The claim "this adapter prevents all unauthorized actions"
+    can only be made after Proof Level 5 evidence exists for
+    the specific integration.
+
+    EXPERT CORRECTION 4 — Shadow AI detection bounded:
+    VeriSigil can identify specified unregistered or bypass
+    behaviour WHERE the required enterprise telemetry and
+    observation points are available.
+    It does NOT claim to detect all shadow AI systems.
+
+    No auth required.
+    """
+    return {
+        "schema":      "VGS-RUNTIME-ADAPTER-SPEC-1.0",
+        "title":       "VeriSigil Runtime Evidence Adapter",
+        "flow":        [
+            "Supported AI/agent workflow",
+            "→ VeriSigil Runtime Evidence Adapter",
+            "→ Governance Evaluation",
+            "→ PERMIT / REFUSE / BLOCK / ESCALATE",
+            "→ Enterprise execution path (customer responsibility)",
+            "→ Execution Evidence",
+        ],
+        "enforcement_boundary": (
+            "Runtime enforcement exists only for integrations that have been "
+            "implemented and independently tested. "
+            "VeriSigil does not claim universal runtime enforcement. "
+            "The Proof Level 5 (ENFORCEMENT_PROVEN) claim is only made after "
+            "the Enforcement Test Harness passes for the specific integration."
+        ),
+        "shadow_detection_boundary": (
+            "VeriSigil can identify specified unregistered or bypass behaviour "
+            "where the required enterprise telemetry and observation points are available. "
+            "It does NOT claim to detect every shadow AI system. "
+            "Detection claims are bounded by what is detectable in the declared environment."
+        ),
+        "first_recommended_integration": FIRST_VERTICAL_WORKFLOW["name"],
+        "non_claims": [
+            "Does not intercept all AI agent actions universally",
+            "Does not prevent execution on systems not integrated with this adapter",
+            "Enforcement only where implemented and independently tested",
+            "Shadow AI detection only where enterprise telemetry is available",
+        ],
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@app.post("/v1/evidence/completeness", tags=["Evidence Completeness — v1.7"])
+async def evidence_completeness_check(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Evidence Completeness Check.
+
+    Expert correction 5: Answers whether VeriSigil received
+    ALL evidence required to perform the declared evaluation.
+
+    COMPLETE | INCOMPLETE | NOT_ASSESSABLE
+
+    This is NOT a score. It answers whether declared evidence
+    inputs were present — making NOT_PROVABLE claims stronger.
+
+    "We cannot prove X because evidence Y was missing" is much
+    stronger than "we cannot prove X" without explanation.
+    """
+    require_api_key(x_api_key, authorization)
+    ts = datetime.now(timezone.utc).isoformat()
+
+    declared_required = req.get("declared_required_evidence",[])
+    received          = req.get("received_evidence",[])
+    control_id        = req.get("control_id","")
+
+    control  = _GOVERNANCE_CONTROLS.get(control_id,{})
+    required = declared_required or control.get("evidence_requirements",[])
+
+    if not required:
+        status = "NOT_ASSESSABLE"
+        reason = "No declared evidence requirements to assess against"
+    else:
+        received_set = set(received)
+        required_set = set(required)
+        missing      = required_set - received_set
+
+        if not missing:
+            status = "COMPLETE"
+            reason = f"All {len(required)} declared evidence inputs received"
+        else:
+            status = "INCOMPLETE"
+            reason = f"{len(missing)} of {len(required)} declared evidence inputs missing: {list(missing)}"
+
+    return {
+        "schema":             "VGS-EVIDENCE-COMPLETENESS-1.0",
+        "status":             status,
+        "reason":             reason,
+        "declared_required":  required,
+        "received":           received,
+        "missing":            list(set(required) - set(received)) if required else [],
+        "completeness_note":  (
+            "COMPLETE means all declared inputs were present. "
+            "It does NOT mean the evidence was sufficient to prove the claim. "
+            "Evidence completeness and proof level are separate determinations."
+        ),
+        "governance_signature": sign_governance_payload({"status": status, "timestamp": ts}),
+        "assessed_at": ts,
+    }
+
+
+@app.get("/v1/leadership/visibility/{deployment_id}", tags=["Leadership Visibility — v1.7"])
+async def leadership_visibility_pack(
+    deployment_id: str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Leadership Visibility Pack.
+
+    Board-ready extract generated from Proof Passports and
+    Legibility Summary. Plain language, no internal hashes.
+    Designed for non-technical leaders.
+
+    Expert: "Stop expanding horizontally. Prove one complete
+    vertical chain end-to-end, then deliberately attack it."
+
+    ABSOLUTE RULE: Never a safety, fairness or correctness score.
+    Reports observable facts only.
+    """
+    require_api_key(x_api_key, authorization)
+    ts = datetime.now(timezone.utc).isoformat()
+
+    profile  = _DEPLOYMENT_PROFILES.get(deployment_id,{})
+    outcomes = [o for o in _OPERATIONAL_OUTCOMES.values() if o.get("deployment_id") == deployment_id]
+    total    = len(outcomes)
+    permitted= sum(1 for o in outcomes if o.get("action_outcome") == "PERMITTED")
+    refused  = sum(1 for o in outcomes if o.get("action_outcome") == "REFUSED")
+    blocked  = sum(1 for o in outcomes if o.get("action_outcome") == "BLOCKED")
+    provable = sum(1 for o in outcomes if o.get("verification_status") == "PROVABLE")
+
+    return {
+        "schema":          "VGS-LEADERSHIP-VISIBILITY-1.0",
+        "deployment_id":   deployment_id,
+        "use_case":        profile.get("use_case",""),
+        "consequence_class": profile.get("consequence_class",""),
+        "jurisdiction":    profile.get("jurisdiction",""),
+        "report_period":   {"from": profile.get("effective_from",""), "until": ts},
+
+        # Plain language — no hashes
+        "summary": {
+            "total_governed_actions":       total,
+            "actions_permitted":            permitted,
+            "actions_refused_or_blocked":   refused + blocked,
+            "governance_verifiable":        f"{provable}/{total} actions have independently verifiable governance records" if total else "No actions recorded",
+        },
+
+        "what_this_means": (
+            "VeriSigil AI has recorded the governance evidence for the AI actions "
+            f"listed above. {provable}/{total} of these records can be independently "
+            "verified by a third party without trusting VeriSigil's systems. "
+            "The remaining records require additional evidence to become verifiable."
+        ) if total else "No governance events have been recorded for this deployment yet.",
+
+        "architecture_status": "Engineering Baseline — v1.7. Not a production claim.",
+
+        "absolute_rule": (
+            "This pack reports observable facts only. "
+            "It does NOT rate, score, certify or classify the safety, "
+            "fairness, correctness or trustworthiness of this AI deployment."
+        ),
+
+        "next_action": (
+            "To strengthen governance evidence: run the first vertical workflow "
+            "end-to-end and commission an independent third-party verification."
+        ),
+
+        "generated_at": ts,
+    }
+
+
+@app.get("/v1/architecture/status", tags=["Architecture Status — v1.7"])
+async def architecture_status():
+    """
+    VeriSigilAI Architecture v1.7 — Engineering Baseline Status.
+
+    This endpoint is the honest internal status of what is
+    built vs what is proven vs what is claimed.
+
+    Expert: "Label the document 'Engineering Baseline' rather
+    than 'complete/perfect/final product architecture.'
+    Add the six hardening points and freeze architecture
+    expansion until the first vertical workflow passes
+    independent verification."
+
+    No auth required.
+    """
+    content_check = {}
+    return {
+        "schema":              "VGS-ARCHITECTURE-STATUS-1.0",
+        "version":             "v1.7",
+        "label":               "Engineering Baseline — NOT Production Claim",
+        "first_vertical_workflow": FIRST_VERTICAL_WORKFLOW,
+        "architecture_locked": True,
+        "horizontal_expansion_frozen": True,
+        "next_priority":       "Prove one vertical chain end-to-end. Attack it. Have a third party reproduce the result.",
+        "proof_ladder": {
+            "architecture":            "COMPLETE — v1.7 locked",
+            "implementation":          "DEPLOYED — 1074+ endpoints on Railway",
+            "deterministic_tests":     "PARTIAL — 10-question suite, 14 enforcement vectors, TV/IVT suites",
+            "independent_verification":"PARTIAL — 7 claims verified by Alkama Eqbal (CLARA Run 3)",
+            "external_challenge":      "PENDING — Run 4 commissioned",
+            "published_evidence":      "PARTIAL — claim registry public at GET /v1/claims",
+            "public_claim":            "RESTRICTED — only independently verified claims may be marketed",
+        },
+        "expert_rule": (
+            "Don't keep adding claims. "
+            "Build one thing that can be attacked, reproduced, and verified. "
+            "If VeriSigilAI can survive that test, THAT becomes the evidence "
+            "we take to market — not another presentation about what we intend to build."
+        ),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=int(os.environ.get("PORT", 8000)), reload=False)
