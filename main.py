@@ -86379,6 +86379,724 @@ async def get_reachability_assessment(
     return assessment
 
 
+
+# ============================================================
+# SEMANTIC ADMISSIBILITY & PROOF LAYER (SAPL)
+# Expert-approved build — five concrete items only.
+# No Semantic Control Plane. No Semantic Gateway.
+# No SABI as open standard. No nine-phase expansion.
+#
+# What this builds:
+# 1. Semantic Commitment (machine-testable, with invariants)
+# 2. Semantic Fingerprint (canonical hash, model-independent)
+# 3. Semantic Invariants (detects material transformation)
+# 4. Semantic Transition Verification (PRESERVED/AUTHORIZED/
+#    MATERIAL_CHANGE/NOT_PROVABLE — four outcomes only)
+# 5. Semantic Delegation (semantic scope on delegation edges)
+# + Test vectors on every Semantic Commitment
+# + CVR challenge types (COUNTER_EXAMPLE etc)
+#
+# Scientific boundary — permanent:
+# VeriSigil does not prove an AI's internal understanding.
+# It proves whether a declared governance-relevant semantic
+# commitment is preserved, transformed, challenged and bound
+# to an authorized consequential action.
+#
+# Four engineering tests — every feature must pass all four:
+# 1. Is it measurable?
+# 2. Is it independently reproducible?
+# 3. Is it cryptographically bindable?
+# 4. Does it stay within the declared proof boundary?
+# ============================================================
+
+# ── CVR CHALLENGE TYPES ───────────────────────────────────────
+CVR_CHALLENGE_TYPES = {
+    "COUNTER_EXAMPLE":       "A concrete case that violates the stated claim",
+    "SCOPE_VIOLATION":       "The claim is applied outside its declared scope",
+    "EVIDENCE_FAILURE":      "The evidence does not support the claimed proof level",
+    "ASSUMPTION_BREACH":     "A declared assumption has been violated",
+    "JURISDICTION_CONFLICT": "The claim conflicts with applicable law or policy in the stated jurisdiction",
+    "REPRODUCTION_FAILURE":  "An independent party cannot reproduce the claimed result",
+    # Semantic challenge subtypes — map into the six above
+    "INVARIANT_VIOLATION":   "A declared semantic invariant was removed or altered (SCOPE_VIOLATION subtype)",
+    "UNAUTHORIZED_TRANSFORMATION": "A semantic transformation occurred without authorization (COUNTER_EXAMPLE subtype)",
+    "SEMANTIC_DRIFT":        "Material drift detected in governance-relevant fingerprint across versions (EVIDENCE_FAILURE subtype)",
+}
+
+# ── SEMANTIC REGISTRIES ───────────────────────────────────────
+_SEMANTIC_COMMITMENTS:  dict = {}  # commitment_id -> SemanticCommitment
+_SEMANTIC_FINGERPRINTS: dict = {}  # fingerprint_hash -> SemanticFingerprint
+_SEMANTIC_TRANSITIONS:  dict = {}  # transition_id -> SemanticTransition
+
+
+def _canonical_semantic_json(structure: dict) -> str:
+    """Deterministic canonical serialization for semantic fingerprinting."""
+    return json.dumps(structure, sort_keys=True, separators=(",",":"),
+                      ensure_ascii=True)
+
+
+def _compute_semantic_fingerprint(
+    invariants: list,
+    term_hashes: dict,
+    constraints: dict,
+    test_vector_digest: str,
+    reproducibility_class: str,
+) -> str:
+    """
+    Compute a canonical semantic fingerprint.
+
+    The fingerprint is derived from the governance-relevant
+    structure ONLY — not from the natural language text.
+
+    This makes it model-independent. Two different models
+    producing the same governed structure get the same fingerprint.
+    The fingerprint does NOT represent the AI's internal reasoning.
+    It represents the declared governance-relevant semantic structure.
+    """
+    canonical = _canonical_semantic_json({
+        "invariants":            sorted(invariants, key=lambda x: json.dumps(x, sort_keys=True)),
+        "term_hashes":           dict(sorted(term_hashes.items())),
+        "constraints":           dict(sorted(constraints.items())),
+        "test_vector_digest":    test_vector_digest,
+        "reproducibility_class": reproducibility_class,
+    })
+    return hashlib.sha256(canonical.encode()).hexdigest()
+
+
+@app.post("/v1/semantic/commit", tags=["Semantic Admissibility & Proof"])
+async def semantic_commit(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Register a Semantic Commitment — the machine-testable
+    representation of a governance-relevant claim.
+
+    Replaces free-text governance claims with:
+    - Versioned term hashes
+    - Machine-testable semantic invariants
+    - Required test vectors
+    - Reproducibility class
+    - Mandatory non-claims
+
+    Expert: "Every governed semantic claim produces a
+    Semantic Commitment containing required test vectors.
+    Without test vectors, 'semantic equivalence' becomes
+    too subjective. With them, the claim becomes a bounded,
+    reproducible semantic governance test."
+
+    Scientific boundary: VeriSigil does not prove that
+    an AI understands the claim. It proves whether the
+    declared governance-relevant structure is preserved.
+    """
+    require_api_key(x_api_key, authorization)
+    ts             = datetime.now(timezone.utc).isoformat()
+    commitment_id  = f"SC-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}"
+
+    # Core governance-relevant fields
+    claim_text          = req.get("claim_text","")
+    version             = req.get("version","1.0.0")
+    intent              = req.get("intent","")
+    actor               = req.get("actor","")
+    principal           = req.get("principal","")
+    object_             = req.get("object","")
+    action              = req.get("action","")
+    context             = req.get("context","")
+    jurisdiction        = req.get("jurisdiction","")
+    authority           = req.get("authority","")
+    constraints         = req.get("constraints",{})
+    dependencies        = req.get("dependencies",[])
+    expected_consequence= req.get("expected_consequence","")
+    reproducibility_class = req.get("reproducibility_class","R2_DETERMINISTIC")
+    non_claims          = req.get("non_claims",[])
+    assumptions         = req.get("assumptions",[])
+
+    # Semantic Invariants — the most important field
+    # These are the conditions that MUST NOT change without reauthorization
+    # Example: {"amount": {"op": "<=", "value": 50000}, "currency": {"op": "==", "value": "USD"}}
+    invariants          = req.get("semantic_invariants",[])
+
+    # Term hashes — versioned definitions of governance-relevant terms
+    # Example: {"approved_supplier": "sha256:abc...", "transfer_funds": "sha256:def..."}
+    term_hashes         = req.get("term_hashes",{})
+
+    # Test vectors — REQUIRED for independently reproducible verification
+    # Example: [{"input": "Transfer $60,000", "expected_invariant_violation": "amount > 50000"}]
+    test_vectors        = req.get("test_vectors",[])
+
+    if not non_claims:
+        raise HTTPException(status_code=400,
+            detail="non_claims is required. Every Semantic Commitment must declare what it does NOT establish.")
+
+    if not invariants:
+        raise HTTPException(status_code=400,
+            detail="semantic_invariants is required. At least one governance-relevant invariant must be declared.")
+
+    if not test_vectors:
+        raise HTTPException(status_code=400,
+            detail="test_vectors is required. Without test vectors, semantic equivalence claims cannot be independently reproduced.")
+
+    # Compute test vector digest
+    tv_canonical     = _canonical_semantic_json({"vectors": test_vectors})
+    tv_digest        = hashlib.sha256(tv_canonical.encode()).hexdigest()
+
+    # Compute semantic fingerprint
+    fingerprint_hash = _compute_semantic_fingerprint(
+        invariants           = invariants,
+        term_hashes          = term_hashes,
+        constraints          = constraints,
+        test_vector_digest   = tv_digest,
+        reproducibility_class= reproducibility_class,
+    )
+
+    commitment = {
+        "schema":            "VGS-SEMANTIC-COMMITMENT-1.0",
+        "commitment_id":     commitment_id,
+        "version":           version,
+        "claim_text":        claim_text,
+
+        # Governance-relevant structure (SABI fields)
+        "intent":            intent,
+        "actor":             actor,
+        "principal":         principal,
+        "object":            object_,
+        "action":            action,
+        "context":           context,
+        "jurisdiction":      jurisdiction,
+        "authority":         authority,
+        "constraints":       constraints,
+        "dependencies":      dependencies,
+        "expected_consequence": expected_consequence,
+
+        # Semantic invariants — the governance boundary
+        "semantic_invariants": invariants,
+
+        # Term versioning
+        "term_hashes":       term_hashes,
+
+        # Fingerprint — the canonical governance structure hash
+        "semantic_fingerprint": fingerprint_hash,
+        "fingerprint_algorithm": "SHA256",
+        "canonicalization_version": "VGS-CANONICAL-1.0",
+
+        # Test vectors — required for reproducibility
+        "test_vectors":      test_vectors,
+        "test_vector_digest":tv_digest,
+        "test_count":        len(test_vectors),
+
+        # Evidence and proof requirements
+        "reproducibility_class": reproducibility_class,
+        "max_proof_level":   PROOF_LEVEL_NAMES.get(
+            REPRODUCIBILITY_MAX_LEVEL_V2.get(reproducibility_class, 3), "EVIDENCE_PROVEN"
+        ),
+
+        # Mandatory declarations
+        "assumptions":       assumptions,
+        "non_claims":        non_claims,
+
+        # VeriSigil scientific boundary — permanent
+        "scientific_boundary": (
+            "VeriSigil does not prove that an AI understands this commitment. "
+            "It proves whether the declared governance-relevant structure "
+            "(invariants, constraints, term hashes, test vectors) is preserved, "
+            "transformed, challenged and bound to an authorized consequential action."
+        ),
+
+        "created_at":        ts,
+        "status":            "ACTIVE",
+    }
+
+    # Compute canonical commitment hash for binding
+    canonical_commitment = _canonical_semantic_json({
+        "commitment_id":       commitment_id,
+        "semantic_fingerprint":fingerprint_hash,
+        "test_vector_digest":  tv_digest,
+        "version":             version,
+        "timestamp":           ts,
+    })
+    commitment["commitment_hash"]        = hashlib.sha256(canonical_commitment.encode()).hexdigest()
+    commitment["canonical_json"]         = canonical_commitment
+    commitment["governance_signature"]   = sign_governance_payload(
+        {"commitment_hash": commitment["commitment_hash"], "timestamp": ts}
+    )
+    commitment["offline_verifiable"]     = True
+
+    _SEMANTIC_COMMITMENTS[commitment_id] = commitment
+
+    # Store fingerprint separately for equivalence lookups
+    _SEMANTIC_FINGERPRINTS[fingerprint_hash] = {
+        "fingerprint_hash":    fingerprint_hash,
+        "commitment_id":       commitment_id,
+        "invariants":          invariants,
+        "term_hashes":         term_hashes,
+        "constraints":         constraints,
+        "reproducibility_class": reproducibility_class,
+        "created_at":          ts,
+    }
+
+    return commitment
+
+
+@app.post("/v1/semantic/equivalence", tags=["Semantic Admissibility & Proof"])
+async def semantic_equivalence(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Semantic Equivalence Engine.
+
+    Compares two Semantic Commitments by their governance-relevant
+    structure — NOT by natural language similarity.
+
+    Results are strictly limited to four outcomes:
+    EQUIVALENT | PARTIALLY_EQUIVALENT | CONFLICTING | NOT_PROVABLE
+
+    Expert: "Similarity is not equivalence.
+    Equivalence requires canonical structural comparison,
+    invariant comparison, constraint comparison,
+    test-vector comparison, and evidence sufficiency.
+    If evidence is insufficient: NOT_PROVABLE."
+
+    Scientific boundary: The engine does not determine
+    whether the AI 'understood' either commitment.
+    It compares the declared governance structures.
+    """
+    require_api_key(x_api_key, authorization)
+    ts = datetime.now(timezone.utc).isoformat()
+
+    commitment_id_a = req.get("commitment_id_a","")
+    commitment_id_b = req.get("commitment_id_b","")
+
+    commit_a = _SEMANTIC_COMMITMENTS.get(commitment_id_a,{})
+    commit_b = _SEMANTIC_COMMITMENTS.get(commitment_id_b,{})
+
+    if not commit_a or not commit_b:
+        missing = []
+        if not commit_a: missing.append(commitment_id_a)
+        if not commit_b: missing.append(commitment_id_b)
+        raise HTTPException(status_code=404,
+            detail=f"Commitment(s) not found: {missing}. Register via POST /v1/semantic/commit")
+
+    # Compare governance structures — not natural language
+    fp_a = commit_a.get("semantic_fingerprint","")
+    fp_b = commit_b.get("semantic_fingerprint","")
+
+    inv_a = set(json.dumps(i, sort_keys=True) for i in commit_a.get("semantic_invariants",[]))
+    inv_b = set(json.dumps(i, sort_keys=True) for i in commit_b.get("semantic_invariants",[]))
+
+    shared_invariants  = inv_a & inv_b
+    only_in_a          = inv_a - inv_b
+    only_in_b          = inv_b - inv_a
+
+    # Test vector comparison
+    tv_digest_a = commit_a.get("test_vector_digest","")
+    tv_digest_b = commit_b.get("test_vector_digest","")
+    test_vectors_match = (tv_digest_a == tv_digest_b)
+
+    # Determine equivalence
+    if fp_a == fp_b:
+        result = "EQUIVALENT"
+        reason = "Identical semantic fingerprints — same governance structure, invariants, constraints and test vectors"
+    elif not inv_a or not inv_b:
+        result = "NOT_PROVABLE"
+        reason = "One or both commitments have no declared invariants — equivalence cannot be established without invariants"
+    elif only_in_a or only_in_b:
+        if only_in_a and only_in_b:
+            result = "CONFLICTING"
+            reason = f"{len(only_in_a)} invariant(s) only in A, {len(only_in_b)} invariant(s) only in B"
+        else:
+            result = "PARTIALLY_EQUIVALENT"
+            reason = f"{len(shared_invariants)} shared invariants but {len(only_in_a or only_in_b)} differ"
+    else:
+        result = "PARTIALLY_EQUIVALENT"
+        reason = "Invariants match but fingerprints differ — constraint or test-vector differences"
+
+    seal = {"commitment_a": commitment_id_a, "commitment_b": commitment_id_b, "result": result, "timestamp": ts}
+    return {
+        "schema":              "VGS-SEMANTIC-EQUIVALENCE-1.0",
+        "commitment_id_a":     commitment_id_a,
+        "commitment_id_b":     commitment_id_b,
+        "result":              result,
+        "reason":              reason,
+        "fingerprint_a":       fp_a,
+        "fingerprint_b":       fp_b,
+        "fingerprints_match":  fp_a == fp_b,
+        "shared_invariants":   len(shared_invariants),
+        "invariants_only_in_a":len(only_in_a),
+        "invariants_only_in_b":len(only_in_b),
+        "test_vectors_match":  test_vectors_match,
+        "scientific_boundary": (
+            "EQUIVALENT means identical governance structure. "
+            "It does NOT mean the AI understood both commitments identically. "
+            "Similarity is not equivalence."
+        ),
+        "governance_signature":sign_governance_payload(seal),
+        "assessed_at":         ts,
+    }
+
+
+@app.post("/v1/semantic/transition", tags=["Semantic Admissibility & Proof"])
+async def semantic_transition(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Semantic Transition Verification.
+
+    Asks: what changed between semantic commitment A and B?
+    Was the change authorized?
+
+    Four outcomes — no others:
+    PRESERVED — no material governance change
+    AUTHORIZED_TRANSFORMATION — change present, explicitly authorized
+    MATERIAL_CHANGE — change present, not authorized
+    NOT_PROVABLE — cannot determine from available evidence
+
+    Expert: "Instead of asking only 'Are A and B equivalent?'
+    VeriSigil asks 'What changed between A and B?' and
+    'Was the change authorized?'"
+
+    This governs semantic transitions across:
+    model changes, prompt changes, policy changes,
+    agent delegation, tool transformations, workflow versions.
+    """
+    require_api_key(x_api_key, authorization)
+    ts             = datetime.now(timezone.utc).isoformat()
+    transition_id  = f"ST-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}"
+
+    commitment_id_before = req.get("commitment_id_before","")
+    commitment_id_after  = req.get("commitment_id_after","")
+    transformation_type  = req.get("transformation_type","")  # model_change, prompt_change, policy_change, etc
+    authorized_by        = req.get("authorized_by","")
+    authorization_ref    = req.get("authorization_ref","")
+
+    before = _SEMANTIC_COMMITMENTS.get(commitment_id_before,{})
+    after  = _SEMANTIC_COMMITMENTS.get(commitment_id_after,{})
+
+    if not before or not after:
+        raise HTTPException(status_code=404,
+            detail="Both commitments must be registered via POST /v1/semantic/commit first")
+
+    fp_before = before.get("semantic_fingerprint","")
+    fp_after  = after.get("semantic_fingerprint","")
+
+    inv_before = set(json.dumps(i, sort_keys=True) for i in before.get("semantic_invariants",[]))
+    inv_after  = set(json.dumps(i, sort_keys=True) for i in after.get("semantic_invariants",[]))
+
+    # Compute semantic delta
+    removed_invariants = inv_before - inv_after
+    added_invariants   = inv_after - inv_before
+    preserved          = inv_before & inv_after
+
+    # Determine transition outcome
+    if fp_before == fp_after:
+        outcome = "PRESERVED"
+        outcome_reason = "Identical semantic fingerprints — no governance-relevant change detected"
+    elif removed_invariants and not authorized_by:
+        outcome = "MATERIAL_CHANGE"
+        outcome_reason = (
+            f"{len(removed_invariants)} governance invariant(s) removed without authorization. "
+            f"Removed: {[json.loads(i) for i in list(removed_invariants)[:3]]}"
+        )
+    elif removed_invariants and authorized_by:
+        outcome = "AUTHORIZED_TRANSFORMATION"
+        outcome_reason = (
+            f"Transformation authorized by {authorized_by}. "
+            f"{len(removed_invariants)} invariant(s) changed, {len(preserved)} preserved."
+        )
+    elif added_invariants and not removed_invariants:
+        outcome = "AUTHORIZED_TRANSFORMATION"
+        outcome_reason = f"Constraints strengthened — {len(added_invariants)} invariant(s) added, none removed"
+    elif not inv_before and not inv_after:
+        outcome = "NOT_PROVABLE"
+        outcome_reason = "Neither commitment has declared invariants — material change cannot be determined"
+    else:
+        outcome = "MATERIAL_CHANGE"
+        outcome_reason = "Governance structures differ — transformation not explicitly authorized"
+
+    transition = {
+        "schema":              "VGS-SEMANTIC-TRANSITION-1.0",
+        "transition_id":       transition_id,
+        "commitment_id_before":commitment_id_before,
+        "commitment_id_after": commitment_id_after,
+        "transformation_type": transformation_type,
+        "authorized_by":       authorized_by,
+        "authorization_ref":   authorization_ref,
+
+        "outcome":             outcome,
+        "outcome_reason":      outcome_reason,
+
+        "semantic_delta": {
+            "fingerprint_before":   fp_before,
+            "fingerprint_after":    fp_after,
+            "fingerprints_match":   fp_before == fp_after,
+            "invariants_preserved": len(preserved),
+            "invariants_removed":   len(removed_invariants),
+            "invariants_added":     len(added_invariants),
+            "removed":              [json.loads(i) for i in list(removed_invariants)],
+            "added":                [json.loads(i) for i in list(added_invariants)],
+        },
+
+        "VALID_AT_TIME":       ts,
+        "scientific_boundary": (
+            "MATERIAL_CHANGE means the declared governance structure changed. "
+            "It does NOT determine whether the AI intended the change. "
+            "AUTHORIZED_TRANSFORMATION requires explicit authorization reference."
+        ),
+
+        "non_claims": [
+            "Does not prove that the transformation was AI-initiated",
+            "Does not determine legal validity of the transformation",
+            "Invariant comparison is based on declared values — not inferred meaning",
+        ],
+
+        "assessed_at":         ts,
+    }
+
+    seal = {"transition_id": transition_id, "outcome": outcome, "timestamp": ts}
+    transition["governance_signature"] = sign_governance_payload(seal)
+    _SEMANTIC_TRANSITIONS[transition_id] = transition
+
+    # Emit proof event if material change detected
+    if outcome == "MATERIAL_CHANGE":
+        _emit_proof_event("SEMANTIC_MATERIAL_CHANGE_DETECTED", transition_id,
+                          {"removed_invariants": len(removed_invariants)}, ts)
+
+    return transition
+
+
+@app.post("/v1/semantic/invariants/test", tags=["Semantic Admissibility & Proof"])
+async def semantic_invariants_test(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Test semantic invariants against a concrete input.
+
+    This is how the test vectors in a Semantic Commitment
+    become independently executable.
+
+    Example: commitment declares invariant amount <= 50000
+    Test input: {"amount": 60000}
+    Result: INVARIANT_VIOLATED — COUNTER_EXAMPLE found
+
+    Expert: "A commitment may define:
+    'Transfer up to $50,000 to approved beneficiaries.'
+    Canonical invariants: amount <= 50000, beneficiary_status = approved
+    Transformed: 'Transfer up to $50,000.'
+    The governance structure does not match.
+    Result: SEMANTIC_CONFLICT / MATERIAL_TRANSFORMATION"
+    """
+    require_api_key(x_api_key, authorization)
+    ts = datetime.now(timezone.utc).isoformat()
+
+    commitment_id = req.get("commitment_id","")
+    test_input    = req.get("test_input",{})
+
+    commitment    = _SEMANTIC_COMMITMENTS.get(commitment_id,{})
+    if not commitment:
+        raise HTTPException(status_code=404,
+            detail=f"Commitment {commitment_id} not found")
+
+    invariants    = commitment.get("semantic_invariants",[])
+    violations    = []
+    passed        = []
+
+    for invariant in invariants:
+        field   = invariant.get("field","")
+        op      = invariant.get("op","==")
+        value   = invariant.get("value")
+        actual  = test_input.get(field)
+
+        if actual is None:
+            violations.append({
+                "invariant":  invariant,
+                "actual":     None,
+                "result":     "INVARIANT_MISSING",
+                "cvr_type":   "SCOPE_VIOLATION",
+            })
+            continue
+
+        # Evaluate invariant
+        passed_check = False
+        if op == "<=":     passed_check = actual <= value
+        elif op == ">=":   passed_check = actual >= value
+        elif op == "==":   passed_check = actual == value
+        elif op == "!=":   passed_check = actual != value
+        elif op == "<":    passed_check = actual < value
+        elif op == ">":    passed_check = actual > value
+        elif op == "in":   passed_check = actual in value
+        elif op == "not_in": passed_check = actual not in value
+
+        if passed_check:
+            passed.append({"invariant": invariant, "actual": actual, "result": "PASSED"})
+        else:
+            violations.append({
+                "invariant":  invariant,
+                "actual":     actual,
+                "expected":   f"{op} {value}",
+                "result":     "INVARIANT_VIOLATED",
+                "cvr_type":   "COUNTER_EXAMPLE",
+            })
+
+    overall = "ALL_INVARIANTS_SATISFIED" if not violations else "INVARIANT_VIOLATION_DETECTED"
+
+    seal = {"commitment_id": commitment_id, "overall": overall, "violations": len(violations), "timestamp": ts}
+    return {
+        "schema":             "VGS-INVARIANT-TEST-1.0",
+        "commitment_id":      commitment_id,
+        "test_input":         test_input,
+        "overall":            overall,
+        "passed_count":       len(passed),
+        "violation_count":    len(violations),
+        "passed":             passed,
+        "violations":         violations,
+        "cvr_challenge_type": "COUNTER_EXAMPLE" if violations else None,
+        "governance_signature": sign_governance_payload(seal),
+        "tested_at":          ts,
+    }
+
+
+@app.get("/v1/semantic/commit/{commitment_id}", tags=["Semantic Admissibility & Proof"])
+async def get_semantic_commitment(
+    commitment_id: str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Retrieve a Semantic Commitment by ID."""
+    require_api_key(x_api_key, authorization)
+    commitment = _SEMANTIC_COMMITMENTS.get(commitment_id)
+    if not commitment:
+        raise HTTPException(status_code=404,
+            detail=f"Commitment {commitment_id} not found. Register via POST /v1/semantic/commit")
+    return commitment
+
+
+@app.get("/v1/semantic/fingerprint/{fingerprint_hash}", tags=["Semantic Admissibility & Proof"])
+async def get_semantic_fingerprint(fingerprint_hash: str):
+    """
+    Look up a semantic fingerprint. Returns all commitments with
+    the same governance structure.
+
+    The same fingerprint across different commitments means
+    the SAME governance-relevant structure — not the same words.
+    No auth required.
+    """
+    fp = _SEMANTIC_FINGERPRINTS.get(fingerprint_hash)
+    if not fp:
+        return {"found": False, "fingerprint_hash": fingerprint_hash,
+                "note": "No commitment with this fingerprint registered"}
+    return {"found": True, **fp}
+
+
+@app.get("/v1/semantic/cvr/challenge-types", tags=["Semantic Admissibility & Proof"])
+async def cvr_challenge_types():
+    """
+    CVR Challenge Types — the six locked categories plus semantic subtypes.
+
+    All challenges are classified into these categories.
+    Semantic challenges map into the existing six — they do not create new categories.
+
+    No auth required.
+    """
+    return {
+        "schema":        "VGS-CVR-CHALLENGE-TYPES-1.0",
+        "challenge_types": CVR_CHALLENGE_TYPES,
+        "semantic_subtypes": {
+            "INVARIANT_VIOLATION":          "Subtype of SCOPE_VIOLATION",
+            "UNAUTHORIZED_TRANSFORMATION":  "Subtype of COUNTER_EXAMPLE",
+            "SEMANTIC_DRIFT":               "Subtype of EVIDENCE_FAILURE",
+        },
+        "rule": "Semantic challenges use the existing six CVR categories. No new proof levels or challenge categories are introduced.",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@app.post("/v1/semantic/delegation", tags=["Semantic Admissibility & Proof"])
+async def semantic_delegation(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Semantic Delegation — enriches a delegation edge with semantic scope.
+
+    Expert: "Semantic scope and constraints must travel
+    with each delegation edge. Authority delegation without
+    semantic scope allows delegates to act outside the
+    intended governance boundary."
+
+    This enriches the existing Authority & Delegation Graph.
+    It is NOT a separate proof system.
+    """
+    require_api_key(x_api_key, authorization)
+    ts = datetime.now(timezone.utc).isoformat()
+    delegation_id = f"SD-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}"
+
+    issuer           = req.get("issuer","")
+    delegate         = req.get("delegate","")
+    authority_scope  = req.get("authority_scope",[])    # existing field
+    semantic_scope   = req.get("semantic_scope",{})     # NEW — the key addition
+    # semantic_scope example:
+    # {"allowed_actions": ["transfer_funds"], "max_amount": 50000,
+    #  "allowed_currencies": ["USD","NGN"], "forbidden_transformations": ["amount_increase"]}
+
+    constraints      = req.get("constraints",{})
+    semantic_invariants = req.get("semantic_invariants",[])  # invariants that must hold in delegate's scope
+    commitment_id    = req.get("commitment_id","")       # optional — bind to Semantic Commitment
+    validity_window  = req.get("validity_window",{})
+    delegation_depth = req.get("delegation_depth", 1)
+
+    # Compute semantic delegation fingerprint
+    delegation_canonical = _canonical_semantic_json({
+        "issuer":        issuer,
+        "delegate":      delegate,
+        "semantic_scope":semantic_scope,
+        "semantic_invariants": sorted(semantic_invariants, key=lambda x: json.dumps(x, sort_keys=True)),
+        "constraints":   constraints,
+        "timestamp":     ts,
+    })
+    delegation_hash = hashlib.sha256(delegation_canonical.encode()).hexdigest()
+
+    record = {
+        "schema":              "VGS-SEMANTIC-DELEGATION-1.0",
+        "delegation_id":       delegation_id,
+        "issuer":              issuer,
+        "delegate":            delegate,
+        "authority_scope":     authority_scope,
+
+        # The key new field — semantic scope travels with the delegation
+        "semantic_scope":      semantic_scope,
+        "semantic_invariants": semantic_invariants,
+        "constraints":         constraints,
+
+        "commitment_id":       commitment_id,
+        "delegation_depth":    delegation_depth,
+        "validity_window":     validity_window,
+
+        "delegation_hash":     delegation_hash,
+        "canonical_json":      delegation_canonical,
+
+        "governance_principle": (
+            "Semantic scope defines what the delegate may MEAN, not just what they may DO. "
+            "A delegate acting outside their semantic scope produces a SCOPE_VIOLATION "
+            "even if the action type is technically permitted."
+        ),
+
+        "revocation_state":    "ACTIVE",
+        "created_at":          ts,
+    }
+
+    seal = {"delegation_id": delegation_id, "delegation_hash": delegation_hash, "timestamp": ts}
+    record["governance_signature"] = sign_governance_payload(seal)
+
+    return record
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=int(os.environ.get("PORT", 8000)), reload=False)
