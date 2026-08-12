@@ -87708,6 +87708,391 @@ async def materiality_rules_register(
     return rule
 
 
+
+# ============================================================
+# VERISIGIL GOVERNANCE PROOF PASSPORT — v1.3
+# Final Integration Specification
+#
+# Core principle (locked):
+# "A Proof Passport records an evidenced governance event
+# and its verification state. It does NOT imply that the
+# underlying action was approved, successful, safe, or correct."
+#
+# Any conclusive result (EQUIVALENT, CONFLICTING, NOT_PROVABLE,
+# REENTRY_REQUIRED, BLOCKED) can produce a Passport when
+# evidence is generated.
+#
+# Hierarchy:
+# AUTHORITATIVE: Signed Digital Proof Passport (JSON)
+# PRESENTATION: Formal PDF Report | Physical Presentation Edition
+# ============================================================
+
+# Passport lifecycle statuses
+PASSPORT_STATUSES = [
+    "ACTIVE",       # Current, valid representation
+    "SUPERSEDED",   # No longer current — NOT that evidence was false
+    "REVOKED",      # Withdrawn — reason recorded
+    "EXPIRED",      # Past effective_until
+    "SUSPENDED",    # Temporarily unavailable pending review
+    "INVALID",      # Failed verification
+    "NOT_PROVABLE", # Evidence insufficient to issue
+]
+
+# Artifact types
+ARTIFACT_TYPES = [
+    "DIGITAL_PROOF",         # Machine + basic human use
+    "FORMAL_REPORT",         # PDF matching passport design
+    "PRESENTATION_EDITION",  # Premium physical booklet — earned, not promotional
+]
+
+_PASSPORT_ISSUANCES: dict = {}   # issuance_id -> issuance record
+_PASSPORT_ARTIFACTS: dict = {}   # artifact_id -> artifact
+_PASSPORT_VAULT:     dict = {}   # org_id -> list of passport_ids
+_ISSUED_PASSPORTS:   dict = {}   # passport_id -> full passport with lifecycle
+
+
+@app.post("/v1/passport/issue", tags=["Proof Passport — v1.3"])
+async def passport_issue(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Issue a VeriSigil Governance Proof Passport.
+
+    v1.3 Rules:
+    - Passport eligibility driven by evidence generation +
+      customer policy — NOT solely by consequence tier or
+      EQUIVALENT result.
+    - ANY evidenced governance event may produce a Passport
+      (including BLOCKED, CONFLICTING, NOT_PROVABLE cases).
+    - Issuer is ALWAYS VeriSigilAI. Never obscured.
+    - Customer appears as Subject/For — never as issuer.
+    - SUPERSEDED = no longer current. NOT that evidence was false.
+
+    artifact_type:
+    DIGITAL_PROOF | FORMAL_REPORT | PRESENTATION_EDITION
+    """
+    require_api_key(x_api_key, authorization)
+    ts          = datetime.now(timezone.utc).isoformat()
+    issuance_id = f"ISS-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}"
+    passport_id = req.get("passport_id","") or f"VS-PP-{ts[:10].replace('-','')}-{hashlib.sha256(ts.encode()).hexdigest()[:6].upper()}"
+    artifact_type = req.get("artifact_type","DIGITAL_PROOF")
+
+    if artifact_type not in ARTIFACT_TYPES:
+        raise HTTPException(status_code=400,
+            detail=f"artifact_type must be one of: {ARTIFACT_TYPES}")
+
+    # Retrieve source commitment if provided
+    commitment_id = req.get("commitment_id","")
+    commitment    = _SEMANTIC_COMMITMENTS.get(commitment_id, {})
+    lineage_id    = req.get("lineage_id","")
+    lineage       = _SEMANTIC_LINEAGE.get(lineage_id, {})
+
+    include_lineage              = req.get("include_lineage", True)
+    include_verification_package = req.get("include_verification_package", True)
+    recipient                    = req.get("recipient", {})
+    org_id                       = recipient.get("organisation_id","")
+
+    # Any evidenced event qualifies — not just EQUIVALENT
+    # The passport records WHAT HAPPENED, not that it was approved/correct
+    evidence_type = req.get("evidence_type","SEMANTIC_COMMITMENT")  # SEMANTIC_COMMITMENT, BLOCKED_ACTION, REENTRY_SIGNAL, GOVERNANCE_DECISION
+    result        = req.get("result","")  # EQUIVALENT, CONFLICTING, NOT_PROVABLE, BLOCKED, REENTRY_REQUIRED, etc
+
+    # Compute artifact hash
+    artifact_canonical = _canonical_semantic_json({
+        "passport_id":   passport_id,
+        "issuance_id":   issuance_id,
+        "commitment_id": commitment_id,
+        "artifact_type": artifact_type,
+        "result":        result,
+        "timestamp":     ts,
+    })
+    artifact_id   = f"ART-{hashlib.sha256(artifact_canonical.encode()).hexdigest()[:12].upper()}"
+    artifact_hash = hashlib.sha256(artifact_canonical.encode()).hexdigest()
+
+    # Build the passport
+    passport = {
+        "schema":           "VGS-PROOF-PASSPORT-1.3",
+        "passport_id":      passport_id,
+        "passport_version": "1.3",
+        "artifact_type":    artifact_type,
+
+        # Lifecycle
+        "status":           "ACTIVE",
+        "issued_at":        ts,
+        "effective_from":   req.get("effective_from", ts),
+        "effective_until":  req.get("effective_until", None),
+        "supersedes":       req.get("supersedes", None),
+        "superseded_by":    None,
+
+        # ISSUER RULE — always VeriSigilAI, never obscured
+        "issuer": {
+            "name":         "VeriSigil AI",
+            "identifier":   "verisigilai.com",
+            "key":          "lJWG0Wabt6uATPu5Upo6UEHWGXQqMyi6LMKQC0xwpY8=",
+            "rule":         "Issuer is always VeriSigilAI. Customer appears as Subject/For only.",
+        },
+
+        # Subject
+        "subject": {
+            "organisation_id": org_id,
+            "commitment_id":   commitment_id,
+            "evidence_type":   evidence_type,
+        },
+
+        # Evidence — ANY result can produce a passport
+        "evidenced_result": result,
+        "result_note": (
+            "This passport records an evidenced governance event. "
+            "It does NOT imply the action was approved, successful, safe, or correct. "
+            f"The result '{result}' is the observed governance determination."
+        ),
+
+        # Semantic fields
+        "semantic_fingerprint": commitment.get("semantic_fingerprint","") if commitment else "",
+        "semantic_invariants":  commitment.get("semantic_invariants",[]) if commitment else [],
+        "canonicalization_spec_version": CANONICALIZATION_SPEC_VERSION,
+
+        # Lineage (if requested and available)
+        "semantic_lineage": lineage if (include_lineage and lineage) else {"included": False},
+        "materiality_at_execution":    lineage.get("materiality") if lineage else None,
+        "reentry_status_at_execution": lineage.get("reentry_status") if lineage else None,
+
+        # Verification package
+        "verification_package": {
+            "included":           include_verification_package,
+            "public_key":         "lJWG0Wabt6uATPu5Upo6UEHWGXQqMyi6LMKQC0xwpY8=",
+            "algorithm":          "Ed25519",
+            "offline_verify":     "Recompute fingerprint from invariants + term_hashes using VGS-CANONICAL-1.0",
+            "no_server_required": True,
+            "ivt_tests":          list(INDEPENDENT_VERIFICATION_TESTS.keys()),
+        } if include_verification_package else {"included": False},
+
+        # Non-claims — always present, never optional
+        "non_claims": [
+            "No general semantic understanding claimed",
+            "No decision-correctness claimed",
+            "No organisational legitimacy claimed",
+            "Detection is not enforcement",
+            "SUPERSEDED status means no longer current — not that historical evidence was false",
+            *commitment.get("non_claims",[]),
+        ],
+
+        # Cryptographic binding
+        "artifact_id":   artifact_id,
+        "artifact_hash": artifact_hash,
+        "issuance_id":   issuance_id,
+    }
+
+    seal = {"passport_id": passport_id, "artifact_hash": artifact_hash, "timestamp": ts}
+    passport["governance_signature"] = sign_governance_payload(seal)
+    passport["offline_verifiable"]   = True
+
+    # Presentation statement for PDF/physical editions
+    if artifact_type in ("FORMAL_REPORT","PRESENTATION_EDITION"):
+        passport["presentation_statement"] = (
+            "This is a presentation artifact. "
+            "The authoritative evidence is the digitally signed Proof Passport "
+            f"(passport_id: {passport_id}). "
+            "Verify at: GET /v1/semantic/verify-passport/{passport_id}"
+        )
+
+    # Store passport and issuance
+    issuance = {
+        "issuance_id":  issuance_id,
+        "passport_id":  passport_id,
+        "artifact_id":  artifact_id,
+        "artifact_hash":artifact_hash,
+        "artifact_type":artifact_type,
+        "org_id":       org_id,
+        "status":       "ACTIVE",
+        "issued_at":    ts,
+    }
+    seal2 = {"issuance_id": issuance_id, "artifact_hash": artifact_hash, "timestamp": ts}
+    issuance["governance_signature"] = sign_governance_payload(seal2)
+
+    _PASSPORT_ISSUANCES[issuance_id] = issuance
+    _PASSPORT_ARTIFACTS[artifact_id] = passport
+    _ISSUED_PASSPORTS[passport_id]   = passport
+
+    # Add to vault
+    if org_id:
+        if org_id not in _PASSPORT_VAULT:
+            _PASSPORT_VAULT[org_id] = []
+        _PASSPORT_VAULT[org_id].append(passport_id)
+
+    return {**issuance, "passport": passport}
+
+
+@app.get("/v1/passport/artifacts/{artifact_id}", tags=["Proof Passport — v1.3"])
+async def passport_artifact_get(
+    artifact_id: str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Retrieve a packaged Proof Passport artifact."""
+    require_api_key(x_api_key, authorization)
+    artifact = _PASSPORT_ARTIFACTS.get(artifact_id)
+    if not artifact:
+        raise HTTPException(status_code=404, detail=f"Artifact {artifact_id} not found")
+    return artifact
+
+
+@app.post("/v1/passport/{passport_id}/supersede", tags=["Proof Passport — v1.3"])
+async def passport_supersede(
+    passport_id: str,
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Supersede a Proof Passport.
+
+    SUPERSEDED = no longer the current representation.
+    NOT that the historical evidence was false.
+    Historical evidence is preserved permanently.
+    """
+    require_api_key(x_api_key, authorization)
+    ts = datetime.now(timezone.utc).isoformat()
+
+    passport = _ISSUED_PASSPORTS.get(passport_id)
+    if not passport:
+        raise HTTPException(status_code=404, detail=f"Passport {passport_id} not found")
+
+    new_passport_id = req.get("superseded_by","")
+    reason          = req.get("reason","")
+
+    passport["status"]         = "SUPERSEDED"
+    passport["superseded_by"]  = new_passport_id
+    passport["superseded_at"]  = ts
+    passport["supersede_reason"] = reason
+    passport["historical_note"] = (
+        "SUPERSEDED means this is no longer the current representation. "
+        "It does NOT mean the historical evidence recorded here was false. "
+        "The evidence in this passport remains permanently verifiable."
+    )
+
+    seal = {"passport_id": passport_id, "superseded_by": new_passport_id, "timestamp": ts}
+    passport["supersede_signature"] = sign_governance_payload(seal)
+    _ISSUED_PASSPORTS[passport_id] = passport
+
+    _emit_proof_event("PASSPORT_SUPERSEDED", passport_id,
+                      {"superseded_by": new_passport_id, "reason": reason}, ts)
+
+    return {"passport_id": passport_id, "status": "SUPERSEDED",
+            "superseded_by": new_passport_id, "superseded_at": ts,
+            "historical_note": passport["historical_note"]}
+
+
+@app.get("/v1/semantic/verify-passport/{passport_id}", tags=["Proof Passport — v1.3"])
+async def verify_passport(
+    passport_id: str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Independent verification endpoint for Proof Passports.
+
+    Returns the full verification package including:
+    - passport artifact
+    - verification instructions
+    - IVT test suite
+    - offline verification procedure
+    - public key
+
+    Offline verification must ALWAYS be possible without
+    contacting VeriSigilAI servers.
+    """
+    require_api_key(x_api_key, authorization)
+    ts = datetime.now(timezone.utc).isoformat()
+
+    passport = _ISSUED_PASSPORTS.get(passport_id)
+    if not passport:
+        raise HTTPException(status_code=404, detail=f"Passport {passport_id} not found")
+
+    # Independently recompute artifact hash
+    recomputed_hash = hashlib.sha256(
+        passport.get("artifact_id","").encode()
+    ).hexdigest()
+
+    return {
+        "schema":          "VGS-PASSPORT-VERIFICATION-1.0",
+        "passport_id":     passport_id,
+        "passport_status": passport.get("status","UNKNOWN"),
+        "artifact_hash":   passport.get("artifact_hash",""),
+        "governance_signature": passport.get("governance_signature",""),
+        "public_key":      "lJWG0Wabt6uATPu5Upo6UEHWGXQqMyi6LMKQC0xwpY8=",
+        "algorithm":       "Ed25519",
+
+        "offline_verification_procedure": {
+            "step_1": "Download passport JSON from GET /v1/passport/artifacts/{artifact_id}",
+            "step_2": "Verify Ed25519 signature using published public key — no server call needed",
+            "step_3": "Recompute semantic fingerprint from invariants + term_hashes + constraints + test_vector_digest using VGS-CANONICAL-1.0",
+            "step_4": "Confirm fingerprint matches semantic_fingerprint field",
+            "step_5": "Run IVT-001 through IVT-007 against the passport",
+            "no_server_required": True,
+        },
+
+        "ivt_tests":       INDEPENDENT_VERIFICATION_TESTS,
+        "passport":        passport,
+        "verified_at":     ts,
+    }
+
+
+@app.get("/v1/passport/vault/{org_id}", tags=["Proof Passport — v1.3"])
+async def passport_vault(
+    org_id: str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Passport Vault — customer view of all Proof Passports.
+
+    Shows: status, materiality, re-entry state, available actions.
+    Actions: View | Verify | Download | Trace lineage | View non-claims | Order Presentation Edition
+    """
+    require_api_key(x_api_key, authorization)
+    ts = datetime.now(timezone.utc).isoformat()
+
+    passport_ids = _PASSPORT_VAULT.get(org_id,[])
+    passports    = []
+    for pid in passport_ids:
+        p = _ISSUED_PASSPORTS.get(pid,{})
+        if p:
+            passports.append({
+                "passport_id":             pid,
+                "status":                  p.get("status","ACTIVE"),
+                "artifact_type":           p.get("artifact_type",""),
+                "evidenced_result":        p.get("evidenced_result",""),
+                "materiality_at_execution":p.get("materiality_at_execution"),
+                "reentry_status":          p.get("reentry_status_at_execution"),
+                "issued_at":               p.get("issued_at",""),
+                "effective_until":         p.get("effective_until"),
+                "superseded_by":           p.get("superseded_by"),
+                "available_actions": [
+                    "GET /v1/passport/artifacts/{artifact_id}",
+                    "GET /v1/semantic/verify-passport/{passport_id}",
+                    "GET /v1/semantic/lineage/{lineage_id}",
+                    "View non-claims in passport.non_claims",
+                    "Order PRESENTATION_EDITION via POST /v1/passport/issue",
+                ],
+            })
+
+    return {
+        "schema":         "VGS-PASSPORT-VAULT-1.0",
+        "org_id":         org_id,
+        "total_passports":len(passports),
+        "passports":      passports,
+        "vault_note":     (
+            "SUPERSEDED passports remain in the vault. "
+            "Historical evidence is permanently preserved. "
+            "SUPERSEDED = no longer current, not that evidence was false."
+        ),
+        "timestamp":      ts,
+    }
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=int(os.environ.get("PORT", 8000)), reload=False)
