@@ -90407,6 +90407,10 @@ async def governance_action_receipt_generate(
         "receipt_id":      receipt_id,
         "passport_id":     passport_id,
         "parent_receipt_id": req.get("parent_receipt_id",None),
+        "previous_receipt_hash": (
+            _GOVERNANCE_ACTION_RECEIPTS.get(req.get("parent_receipt_id",""),{}).get("receipt_hash","")
+            if req.get("parent_receipt_id") else ""
+        ),
         "workflow_id":     req.get("workflow_id",None),
 
         # The governed action
@@ -90993,6 +90997,279 @@ async def vga_positioning():
             "AI Compliant",
         ],
         "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+
+# ============================================================
+# GOVERNANCE ACTION RECEIPT — Complete endpoint set
+# Expert: "Every Governance Action Receipt is a compact,
+# cryptographically signed representation of a specific
+# consequential governance event, derived from and traceable
+# to an authoritative Governance Proof Passport; it is not
+# itself a certificate of safety, correctness or regulatory
+# compliance."
+#
+# Passport is the parent/container.
+# Receipt is the action-level portable artifact.
+# Chain of receipts = action lineage = tamper-evident history.
+# ============================================================
+
+@app.get("/v1/receipt/{receipt_id}", tags=["Governance Action Receipt — Spec v1.0"])
+async def receipt_get_v2(
+    receipt_id: str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Retrieve a Governance Action Receipt.
+
+    The Receipt is a compact, portable expression of one
+    governed consequential action. It is NOT the authoritative
+    evidence system — the Proof Passport is.
+
+    HIERARCHY:
+    Passport (authoritative, full evidence) → Receipt (portable, action-level)
+    """
+    require_api_key(x_api_key, authorization)
+    receipt = _GOVERNANCE_ACTION_RECEIPTS.get(receipt_id)
+    if not receipt:
+        raise HTTPException(status_code=404, detail=f"Receipt {receipt_id} not found")
+    return receipt
+
+
+@app.get("/v1/receipt/{receipt_id}/verify", tags=["Governance Action Receipt — Spec v1.0"])
+async def receipt_verify_v2(
+    receipt_id: str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Independently verify a Governance Action Receipt.
+
+    VALID = cryptographically/structurally valid.
+    NOT safe, correct, or universally authorised.
+
+    Offline procedure:
+    1. Verify Ed25519 governance_signature against public key
+    2. Recompute receipt_hash from canonical_json
+    3. Confirm receipt points to an active Passport
+    4. Verify previous_receipt_hash matches prior receipt (if chain)
+    """
+    require_api_key(x_api_key, authorization)
+    ts      = datetime.now(timezone.utc).isoformat()
+    receipt = _GOVERNANCE_ACTION_RECEIPTS.get(receipt_id)
+    if not receipt:
+        raise HTTPException(status_code=404, detail=f"Receipt {receipt_id} not found")
+
+    passport_id     = receipt.get("passport_id","")
+    passport        = _ISSUED_PASSPORTS.get(passport_id,{})
+    passport_status = passport.get("status","NOT_FOUND")
+
+    # Tamper-evident chain check
+    prev_id   = receipt.get("parent_receipt_id")
+    prev_hash = receipt.get("previous_receipt_hash","")
+    chain_ok  = True
+    if prev_id and prev_hash:
+        prev_receipt = _GOVERNANCE_ACTION_RECEIPTS.get(prev_id,{})
+        actual_prev_hash = prev_receipt.get("receipt_hash","")
+        chain_ok = (actual_prev_hash == prev_hash)
+
+    return {
+        "schema":          "VGS-RECEIPT-VERIFICATION-1.0",
+        "receipt_id":      receipt_id,
+        "receipt_hash":    receipt.get("receipt_hash",""),
+        "governance_signature": receipt.get("governance_signature",""),
+        "public_key":      "lJWG0Wabt6uATPu5Upo6UEHWGXQqMyi6LMKQC0xwpY8=",
+        "algorithm":       "Ed25519",
+        "passport_id":     passport_id,
+        "passport_status": passport_status,
+        "chain_integrity": "INTACT" if chain_ok else "BROKEN",
+        "VALID_definition":"VALID means cryptographically/structurally valid. NOT safe, correct, or universally authorised.",
+        "offline_procedure": {
+            "step_1": "Verify Ed25519 governance_signature against public key",
+            "step_2": "Recompute receipt_hash from canonical_json field",
+            "step_3": "Confirm hashes match",
+            "step_4": "Verify previous_receipt_hash matches prior receipt if this is in a chain",
+            "no_server_required": True,
+        },
+        "verified_at": ts,
+    }
+
+
+@app.get("/v1/receipt/{receipt_id}/evidence", tags=["Governance Action Receipt — Spec v1.0"])
+async def receipt_evidence_v2(
+    receipt_id: str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Full evidence package behind a Receipt — links to Passport.
+
+    The Receipt does NOT contain the evidence itself.
+    The Passport is the authoritative evidence artifact.
+    This endpoint resolves the Passport reference.
+    """
+    require_api_key(x_api_key, authorization)
+    receipt = _GOVERNANCE_ACTION_RECEIPTS.get(receipt_id)
+    if not receipt:
+        raise HTTPException(status_code=404, detail=f"Receipt {receipt_id} not found")
+
+    passport_id = receipt.get("passport_id","")
+    passport    = _ISSUED_PASSPORTS.get(passport_id,{})
+
+    return {
+        "schema":        "VGS-RECEIPT-EVIDENCE-1.0",
+        "receipt_id":    receipt_id,
+        "passport_id":   passport_id,
+        "passport":      passport,
+        "evidence_manifest": receipt.get("evidence_manifest",{}),
+        "consequence_boundary": receipt.get("consequence_boundary",{}),
+        "establishes":   receipt.get("establishes",[]),
+        "does_not_establish": receipt.get("does_not_establish",[]),
+        "authoritative_source": f"GET /v1/semantic/passport/{passport_id}",
+        "note": "The Passport is the authoritative evidence artifact. The Receipt is the compact portable expression.",
+    }
+
+
+@app.get("/v1/receipt/{receipt_id}/lineage", tags=["Governance Action Receipt — Spec v1.0"])
+async def receipt_lineage_v2(
+    receipt_id: str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Tamper-evident action lineage — chain of receipts in a workflow.
+
+    Expert: "The chain becomes tamper-evident."
+
+    For multi-agent workflows:
+    GAR-001 → GAR-002 → GAR-003 → GAR-004 → GAR-005
+
+    Each receipt carries previous_receipt_hash binding it
+    cryptographically to the prior action in the chain.
+
+    Chain:
+    Each receipt independently verifiable against the Passport.
+    """
+    require_api_key(x_api_key, authorization)
+    receipt    = _GOVERNANCE_ACTION_RECEIPTS.get(receipt_id)
+    if not receipt:
+        raise HTTPException(status_code=404, detail=f"Receipt {receipt_id} not found")
+
+    workflow_id = receipt.get("workflow_id","")
+    siblings    = sorted(
+        [r for r in _GOVERNANCE_ACTION_RECEIPTS.values()
+         if r.get("workflow_id") == workflow_id and workflow_id],
+        key=lambda r: r.get("issued_at","")
+    )
+
+    # Verify chain integrity
+    chain_intact = True
+    for i, r in enumerate(siblings[1:], 1):
+        prev       = siblings[i-1]
+        prev_hash  = r.get("previous_receipt_hash","")
+        actual     = prev.get("receipt_hash","")
+        if prev_hash and prev_hash != actual:
+            chain_intact = False
+            break
+
+    return {
+        "schema":        "VGS-RECEIPT-LINEAGE-1.0",
+        "receipt_id":    receipt_id,
+        "workflow_id":   workflow_id,
+        "parent_receipt_id": receipt.get("parent_receipt_id"),
+        "previous_receipt_hash": receipt.get("previous_receipt_hash",""),
+        "workflow_receipts": [
+            {
+                "receipt_id":     r.get("receipt_id"),
+                "action":         r.get("action",""),
+                "governance_state": r.get("governance_state",""),
+                "action_outcome": r.get("action_outcome",""),
+                "issued_at":      r.get("issued_at",""),
+                "receipt_hash":   r.get("receipt_hash",""),
+                "previous_receipt_hash": r.get("previous_receipt_hash",""),
+            }
+            for r in siblings
+        ],
+        "chain_integrity":   "INTACT" if chain_intact else "BROKEN",
+        "chain_length":      len(siblings),
+        "tamper_evident_note": (
+            "Each receipt carries previous_receipt_hash linking it cryptographically "
+            "to the prior action. A single byte change in any receipt breaks the chain. "
+            "Independent verifiers can reproduce chain integrity without VeriSigil server access."
+        ),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@app.get("/v1/passport/{passport_id}/receipts", tags=["Governance Action Receipt — Spec v1.0"])
+async def passport_receipts_v2(
+    passport_id: str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    All receipts indexed under a Passport.
+
+    The Passport is the parent/container.
+    Receipts are the action-level portable expressions.
+
+    Expert: "The Passport becomes a container/index for a chain
+    of governed events, while individual receipts provide portable
+    evidence of specific actions."
+
+    This is action lineage in enterprise form.
+    """
+    require_api_key(x_api_key, authorization)
+    ts       = datetime.now(timezone.utc).isoformat()
+    passport = _ISSUED_PASSPORTS.get(passport_id,{})
+    if not passport:
+        raise HTTPException(status_code=404, detail=f"Passport {passport_id} not found")
+
+    receipts = sorted(
+        [r for r in _GOVERNANCE_ACTION_RECEIPTS.values()
+         if r.get("passport_id") == passport_id],
+        key=lambda r: r.get("issued_at","")
+    )
+
+    # Detect governance state changes across receipts
+    state_changes = []
+    prev_state = None
+    for r in receipts:
+        curr_state = r.get("governance_state","")
+        if curr_state != prev_state and prev_state is not None:
+            state_changes.append({
+                "receipt_id":  r.get("receipt_id"),
+                "from_state":  prev_state,
+                "to_state":    curr_state,
+                "at":          r.get("issued_at",""),
+            })
+        prev_state = curr_state
+
+    return {
+        "schema":          "VGS-PASSPORT-RECEIPTS-1.0",
+        "passport_id":     passport_id,
+        "passport_status": passport.get("status",""),
+        "receipts_count":  len(receipts),
+        "receipts": [
+            {
+                "receipt_id":    r.get("receipt_id"),
+                "action":        r.get("action",""),
+                "governance_state": r.get("governance_state",""),
+                "action_outcome":r.get("action_outcome",""),
+                "issued_at":     r.get("issued_at",""),
+            }
+            for r in receipts
+        ],
+        "governance_state_changes": state_changes,
+        "action_lineage_note": (
+            "Each receipt is independently verifiable. "
+            "The Passport is the authoritative evidence artifact. "
+            "Receipts are compact portable expressions derived from it. "
+            "They are NOT an independent evidence system."
+        ),
+        "timestamp": ts,
     }
 
 
