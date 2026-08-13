@@ -86576,6 +86576,11 @@ async def semantic_commit(
         "version":           version,
         "claim_text":        claim_text,
 
+        # Governance Context binding (Spec v1.0)
+        "governance_context_id":      req.get("governance_context_id",""),
+        "governance_context_version": req.get("governance_context_version",None),
+        "semantic_identity_refs":     req.get("semantic_identity_refs",[]),
+
         # Governance-relevant structure (SABI fields)
         "intent":            intent,
         "actor":             actor,
@@ -89718,6 +89723,1275 @@ async def architecture_status():
             "If VeriSigilAI can survive that test, THAT becomes the evidence "
             "we take to market — not another presentation about what we intend to build."
         ),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+
+# ============================================================
+# INTEGRATED GOVERNANCE ARCHITECTURE — Engineering Build Spec v1.0
+# Source: VERISIGILAI_ENGINEERING_BUILD_SPEC_v1.md
+#
+# Extends existing runtime. Does NOT create a parallel system.
+# Upgraded flow:
+# GovernanceContext → SemanticCommitment → ContextNormalisation
+# → InvariantRegistry → RelationshipConstraints → AI/Agent Event
+# → SemanticContinuity → TransitionAnalysis → Materiality
+# → Admissibility → Execute/Block/ReEntry → Evidence
+# → Attestation → Governance Proof Passport → Independent Verification
+#
+# VALID = cryptographically/structurally valid.
+# It does NOT mean safe, correct, truthful, or universally authorised.
+# ============================================================
+
+CONTINUITY_STATUSES = {
+    "PRESERVED":            "All declared semantic/contextual conditions remain compatible with the Governance Context",
+    "MATERIAL_DIVERGENCE":  "One or more material divergences detected — re-entry required",
+    "INSUFFICIENT_EVIDENCE":"Evidence required to determine continuity is missing or unverifiable",
+    "NOT_APPLICABLE":       "Continuity check does not apply to this event type",
+}
+
+REENTRY_SIGNAL_STATUSES = [
+    "OPEN",          # Signal emitted, not yet acknowledged
+    "ACKNOWLEDGED",  # Acknowledged — does NOT mean organisational approval
+    "RESOLVED",      # Resolved with evidence
+    "SUPERSEDED",    # Replaced by newer signal
+    "CANCELLED",     # Withdrawn
+]
+
+_GOVERNANCE_CONTEXTS:    dict = {}  # context_id -> GovernanceContext
+_SEMANTIC_IDENTITIES:    dict = {}  # concept_id -> {version -> SemanticIdentity}
+_RELATIONSHIP_CONSTRAINTS: dict = {}  # constraint_id -> RelationshipConstraint
+_CONTINUITY_CHECKS:      dict = {}  # check_id -> ContinuityCheck
+_DRIFT_EVENTS:           dict = {}  # drift_event_id -> DriftEvent
+_REENTRY_SIGNALS_V2:     dict = {}  # signal_id -> ReentrySignalV2
+_GOVERNANCE_ACTION_RECEIPTS: dict = {}  # receipt_id -> GovernanceActionReceipt
+
+
+@app.post("/v1/governance/contexts", tags=["Governance Context — Spec v1.0"])
+async def governance_context_create(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Create a Governance Context — the machine-readable declaration
+    of the operating context for a consequential AI workflow.
+
+    Contains: purpose, jurisdiction, authorities, semantic identities,
+    entity types, relationship constraints, conditions, permitted/
+    prohibited consequences, invariants, re-entry conditions,
+    policy references, effective dates, canonical hash, signature.
+
+    Every consequential event records the applicable context/version.
+    """
+    require_api_key(x_api_key, authorization)
+    ts         = datetime.now(timezone.utc).isoformat()
+    context_id = req.get("context_id","") or f"GC-{hashlib.sha256(ts.encode()).hexdigest()[:10].upper()}"
+
+    existing       = _GOVERNANCE_CONTEXTS.get(context_id,{})
+    context_version= req.get("context_version", int(existing.get("context_version",0)) + 1)
+    prev_hash      = existing.get("context_hash","")
+
+    context = {
+        "schema":                 "VGS-GOVERNANCE-CONTEXT-1.0",
+        "context_id":             context_id,
+        "context_version":        context_version,
+        "status":                 req.get("status","ACTIVE"),
+        "purpose":                req.get("purpose",{}),
+        "jurisdiction":           req.get("jurisdiction",""),
+        "authorities":            req.get("authorities",[]),
+        "semantic_identities":    req.get("semantic_identities",[]),
+        "entity_types":           req.get("entity_types",[]),
+        "relationship_constraints": req.get("relationship_constraints",[]),
+        "conditions":             req.get("conditions",[]),
+        "permitted_consequences": req.get("permitted_consequences",[]),
+        "prohibited_consequences":req.get("prohibited_consequences",[]),
+        "invariants":             req.get("invariants",[]),
+        "reentry_conditions":     req.get("reentry_conditions",[]),
+        "policy_references":      req.get("policy_references",[]),
+        "owner":                  req.get("owner",""),
+        "effective_from":         req.get("effective_from", ts),
+        "effective_until":        req.get("effective_until",None),
+        "previous_context_hash":  prev_hash,
+        "canonicalization_spec_version": CANONICALIZATION_SPEC_VERSION,
+        "created_at":             ts,
+    }
+
+    canonical = _canonical_semantic_json({
+        "context_id":             context_id,
+        "context_version":        context_version,
+        "purpose":                context["purpose"],
+        "jurisdiction":           context["jurisdiction"],
+        "permitted_consequences": sorted(context["permitted_consequences"]),
+        "prohibited_consequences":sorted(context["prohibited_consequences"]),
+        "previous_context_hash":  prev_hash,
+        "timestamp":              ts,
+    })
+    context["context_hash"]        = hashlib.sha256(canonical.encode()).hexdigest()
+    context["canonical_json"]      = canonical
+    context["governance_signature"]= sign_governance_payload(
+        {"context_id": context_id, "context_hash": context["context_hash"], "timestamp": ts}
+    )
+
+    _GOVERNANCE_CONTEXTS[context_id] = context
+    return context
+
+
+@app.get("/v1/governance/contexts/{context_id}", tags=["Governance Context — Spec v1.0"])
+async def governance_context_get(
+    context_id: str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Retrieve a Governance Context."""
+    require_api_key(x_api_key, authorization)
+    ctx = _GOVERNANCE_CONTEXTS.get(context_id)
+    if not ctx:
+        raise HTTPException(status_code=404, detail=f"Context {context_id} not found")
+    return ctx
+
+
+@app.get("/v1/governance/contexts/{context_id}/versions", tags=["Governance Context — Spec v1.0"])
+async def governance_context_versions(
+    context_id: str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """List all versions of a Governance Context."""
+    require_api_key(x_api_key, authorization)
+    ctx = _GOVERNANCE_CONTEXTS.get(context_id)
+    if not ctx:
+        raise HTTPException(status_code=404, detail=f"Context {context_id} not found")
+    return {"context_id": context_id, "current_version": ctx.get("context_version"), "context": ctx}
+
+
+@app.post("/v1/semantic/identities", tags=["Semantic Identity — Spec v1.0"])
+async def semantic_identity_create(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Create a versioned Semantic Identity for a material concept.
+
+    Examples: customer_eligibility@3.0, beneficiary_authority@2.1
+
+    Rules:
+    - Unchanged meaning → same identity/version
+    - Material definition change → new version
+    - New version NEVER rewrites historical events
+    - Every consequential event records the semantic identity/version used
+    """
+    require_api_key(x_api_key, authorization)
+    ts         = datetime.now(timezone.utc).isoformat()
+    concept_id = req.get("concept_id","")
+    version    = req.get("version","1.0")
+
+    if not concept_id:
+        raise HTTPException(status_code=400, detail="concept_id is required")
+
+    definition      = req.get("definition","")
+    definition_hash = hashlib.sha256(definition.encode()).hexdigest()
+
+    identity = {
+        "schema":           "VGS-SEMANTIC-IDENTITY-1.0",
+        "concept_id":       concept_id,
+        "version":          version,
+        "canonical_id":     f"{concept_id}@{version}",
+        "definition":       definition,
+        "definition_hash":  definition_hash,
+        "scope":            req.get("scope",""),
+        "source_reference": req.get("source_reference",""),
+        "effective_from":   req.get("effective_from", ts),
+        "effective_until":  req.get("effective_until",None),
+        "context_id":       req.get("context_id",""),
+        "created_at":       ts,
+        "immutable_note":   "New versions never rewrite historical events. Every event records the identity/version applicable at event time.",
+    }
+
+    canonical = _canonical_semantic_json({
+        "concept_id":      concept_id,
+        "version":         version,
+        "definition_hash": definition_hash,
+        "effective_from":  identity["effective_from"],
+    })
+    identity["identity_hash"]        = hashlib.sha256(canonical.encode()).hexdigest()
+    identity["governance_signature"] = sign_governance_payload(
+        {"concept_id": concept_id, "version": version, "identity_hash": identity["identity_hash"], "timestamp": ts}
+    )
+
+    if concept_id not in _SEMANTIC_IDENTITIES:
+        _SEMANTIC_IDENTITIES[concept_id] = {}
+    _SEMANTIC_IDENTITIES[concept_id][version] = identity
+
+    return identity
+
+
+@app.get("/v1/semantic/identities/{concept_id}", tags=["Semantic Identity — Spec v1.0"])
+async def semantic_identity_get(
+    concept_id: str,
+    version: Optional[str] = None,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Retrieve a Semantic Identity — current or specific version."""
+    require_api_key(x_api_key, authorization)
+    versions = _SEMANTIC_IDENTITIES.get(concept_id,{})
+    if not versions:
+        raise HTTPException(status_code=404, detail=f"Semantic identity {concept_id} not found")
+    if version:
+        return versions.get(version, list(versions.values())[-1])
+    return list(versions.values())[-1]
+
+
+@app.get("/v1/semantic/identities/{concept_id}/versions", tags=["Semantic Identity — Spec v1.0"])
+async def semantic_identity_versions(
+    concept_id: str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """List all versions of a Semantic Identity."""
+    require_api_key(x_api_key, authorization)
+    versions = _SEMANTIC_IDENTITIES.get(concept_id,{})
+    if not versions:
+        raise HTTPException(status_code=404, detail=f"Semantic identity {concept_id} not found")
+    return {"concept_id": concept_id, "versions": list(versions.keys()), "identities": versions}
+
+
+@app.post("/v1/semantic/continuity/check", tags=["Semantic Continuity — Spec v1.0"])
+async def semantic_continuity_check(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Semantic Continuity Check — ContinuityCheckService.
+
+    Determines whether semantic/contextual conditions relevant
+    to a consequential event remain compatible with the declared
+    Governance Context.
+
+    Evaluates 12 continuity dimensions:
+    1. semantic identity continuity
+    2. definition continuity
+    3. scope continuity
+    4. authority continuity
+    5. purpose continuity
+    6. relationship continuity
+    7. condition continuity
+    8. invariant continuity
+    9. consequence-boundary continuity
+    10. temporal validity
+    11. jurisdiction validity
+    12. context-version compatibility
+
+    Returns ONLY:
+    PRESERVED | MATERIAL_DIVERGENCE | INSUFFICIENT_EVIDENCE | NOT_APPLICABLE
+
+    Never returns SAFE, CORRECT, or TRUE.
+
+    VALID = cryptographically/structurally valid.
+    It does NOT mean safe, correct, truthful, or universally authorised.
+    """
+    require_api_key(x_api_key, authorization)
+    ts       = datetime.now(timezone.utc).isoformat()
+    check_id = f"CC-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}"
+
+    context_id      = req.get("context_id","")
+    context_version = req.get("context_version",None)
+    commitment_id   = req.get("commitment_id","")
+    current_event   = req.get("current_event",{})
+    evidence_refs   = req.get("evidence_refs",[])
+
+    context    = _GOVERNANCE_CONTEXTS.get(context_id,{})
+    commitment = _SEMANTIC_COMMITMENTS.get(commitment_id,{})
+
+    divergences        = []
+    insufficient_fields= []
+
+    # 1. Context exists and is resolvable
+    if not context:
+        insufficient_fields.append("governance_context")
+    elif context.get("status") != "ACTIVE":
+        divergences.append({"dimension": "context_status", "issue": f"Context status is {context.get('status')} not ACTIVE", "materiality": "GOVERNANCE_CRITICAL"})
+
+    # 2. Semantic identity continuity
+    declared_identities = context.get("semantic_identities",[])
+    observed_identities = current_event.get("semantic_identities",[])
+    for decl in declared_identities:
+        concept_id = decl.get("concept_id","")
+        decl_version = decl.get("version","")
+        obs = next((o for o in observed_identities if o.get("concept_id") == concept_id), None)
+        if obs is None:
+            insufficient_fields.append(f"semantic_identity:{concept_id}")
+        elif obs.get("version","") != decl_version:
+            divergences.append({
+                "dimension":    "semantic_identity",
+                "concept_id":   concept_id,
+                "declared":     decl_version,
+                "observed":     obs.get("version",""),
+                "issue":        f"Semantic identity version changed: {decl_version} → {obs.get('version','')}",
+                "materiality":  "GOVERNANCE_CRITICAL",
+            })
+
+    # 3. Prohibited consequences
+    requested_consequence = current_event.get("requested_consequence","")
+    prohibited = context.get("prohibited_consequences",[])
+    if requested_consequence in prohibited:
+        divergences.append({
+            "dimension":   "consequence_boundary",
+            "issue":       f"Requested consequence '{requested_consequence}' is prohibited",
+            "materiality": "GOVERNANCE_CRITICAL",
+        })
+
+    # 4. Jurisdiction
+    declared_jurisdiction = context.get("jurisdiction","")
+    observed_jurisdiction = current_event.get("jurisdiction","")
+    if declared_jurisdiction and observed_jurisdiction and declared_jurisdiction != observed_jurisdiction:
+        divergences.append({
+            "dimension":   "jurisdiction",
+            "declared":    declared_jurisdiction,
+            "observed":    observed_jurisdiction,
+            "issue":       "Jurisdiction changed",
+            "materiality": "GOVERNANCE_CRITICAL",
+        })
+
+    # 5. Evidence sufficiency
+    if not evidence_refs:
+        insufficient_fields.append("evidence_references")
+
+    # Determine result
+    if insufficient_fields:
+        result = "INSUFFICIENT_EVIDENCE"
+        result_reason = f"Missing required evidence: {insufficient_fields}"
+    elif divergences:
+        critical = [d for d in divergences if d.get("materiality") == "GOVERNANCE_CRITICAL"]
+        result = "MATERIAL_DIVERGENCE" if critical else "PRESERVED"
+        result_reason = f"{len(critical)} critical divergence(s) detected" if critical else "Non-critical divergences only"
+    else:
+        result = "PRESERVED"
+        result_reason = "All declared semantic/contextual conditions remain compatible with the Governance Context"
+
+    check = {
+        "schema":          "VGS-CONTINUITY-CHECK-1.0",
+        "check_id":        check_id,
+        "context_id":      context_id,
+        "context_version": context.get("context_version") if context else context_version,
+        "commitment_id":   commitment_id,
+        "result":          result,
+        "result_reason":   result_reason,
+        "divergences":     divergences,
+        "insufficient_evidence": insufficient_fields,
+        "evidence_refs":   evidence_refs,
+        "VALID_AT_TIME":   ts,
+
+        "VALID_definition": (
+            "VALID means cryptographically/structurally valid. "
+            "It does NOT mean safe, correct, truthful, or universally authorised."
+        ),
+
+        "non_claims": [
+            "PRESERVED does not mean the action was safe or correct",
+            "MATERIAL_DIVERGENCE does not mean the AI is universally wrong",
+            "This check does not replace organisational judgment",
+        ],
+
+        "checked_at": ts,
+    }
+
+    canonical = _canonical_semantic_json({
+        "check_id":   check_id,
+        "context_id": context_id,
+        "result":     result,
+        "divergences_count": len(divergences),
+        "timestamp":  ts,
+    })
+    check["check_hash"]         = hashlib.sha256(canonical.encode()).hexdigest()
+    check["governance_signature"] = sign_governance_payload(
+        {"check_id": check_id, "check_hash": check["check_hash"], "timestamp": ts}
+    )
+    check["offline_verifiable"] = True
+
+    _CONTINUITY_CHECKS[check_id] = check
+
+    # If MATERIAL_DIVERGENCE — create DriftEvent
+    if result == "MATERIAL_DIVERGENCE":
+        for div in divergences:
+            drift_id = f"DR-{hashlib.sha256((check_id + div.get('dimension','')).encode()).hexdigest()[:10].upper()}"
+            drift = {
+                "schema":               "VGS-DRIFT-EVENT-1.0",
+                "drift_event_id":       drift_id,
+                "context_id":           context_id,
+                "context_version":      context.get("context_version"),
+                "check_id":             check_id,
+                "concept_id":           div.get("concept_id",""),
+                "divergence_type":      "DEFINITION_CHANGE" if div.get("dimension") == "semantic_identity" else div.get("dimension","").upper() + "_CHANGE",
+                "declared":             div.get("declared",""),
+                "observed":             div.get("observed",""),
+                "affected_invariants":  [],
+                "materiality":          div.get("materiality","MATERIAL"),
+                "evidence_refs":        evidence_refs,
+                "recommended_control":  "REENTRY_REQUIRED",
+                "created_at":           ts,
+            }
+            seal = {"drift_id": drift_id, "check_id": check_id, "timestamp": ts}
+            drift["governance_signature"] = sign_governance_payload(seal)
+            _DRIFT_EVENTS[drift_id] = drift
+            _emit_proof_event("SEMANTIC_DRIFT_EVENT_CREATED", drift_id,
+                              {"divergence_type": drift["divergence_type"], "materiality": drift["materiality"]}, ts)
+
+    _emit_proof_event("CONTINUITY_CHECK_COMPLETED", check_id, {"result": result}, ts)
+    return check
+
+
+@app.get("/v1/semantic/continuity/{check_id}", tags=["Semantic Continuity — Spec v1.0"])
+async def continuity_check_get(
+    check_id: str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Retrieve a continuity check result."""
+    require_api_key(x_api_key, authorization)
+    check = _CONTINUITY_CHECKS.get(check_id)
+    if not check:
+        raise HTTPException(status_code=404, detail=f"Continuity check {check_id} not found")
+    return check
+
+
+@app.get("/v1/semantic/drift/{drift_event_id}", tags=["Semantic Continuity — Spec v1.0"])
+async def drift_event_get(
+    drift_event_id: str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Retrieve a DriftEvent record."""
+    require_api_key(x_api_key, authorization)
+    drift = _DRIFT_EVENTS.get(drift_event_id)
+    if not drift:
+        raise HTTPException(status_code=404, detail=f"DriftEvent {drift_event_id} not found")
+    return drift
+
+
+@app.post("/v1/governance/reentry", tags=["Re-entry Signals — Spec v1.0"])
+async def reentry_signal_create_v2(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Create a Re-entry Signal — v2 with full lifecycle.
+
+    Re-entry is a control transition, not a monitoring heartbeat.
+
+    Statuses: OPEN → ACKNOWLEDGED → RESOLVED | SUPERSEDED | CANCELLED
+
+    IMPORTANT: Acknowledgement must NEVER be interpreted as
+    organisational approval.
+    """
+    require_api_key(x_api_key, authorization)
+    ts        = datetime.now(timezone.utc).isoformat()
+    signal_id = f"RS-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}"
+
+    signal = {
+        "schema":             "VGS-REENTRY-SIGNAL-2.0",
+        "signal_id":          signal_id,
+        "triggering_event":   req.get("triggering_event",""),
+        "triggering_condition": req.get("triggering_condition",""),
+        "affected_context_id":req.get("affected_context_id",""),
+        "affected_invariants":req.get("affected_invariants",[]),
+        "materiality":        req.get("materiality","GOVERNANCE_CRITICAL"),
+        "evidence_refs":      req.get("evidence_refs",[]),
+        "required_review_scope": req.get("required_review_scope",""),
+        "issue_time":         ts,
+        "expiry":             req.get("expiry",None),
+        "status":             "OPEN",
+        "acknowledgement_note": "Acknowledgement does NOT mean organisational approval.",
+        "history":            [{"status": "OPEN", "at": ts, "by": "system"}],
+    }
+
+    seal = {"signal_id": signal_id, "materiality": signal["materiality"], "timestamp": ts}
+    signal["governance_signature"] = sign_governance_payload(seal)
+    _REENTRY_SIGNALS_V2[signal_id] = signal
+    _emit_proof_event("REENTRY_SIGNAL_CREATED_V2", signal_id,
+                      {"triggering_condition": signal["triggering_condition"]}, ts)
+    return signal
+
+
+@app.get("/v1/governance/reentry/{signal_id}", tags=["Re-entry Signals — Spec v1.0"])
+async def reentry_signal_get_v2(
+    signal_id: str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Retrieve a re-entry signal."""
+    require_api_key(x_api_key, authorization)
+    signal = _REENTRY_SIGNALS_V2.get(signal_id)
+    if not signal:
+        raise HTTPException(status_code=404, detail=f"Signal {signal_id} not found")
+    return signal
+
+
+@app.post("/v1/governance/reentry/{signal_id}/acknowledge", tags=["Re-entry Signals — Spec v1.0"])
+async def reentry_signal_acknowledge(
+    signal_id: str,
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Acknowledge a re-entry signal.
+
+    ACKNOWLEDGEMENT ≠ ORGANISATIONAL APPROVAL.
+    Acknowledgement records that the signal was received.
+    It does not record that the organisation decided to proceed.
+    """
+    require_api_key(x_api_key, authorization)
+    ts     = datetime.now(timezone.utc).isoformat()
+    signal = _REENTRY_SIGNALS_V2.get(signal_id)
+    if not signal:
+        raise HTTPException(status_code=404, detail=f"Signal {signal_id} not found")
+    signal["status"] = "ACKNOWLEDGED"
+    signal["acknowledged_at"] = ts
+    signal["acknowledged_by"] = req.get("acknowledged_by","")
+    signal["history"].append({"status": "ACKNOWLEDGED", "at": ts, "by": req.get("acknowledged_by","")})
+    signal["acknowledgement_warning"] = "Acknowledgement does NOT constitute organisational approval."
+    _REENTRY_SIGNALS_V2[signal_id] = signal
+    return signal
+
+
+@app.post("/v1/governance/reentry/{signal_id}/resolve", tags=["Re-entry Signals — Spec v1.0"])
+async def reentry_signal_resolve(
+    signal_id: str,
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Resolve a re-entry signal with evidence."""
+    require_api_key(x_api_key, authorization)
+    ts     = datetime.now(timezone.utc).isoformat()
+    signal = _REENTRY_SIGNALS_V2.get(signal_id)
+    if not signal:
+        raise HTTPException(status_code=404, detail=f"Signal {signal_id} not found")
+    signal["status"]       = "RESOLVED"
+    signal["resolved_at"]  = ts
+    signal["resolved_by"]  = req.get("resolved_by","")
+    signal["resolution_evidence"] = req.get("resolution_evidence","")
+    signal["history"].append({"status": "RESOLVED", "at": ts, "by": req.get("resolved_by","")})
+    _REENTRY_SIGNALS_V2[signal_id] = signal
+    return signal
+
+
+@app.post("/v1/passport/{passport_id}/revoke", tags=["Passport Lifecycle — Spec v1.0"])
+async def passport_revoke(
+    passport_id: str,
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Revoke a Proof Passport.
+    Verifier will report REVOKED status.
+    Historical evidence remains permanently verifiable.
+    """
+    require_api_key(x_api_key, authorization)
+    ts      = datetime.now(timezone.utc).isoformat()
+    passport= _ISSUED_PASSPORTS.get(passport_id)
+    if not passport:
+        raise HTTPException(status_code=404, detail=f"Passport {passport_id} not found")
+    passport["status"]    = "REVOKED"
+    passport["revoked_at"]= ts
+    passport["revoked_by"]= req.get("revoked_by","")
+    passport["revocation_reason"] = req.get("reason","")
+    passport["historical_note"] = (
+        "REVOKED means this passport is no longer valid for reliance. "
+        "Historical evidence remains permanently verifiable. "
+        "The evidence recorded here was not altered by revocation."
+    )
+    seal = {"passport_id": passport_id, "status": "REVOKED", "timestamp": ts}
+    passport["revocation_signature"] = sign_governance_payload(seal)
+    _ISSUED_PASSPORTS[passport_id] = passport
+    _emit_proof_event("PASSPORT_REVOKED", passport_id, {"reason": req.get("reason","")}, ts)
+    return {"passport_id": passport_id, "status": "REVOKED", "revoked_at": ts,
+            "historical_note": passport["historical_note"]}
+
+
+@app.get("/v1/passport/{passport_id}/lineage", tags=["Passport Lifecycle — Spec v1.0"])
+async def passport_lineage(
+    passport_id: str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Passport lineage — all connected governance events, receipts, and versions."""
+    require_api_key(x_api_key, authorization)
+    passport = _ISSUED_PASSPORTS.get(passport_id)
+    if not passport:
+        raise HTTPException(status_code=404, detail=f"Passport {passport_id} not found")
+    receipts = [r for r in _GOVERNANCE_ACTION_RECEIPTS.values() if r.get("passport_id") == passport_id]
+    return {
+        "passport_id":     passport_id,
+        "passport_status": passport.get("status",""),
+        "receipts_count":  len(receipts),
+        "receipts":        receipts,
+        "superseded_by":   passport.get("superseded_by"),
+        "supersedes":      passport.get("supersedes"),
+        "timestamp":       datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@app.get("/v1/passport/{passport_id}/versions", tags=["Passport Lifecycle — Spec v1.0"])
+async def passport_versions(
+    passport_id: str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """All versions of a Passport — historical versions remain verifiable."""
+    require_api_key(x_api_key, authorization)
+    passport = _ISSUED_PASSPORTS.get(passport_id)
+    if not passport:
+        raise HTTPException(status_code=404, detail=f"Passport {passport_id} not found")
+    return {
+        "passport_id":     passport_id,
+        "current_version": passport.get("passport_version",""),
+        "current_status":  passport.get("status",""),
+        "supersedes":      passport.get("supersedes"),
+        "superseded_by":   passport.get("superseded_by"),
+        "note":            "Historical versions remain permanently verifiable. Supersession does not alter historical evidence.",
+        "passport":        passport,
+    }
+
+
+@app.post("/v1/receipt/generate", tags=["Governance Action Receipt — Spec v1.0"])
+async def governance_action_receipt_generate(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Generate a Governance Action Receipt (GAR).
+
+    The compact, portable expression of one governed consequential action.
+    Derived from and traceable to an authoritative Governance Proof Passport.
+
+    NOT a certificate of safety, correctness or regulatory compliance.
+
+    Expert: "The Receipt is NOT an independent evidence system.
+    The Passport is the authoritative evidence artifact.
+    The Receipt is the compact evidence that travels with the action."
+
+    Every receipt carries:
+    - What this evidence ESTABLISHES (specific, machine-generated)
+    - What this DOES NOT ESTABLISH (mandatory non-claims)
+    - consequence_boundary (permitted AND prohibited)
+    - Cryptographic binding to the Passport
+    - Offline verification reference
+    """
+    require_api_key(x_api_key, authorization)
+    ts         = datetime.now(timezone.utc).isoformat()
+    receipt_id = f"GAR-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}"
+
+    passport_id    = req.get("passport_id","")
+    action         = req.get("action","")
+    actor          = req.get("actor","")
+    authority      = req.get("authority","")
+    purpose        = req.get("purpose","")
+    context_id     = req.get("context_id","")
+    action_outcome = req.get("action_outcome","")
+    governance_state = req.get("governance_state","GOVERNED")  # GOVERNED|REENTRY_REQUIRED|EVIDENCE_INSUFFICIENT|REVOKED|NO_VERISIGIL_RECORD
+
+    passport  = _ISSUED_PASSPORTS.get(passport_id,{})
+    context   = _GOVERNANCE_CONTEXTS.get(context_id,{})
+
+    receipt = {
+        "schema":          "VGS-GOVERNANCE-ACTION-RECEIPT-1.0",
+        "receipt_id":      receipt_id,
+        "passport_id":     passport_id,
+        "parent_receipt_id": req.get("parent_receipt_id",None),
+        "workflow_id":     req.get("workflow_id",None),
+
+        # The governed action
+        "action":          action,
+        "actor":           actor,
+        "authority":       authority,
+        "purpose":         purpose,
+        "context_id":      context_id,
+        "authorized_at":   ts,
+        "VALID_AT_TIME":   ts,
+
+        # Governance state — five possible states
+        "governance_state":governance_state,
+        "governance_state_definitions": {
+            "GOVERNED":              "Evidence supports the declared governance conditions",
+            "REENTRY_REQUIRED":      "A material condition changed — governance must be revisited",
+            "EVIDENCE_INSUFFICIENT": "Action occurred but evidence was insufficient to establish governed state",
+            "REVOKED":               "Previously issued governance representation no longer valid",
+            "NO_VERISIGIL_RECORD":   "System cannot establish a VeriSigil record for this event",
+        },
+
+        # Action outcome
+        "action_outcome":  action_outcome,
+
+        # Consequence boundary — explicit
+        "consequence_boundary": {
+            "permitted":    context.get("permitted_consequences",[]) or req.get("permitted_consequences",[]),
+            "prohibited":   context.get("prohibited_consequences",[]) or req.get("prohibited_consequences",[]),
+            "boundary_note":"This receipt records what was authorized. Prohibited consequences remain blocked regardless of outcome.",
+        },
+
+        # What this ESTABLISHES
+        "establishes": req.get("establishes",[
+            "Authority was verified at the recorded time under declared conditions",
+            "Action was cryptographically bound to governance record",
+            "Consequence boundary was evaluated",
+        ]),
+
+        # What this does NOT establish — MANDATORY
+        "does_not_establish": req.get("does_not_establish",[
+            "AI output was factually correct",
+            "Outcome was beneficial or desirable",
+            "System is universally safe",
+            "Legal or regulatory compliance",
+            "Absence of undiscovered failures",
+            "This receipt is not a certificate of safety, correctness or regulatory compliance",
+        ]),
+
+        # Evidence manifest — links to Passport
+        "evidence_manifest": {
+            "passport_id":         passport_id,
+            "passport_version":    passport.get("passport_version",""),
+            "passport_status":     passport.get("status",""),
+            "evidence_root":       passport.get("artifact_hash",""),
+        },
+
+        # Verification
+        "verification": {
+            "public_key":  "lJWG0Wabt6uATPu5Upo6UEHWGXQqMyi6LMKQC0xwpY8=",
+            "algorithm":   "Ed25519",
+            "offline_verify": "Verify governance_signature against public_key offline",
+            "full_evidence":   f"GET /v1/semantic/passport/{passport_id}",
+        },
+
+        "offline_verifiable": True,
+        "issued_at":       ts,
+    }
+
+    # Compute receipt hash — binds action + actor + authority + outcome + passport
+    canonical = _canonical_semantic_json({
+        "receipt_id":     receipt_id,
+        "passport_id":    passport_id,
+        "action":         action,
+        "actor":          actor,
+        "authority":      authority,
+        "governance_state": governance_state,
+        "action_outcome": action_outcome,
+        "timestamp":      ts,
+    })
+    receipt["receipt_hash"]        = hashlib.sha256(canonical.encode()).hexdigest()
+    receipt["canonical_json"]      = canonical
+    receipt["governance_signature"]= sign_governance_payload(
+        {"receipt_id": receipt_id, "receipt_hash": receipt["receipt_hash"], "timestamp": ts}
+    )
+
+    _GOVERNANCE_ACTION_RECEIPTS[receipt_id] = receipt
+    _emit_proof_event("GOVERNANCE_ACTION_RECEIPT_ISSUED", receipt_id,
+                      {"governance_state": governance_state, "passport_id": passport_id}, ts)
+
+    return receipt
+
+
+@app.get("/v1/receipt/{receipt_id}", tags=["Governance Action Receipt — Spec v1.0"])
+async def receipt_get(
+    receipt_id: str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Retrieve a Governance Action Receipt."""
+    require_api_key(x_api_key, authorization)
+    receipt = _GOVERNANCE_ACTION_RECEIPTS.get(receipt_id)
+    if not receipt:
+        raise HTTPException(status_code=404, detail=f"Receipt {receipt_id} not found")
+    return receipt
+
+
+@app.get("/v1/receipt/{receipt_id}/verify", tags=["Governance Action Receipt — Spec v1.0"])
+async def receipt_verify(
+    receipt_id: str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Verify a Governance Action Receipt independently."""
+    require_api_key(x_api_key, authorization)
+    ts      = datetime.now(timezone.utc).isoformat()
+    receipt = _GOVERNANCE_ACTION_RECEIPTS.get(receipt_id)
+    if not receipt:
+        raise HTTPException(status_code=404, detail=f"Receipt {receipt_id} not found")
+    passport= _ISSUED_PASSPORTS.get(receipt.get("passport_id",""),{})
+    return {
+        "receipt_id":      receipt_id,
+        "receipt_hash":    receipt.get("receipt_hash",""),
+        "governance_signature": receipt.get("governance_signature",""),
+        "passport_id":     receipt.get("passport_id",""),
+        "passport_status": passport.get("status",""),
+        "public_key":      "lJWG0Wabt6uATPu5Upo6UEHWGXQqMyi6LMKQC0xwpY8=",
+        "algorithm":       "Ed25519",
+        "offline_procedure": "Verify governance_signature using Ed25519 public key. Recompute receipt_hash from canonical_json field.",
+        "VALID_definition":"VALID means cryptographically/structurally valid. NOT safe, correct, or universally authorised.",
+        "verified_at":     ts,
+    }
+
+
+@app.get("/v1/receipt/{receipt_id}/evidence", tags=["Governance Action Receipt — Spec v1.0"])
+async def receipt_evidence(
+    receipt_id: str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Get the full evidence package behind a receipt — links to Passport."""
+    require_api_key(x_api_key, authorization)
+    receipt = _GOVERNANCE_ACTION_RECEIPTS.get(receipt_id)
+    if not receipt:
+        raise HTTPException(status_code=404, detail=f"Receipt {receipt_id} not found")
+    passport_id = receipt.get("passport_id","")
+    passport    = _ISSUED_PASSPORTS.get(passport_id,{})
+    return {
+        "receipt_id":     receipt_id,
+        "passport_id":    passport_id,
+        "passport":       passport,
+        "evidence_manifest": receipt.get("evidence_manifest",{}),
+        "full_passport_url": f"GET /v1/semantic/passport/{passport_id}",
+    }
+
+
+@app.get("/v1/receipt/{receipt_id}/lineage", tags=["Governance Action Receipt — Spec v1.0"])
+async def receipt_lineage(
+    receipt_id: str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Receipt lineage — for multi-agent workflows where actions chain.
+    Shows parent and sibling receipts in the same workflow.
+    """
+    require_api_key(x_api_key, authorization)
+    receipt    = _GOVERNANCE_ACTION_RECEIPTS.get(receipt_id)
+    if not receipt:
+        raise HTTPException(status_code=404, detail=f"Receipt {receipt_id} not found")
+    workflow_id= receipt.get("workflow_id","")
+    siblings   = [r for r in _GOVERNANCE_ACTION_RECEIPTS.values()
+                  if r.get("workflow_id") == workflow_id and workflow_id] if workflow_id else []
+    return {
+        "receipt_id":    receipt_id,
+        "workflow_id":   workflow_id,
+        "parent_receipt_id": receipt.get("parent_receipt_id"),
+        "workflow_receipts": sorted(siblings, key=lambda r: r.get("issued_at","")),
+        "chain_note":    "Each receipt in the chain is independently verifiable against the Passport.",
+    }
+
+
+@app.get("/v1/passport/{passport_id}/receipts", tags=["Governance Action Receipt — Spec v1.0"])
+async def passport_receipts(
+    passport_id: str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """All receipts issued against a Passport. Passport is the parent structure."""
+    require_api_key(x_api_key, authorization)
+    receipts = [r for r in _GOVERNANCE_ACTION_RECEIPTS.values()
+                if r.get("passport_id") == passport_id]
+    return {
+        "passport_id":    passport_id,
+        "receipts_count": len(receipts),
+        "receipts":       sorted(receipts, key=lambda r: r.get("issued_at","")),
+        "note":           "The Passport is the authoritative evidence artifact. Receipts are compact portable expressions.",
+    }
+
+
+
+# ============================================================
+# CANONICAL FIVE-STATE GOVERNANCE ENGINE
+# The convergence of all expert recommendations.
+# Single canonical computation — no parallel systems.
+#
+# From 35-point convergence document:
+# "Instead of creating another vocabulary, we adopted one
+# canonical computation."
+#
+# FIVE STATES (locked — no more alternatives):
+# GOVERNED          — required conditions evidenced
+# RE-ENTRY REQUIRED — material condition changed/stale
+# EVIDENCE INSUFFICIENT — evidence never established
+# REVOKED           — previously established, now invalidated
+# NO_VERISIGIL_RECORD — no authoritative record exists
+#
+# CRITICAL DISTINCTION (locked):
+# EVIDENCE INSUFFICIENT ≠ RE-ENTRY REQUIRED
+# Insufficient: evidence was NEVER established
+# Re-entry:     evidence WAS established, now stale/changed
+# This distinction must be encoded in the engine.
+#
+# VeriSigilAI = governance evidence infrastructure for consequential AI
+# VeriSigil Proof Passport = the portable evidence artifact
+# VGA (VeriSigil Governance Attestation) = the evidence object
+# C2PA = content provenance (separate, complementary, not replaced)
+# ============================================================
+
+CANONICAL_GOVERNANCE_STATES = {
+    "GOVERNED": {
+        "label":       "🟢 GOVERNED",
+        "meaning":     "Required authority, conditions and evidence are presently established for the defined scope",
+        "implication": "Governance conditions evidenced — does NOT mean AI was correct, safe, or universally authorized",
+    },
+    "RE_ENTRY_REQUIRED": {
+        "label":       "🟡 RE-ENTRY REQUIRED",
+        "meaning":     "Something material changed or a pre-declared condition was triggered — previous governance state cannot automatically carry forward",
+        "distinction": "Evidence WAS previously established — this is NOT the same as Evidence Insufficient",
+    },
+    "EVIDENCE_INSUFFICIENT": {
+        "label":       "🟠 EVIDENCE INSUFFICIENT",
+        "meaning":     "Required evidence was never sufficiently established, is missing, inadequate, stale, or contradictory",
+        "distinction": "Evidence was NEVER established — this is NOT the same as Re-entry Required",
+    },
+    "REVOKED": {
+        "label":       "🔴 REVOKED",
+        "meaning":     "Previously established authority or evidence was subsequently invalidated",
+        "note":        "Historical record remains — revocation does not erase evidence history",
+    },
+    "NO_VERISIGIL_RECORD": {
+        "label":       "⚪ NO VERISIGIL RECORD",
+        "meaning":     "No sufficient historical record from which VeriSigilAI can establish the relevant state",
+        "note":        "Absence of record is not proof of absence of governance — it means VeriSigil cannot make a determination",
+    },
+}
+
+# VGA — VeriSigil Governance Attestation
+# The evidence object inside the Proof Passport
+# vs-g prefix = VeriSigil Governance identifier
+_VGA_REGISTRY: dict = {}  # vga_id -> VeriSigilGovernanceAttestation
+
+
+def compute_governance_state(
+    authority_valid: bool,
+    evidence_present: bool,
+    evidence_fresh: bool,
+    evidence_previously_established: bool,
+    revoked: bool,
+    reentry_required: bool,
+) -> str:
+    """
+    Canonical Five-State Governance Computation.
+
+    Expert: "Instead of creating another vocabulary,
+    we adopted one canonical computation."
+
+    This function is the brain of VeriSigilAI.
+    It must never return SAFE, CORRECT, or TRUSTED.
+    """
+    if revoked:
+        return "REVOKED"
+    if not evidence_present:
+        return "NO_VERISIGIL_RECORD"
+    if evidence_present and not evidence_previously_established:
+        return "EVIDENCE_INSUFFICIENT"
+    if evidence_present and evidence_previously_established and not evidence_fresh:
+        return "RE_ENTRY_REQUIRED"
+    if reentry_required:
+        return "RE_ENTRY_REQUIRED"
+    if not authority_valid:
+        return "RE_ENTRY_REQUIRED"
+    return "GOVERNED"
+
+
+@app.post("/v1/governance/state/compute", tags=["Five-State Engine — Canonical"])
+async def governance_state_compute(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Canonical Five-State Governance State Computation.
+
+    Expert: "The five-state engine is the brain of VeriSigilAI."
+
+    CRITICAL DISTINCTION:
+    EVIDENCE_INSUFFICIENT: evidence was NEVER established
+    RE_ENTRY_REQUIRED: evidence WAS established but is now stale/changed
+
+    These are NOT the same thing and must not be conflated.
+
+    The result is NEVER: SAFE, TRUSTED, CORRECT, COMPLIANT.
+    It is ALWAYS one of the five canonical states.
+    """
+    require_api_key(x_api_key, authorization)
+    ts = datetime.now(timezone.utc).isoformat()
+
+    authority_valid                = req.get("authority_valid", False)
+    evidence_present               = req.get("evidence_present", False)
+    evidence_fresh                 = req.get("evidence_fresh", False)
+    evidence_previously_established= req.get("evidence_previously_established", False)
+    revoked                        = req.get("revoked", False)
+    reentry_required               = req.get("reentry_required", False)
+
+    state = compute_governance_state(
+        authority_valid, evidence_present, evidence_fresh,
+        evidence_previously_established, revoked, reentry_required,
+    )
+
+    state_info = CANONICAL_GOVERNANCE_STATES.get(state, {})
+
+    result = {
+        "schema":          "VGS-FIVE-STATE-v1.0",
+        "governance_state": state,
+        "label":            state_info.get("label",""),
+        "meaning":          state_info.get("meaning",""),
+        "inputs": {
+            "authority_valid":                 authority_valid,
+            "evidence_present":                evidence_present,
+            "evidence_fresh":                  evidence_fresh,
+            "evidence_previously_established": evidence_previously_established,
+            "revoked":                         revoked,
+            "reentry_required":                reentry_required,
+        },
+        "critical_distinction": (
+            "EVIDENCE_INSUFFICIENT means evidence was NEVER established. "
+            "RE_ENTRY_REQUIRED means evidence WAS established but is now stale or changed. "
+            "These are NEVER conflated."
+        ),
+        "non_claims": [
+            "GOVERNED does NOT mean the AI was correct, safe, or universally authorized",
+            "This computation does NOT certify regulatory compliance",
+            "This is NOT a trust score",
+            "GOVERNED does NOT mean TRUSTED or SAFE",
+        ],
+        "computed_at": ts,
+    }
+
+    seal = {"state": state, "timestamp": ts}
+    result["governance_signature"] = sign_governance_payload(seal)
+    return result
+
+
+@app.get("/v1/governance/states", tags=["Five-State Engine — Canonical"])
+async def governance_states_reference():
+    """
+    All five canonical governance states with definitions.
+
+    Expert: "Stop renaming it. One canonical computation."
+
+    No auth required.
+    """
+    return {
+        "schema":   "VGS-CANONICAL-STATES-v1.0",
+        "title":    "VeriSigilAI Canonical Governance States",
+        "states":   CANONICAL_GOVERNANCE_STATES,
+        "critical_distinction": {
+            "EVIDENCE_INSUFFICIENT_vs_RE_ENTRY": (
+                "EVIDENCE_INSUFFICIENT: evidence was NEVER established. "
+                "RE_ENTRY_REQUIRED: evidence WAS established, now stale or changed. "
+                "These are different states with different remediation paths."
+            ),
+        },
+        "what_GOVERNED_does_not_mean": [
+            "AI was correct",
+            "AI was safe",
+            "AI was trusted",
+            "Organization is legally compliant",
+            "Outcome was good or desirable",
+        ],
+        "positioning": (
+            "VeriSigilAI is governance evidence infrastructure for consequential AI. "
+            "C2PA handles content provenance. "
+            "VeriSigilAI handles governance evidence surrounding consequential use. "
+            "These are complementary, not competing."
+        ),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@app.post("/v1/vga/issue", tags=["VGA — VeriSigil Governance Attestation"])
+async def vga_issue(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Issue a VeriSigil Governance Attestation (VGA).
+
+    The VGA is the evidence object inside the Proof Passport.
+    It is NOT the same as the Passport itself.
+
+    Identifier format: VS-G-{id}
+
+    Purpose binding is REQUIRED — every VGA must declare
+    what the action is permitted and prohibited from doing.
+
+    Expert: "The passport explicitly defines the authorized
+    consequence boundary. GOVERNED does not mean universally
+    authorized for any purpose."
+    """
+    require_api_key(x_api_key, authorization)
+    ts     = datetime.now(timezone.utc).isoformat()
+    vga_id = f"VS-G-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}"
+
+    # Compute canonical governance state
+    state = compute_governance_state(
+        authority_valid=                 req.get("authority_valid", False),
+        evidence_present=                req.get("evidence_present", False),
+        evidence_fresh=                  req.get("evidence_fresh", False),
+        evidence_previously_established= req.get("evidence_previously_established", False),
+        revoked=                         req.get("revoked", False),
+        reentry_required=                req.get("reentry_required", False),
+    )
+
+    permitted   = req.get("permitted_consequences",[])
+    prohibited  = req.get("prohibited_consequences",[])
+
+    if not permitted and not prohibited:
+        raise HTTPException(status_code=400,
+            detail=(
+                "permitted_consequences and prohibited_consequences are required on every VGA. "
+                "GOVERNED does not automatically authorize all purposes. "
+                "Purpose binding must be explicit."
+            ))
+
+    state_info = CANONICAL_GOVERNANCE_STATES.get(state,{})
+
+    vga = {
+        "schema":           "VGS-VGA-1.0",
+        "vga_id":           vga_id,
+        "vs_g_identifier":  vga_id,  # VS-G prefix = VeriSigil Governance
+
+        # Canonical five-state result
+        "governance_state": state,
+        "governance_label": state_info.get("label",""),
+        "governance_meaning": state_info.get("meaning",""),
+
+        # What this governs
+        "passport_id":      req.get("passport_id",""),
+        "deployment_id":    req.get("deployment_id",""),
+        "context_id":       req.get("context_id",""),
+        "agent_id":         req.get("agent_id",""),
+        "authority":        req.get("authority",""),
+        "policy_version":   req.get("policy_version",""),
+
+        # Purpose / Consequence Binding — MANDATORY
+        "purpose_binding": {
+            "purpose":               req.get("purpose",""),
+            "permitted_consequences":permitted,
+            "prohibited_consequences":prohibited,
+            "binding_note": (
+                "GOVERNED state does not authorize all purposes. "
+                "This VGA authorizes ONLY the declared permitted consequences. "
+                "Prohibited consequences remain blocked regardless of governance state."
+            ),
+        },
+
+        # Evidence
+        "evidence_refs":    req.get("evidence_refs",[]),
+        "evidence_root":    req.get("evidence_root",""),
+
+        # C2PA boundary
+        "c2pa_note": (
+            "C2PA provides content provenance. "
+            "VeriSigil provides governance evidence surrounding consequential use. "
+            "These are complementary. VeriSigil does not replace C2PA."
+        ),
+
+        # Permanent non-claims
+        "non_claims": [
+            "GOVERNED does NOT mean the AI was correct, safe, or universally authorized",
+            "This VGA does NOT certify regulatory compliance",
+            "This is NOT a trust score or safety badge",
+            "GOVERNED means governance conditions evidenced — not that outcome was good",
+            "VeriSigilAI does not judge the quality of human decisions",
+        ],
+
+        "VALID_AT_TIME":    ts,
+        "issued_at":        ts,
+        "effective_until":  req.get("effective_until",None),
+    }
+
+    canonical = _canonical_semantic_json({
+        "vga_id":           vga_id,
+        "governance_state": state,
+        "passport_id":      vga["passport_id"],
+        "permitted_consequences": sorted(permitted),
+        "prohibited_consequences": sorted(prohibited),
+        "timestamp":        ts,
+    })
+    vga["vga_hash"]            = hashlib.sha256(canonical.encode()).hexdigest()
+    vga["canonical_json"]      = canonical
+    vga["governance_signature"]= sign_governance_payload(
+        {"vga_id": vga_id, "vga_hash": vga["vga_hash"], "timestamp": ts}
+    )
+    vga["offline_verifiable"]  = True
+
+    _VGA_REGISTRY[vga_id] = vga
+    _emit_proof_event("VGA_ISSUED", vga_id,
+                      {"governance_state": state, "passport_id": vga["passport_id"]}, ts)
+
+    return vga
+
+
+@app.get("/v1/vga/{vga_id}", tags=["VGA — VeriSigil Governance Attestation"])
+async def vga_get(
+    vga_id: str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Retrieve a VeriSigil Governance Attestation."""
+    require_api_key(x_api_key, authorization)
+    vga = _VGA_REGISTRY.get(vga_id)
+    if not vga:
+        raise HTTPException(status_code=404, detail=f"VGA {vga_id} not found")
+    return vga
+
+
+@app.get("/v1/vga/positioning/statement", tags=["VGA — VeriSigil Governance Attestation"])
+async def vga_positioning():
+    """
+    VeriSigilAI positioning statement — locked from convergence document.
+    No auth required.
+    """
+    return {
+        "verisigil_is":  "Governance evidence infrastructure for consequential AI",
+        "proof_passport_is": "A signed, portable evidence artifact that makes governance conditions surrounding an AI-mediated action or claim independently examinable",
+        "differentiator": (
+            "VeriSigilAI does not certify that AI is correct or safe. "
+            "It makes governance evidence, authority, conditions, permitted consequences "
+            "and changes in state independently verifiable."
+        ),
+        "c2pa_boundary": {
+            "c2pa_answers":     "Where did this content come from and what happened to it?",
+            "verisigil_answers":"What governance evidence surrounds this consequential AI action?",
+            "relationship":     "Complementary — VeriSigil does not replace or compete with C2PA",
+        },
+        "what_GOVERNED_means": "Governance conditions evidenced for defined scope at stated time",
+        "what_GOVERNED_does_not_mean": [
+            "AI was correct",
+            "AI was safe",
+            "AI was trusted",
+            "Organization is legally compliant",
+            "Outcome was desirable",
+        ],
+        "locked_vocabulary": {
+            "company":   "VeriSigilAI",
+            "primitive": "VeriSigil (VS-G identifier)",
+            "artifact":  "Governance Proof Passport",
+            "attestation": "VeriSigil Governance Attestation (VGA)",
+            "vault":     "Passport Vault",
+            "verifier":  "VeriSigil Verifier",
+        },
+        "rejected_vocabulary": [
+            "Governance DNA",
+            "AI Standing Receipt",
+            "Trust Envelope",
+            "Dynamic Trust Score",
+            "Gift Edition",
+            "Republic of VeriSigil",
+            "AI Trusted",
+            "AI Safe",
+            "AI Compliant",
+        ],
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
