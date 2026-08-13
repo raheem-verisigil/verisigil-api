@@ -82755,9 +82755,24 @@ async def create_proposal(
     return proposal
 
 
+@app.get("/v1/proposals/{proposal_id}", tags=["VGS 1.0 — Governed Action Proposal"])
+async def get_proposal(
+    proposal_id: str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Retrieve a Governed Action Proposal by ID."""
+    require_api_key(x_api_key, authorization)
+    proposal = _PROPOSAL_REGISTRY.get(proposal_id)
+    if not proposal:
+        raise HTTPException(status_code=404, detail=f"Proposal {proposal_id} not found")
+    return proposal
+
+
 # ── CANONICAL STATE ASSERTION ─────────────────────────────────
 
 @app.post("/v1/state-assertions", tags=["VGS 1.0 — Canonical State"])
+
 async def create_state_assertion(
     req: dict,
     x_api_key: Optional[str] = Header(None),
@@ -82830,6 +82845,20 @@ async def create_state_assertion(
     await _vgs_persist("vgs_state_assertions", assertion_id, assertion)
     _emit_proof_event("STATE_ASSERTION_RECEIVED", assertion_id, {"state_hash": state_hash}, ts)
 
+    return assertion
+
+
+@app.get("/v1/state-assertions/{assertion_id}", tags=["VGS 1.0 — Canonical State"])
+async def get_state_assertion(
+    assertion_id: str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Retrieve a Canonical State Assertion by ID."""
+    require_api_key(x_api_key, authorization)
+    assertion = _STATE_ASSERTIONS.get(assertion_id)
+    if not assertion:
+        raise HTTPException(status_code=404, detail=f"State assertion {assertion_id} not found")
     return assertion
 
 
@@ -87907,12 +87936,23 @@ async def passport_issue(
         } if include_verification_package else {"included": False},
 
         # Non-claims — always present, never optional
+        # Matching the physical passport design exactly:
+        # NOT A CLAIM OF SAFETY
+        # NOT A CLAIM OF TRUTH
+        # NOT A CLAIM OF LEGAL COMPLIANCE
+        # NOT A CLAIM OF PERFORMANCE
         "non_claims": [
             "No general semantic understanding claimed",
             "No decision-correctness claimed",
             "No organisational legitimacy claimed",
             "Detection is not enforcement",
             "SUPERSEDED status means no longer current — not that historical evidence was false",
+            "NOT A CLAIM OF SAFETY — this passport does not prove the AI action was safe",
+            "NOT A CLAIM OF TRUTH — this passport does not prove the AI output was factually correct",
+            "NOT A CLAIM OF LEGAL COMPLIANCE — this passport does not constitute legal advice, certification or approval",
+            "NOT A CLAIM OF PERFORMANCE — this passport does not prove the action was beneficial or desirable",
+            "This Passport is a machine-verifiable evidence artifact. It does not constitute legal advice, certification or approval.",
+            "It does NOT imply the action was approved, successful, safe, or correct.",
             *commitment.get("non_claims",[]),
         ],
 
@@ -94290,71 +94330,3 @@ async def engineering_questions():
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=int(os.environ.get("PORT", 8000)), reload=False)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
