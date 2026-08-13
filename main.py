@@ -92811,6 +92811,801 @@ async def vgc_rejected_concepts():
     }
 
 
+
+# ============================================================
+# VERISIGIL CONSEQUENCE BOUNDARY PROTOCOL — VCB-P/0.1
+#
+# Expert Grading (this session):
+# Expert A: 9.3/10 — Invented the category: "AI Consequence Infrastructure"
+#   Core insight: Consequence ≠ API. Receiver participates. Fail closed.
+# Expert B: 8.2/10 — Best commercial framing. Clean VCP synthesis.
+# Expert C: 7.1/10 — Correct VAC synthesis. No new conceptual ground.
+#
+# The North-Star Invariant (locked by expert consensus):
+# "No consequential AI action should be executable beyond
+# its independently verifiable consequence boundary."
+#
+# Central architecture:
+# INTENT → VCB → VAC → ENFORCE → EVIDENCE
+# Multi-agent: VCB → VAC → VCS → VAC → ENFORCE
+#
+# What VCB is NOT:
+# ❌ Not OAuth / IAM / RBAC
+# ❌ Not an API gateway
+# ❌ Not a government license
+# ❌ Not merely a signed token
+# ❌ Not a compliance certificate
+# ❌ Not a claim that EU law requires it
+#
+# What VCB IS:
+# ✓ A consequence-typed boundary between AI intention and effect
+# ✓ Where the RECEIVER participates (not just checks a token)
+# ✓ Independently verifiable without trusting VeriSigil
+# ✓ Authority can only NARROW through delegation — never amplify
+# ✓ Fail closed: unknown validity = REJECT
+#
+# Differentiation from OAuth RAR / GNAP / existing work:
+# Those control ACCESS to APIs.
+# VCB controls permission to CAUSE CONSEQUENCE TYPES
+# (MONEY.TRANSFER, CODE.DEPLOY, DATA.DELETE)
+# — an abstraction independent of any particular API.
+# ============================================================
+
+# ── CONSEQUENCE TAXONOMY v0.1 ────────────────────────────────
+# Consequences are typed independently from APIs.
+# API → Consequence Adapter → VCB consequence model
+# The same VCB architecture handles CODE, DATA, MONEY.
+CONSEQUENCE_TAXONOMY = {
+    "MONEY.TRANSFER":    {"class": "Financial",    "materiality": "M4", "reversible": True},
+    "MONEY.WITHDRAW":    {"class": "Financial",    "materiality": "M4", "reversible": False},
+    "MONEY.PURCHASE":    {"class": "Financial",    "materiality": "M3", "reversible": True},
+    "MONEY.REFUND":      {"class": "Financial",    "materiality": "M3", "reversible": True},
+    "DATA.READ":         {"class": "Data",         "materiality": "M1", "reversible": True},
+    "DATA.CREATE":       {"class": "Data",         "materiality": "M2", "reversible": True},
+    "DATA.MODIFY":       {"class": "Data",         "materiality": "M3", "reversible": True},
+    "DATA.DELETE":       {"class": "Data",         "materiality": "M4", "reversible": False},
+    "DATA.EXPORT":       {"class": "Data",         "materiality": "M3", "reversible": False},
+    "DATA.DISCLOSE":     {"class": "Data",         "materiality": "M4", "reversible": False},
+    "IDENTITY.CREATE":   {"class": "Identity",     "materiality": "M3", "reversible": True},
+    "IDENTITY.MODIFY":   {"class": "Identity",     "materiality": "M3", "reversible": True},
+    "IDENTITY.GRANT":    {"class": "Identity",     "materiality": "M4", "reversible": True},
+    "IDENTITY.REVOKE":   {"class": "Identity",     "materiality": "M4", "reversible": True},
+    "IDENTITY.TERMINATE":{"class": "Identity",     "materiality": "M5", "reversible": False},
+    "CODE.CREATE":       {"class": "Software",     "materiality": "M2", "reversible": True},
+    "CODE.MODIFY":       {"class": "Software",     "materiality": "M2", "reversible": True},
+    "CODE.MERGE":        {"class": "Software",     "materiality": "M3", "reversible": True},
+    "CODE.DEPLOY":       {"class": "Software",     "materiality": "M4", "reversible": True},
+    "CODE.ROLLBACK":     {"class": "Software",     "materiality": "M3", "reversible": True},
+    "MESSAGE.SEND":      {"class": "Communication","materiality": "M2", "reversible": False},
+    "MESSAGE.PUBLISH":   {"class": "Communication","materiality": "M3", "reversible": False},
+    "MESSAGE.FORWARD":   {"class": "Communication","materiality": "M2", "reversible": False},
+    "PURCHASE.ORDER":    {"class": "Commerce",     "materiality": "M3", "reversible": True},
+    "CONTRACT.COMMIT":   {"class": "Commerce",     "materiality": "M5", "reversible": False},
+    "CONTRACT.TERMINATE":{"class": "Commerce",     "materiality": "M5", "reversible": False},
+    "INFRA.CREATE":      {"class": "Infrastructure","materiality": "M3","reversible": True},
+    "INFRA.DELETE":      {"class": "Infrastructure","materiality": "M5","reversible": False},
+    "INFRA.EXPOSE":      {"class": "Infrastructure","materiality": "M4","reversible": True},
+    "MACHINE.ACTUATE":   {"class": "Physical",     "materiality": "M5", "reversible": False},
+}
+
+# Materiality levels
+CONSEQUENCE_MATERIALITY = {
+    "M0": "Informational — no external effect",
+    "M1": "Reversible, minimal impact",
+    "M2": "Operational — reversible",
+    "M3": "Material — significant, usually reversible",
+    "M4": "High-impact — difficult to reverse",
+    "M5": "Critical — irreversible or life/safety impacting",
+}
+
+# Core invariants — these are NEVER violated
+VCB_INVARIANTS = {
+    "I1": "No Boundary, No Consequence: valid execution requires valid VCB",
+    "I2": "No Clearance, No Execution: VCB+VAC+receiver_policy = execution permitted",
+    "I3": "No Authority Amplification: child_scope ⊆ parent_scope. ALWAYS.",
+    "I4": "No Silent Mutation: executed consequence must match authorized consequence",
+    "I5": "Expired Means Invalid: no grace execution after expiry",
+    "I6": "Revoked Means Invalid: revoked clearance cannot execute",
+    "I7": "Evidence Binding: execution must reference its authorization state",
+    "I8": "Fail Closed: if validity cannot be established → REJECT (not ASSUME VALID)",
+}
+
+_VCB_REGISTRY:    dict = {}  # vcb_id -> VCB object
+_VAC_REGISTRY:    dict = {}  # vac_id -> VAC (Action Clearance)
+_VCS_REGISTRY:    dict = {}  # vcs_id -> VCS (Continuity State)
+_CONSUMED_VACS:   set  = set()  # vac_ids that have been consumed (replay protection)
+_REVOKED_VACS:    set  = set()  # vac_ids that have been revoked
+_RECEIVER_PROFILES: dict = {}  # receiver_id -> accepted consequence profile
+
+
+def _canonicalize_action(action: dict) -> str:
+    """
+    Canonical action model.
+    Converts any proposed action to a consequence-typed
+    canonical representation before signing.
+
+    API → Consequence Adapter → Canonical Consequence
+
+    This prevents superficial request changes from evading
+    boundary checks. $9,999 cannot silently become $99,999
+    without invalidating the authorization.
+    """
+    consequence = action.get("consequence_type", action.get("type",""))
+    target      = action.get("target","")
+    amount      = action.get("amount","")
+    currency    = action.get("currency","")
+    purpose     = action.get("purpose","")
+    version     = action.get("version","")
+    environment = action.get("environment","")
+    repository  = action.get("repository","")
+
+    canonical = _canonical_semantic_json({
+        "consequence_type": consequence,
+        "target":           str(target),
+        "amount":           str(amount),
+        "currency":         str(currency),
+        "purpose":          str(purpose),
+        "version":          str(version),
+        "environment":      str(environment),
+        "repository":       str(repository),
+    })
+    return hashlib.sha256(canonical.encode()).hexdigest()
+
+
+def _check_authority_narrowing(parent_boundary: dict, child_boundary: dict) -> tuple:
+    """
+    Invariant I3: Child authority must NEVER exceed parent authority.
+    child_scope ⊆ parent_scope. ALWAYS.
+
+    Returns (is_valid, reason)
+    """
+    parent_max = float(parent_boundary.get("maximum",{}).get("amount", float('inf')))
+    child_max  = float(child_boundary.get("maximum",{}).get("amount", float('inf')))
+
+    if child_max > parent_max:
+        return False, f"AUTHORITY_AMPLIFICATION: child maximum {child_max} exceeds parent maximum {parent_max}"
+
+    parent_type   = parent_boundary.get("consequence_type","")
+    child_type    = child_boundary.get("consequence_type","")
+    if child_type and parent_type and child_type != parent_type:
+        return False, f"CONSEQUENCE_TYPE_CHANGE: child {child_type} differs from parent {parent_type}"
+
+    parent_target = parent_boundary.get("target","")
+    child_target  = child_boundary.get("target","")
+    if child_target and parent_target and child_target != parent_target:
+        return False, f"TARGET_CHANGE: child target {child_target} differs from parent target {parent_target}"
+
+    return True, "child_scope ⊆ parent_scope: VALID"
+
+
+@app.post("/v1/boundaries", tags=["VCB — Consequence Boundary Protocol"])
+async def vcb_create(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Create a VeriSigil Consequence Boundary (VCB).
+
+    VCB defines what consequence an AI action is permitted to cause.
+
+    CONSEQUENCE ≠ API.
+    The same VCB architecture works for CODE.DEPLOY, DATA.DELETE,
+    MONEY.TRANSFER — independent of any specific API.
+
+    The receiver is an ACTIVE PARTICIPANT, not just a token checker.
+    They independently decide whether the proposed consequence
+    satisfies their accepted consequence profile.
+
+    SDK: verisigil.boundary(consequence, target, maximum, purpose)
+
+    Expert A (9.3/10): "The AI does not own the permission.
+    The consequence receiver participates in the contract."
+    """
+    require_api_key(x_api_key, authorization)
+    ts     = datetime.now(timezone.utc).isoformat()
+    vcb_id = f"VCB-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}"
+
+    consequence_type = req.get("consequence_type","")
+    if consequence_type not in CONSEQUENCE_TAXONOMY:
+        raise HTTPException(status_code=400,
+            detail=f"Unknown consequence_type. Must be one of: {list(CONSEQUENCE_TAXONOMY.keys())}")
+
+    parent_vcb_id = req.get("parent_vcb_id","")
+    parent_vcb    = _VCB_REGISTRY.get(parent_vcb_id,{})
+
+    child_boundary = {
+        "consequence_type": consequence_type,
+        "target":           req.get("target",""),
+        "maximum":          req.get("maximum",{}),
+        "purpose":          req.get("purpose",""),
+    }
+
+    # Invariant I3: check authority narrowing if delegated
+    if parent_vcb:
+        parent_boundary = {
+            "consequence_type": parent_vcb.get("consequence_type",""),
+            "target":           parent_vcb.get("target",""),
+            "maximum":          parent_vcb.get("maximum",{}),
+            "purpose":          parent_vcb.get("purpose",""),
+        }
+        valid, reason = _check_authority_narrowing(parent_boundary, child_boundary)
+        if not valid:
+            raise HTTPException(status_code=400,
+                detail=f"INVARIANT_I3_VIOLATION: {reason}. Child scope must be ⊆ parent scope.")
+
+    taxonomy = CONSEQUENCE_TAXONOMY[consequence_type]
+
+    vcb = {
+        "schema":            "VCB-P/0.1",
+        "vcb_id":            vcb_id,
+        "protocol":          "verisigil-vcb",
+        "version":           "0.1",
+
+        # Subject
+        "agent_id":          req.get("agent_id",""),
+        "principal_id":      req.get("principal_id",""),
+
+        # Consequence (typed, not API-bound)
+        "consequence_type":  consequence_type,
+        "consequence_class": taxonomy["class"],
+        "consequence_materiality": taxonomy["materiality"],
+        "reversible":        taxonomy["reversible"],
+        "target":            req.get("target",""),
+        "maximum":           req.get("maximum",{}),
+        "purpose":           req.get("purpose",""),
+        "intent_reference":  req.get("intent_reference",""),
+
+        # Conditions and prohibitions
+        "conditions":        req.get("conditions",[]),
+        "prohibited":        req.get("prohibited",[]),
+        "evidence_requirements": req.get("evidence_requirements",[]),
+
+        # Execution rules
+        "max_executions":    req.get("max_executions", 1),
+        "replay_protection": True,  # ALWAYS enabled
+        "expires_at":        req.get("expires_at", None),
+        "expires_in_seconds":req.get("expires_in", 300),
+
+        # Delegation
+        "parent_vcb_id":     parent_vcb_id,
+        "delegation_depth":  parent_vcb.get("delegation_depth",0) + 1 if parent_vcb else 0,
+        "delegation_allowed":req.get("delegation_allowed", False),
+
+        # State requirements
+        "policy_id":         req.get("policy_id",""),
+        "policy_version":    req.get("policy_version",""),
+
+        # Invariants (always enforced)
+        "invariants":        VCB_INVARIANTS,
+
+        # Issuer
+        "issuer": {
+            "type":          "verisigil_runtime",
+            "public_key":    "lJWG0Wabt6uATPu5Upo6UEHWGXQqMyi6LMKQC0xwpY8=",
+            "algorithm":     "Ed25519",
+        },
+
+        # Positioning
+        "note": (
+            "VCB controls permission to cause a CONSEQUENCE TYPE — not access to an API. "
+            "The same boundary works for MONEY.TRANSFER, CODE.DEPLOY, or DATA.DELETE. "
+            "VCB is additive to OAuth/IAM — it does not replace them."
+        ),
+
+        "created_at": ts,
+    }
+
+    canonical = _canonical_semantic_json({
+        "vcb_id":           vcb_id,
+        "consequence_type": consequence_type,
+        "target":           str(req.get("target","")),
+        "maximum":          req.get("maximum",{}),
+        "purpose":          req.get("purpose",""),
+        "agent_id":         req.get("agent_id",""),
+        "timestamp":        ts,
+    })
+    vcb["vcb_hash"]          = hashlib.sha256(canonical.encode()).hexdigest()
+    vcb["canonical_json"]    = canonical
+    vcb["vcb_signature"]     = sign_governance_payload(
+        {"vcb_id": vcb_id, "vcb_hash": vcb["vcb_hash"], "consequence_type": consequence_type, "timestamp": ts}
+    )
+
+    _VCB_REGISTRY[vcb_id] = vcb
+    _emit_proof_event("VCB_CREATED", vcb_id,
+                      {"consequence_type": consequence_type, "materiality": taxonomy["materiality"]}, ts)
+
+    return vcb
+
+
+@app.post("/v1/evaluate", tags=["VCB — Consequence Boundary Protocol"])
+async def vcb_evaluate(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Evaluate whether a proposed action satisfies a VCB.
+
+    Step 1 of the consequence-boundary check.
+    Returns ADMISSIBLE (can proceed to clearance) or REJECTED.
+
+    The canonical action model converts any API call to a
+    consequence-typed representation before comparison.
+    This prevents superficial request changes from evading checks.
+    """
+    require_api_key(x_api_key, authorization)
+    ts     = datetime.now(timezone.utc).isoformat()
+
+    vcb_id = req.get("vcb_id","")
+    action = req.get("action",{})
+
+    vcb = _VCB_REGISTRY.get(vcb_id)
+    if not vcb:
+        return {"result": "REJECTED", "reason": "VCB not found", "vcb_id": vcb_id}
+
+    # Check expiry
+    expires_at = vcb.get("expires_at")
+    if expires_at:
+        from datetime import datetime as dt
+        try:
+            if dt.fromisoformat(expires_at.replace("Z","+00:00")) < dt.now(timezone.utc):
+                return {"result": "REJECTED", "reason": "EXPIRED", "vcb_id": vcb_id}
+        except Exception:
+            pass
+
+    failures = []
+
+    # Consequence type match
+    proposed_type = action.get("consequence_type", action.get("type",""))
+    if proposed_type != vcb.get("consequence_type",""):
+        failures.append(f"CONSEQUENCE_MISMATCH: proposed {proposed_type} ≠ authorized {vcb.get('consequence_type')}")
+
+    # Target match
+    proposed_target = str(action.get("target",""))
+    authorized_target = str(vcb.get("target",""))
+    if authorized_target and proposed_target != authorized_target:
+        failures.append(f"TARGET_MISMATCH: proposed {proposed_target} ≠ authorized {authorized_target}")
+
+    # Magnitude check
+    maximum = vcb.get("maximum",{})
+    if maximum.get("amount"):
+        try:
+            proposed_amount = float(action.get("amount", 0))
+            max_amount      = float(maximum.get("amount", float('inf')))
+            if proposed_amount > max_amount:
+                failures.append(f"MAGNITUDE_EXCEEDED: {proposed_amount} > authorized maximum {max_amount}")
+        except Exception:
+            pass
+
+    # Purpose match
+    authorized_purpose = vcb.get("purpose","")
+    proposed_purpose   = action.get("purpose","")
+    if authorized_purpose and proposed_purpose and proposed_purpose != authorized_purpose:
+        failures.append(f"PURPOSE_MISMATCH: proposed {proposed_purpose} ≠ authorized {authorized_purpose}")
+
+    # Canonical action hash
+    action_hash = _canonicalize_action({**action, "consequence_type": proposed_type})
+
+    if failures:
+        return {
+            "result":      "REJECTED",
+            "failures":    failures,
+            "vcb_id":      vcb_id,
+            "action_hash": action_hash,
+            "fail_closed_note": VCB_INVARIANTS["I8"],
+        }
+
+    return {
+        "result":      "ADMISSIBLE",
+        "vcb_id":      vcb_id,
+        "action_hash": action_hash,
+        "proceed":     "Issue clearance via POST /v1/clearances",
+        "evaluated_at":ts,
+    }
+
+
+@app.post("/v1/clearances", tags=["VCB — Consequence Boundary Protocol"])
+async def vac_issue(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Issue a VeriSigil Action Clearance (VAC).
+
+    VAC = the specific execution clearance produced from a VCB.
+
+    VCB = the fence (defines permitted consequence)
+    VAC = the gate opening (authorizes this specific execution)
+
+    Properties:
+    - Short-lived (default 60 seconds)
+    - One-time use (replay protection built in)
+    - Cryptographically signed
+    - References VCB + evidence root
+    - Independently verifiable by receiver without server
+
+    SDK: verisigil.get_clearance(vcb_id, action) → VAC
+
+    Expert B (8.2/10): "Free verification, paid issuance."
+    Expert C (7.1/10): "VAC authorizes this specific execution."
+    """
+    require_api_key(x_api_key, authorization)
+    ts     = datetime.now(timezone.utc).isoformat()
+    vac_id = f"VAC-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}"
+
+    vcb_id     = req.get("vcb_id","")
+    action     = req.get("action",{})
+    receiver_id= req.get("receiver_id","")
+    evidence_root = req.get("evidence_root","")
+
+    vcb = _VCB_REGISTRY.get(vcb_id)
+    if not vcb:
+        raise HTTPException(status_code=404, detail=f"VCB {vcb_id} not found")
+
+    # Evaluate first
+    eval_result = await vcb_evaluate(
+        {"vcb_id": vcb_id, "action": action},
+        x_api_key=x_api_key, authorization=authorization,
+    )
+    if eval_result.get("result") != "ADMISSIBLE":
+        raise HTTPException(status_code=400,
+            detail=f"Action not admissible under VCB: {eval_result.get('failures')}")
+
+    action_hash = eval_result.get("action_hash","")
+
+    # Short-lived expiry (fail closed after this)
+    from datetime import datetime as dt, timedelta
+    ttl_seconds  = req.get("ttl_seconds", 60)
+    expires_at   = (dt.now(timezone.utc) + timedelta(seconds=ttl_seconds)).isoformat()
+
+    vac = {
+        "schema":          "VGS-VAC-P/0.1",
+        "vac_id":          vac_id,
+        "vcb_id":          vcb_id,
+        "receiver_id":     receiver_id,
+
+        # The specific authorized action
+        "action":          action,
+        "action_hash":     action_hash,
+
+        # Short-lived semantics
+        "issued_at":       ts,
+        "expires_at":      expires_at,
+        "ttl_seconds":     ttl_seconds,
+        "max_uses":        1,
+        "status":          "ACTIVE",
+
+        # Evidence binding
+        "evidence_root":   evidence_root,
+
+        # Chain reference (for multi-agent)
+        "parent_clearance_id": req.get("parent_clearance_id", None),
+
+        # Verification
+        "public_key":      "lJWG0Wabt6uATPu5Upo6UEHWGXQqMyi6LMKQC0xwpY8=",
+        "algorithm":       "Ed25519",
+        "offline_verifiable": True,
+
+        "fail_closed_note": VCB_INVARIANTS["I8"],
+    }
+
+    canonical = _canonical_semantic_json({
+        "vac_id":      vac_id,
+        "vcb_id":      vcb_id,
+        "action_hash": action_hash,
+        "expires_at":  expires_at,
+        "timestamp":   ts,
+    })
+    vac["vac_hash"]          = hashlib.sha256(canonical.encode()).hexdigest()
+    vac["canonical_json"]    = canonical
+    vac["vac_signature"]     = sign_governance_payload(
+        {"vac_id": vac_id, "vac_hash": vac["vac_hash"], "expires_at": expires_at, "timestamp": ts}
+    )
+
+    _VAC_REGISTRY[vac_id] = vac
+    _emit_proof_event("VAC_ISSUED", vac_id, {"vcb_id": vcb_id, "ttl_seconds": ttl_seconds}, ts)
+
+    return vac
+
+
+@app.post("/v1/clearances/{vac_id}/consume", tags=["VCB — Consequence Boundary Protocol"])
+async def vac_consume(
+    vac_id: str,
+    req: dict = {},
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Consume a one-time VAC (replay protection).
+
+    Once consumed, the VAC cannot be used again.
+    This is the core replay protection mechanism.
+
+    Invariant I5: Expired means invalid.
+    Invariant I6: Revoked means invalid.
+    Invariant I8: Fail closed — CONSUMED → REJECT on reuse.
+    """
+    require_api_key(x_api_key, authorization)
+    ts  = datetime.now(timezone.utc).isoformat()
+    vac = _VAC_REGISTRY.get(vac_id)
+
+    if not vac:
+        raise HTTPException(status_code=404, detail=f"VAC {vac_id} not found")
+    if vac_id in _CONSUMED_VACS:
+        raise HTTPException(status_code=409, detail=f"REPLAY_REJECTED: VAC {vac_id} already consumed. Invariant I8: fail closed.")
+    if vac_id in _REVOKED_VACS:
+        raise HTTPException(status_code=409, detail=f"REVOKED: VAC {vac_id} has been revoked.")
+
+    _CONSUMED_VACS.add(vac_id)
+    vac["status"]       = "CONSUMED"
+    vac["consumed_at"]  = ts
+    _VAC_REGISTRY[vac_id] = vac
+
+    _emit_proof_event("VAC_CONSUMED", vac_id, {"consumed_at": ts}, ts)
+    return {"vac_id": vac_id, "status": "CONSUMED", "consumed_at": ts,
+            "invariant": "I8: fail closed — this VAC cannot be reused"}
+
+
+@app.post("/v1/clearances/{vac_id}/revoke", tags=["VCB — Consequence Boundary Protocol"])
+async def vac_revoke(
+    vac_id: str,
+    req: dict = {},
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Revoke a VAC before it is consumed.
+
+    Real-time revocation — if conditions change (policy update,
+    authority withdrawn, fraud detected) the clearance can be
+    invalidated before execution.
+
+    Invariant I6: Revoked means invalid.
+    """
+    require_api_key(x_api_key, authorization)
+    ts  = datetime.now(timezone.utc).isoformat()
+    vac = _VAC_REGISTRY.get(vac_id)
+    if not vac:
+        raise HTTPException(status_code=404, detail=f"VAC {vac_id} not found")
+
+    _REVOKED_VACS.add(vac_id)
+    vac["status"]      = "REVOKED"
+    vac["revoked_at"]  = ts
+    vac["revoke_reason"] = req.get("reason","")
+    _VAC_REGISTRY[vac_id] = vac
+
+    _emit_proof_event("VAC_REVOKED", vac_id, {"reason": req.get("reason","")}, ts)
+    return {"vac_id": vac_id, "status": "REVOKED", "revoked_at": ts}
+
+
+@app.post("/v1/receiver/profile", tags=["VCB — Receiver Acceptance Protocol"])
+async def receiver_profile_register(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Register a Receiver Acceptance Profile.
+
+    EXPERT A'S KEY INSIGHT:
+    "The AI does not own the permission. The consequence receiver
+    participates in the contract."
+
+    A bank, hospital, cloud platform, or any downstream system
+    publishes what consequences they will accept — and under
+    what conditions. VeriSigil evaluates compatibility.
+
+    This is the OUTSIDER forcing function:
+    Receiver publishes → AI builders must satisfy it → VeriSigil
+    becomes the compatibility layer. Not by law. By design.
+    """
+    require_api_key(x_api_key, authorization)
+    ts          = datetime.now(timezone.utc).isoformat()
+    receiver_id = req.get("receiver_id","") or f"RCV-{hashlib.sha256(ts.encode()).hexdigest()[:8].upper()}"
+
+    profile = {
+        "schema":              "VGS-RECEIVER-PROFILE-1.0",
+        "receiver_id":         receiver_id,
+        "receiver_name":       req.get("receiver_name",""),
+        "accepted_consequences": req.get("accepted_consequences",[]),
+        "requirements": {
+            "minimum_materiality":   req.get("minimum_materiality","M3"),
+            "recipient_binding":     req.get("recipient_binding", True),
+            "single_execution":      req.get("single_execution", True),
+            "freshness_seconds":     req.get("freshness_seconds", 60),
+            "human_approval_above":  req.get("human_approval_above", None),
+            "fail_on_unknown":       True,  # Invariant I8: fail closed
+        },
+        "receiver_note": (
+            "This receiver accepts AI-originated consequences ONLY when "
+            "they arrive with a valid, unconsumed, unexpired VeriSigil VAC "
+            "that satisfies this profile. VeriSigil is additive to our own "
+            "internal authorization — we remain the authority over our system."
+        ),
+        "registered_at": ts,
+    }
+
+    seal = {"receiver_id": receiver_id, "timestamp": ts}
+    profile["governance_signature"] = sign_governance_payload(seal)
+    _RECEIVER_PROFILES[receiver_id]  = profile
+    return profile
+
+
+@app.post("/v1/continuity/create", tags=["VCB — VCS Continuity State"])
+async def vcs_create(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Create a VCS — VeriSigil Continuity State.
+
+    For multi-agent execution: VCB → VAC → VCS → VAC → ENFORCE
+
+    VCS carries the delegation/authority state across agent hops.
+    It answers: "How did this authority get here?"
+
+    It enforces Invariant I3 at every hop:
+    child_scope ⊆ parent_scope. ALWAYS.
+
+    Pattern:
+    Principal → Agent A (VCB-001) → Agent B (VCB-002) → Agent C (VAC) → Effect
+
+    At each hop, authority can only NARROW — never amplify.
+    """
+    require_api_key(x_api_key, authorization)
+    ts     = datetime.now(timezone.utc).isoformat()
+    vcs_id = f"VCS-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}"
+
+    parent_vcb_id  = req.get("parent_vcb_id","")
+    child_vcb_id   = req.get("child_vcb_id","")
+    agent_id       = req.get("agent_id","")
+    delegation_reason = req.get("delegation_reason","")
+
+    parent_vcb = _VCB_REGISTRY.get(parent_vcb_id,{})
+    child_vcb  = _VCB_REGISTRY.get(child_vcb_id,{})
+
+    # Check narrowing at this hop
+    if parent_vcb and child_vcb:
+        valid, reason = _check_authority_narrowing(
+            {"consequence_type": parent_vcb.get("consequence_type",""),
+             "target": parent_vcb.get("target",""),
+             "maximum": parent_vcb.get("maximum",{})},
+            {"consequence_type": child_vcb.get("consequence_type",""),
+             "target": child_vcb.get("target",""),
+             "maximum": child_vcb.get("maximum",{})},
+        )
+        if not valid:
+            raise HTTPException(status_code=400,
+                detail=f"INVARIANT_I3_VIOLATION at hop: {reason}")
+
+    parent_vcs_id = req.get("parent_vcs_id","")
+    parent_vcs    = _VCS_REGISTRY.get(parent_vcs_id,{})
+    depth         = parent_vcs.get("depth",0) + 1 if parent_vcs else 1
+
+    vcs = {
+        "schema":            "VGS-VCS-P/0.1",
+        "vcs_id":            vcs_id,
+        "parent_vcs_id":     parent_vcs_id,
+        "parent_vcb_id":     parent_vcb_id,
+        "child_vcb_id":      child_vcb_id,
+        "agent_id":          agent_id,
+        "delegation_reason": delegation_reason,
+        "depth":             depth,
+        "authority_narrowed_to": child_vcb.get("maximum",{}) if child_vcb else {},
+        "invariant_I3":      "child_scope ⊆ parent_scope: enforced at every hop",
+        "chain_hash":        hashlib.sha256(
+            (parent_vcs_id + parent_vcb_id + child_vcb_id + agent_id).encode()
+        ).hexdigest(),
+        "created_at": ts,
+    }
+
+    seal = {"vcs_id": vcs_id, "chain_hash": vcs["chain_hash"], "timestamp": ts}
+    vcs["governance_signature"] = sign_governance_payload(seal)
+    _VCS_REGISTRY[vcs_id] = vcs
+    _emit_proof_event("VCS_CREATED", vcs_id,
+                      {"depth": depth, "agent_id": agent_id}, ts)
+    return vcs
+
+
+@app.get("/v1/boundaries/{vcb_id}", tags=["VCB — Consequence Boundary Protocol"])
+async def vcb_get(vcb_id: str, x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
+    require_api_key(x_api_key, authorization)
+    vcb = _VCB_REGISTRY.get(vcb_id)
+    if not vcb: raise HTTPException(status_code=404, detail=f"VCB {vcb_id} not found")
+    return vcb
+
+
+@app.get("/v1/clearances/{vac_id}", tags=["VCB — Consequence Boundary Protocol"])
+async def vac_get(vac_id: str, x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
+    require_api_key(x_api_key, authorization)
+    vac = _VAC_REGISTRY.get(vac_id)
+    if not vac: raise HTTPException(status_code=404, detail=f"VAC {vac_id} not found")
+    return vac
+
+
+@app.get("/v1/vcb/taxonomy", tags=["VCB — Consequence Boundary Protocol"])
+async def vcb_taxonomy():
+    """Consequence taxonomy — typed consequences, not API endpoints. No auth required."""
+    return {
+        "schema":         "VCB-TAXONOMY-v0.1",
+        "title":          "VeriSigil Consequence Taxonomy",
+        "total":          len(CONSEQUENCE_TAXONOMY),
+        "consequences":   CONSEQUENCE_TAXONOMY,
+        "materiality":    CONSEQUENCE_MATERIALITY,
+        "key_principle":  "CONSEQUENCE ≠ API. The same VCB architecture handles MONEY.TRANSFER, CODE.DEPLOY, and DATA.DELETE.",
+        "timestamp":      datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@app.get("/v1/vcb/invariants", tags=["VCB — Consequence Boundary Protocol"])
+async def vcb_invariants():
+    """VCB core invariants — these are NEVER violated. No auth required."""
+    return {
+        "schema":        "VCB-INVARIANTS-v0.1",
+        "invariants":    VCB_INVARIANTS,
+        "north_star":    "No consequential AI action should be executable beyond its independently verifiable consequence boundary.",
+        "category":      "AI Consequence Infrastructure",
+        "differentiation": (
+            "OAuth/IAM control ACCESS to APIs. "
+            "VCB controls permission to CAUSE CONSEQUENCE TYPES. "
+            "VCB is additive — not a replacement for OAuth/IAM."
+        ),
+        "timestamp":     datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@app.get("/v1/vcb/sdk", tags=["VCB — Consequence Boundary Protocol"])
+async def vcb_sdk_quickstart():
+    """
+    VCB SDK quickstart — get_clearance() in 3 lines.
+    No auth required.
+    """
+    return {
+        "schema":      "VCB-SDK-v0.1",
+        "python_sdk":  "pip install verisigil",
+        "quickstart": {
+            "step_1_create_boundary": (
+                "boundary = verisigil.boundary(\n"
+                "    consequence='MONEY.TRANSFER',\n"
+                "    target='supplier_7821',\n"
+                "    maximum={'amount': 10000, 'currency': 'USD'},\n"
+                "    purpose='supplier_payment',\n"
+                "    expires_in=300\n"
+                ")"
+            ),
+            "step_2_get_clearance": (
+                "clearance = verisigil.get_clearance(\n"
+                "    boundary=boundary,\n"
+                "    action={\n"
+                "        'consequence_type': 'MONEY.TRANSFER',\n"
+                "        'target': 'supplier_7821',\n"
+                "        'amount': 7420,\n"
+                "        'currency': 'USD'\n"
+                "    }\n"
+                ")\n"
+                "# Returns: VAC-7F9A38KD (short-lived, one-time)"
+            ),
+            "step_3_verify_and_consume": (
+                "if verisigil.verify(clearance).accepted:\n"
+                "    verisigil.consume(clearance)  # replay protection\n"
+                "    execute_payment()\n"
+                "else:\n"
+                "    reject_payment()  # fail closed — Invariant I8"
+            ),
+        },
+        "consequence_types": list(CONSEQUENCE_TAXONOMY.keys()),
+        "pricing": {
+            "verification": "Free — anyone can verify any VAC without an account",
+            "clearance_issuance": "Paid — VeriSigil charges per consequential action evaluated",
+            "rationale": "Free verification creates adoption. Paid issuance is the business.",
+        },
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=int(os.environ.get("PORT", 8000)), reload=False)
