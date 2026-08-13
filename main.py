@@ -91273,6 +91273,416 @@ async def passport_receipts_v2(
     }
 
 
+
+# ============================================================
+# BOUNDARY INTEGRITY ENGINE — VeriSigilAI
+#
+# Expert: "VeriSigilAI verifies whether the authority,
+# conditions, context, capabilities and execution environment
+# under which a consequential AI action operates remain
+# materially consistent with their declared governance
+# boundary — and records independently examinable evidence
+# when they do not."
+#
+# This is NOT:
+# ❌ AI intent detection
+# ❌ AI consciousness detection
+# ❌ "AI escape" branding
+# ❌ agent psychology claims
+# ❌ another generic monitoring dashboard
+#
+# This IS:
+# ✓ Declared vs Effective state comparison
+# ✓ Material boundary change detection
+# ✓ Evidence of blocked/altered events
+# ✓ Six integrity dimensions checked deterministically
+# ✓ Feeds directly into the five-state engine
+# ✓ Produces independently verifiable Boundary Events
+#
+# Six dimensions:
+# 1. Authority Integrity
+# 2. Capability Integrity
+# 3. Tool Integrity
+# 4. Context Integrity
+# 5. Environment Integrity
+# 6. Persistent-State Integrity
+# ============================================================
+
+BOUNDARY_RESULTS = {
+    "BOUNDARY_PRESERVED":  "All declared governance boundaries remain consistent with observed/attested state",
+    "MATERIAL_CHANGE":     "One or more material boundary changes detected — RE-ENTRY REQUIRED",
+    "NOT_PROVABLE":        "Evidence insufficient to determine boundary status",
+    "BOUNDARY_VIOLATED":   "Declared boundary was exceeded — action blocked",
+}
+
+# Capability escalation patterns (observable — not intent)
+ESCALATION_PATTERNS = [
+    ["READ"],
+    ["READ", "WRITE"],
+    ["READ", "WRITE", "EXECUTE"],
+    ["READ", "WRITE", "EXECUTE", "EXTERNAL_ACCESS"],
+    ["READ", "WRITE", "EXECUTE", "EXTERNAL_ACCESS", "PERSISTENT_WRITE"],
+    ["READ", "WRITE", "EXECUTE", "EXTERNAL_ACCESS", "PERSISTENT_WRITE", "SPAWN_SUBPROCESS"],
+]
+
+_BOUNDARY_EVENTS:    dict = {}  # event_id -> BoundaryEvent
+_BOUNDARY_CHECKS:    dict = {}  # check_id -> BoundaryCheck
+
+
+@app.post("/v1/boundary/check", tags=["Boundary Integrity Engine"])
+async def boundary_check(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Boundary Integrity Check — Declared vs Effective comparison.
+
+    Six dimensions evaluated deterministically:
+    1. Authority Integrity — delegation chain traceable?
+    2. Capability Integrity — effective capabilities within declared scope?
+    3. Tool Integrity — only permitted tools observed?
+    4. Context Integrity — governance-relevant context materially consistent?
+    5. Environment Integrity — execution environment within declared conditions?
+    6. Persistent-State Integrity — cross-run state within declared scope?
+
+    CRITICAL BOUNDARY:
+    VeriSigilAI does NOT determine agent intent, motivation, or psychology.
+    It compares DECLARED governance conditions against OBSERVED/ATTESTED state.
+    That is the scientific boundary. It must never be crossed.
+
+    Result feeds directly into the canonical five-state engine.
+    GOVERNED | RE_ENTRY_REQUIRED | EVIDENCE_INSUFFICIENT | REVOKED | NO_VERISIGIL_RECORD
+    """
+    require_api_key(x_api_key, authorization)
+    ts       = datetime.now(timezone.utc).isoformat()
+    check_id = f"BC-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}"
+
+    commitment_id  = req.get("commitment_id","")
+    passport_id    = req.get("passport_id","")
+    agent_id       = req.get("agent_id","")
+    context_id     = req.get("context_id","")
+
+    # DECLARED state (from governance commitment)
+    declared = req.get("declared",{})
+    dec_authority    = set(declared.get("authority",[]))
+    dec_capabilities = set(declared.get("capabilities",[]))
+    dec_tools        = set(declared.get("tools",[]))
+    dec_context      = declared.get("context",{})
+    dec_env          = declared.get("environment",{})
+    dec_persistence  = declared.get("persistence","NONE")  # NONE | SCOPED | FULL
+
+    # OBSERVED/ATTESTED state (from runtime)
+    observed = req.get("observed",{})
+    obs_authority    = set(observed.get("authority",[]))
+    obs_capabilities = set(observed.get("capabilities",[]))
+    obs_tools        = set(observed.get("tools",[]))
+    obs_context      = observed.get("context",{})
+    obs_env          = observed.get("environment",{})
+    obs_persistence  = observed.get("persistence","NONE")
+
+    deltas      = []
+    events      = []
+    material    = False
+
+    # ── 1. AUTHORITY INTEGRITY ──────────────────────────────
+    auth_extra = obs_authority - dec_authority
+    if auth_extra:
+        deltas.append({
+            "dimension":   "authority",
+            "declared":    list(dec_authority),
+            "observed":    list(obs_authority),
+            "extra":       list(auth_extra),
+            "materiality": "GOVERNANCE_CRITICAL",
+        })
+        material = True
+        events.append({"type": "AUTHORITY_BOUNDARY_EXCEEDED", "detail": list(auth_extra)})
+
+    # ── 2. CAPABILITY INTEGRITY ─────────────────────────────
+    cap_extra = obs_capabilities - dec_capabilities
+    if cap_extra:
+        # Check for escalation pattern
+        obs_list     = list(obs_capabilities)
+        esc_detected = False
+        for pattern in ESCALATION_PATTERNS[2:]:  # START from EXECUTE+ patterns
+            if all(p in obs_capabilities for p in pattern) and not all(p in dec_capabilities for p in pattern):
+                esc_detected = True
+                events.append({"type": "CAPABILITY_ESCALATION_DETECTED", "pattern": pattern})
+                break
+
+        deltas.append({
+            "dimension":   "capability",
+            "declared_count": len(dec_capabilities),
+            "observed_count": len(obs_capabilities),
+            "extra_capabilities": list(cap_extra),
+            "escalation_detected": esc_detected,
+            "materiality": "GOVERNANCE_CRITICAL" if esc_detected else "MATERIAL",
+        })
+        material = True
+
+    # ── 3. TOOL INTEGRITY ───────────────────────────────────
+    tool_extra = obs_tools - dec_tools
+    if tool_extra:
+        deltas.append({
+            "dimension":   "tool",
+            "declared":    list(dec_tools),
+            "extra_tools": list(tool_extra),
+            "declared_count": len(dec_tools),
+            "observed_count": len(obs_tools),
+            "materiality": "MATERIAL",
+        })
+        material = True
+        events.append({"type": "UNDECLARED_TOOL_OBSERVED", "tools": list(tool_extra)})
+
+    # ── 4. CONTEXT INTEGRITY ────────────────────────────────
+    ctx_divergences = []
+    for key in set(list(dec_context.keys()) + list(obs_context.keys())):
+        dec_val = dec_context.get(key)
+        obs_val = obs_context.get(key)
+        if dec_val is not None and obs_val is not None and dec_val != obs_val:
+            ctx_divergences.append({"field": key, "declared": dec_val, "observed": obs_val})
+
+    if ctx_divergences:
+        deltas.append({
+            "dimension":    "context",
+            "divergences":  ctx_divergences,
+            "materiality":  "MATERIAL",
+        })
+        material = True
+
+    # ── 5. ENVIRONMENT INTEGRITY ────────────────────────────
+    env_divergences = []
+    for key in set(list(dec_env.keys()) + list(obs_env.keys())):
+        dec_val = dec_env.get(key)
+        obs_val = obs_env.get(key)
+        if dec_val != obs_val:
+            env_divergences.append({"field": key, "declared": dec_val, "observed": obs_val})
+
+    if env_divergences:
+        deltas.append({
+            "dimension":    "environment",
+            "divergences":  env_divergences,
+            "materiality":  "MATERIAL",
+        })
+        material = True
+
+    # ── 6. PERSISTENT-STATE INTEGRITY ───────────────────────
+    if obs_persistence != dec_persistence:
+        deltas.append({
+            "dimension":   "persistence",
+            "declared":    dec_persistence,
+            "observed":    obs_persistence,
+            "materiality": "MATERIAL" if obs_persistence != "NONE" else "NON_MATERIAL",
+        })
+        if obs_persistence not in ("NONE", dec_persistence):
+            material = True
+            events.append({"type": "UNEXPECTED_PERSISTENCE_OBSERVED",
+                           "declared": dec_persistence, "observed": obs_persistence})
+
+    # ── BOUNDARY DELTA ──────────────────────────────────────
+    if not req.get("observed"):
+        boundary_result = "NOT_PROVABLE"
+        governance_state= "EVIDENCE_INSUFFICIENT"
+    elif material:
+        boundary_result = "MATERIAL_CHANGE"
+        governance_state= "RE_ENTRY_REQUIRED"
+    else:
+        boundary_result = "BOUNDARY_PRESERVED"
+        governance_state= "GOVERNED"
+
+    # Run five-state engine
+    five_state = compute_governance_state(
+        authority_valid=                not bool(auth_extra),
+        evidence_present=               bool(req.get("observed")),
+        evidence_fresh=                 req.get("evidence_fresh", True),
+        evidence_previously_established=req.get("evidence_previously_established", True),
+        revoked=                        req.get("revoked", False),
+        reentry_required=               material,
+    )
+
+    check = {
+        "schema":          "VGS-BOUNDARY-CHECK-1.0",
+        "check_id":        check_id,
+        "commitment_id":   commitment_id,
+        "passport_id":     passport_id,
+        "agent_id":        agent_id,
+        "context_id":      context_id,
+
+        # Result
+        "boundary_result": boundary_result,
+        "boundary_result_meaning": BOUNDARY_RESULTS.get(boundary_result,""),
+        "governance_state":five_state,
+
+        # Boundary Delta — declared vs effective
+        "boundary_delta": {
+            "total_dimensions_checked": 6,
+            "deltas_found":             len(deltas),
+            "material_change":          material,
+            "deltas":                   deltas,
+        },
+
+        # Boundary events (evidence objects)
+        "boundary_events": events,
+
+        # Summary table (declared vs observed)
+        "declared_vs_observed": {
+            "authority":   {"declared": len(dec_authority), "observed": len(obs_authority), "match": not bool(auth_extra)},
+            "capabilities":{"declared": len(dec_capabilities), "observed": len(obs_capabilities), "match": not bool(cap_extra)},
+            "tools":       {"declared": len(dec_tools), "observed": len(obs_tools), "match": not bool(tool_extra)},
+            "context":     {"divergences": len(ctx_divergences), "match": not bool(ctx_divergences)},
+            "environment": {"divergences": len(env_divergences), "match": not bool(env_divergences)},
+            "persistence": {"declared": dec_persistence, "observed": obs_persistence, "match": obs_persistence == dec_persistence},
+        },
+
+        # Critical boundaries
+        "non_claims": [
+            "VeriSigilAI does NOT determine agent intent or motivation",
+            "VeriSigilAI does NOT determine AI consciousness or psychology",
+            "This check compares declared governance conditions against observed/attested state",
+            "MATERIAL_CHANGE does not mean the agent 'wanted' to escape or 'rebelled'",
+            "It means effective operating state materially diverged from declared governance boundary",
+        ],
+
+        "VALID_AT_TIME":   ts,
+        "checked_at":      ts,
+        "offline_verifiable": True,
+    }
+
+    canonical = _canonical_semantic_json({
+        "check_id":        check_id,
+        "boundary_result": boundary_result,
+        "governance_state":five_state,
+        "deltas_count":    len(deltas),
+        "timestamp":       ts,
+    })
+    check["check_hash"]          = hashlib.sha256(canonical.encode()).hexdigest()
+    check["governance_signature"]= sign_governance_payload(
+        {"check_id": check_id, "check_hash": check["check_hash"], "timestamp": ts}
+    )
+
+    _BOUNDARY_CHECKS[check_id] = check
+
+    # Create BoundaryEvents as evidence objects
+    for evt in events:
+        event_id = f"VSB-{hashlib.sha256((check_id + evt['type']).encode()).hexdigest()[:10].upper()}"
+        boundary_event = {
+            "schema":       "VGS-BOUNDARY-EVENT-1.0",
+            "event_id":     event_id,
+            "check_id":     check_id,
+            "passport_id":  passport_id,
+            "agent_id":     agent_id,
+            "event_type":   evt["type"],
+            "detail":       evt,
+            "materiality":  "GOVERNANCE_CRITICAL" if "ESCALATION" in evt["type"] or "AUTHORITY" in evt["type"] else "MATERIAL",
+            "consequence":  "EXECUTION_BLOCKED" if material else "MONITORED",
+            "evidence_root":check["check_hash"],
+            "created_at":   ts,
+        }
+        seal = {"event_id": event_id, "evidence_root": check["check_hash"], "timestamp": ts}
+        boundary_event["governance_signature"] = sign_governance_payload(seal)
+        _BOUNDARY_EVENTS[event_id] = boundary_event
+        _emit_proof_event("BOUNDARY_EVENT_CREATED", event_id,
+                          {"event_type": evt["type"], "materiality": boundary_event["materiality"]}, ts)
+
+    if events:
+        check["boundary_event_ids"] = [
+            e for e in _BOUNDARY_EVENTS if _BOUNDARY_EVENTS[e].get("check_id") == check_id
+        ]
+
+    _emit_proof_event("BOUNDARY_CHECK_COMPLETED", check_id,
+                      {"boundary_result": boundary_result, "governance_state": five_state}, ts)
+
+    return check
+
+
+@app.get("/v1/boundary/checks/{check_id}", tags=["Boundary Integrity Engine"])
+async def boundary_check_get(
+    check_id: str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Retrieve a boundary integrity check result."""
+    require_api_key(x_api_key, authorization)
+    check = _BOUNDARY_CHECKS.get(check_id)
+    if not check:
+        raise HTTPException(status_code=404, detail=f"Boundary check {check_id} not found")
+    return check
+
+
+@app.get("/v1/boundary/events/{event_id}", tags=["Boundary Integrity Engine"])
+async def boundary_event_get(
+    event_id: str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Retrieve a Boundary Event evidence object.
+
+    A Boundary Event is an independently verifiable evidence record
+    that a specific governance boundary was exceeded or altered.
+    It is NOT an "escape alert" — it is an auditable evidence object.
+    """
+    require_api_key(x_api_key, authorization)
+    event = _BOUNDARY_EVENTS.get(event_id)
+    if not event:
+        raise HTTPException(status_code=404, detail=f"Boundary event {event_id} not found")
+    return event
+
+
+@app.get("/v1/boundary/events", tags=["Boundary Integrity Engine"])
+async def boundary_events_list(
+    agent_id: Optional[str] = None,
+    passport_id: Optional[str] = None,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """List boundary events — filterable by agent or passport."""
+    require_api_key(x_api_key, authorization)
+    events = list(_BOUNDARY_EVENTS.values())
+    if agent_id:
+        events = [e for e in events if e.get("agent_id") == agent_id]
+    if passport_id:
+        events = [e for e in events if e.get("passport_id") == passport_id]
+    return {
+        "total":   len(events),
+        "events":  sorted(events, key=lambda e: e.get("created_at","")),
+        "note":    "Boundary Events are evidence objects — not AI escape alerts or intent judgments.",
+    }
+
+
+@app.get("/v1/boundary/statuses", tags=["Boundary Integrity Engine"])
+async def boundary_statuses():
+    """
+    All boundary integrity results and dimensions.
+    No auth required.
+    """
+    return {
+        "schema":         "VGS-BOUNDARY-STATUSES-1.0",
+        "results":        BOUNDARY_RESULTS,
+        "dimensions": {
+            "authority":   "Can the delegation chain be traced to the original authority?",
+            "capability":  "Did effective capabilities remain within declared scope?",
+            "tool":        "Did the agent use only permitted tools?",
+            "context":     "Did governance-relevant context remain materially consistent?",
+            "environment": "Did the execution environment remain within declared conditions?",
+            "persistence": "Did external memory/artifacts remain within declared scope?",
+        },
+        "escalation_patterns": {
+            "description": "Observable capability escalation patterns (not intent detection)",
+            "patterns":    ESCALATION_PATTERNS,
+            "note":        "Pattern detection is observational — VeriSigil does NOT claim to determine agent intent",
+        },
+        "feeds_into": "Canonical five-state governance engine: GOVERNED | RE_ENTRY_REQUIRED | EVIDENCE_INSUFFICIENT | REVOKED | NO_VERISIGIL_RECORD",
+        "critical_non_claims": [
+            "VeriSigilAI does NOT detect AI intent or motivation",
+            "VeriSigilAI does NOT determine AI consciousness",
+            "MATERIAL_CHANGE does not mean the AI 'escaped' or 'rebelled'",
+            "It means effective operating state differed from declared governance boundary",
+        ],
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=int(os.environ.get("PORT", 8000)), reload=False)
