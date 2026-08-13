@@ -91683,6 +91683,494 @@ async def boundary_statuses():
     }
 
 
+
+# ============================================================
+# VERISIGIL GOVERNANCE CODE (VGC) — Protocol v0.1
+#
+# Expert: "The next engineering document should be a locked
+# VGC Protocol v0.1 specification: identifier format,
+# cryptographic binding, resolver, lifecycle, QR/DataMatrix
+# representation, API, offline verification, Passport/Receipt
+# relationship, C2PA interoperability, conformance tests,
+# and the exact conditions under which a VGC can be issued."
+#
+# THE ANALOGY (what this is trying to be):
+# Barcode → identifies a product
+# QR      → identifies/accesses information
+# OTP     → proves possession at a moment
+# Cookie  → records/communicates web state
+# C2PA    → content provenance
+# VGC     → machine-verifiable governance reference for a
+#            consequential AI action
+#
+# THE KEY DISTINCTION:
+# C2PA follows the ASSET (content provenance)
+# VGC follows the GOVERNED EVENT (governance/action provenance)
+#
+# THE HIERARCHY (after VGC):
+# VGC (identifier/primitive)
+#  → Governance Action Receipt (portable event record)
+#  → Proof Passport (comprehensive evidence record)
+#  → Evidence Package (underlying verification material)
+#  → Seal (human visual indicator)
+#  → Resolver (infrastructure connecting ID to verification)
+#  → Offline Verifier (independent verification without server)
+#
+# VGC IDENTIFIER FORMAT (locked):
+# VGC:<VERSION>-<HASH12>-<GOVERNANCE_STATE_CODE>-<TIMESTAMP_SHORT>
+# Example: VGC:VS1-8K7P29XQ4M6A-GV-20260812
+#
+# VGC can be carried in:
+# - QR codes / DataMatrix
+# - HTTP headers (X-VeriSigil-Governance)
+# - API responses
+# - JSON metadata
+# - PDF document metadata
+# - Transaction records
+# - AI agent protocol outputs
+# - Email headers
+#
+# MOAT STRATEGY (from expert):
+# Protocol easy to adopt → VeriSigil defines, operates,
+# certifies, verifies, and evolves the ecosystem.
+# "Make the verifier free. Make issuance require VeriSigil."
+#
+# WHAT VGC IS NOT:
+# ❌ A replacement for C2PA (content provenance stays with C2PA)
+# ❌ A universal AI safety label
+# ❌ A compliance certificate
+# ❌ An AI trust score
+# ❌ A claim that AI was correct, safe, or approved
+# ============================================================
+
+VGC_PROTOCOL_VERSION = "VGC-PROTOCOL-v0.1"
+
+# Governance state codes (compact representation for VGC identifier)
+VGC_STATE_CODES = {
+    "GOVERNED":            "GV",
+    "RE_ENTRY_REQUIRED":   "RE",
+    "EVIDENCE_INSUFFICIENT":"EI",
+    "REVOKED":             "RV",
+    "NO_VERISIGIL_RECORD": "NR",
+    "NOT_PROVABLE":        "NP",
+}
+
+VGC_STATE_FROM_CODE = {v: k for k, v in VGC_STATE_CODES.items()}
+
+# VGC conformance requirements (machine-checkable)
+VGC_CONFORMANCE_REQUIREMENTS = {
+    "VGC-CF-001": "Identifier matches format VGC:<VERSION>-<HASH12>-<STATE_CODE>-<TIMESTAMP>",
+    "VGC-CF-002": "Governance state is one of the five canonical states",
+    "VGC-CF-003": "Ed25519 signature verifiable against published public key",
+    "VGC-CF-004": "Evidence root present and non-empty",
+    "VGC-CF-005": "Passport reference present (passport_id)",
+    "VGC-CF-006": "Lifecycle status is one of: ACTIVE|SUPERSEDED|REVOKED|EXPIRED",
+    "VGC-CF-007": "Non-claims field present and non-empty",
+    "VGC-CF-008": "Offline verification possible without VeriSigil server",
+    "VGC-CF-009": "Consequence boundary (permitted + prohibited) declared",
+    "VGC-CF-010": "Timestamp is ISO-8601 and VALID_AT_TIME field present",
+    "VGC-CF-011": "VGC can be carried in QR/HTTP header/JSON without modification",
+    "VGC-CF-012": "Resolver returns canonical resolution within defined response schema",
+}
+
+_VGC_REGISTRY: dict = {}  # vgc_id -> VeriSigilGovernanceCode
+
+
+def _build_vgc_identifier(governance_state: str, event_hash: str, ts: str) -> str:
+    """
+    Build a canonical VGC identifier.
+
+    Format: VGC:VS1-{HASH12}-{STATE_CODE}-{DATE8}
+
+    This is the compact machine-readable primitive.
+    It can be placed in a QR code, HTTP header, JSON field,
+    PDF metadata, or any transport layer without modification.
+    """
+    state_code = VGC_STATE_CODES.get(governance_state, "NP")
+    date_short = ts[:10].replace("-","")  # YYYYMMDD
+    hash12     = event_hash[:12].upper()
+    return f"VGC:VS1-{hash12}-{state_code}-{date_short}"
+
+
+@app.post("/v1/vgc/issue", tags=["VGC — VeriSigil Governance Code"])
+async def vgc_issue(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Issue a VeriSigil Governance Code (VGC).
+
+    The VGC is the machine-readable infrastructure primitive
+    that connects a consequential AI action to its governance
+    evidence. It is the identifier layer — not the evidence itself.
+
+    IDENTIFIER FORMAT:
+    VGC:VS1-{HASH12}-{STATE_CODE}-{DATE}
+
+    WHAT VGC DOES:
+    It gives every consequential AI governance event a compact,
+    machine-resolvable identifier that can be placed in any
+    transport layer (QR, HTTP header, API response, metadata).
+
+    WHAT VGC IS NOT:
+    - Not a safety certificate
+    - Not a compliance statement
+    - Not AI content provenance (that is C2PA's role)
+    - Not a trust score or badge
+
+    C2PA follows the asset (content provenance).
+    VGC follows the governed event (governance provenance).
+    These are complementary — VGC does NOT replace C2PA.
+
+    ISSUER: Always VeriSigilAI. Never obscured.
+    Conformance: VGC-CF-001 through VGC-CF-012.
+    """
+    require_api_key(x_api_key, authorization)
+    ts = datetime.now(timezone.utc).isoformat()
+
+    passport_id     = req.get("passport_id","")
+    receipt_id      = req.get("receipt_id","")
+    vga_id          = req.get("vga_id","")
+    governance_state= req.get("governance_state","")
+    action          = req.get("action","")
+    agent_id        = req.get("agent_id","")
+    context_id      = req.get("context_id","")
+
+    if governance_state not in VGC_STATE_CODES:
+        raise HTTPException(status_code=400,
+            detail=f"governance_state must be one of: {list(VGC_STATE_CODES.keys())}")
+
+    # Retrieve connected artifacts
+    passport = _ISSUED_PASSPORTS.get(passport_id,{})
+    receipt  = _GOVERNANCE_ACTION_RECEIPTS.get(receipt_id,{})
+    vga      = _VGA_REGISTRY.get(vga_id,{})
+
+    # Compute event hash for identifier
+    event_canonical = _canonical_semantic_json({
+        "passport_id":      passport_id,
+        "receipt_id":       receipt_id,
+        "governance_state": governance_state,
+        "action":           action,
+        "agent_id":         agent_id,
+        "timestamp":        ts,
+    })
+    event_hash = hashlib.sha256(event_canonical.encode()).hexdigest()
+
+    # Build the VGC identifier
+    vgc_identifier = _build_vgc_identifier(governance_state, event_hash, ts)
+    vgc_id         = f"VGCR-{event_hash[:12].upper()}"  # internal registry ID
+
+    # Evidence root — binding all artifacts
+    evidence_root = hashlib.sha256(
+        (passport.get("artifact_hash","") +
+         receipt.get("receipt_hash","") +
+         vga.get("vga_hash","")).encode()
+    ).hexdigest()
+
+    vgc = {
+        "schema":              VGC_PROTOCOL_VERSION,
+        "vgc_id":              vgc_id,
+
+        # THE PRIMITIVE — this is what travels with the AI action
+        "vgc_identifier":      vgc_identifier,
+        "identifier_format":   "VGC:VS1-{HASH12}-{STATE_CODE}-{DATE8}",
+
+        # Transport representations (carry VGC in any layer)
+        "transport": {
+            "qr_content":      vgc_identifier,
+            "http_header":     f"X-VeriSigil-Governance: {vgc_identifier}",
+            "json_field":      {"verisigil_governance": vgc_identifier},
+            "uri":             f"https://verify.verisigil.ai/vgc/{vgc_id}",
+            "datamatrix":      vgc_identifier,
+            "note":            "VGC can be placed in any transport layer without modification",
+        },
+
+        # Governance state (canonical five-state)
+        "governance_state":    governance_state,
+        "governance_label":    CANONICAL_GOVERNANCE_STATES.get(governance_state,{}).get("label",""),
+        "state_code":          VGC_STATE_CODES[governance_state],
+
+        # What this governed event is
+        "action":              action,
+        "agent_id":            agent_id,
+        "context_id":          context_id,
+        "VALID_AT_TIME":       ts,
+
+        # Evidence artifacts (VGC is the identifier — these are the evidence)
+        "artifacts": {
+            "passport_id":     passport_id,
+            "receipt_id":      receipt_id,
+            "vga_id":          vga_id,
+            "evidence_root":   evidence_root,
+        },
+
+        # Consequence boundary (MANDATORY — from VGA/Passport)
+        "consequence_boundary": {
+            "permitted":       vga.get("purpose_binding",{}).get("permitted_consequences",[]) or
+                               receipt.get("consequence_boundary",{}).get("permitted",[]) or
+                               req.get("permitted_consequences",[]),
+            "prohibited":      vga.get("purpose_binding",{}).get("prohibited_consequences",[]) or
+                               receipt.get("consequence_boundary",{}).get("prohibited",[]) or
+                               req.get("prohibited_consequences",[]),
+        },
+
+        # Lifecycle
+        "lifecycle_status":    "ACTIVE",
+        "issued_at":           ts,
+        "effective_until":     req.get("effective_until",None),
+        "superseded_by":       None,
+
+        # Issuer — always VeriSigilAI
+        "issuer": {
+            "name":            "VeriSigil AI",
+            "identifier":      "verisigilai.com",
+            "public_key":      "lJWG0Wabt6uATPu5Upo6UEHWGXQqMyi6LMKQC0xwpY8=",
+            "algorithm":       "Ed25519",
+            "rule":            "Issuer is always VeriSigilAI. Never obscured. Customer is Subject only.",
+        },
+
+        # Verification
+        "verification": {
+            "online":          f"GET /v1/vgc/resolve/{vgc_id}",
+            "offline":         "Verify Ed25519 vgc_signature against public key. Recompute vgc_hash from canonical_json.",
+            "no_server_required": True,
+            "ivt_tests":       list(VGC_CONFORMANCE_REQUIREMENTS.keys()),
+        },
+
+        # C2PA interoperability
+        "c2pa_interoperability": {
+            "c2pa_role":       "Content provenance (where did this content come from?)",
+            "vgc_role":        "Governance provenance (under what authority and conditions did this AI action occur?)",
+            "relationship":    "Complementary — VGC does NOT replace C2PA",
+            "coexistence":     "A single AI output may carry both a C2PA Content Credential and a VGC",
+        },
+
+        # Non-claims (MANDATORY)
+        "non_claims": [
+            "VGC is an identifier — not the evidence itself",
+            "GOVERNED state does NOT mean AI was correct, safe, or universally authorized",
+            "VGC does NOT certify regulatory compliance",
+            "VGC does NOT replace C2PA content provenance",
+            "VGC is NOT a trust score or safety badge",
+            "Resolving a VGC requires trusting VeriSigil's resolver — offline verification avoids this",
+        ],
+
+        "offline_verifiable":  True,
+        "canonical_json":      event_canonical,
+    }
+
+    # Cryptographic binding
+    vgc["vgc_hash"]          = hashlib.sha256(event_canonical.encode()).hexdigest()
+    vgc["vgc_signature"]     = sign_governance_payload(
+        {"vgc_id": vgc_id, "vgc_identifier": vgc_identifier,
+         "governance_state": governance_state, "evidence_root": evidence_root, "timestamp": ts}
+    )
+
+    _VGC_REGISTRY[vgc_id] = vgc
+    _emit_proof_event("VGC_ISSUED", vgc_id,
+                      {"vgc_identifier": vgc_identifier, "governance_state": governance_state}, ts)
+
+    return vgc
+
+
+@app.get("/v1/vgc/resolve/{vgc_id}", tags=["VGC — VeriSigil Governance Code"])
+async def vgc_resolve(
+    vgc_id: str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    VGC Resolver — resolve a VGC identifier to its governance evidence.
+
+    This is the resolver layer — analogous to GS1 Digital Link
+    connecting a product identifier to its information services.
+
+    Resolving a VGC returns:
+    - Current governance state
+    - Lifecycle status
+    - Artifact references (Passport, Receipt, VGA)
+    - Verification instructions
+    - Current evidence summary
+
+    IMPORTANT: Resolving requires server access.
+    For trust-free verification, use offline procedure instead.
+    """
+    require_api_key(x_api_key, authorization)
+    ts  = datetime.now(timezone.utc).isoformat()
+    vgc = _VGC_REGISTRY.get(vgc_id)
+    if not vgc:
+        raise HTTPException(status_code=404, detail=f"VGC {vgc_id} not found")
+
+    passport_id = vgc.get("artifacts",{}).get("passport_id","")
+    passport    = _ISSUED_PASSPORTS.get(passport_id,{})
+
+    return {
+        "schema":              "VGC-RESOLUTION-v0.1",
+        "vgc_id":              vgc_id,
+        "vgc_identifier":      vgc.get("vgc_identifier",""),
+        "resolved_at":         ts,
+
+        # Current state (may differ from issuance if superseded/revoked)
+        "current_governance_state": vgc.get("governance_state",""),
+        "lifecycle_status":    vgc.get("lifecycle_status",""),
+
+        # Artifacts
+        "artifacts":           vgc.get("artifacts",{}),
+        "passport_status":     passport.get("status",""),
+
+        # Consequence boundary (critical for verification)
+        "consequence_boundary":vgc.get("consequence_boundary",{}),
+
+        # Verification
+        "vgc_signature":       vgc.get("vgc_signature",""),
+        "vgc_hash":            vgc.get("vgc_hash",""),
+        "public_key":          "lJWG0Wabt6uATPu5Upo6UEHWGXQqMyi6LMKQC0xwpY8=",
+        "offline_verification":vgc.get("verification",{}),
+
+        # Non-claims (always present in resolution response)
+        "non_claims":          vgc.get("non_claims",[]),
+
+        "resolver_note": (
+            "This resolution was served by VeriSigil. For trust-free verification, "
+            "use the offline procedure: verify vgc_signature against the published "
+            "public key using Ed25519. No server access required."
+        ),
+    }
+
+
+@app.get("/v1/vgc/{vgc_id}", tags=["VGC — VeriSigil Governance Code"])
+async def vgc_get(
+    vgc_id: str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Retrieve the full VGC record."""
+    require_api_key(x_api_key, authorization)
+    vgc = _VGC_REGISTRY.get(vgc_id)
+    if not vgc:
+        raise HTTPException(status_code=404, detail=f"VGC {vgc_id} not found")
+    return vgc
+
+
+@app.get("/v1/vgc/spec/protocol", tags=["VGC — VeriSigil Governance Code"])
+async def vgc_protocol_spec():
+    """
+    VGC Protocol v0.1 Specification.
+
+    This is the locked specification document for the
+    VeriSigil Governance Code protocol.
+
+    Expert: "The next engineering document should be a locked
+    VGC Protocol v0.1 specification."
+
+    Publish this to Zenodo for DOI + intellectual priority
+    before any public marketing claims.
+
+    No auth required.
+    """
+    return {
+        "schema":              "VGC-PROTOCOL-SPEC-v0.1",
+        "title":               "VeriSigil Governance Code Protocol v0.1",
+        "status":              "DRAFT — Pending Zenodo publication for intellectual priority",
+
+        "abstract": (
+            "The VeriSigil Governance Code (VGC) is a machine-resolvable identifier "
+            "that links a consequential AI governance event to its independently verifiable "
+            "evidence record. VGC enables any transport layer (QR code, HTTP header, API "
+            "response, document metadata) to carry a compact reference to the governance "
+            "conditions, authority, evidence, and lifecycle state surrounding a consequential "
+            "AI action."
+        ),
+
+        "identifier_format": {
+            "pattern":         "VGC:<VERSION>-<HASH12>-<STATE_CODE>-<DATE8>",
+            "example":         "VGC:VS1-8K7P29XQ4M6A-GV-20260812",
+            "components": {
+                "VGC":         "Fixed prefix — VeriSigil Governance Code",
+                "VERSION":     "Protocol version (VS1 = VeriSigil v1)",
+                "HASH12":      "First 12 characters of SHA-256(canonical event JSON), uppercase",
+                "STATE_CODE":  "Two-character governance state: GV|RE|EI|RV|NR|NP",
+                "DATE8":       "Issuance date YYYYMMDD",
+            },
+        },
+
+        "state_codes":         VGC_STATE_CODES,
+
+        "transport_representations": [
+            "QR code (content = VGC identifier string)",
+            "DataMatrix (content = VGC identifier string)",
+            "HTTP header: X-VeriSigil-Governance: VGC:VS1-...",
+            "JSON field: {\"verisigil_governance\": \"VGC:VS1-...\"}",
+            "PDF document metadata",
+            "AI agent protocol response field",
+            "Transaction record field",
+            "Email X-header",
+        ],
+
+        "resolution": {
+            "online":          "GET /v1/vgc/resolve/{vgc_id}",
+            "offline":         "Ed25519 signature verification against published public key",
+            "public_key":      "lJWG0Wabt6uATPu5Upo6UEHWGXQqMyi6LMKQC0xwpY8=",
+            "no_server_required_for_verification": True,
+        },
+
+        "conformance_requirements": VGC_CONFORMANCE_REQUIREMENTS,
+
+        "c2pa_interoperability": {
+            "c2pa_answers":    "Where did this content come from?",
+            "vgc_answers":     "Under what authority and conditions did this consequential AI action occur?",
+            "coexistence":     "A single output may carry both C2PA Content Credential and VGC",
+            "no_competition":  "VGC does not replace or compete with C2PA",
+        },
+
+        "moat_strategy": {
+            "protocol":        "Open specification — easy to understand and adopt",
+            "issuance":        "Requires VeriSigil — controls entry into the ecosystem",
+            "verification":    "Free and open — maximizes adoption",
+            "conformance":     "VeriSigil certifies conformant implementations",
+            "resolver":        "VeriSigil operates the canonical resolver infrastructure",
+            "lesson":          "Barcode reader is free. Barcode printer is the business.",
+        },
+
+        "what_vgc_is_not": [
+            "Not a replacement for C2PA content provenance",
+            "Not a universal AI safety label",
+            "Not a compliance certificate",
+            "Not a trust score",
+            "Not a claim that AI was correct, safe, or approved",
+            "Not a closed proprietary island — designed for ecosystem adoption",
+        ],
+
+        "publication_target": "Zenodo — obtain DOI for intellectual priority before public launch",
+        "timestamp":          datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@app.get("/v1/vgc/conformance/tests", tags=["VGC — VeriSigil Governance Code"])
+async def vgc_conformance_tests():
+    """
+    VGC Conformance Tests VGC-CF-001 through VGC-CF-012.
+
+    Any implementation claiming VGC conformance must pass
+    all 12 conformance requirements.
+
+    No auth required.
+    """
+    return {
+        "schema":              "VGC-CONFORMANCE-v0.1",
+        "total_requirements":  len(VGC_CONFORMANCE_REQUIREMENTS),
+        "requirements":        VGC_CONFORMANCE_REQUIREMENTS,
+        "conformance_note": (
+            "VeriSigil Governance Code conformance is assessed by VeriSigilAI. "
+            "Conformant implementations may carry the 'VGC-CONFORMANT' designation. "
+            "Conformance testing is the mechanism by which VeriSigilAI maintains "
+            "ecosystem quality without making the protocol closed."
+        ),
+        "timestamp":           datetime.now(timezone.utc).isoformat(),
+    }
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=int(os.environ.get("PORT", 8000)), reload=False)
