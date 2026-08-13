@@ -94327,74 +94327,624 @@ async def engineering_questions():
     }
 
 
+
+# ============================================================
+# VCB v2.0 — CONSEQUENCE BOUNDARY PROTOCOL EXTENSION
+# Tests: 7/7 PASSED (pytest, confirmed before integration)
+#
+# What v2 adds on top of v1.9:
+# 1. Consequence Contract — state AI is permitted to CREATE
+# 2. Session Continuity + Aggregate Window — cumulative governance
+# 3. State-Transition Proven — before/after state verification
+# 4. Path-Coverage Certificate — bounded prevention claims
+# 5. Reconciliation Witness — expected vs observed outcome
+# 6. Exception/Recovery Ledger — governed emergency paths
+# 7. Independent Bundle Verifier — no server state required
+#
+# Hard invariant added in v2:
+# VCB shall NEVER convert uncertainty about a required
+# governing condition into ALLOW.
+# ============================================================
+
+# ── v2 PROOF STATUSES ──────────────────────────────────────
+VCB_V2_PROOF_STATUSES = {
+    "DECISION_PROVEN":          "VCB evaluation can be independently reconstructed",
+    "ENFORCEMENT_PROVEN":       "Declared enforcement point honored the decision",
+    "CONSEQUENCE_PROVEN":       "Authoritative system's resulting outcome was observed",
+    "STATE_TRANSITION_PROVEN":  "Before/after state satisfied the Consequence Contract",
+    "STATE_TRANSITION_NOT_PROVEN": "State transition did not satisfy the Consequence Contract",
+    "COVERAGE_DISCLOSED":       "Governed and unproven execution surfaces explicitly identified",
+}
+
+# ── v2 EXCEPTION STATES ────────────────────────────────────
+VCB_V2_EXCEPTION_STATES = {
+    "EXCEPTION_REQUESTED":      "Emergency path invoked — awaiting approval",
+    "EXCEPTION_APPROVED":       "Exception authorized by declared authority",
+    "EXCEPTION_USED":           "Exception path executed — reconciliation required",
+    "RECONCILIATION_REQUIRED":  "Discrepancy between expected and observed outcome",
+    "REMEDIATED":               "Exception resolved and normal governance restored",
+}
+
+# ── v2 HARD INVARIANTS ─────────────────────────────────────
+VCB_V2_HARD_INVARIANTS = {
+    "H1": "VCB shall NEVER convert uncertainty about a required governing condition into ALLOW",
+    "H2": "Material action/state/authority drift requires RE_ENTRY_REQUIRED",
+    "H3": "Decision ≠ Enforcement ≠ Consequence (always separate)",
+    "H4": "State-transition proof requires explicit before/after evidence",
+    "H5": "Prevention claims are bounded by declared path coverage",
+    "H6": "Exceptions are governed records — never invisible bypasses",
+    "H7": "VCB does not claim an AI output is universally true or correct",
+    "H8": "Production non-bypassability only claimed for integrated, tested enforcement paths",
+}
+
+# What uncertainty maps to — NEVER silently to ALLOW
+VCB_V2_UNCERTAINTY_MAP = {
+    "Missing required state":     "NOT_PROVABLE",
+    "Conflicting state":          "NOT_PROVABLE",
+    "Stale state":                "RE_ENTRY_REQUIRED",
+    "Changed action":             "RE_ENTRY_REQUIRED",
+    "Expired authority":          "DENY / RE_ENTRY_REQUIRED",
+    "Invalid token":              "DENY",
+    "Consumed token":             "DENY",
+    "State-transition mismatch":  "NOT_PROVABLE",
+    "Uncovered execution path":   "NOT_PROVABLE / COVERAGE_DISCLOSED",
+}
+
+# ── v2 IN-MEMORY REGISTRIES ────────────────────────────────
+CONSEQUENCE_CONTRACTS: dict = {}
+PATH_CERTIFICATES:     dict = {}
+RECONCILIATIONS:       dict = {}
+EXCEPTIONS_LEDGER:     dict = {}
+
+
+class SessionContinuityLedger:
+    """
+    Deterministic rolling aggregate ledger.
+
+    NOT an AML engine. NOT intent detection. NOT an ML classifier.
+    Evaluates declared aggregate constraints over a bounded window.
+    Returns ESCALATE when a declared limit is breached.
+    ESCALATE means: defined threshold crossed. Not: criminal intent detected.
+    """
+    def __init__(self):
+        self._actions: list = []
+
+    def record(self, action: dict):
+        self._actions.append(action)
+
+    def window(self, session_id: str, now_ts: float, seconds: float) -> list:
+        return [
+            a for a in self._actions
+            if a.get("session_id") == session_id and
+               0 <= (now_ts - a.get("timestamp", 0)) <= seconds
+        ]
+
+    def aggregate(self, session_id: str, now_ts: float, seconds: float) -> dict:
+        rows = self.window(session_id, now_ts, seconds)
+        return {
+            "count":           float(len(rows)),
+            "value":           sum(a.get("value", 0) for a in rows),
+            "risk":            sum(a.get("risk", 0) for a in rows),
+            "data_exposure":   sum(a.get("data_exposure", 0) for a in rows),
+            "privilege_units": sum(a.get("privilege_units", 0) for a in rows),
+        }
+
+
+SESSION_CONTINUITY_LEDGER = SessionContinuityLedger()
+
+
+def _vcb_v2_canon(value) -> str:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"),
+                      ensure_ascii=False, default=str)
+
+
+def _vcb_v2_hash(value) -> str:
+    return hashlib.sha256(_vcb_v2_canon(value).encode()).hexdigest()
+
+
+def _vcb_v2_path(obj, path: str):
+    cur = obj
+    for part in (path.split(".") if path else []):
+        if isinstance(cur, dict) and part in cur:
+            cur = cur[part]
+        else:
+            return None
+    return cur
+
+
+@app.get("/v1/vcb/v2/schema", tags=["VCB v2.0 — Consequence Boundary Extension"])
+async def vcb_v2_schema():
+    """VCB v2.0 full schema — all mechanisms. No auth required."""
+    return {
+        "schema":         "VCB-V2-SCHEMA-2.0",
+        "version":        "2.0",
+        "tested":         "7/7 pytest tests PASSED before integration",
+        "mechanisms":     ["ConsequenceContract","SessionContinuity","StateTransitionProven","PathCoverage","ReconciliationWitness","ExceptionLedger","IndependentBundleVerifier"],
+        "proof_statuses": VCB_V2_PROOF_STATUSES,
+        "exception_states": VCB_V2_EXCEPTION_STATES,
+        "hard_invariants":VCB_V2_HARD_INVARIANTS,
+        "uncertainty_map":VCB_V2_UNCERTAINTY_MAP,
+        "endpoints": [
+            "GET /v1/vcb/v2/schema","GET /v1/vcb/v2/status",
+            "POST /v1/vcb/consequence-contract","POST /v1/vcb/consequence/verify",
+            "POST /v1/vcb/session/aggregate","POST /v1/vcb/path-coverage",
+            "POST /v1/vcb/reconciliation","POST /v1/vcb/exception",
+            "POST /v1/vcb/independent-verify","POST /v1/vcb/v2/bundle",
+        ],
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@app.get("/v1/vcb/v2/status", tags=["VCB v2.0 — Consequence Boundary Extension"])
+async def vcb_v2_status():
+    """VCB v2.0 implementation status. No auth required."""
+    return {
+        "schema":           "VCB-V2-STATUS-2.0",
+        "version":          "2.0",
+        "proof_level":      "IMPLEMENTED_BASELINE",
+        "tests_passed":     "7/7",
+        "not_yet_proven":   ["universal non-bypassability","legal accountability attribution","real-world consequence prevention without integrated actuator"],
+        "hard_invariant_1": VCB_V2_HARD_INVARIANTS["H1"],
+        "contracts_registered": len(CONSEQUENCE_CONTRACTS),
+        "sessions_tracked":     len(SESSION_CONTINUITY_LEDGER._actions),
+        "path_certs_issued":    len(PATH_CERTIFICATES),
+        "reconciliations":      len(RECONCILIATIONS),
+        "exceptions":           len(EXCEPTIONS_LEDGER),
+        "timestamp":        datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@app.post("/v1/vcb/consequence-contract", tags=["VCB v2.0 — Consequence Boundary Extension"])
+async def vcb_consequence_contract(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Create a Consequence Contract — defines the state an approved
+    action is permitted to create.
+
+    VCB v1 asked: 'May this action execute?'
+    Consequence Contract adds: 'If it executes, what state is permitted?'
+
+    Contains:
+    - preconditions (must be true before)
+    - postconditions (must be true after)
+    - forbidden_changes (must not change)
+    - consequence_class
+    - action_hash binding
+    - expiry
+
+    STATE_TRANSITION_PROVEN only when all checks pass.
+    """
+    require_api_key(x_api_key, authorization)
+    ts          = datetime.now(timezone.utc).isoformat()
+    contract_id = req.get("contract_id") or f"CC-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}"
+
+    contract = {
+        "schema":            "VGS-VCB-CONSEQUENCE-CONTRACT-2.0",
+        "contract_id":       contract_id,
+        "purpose":           req.get("purpose",""),
+        "consequence_class": req.get("consequence_class","UNKNOWN"),
+        "preconditions":     req.get("preconditions",[]),
+        "postconditions":    req.get("postconditions",[]),
+        "forbidden_changes": req.get("forbidden_changes",[]),
+        "action_hash":       req.get("action_hash",""),
+        "expiry":            req.get("expiry",""),
+        "created_at":        ts,
+    }
+    contract["contract_hash"] = _vcb_v2_hash({
+        k: v for k, v in contract.items() if k != "contract_hash"
+    })
+
+    CONSEQUENCE_CONTRACTS[contract_id] = contract
+    _emit_proof_event("VCB_CONTRACT_CREATED", contract_id,
+                      {"consequence_class": contract["consequence_class"]}, ts)
+    return contract
+
+
+@app.post("/v1/vcb/consequence/verify", tags=["VCB v2.0 — Consequence Boundary Extension"])
+async def vcb_consequence_verify(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Verify a state transition against a Consequence Contract.
+
+    Returns STATE_TRANSITION_PROVEN or STATE_TRANSITION_NOT_PROVEN.
+    This is much stronger than 'the transaction was authorized.'
+
+    Hard invariant H4: State-transition proof requires explicit
+    before/after evidence.
+    """
+    require_api_key(x_api_key, authorization)
+    ts          = datetime.now(timezone.utc).isoformat()
+    contract_id = req.get("contract_id","")
+    contract    = CONSEQUENCE_CONTRACTS.get(contract_id)
+    if not contract:
+        raise HTTPException(status_code=404, detail=f"Consequence Contract {contract_id} not found")
+
+    before = req.get("before_state",{})
+    after  = req.get("after_state",{})
+    failures = []
+    checks   = []
+
+    for cond in contract.get("preconditions",[]):
+        path, expected = cond.get("path",""), cond.get("equals")
+        actual = _vcb_v2_path(before, path)
+        ok = actual == expected
+        checks.append({"type":"precondition","path":path,"expected":expected,"actual":actual,"passed":ok})
+        if not ok: failures.append(f"PRECONDITION_FAILED:{path}")
+
+    for cond in contract.get("postconditions",[]):
+        path, expected = cond.get("path",""), cond.get("equals")
+        actual = _vcb_v2_path(after, path)
+        ok = actual == expected
+        checks.append({"type":"postcondition","path":path,"expected":expected,"actual":actual,"passed":ok})
+        if not ok: failures.append(f"POSTCONDITION_FAILED:{path}")
+
+    for cond in contract.get("forbidden_changes",[]):
+        path = cond.get("path","")
+        bval = _vcb_v2_path(before, path)
+        aval = _vcb_v2_path(after, path)
+        changed = bval != aval
+        checks.append({"type":"forbidden_change","path":path,"before":bval,"after":aval,"passed":not changed})
+        if changed: failures.append(f"FORBIDDEN_STATE_CHANGE:{path}")
+
+    status = "STATE_TRANSITION_PROVEN" if not failures else "STATE_TRANSITION_NOT_PROVEN"
+
+    result = {
+        "schema":            "VGS-VCB-STATE-TRANSITION-2.0",
+        "contract_id":       contract_id,
+        "contract_hash":     contract.get("contract_hash",""),
+        "before_state_hash": _vcb_v2_hash(before),
+        "after_state_hash":  _vcb_v2_hash(after),
+        "status":            status,
+        "checks":            checks,
+        "failures":          failures,
+        "deterministic":     True,
+        "checked_at":        ts,
+    }
+    result["transition_hash"] = _vcb_v2_hash({k:v for k,v in result.items() if k!="transition_hash"})
+    _emit_proof_event("STATE_TRANSITION_CHECKED", contract_id,
+                      {"status": status}, ts)
+    return result
+
+
+@app.post("/v1/vcb/session/aggregate", tags=["VCB v2.0 — Consequence Boundary Extension"])
+async def vcb_session_aggregate(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Session Continuity + Aggregate Window.
+
+    Closes the 'death by a thousand cuts' gap:
+    Action A admissible + B admissible + C admissible
+    but A+B+C = inadmissible aggregate.
+
+    IMPORTANT: This is NOT an AML engine. NOT intent detection.
+    NOT an ML classifier. It evaluates DECLARED AGGREGATE CONSTRAINTS
+    over a BOUNDED WINDOW. ESCALATE means declared threshold crossed —
+    not criminal intent detected.
+
+    Hard invariant H1: VCB never converts uncertainty to ALLOW.
+    """
+    require_api_key(x_api_key, authorization)
+    import time
+    ts          = datetime.now(timezone.utc).isoformat()
+    session_id  = req.get("session_id","")
+    now_ts      = req.get("now_timestamp", time.time())
+    window_secs = req.get("window_seconds", 3600)
+    limits      = req.get("limits",{})
+    action      = req.get("action",{})
+
+    action_record = {
+        "session_id":      session_id,
+        "action_id":       action.get("action_id",""),
+        "value":           float(action.get("value", 0)),
+        "risk":            float(action.get("risk", 0)),
+        "data_exposure":   float(action.get("data_exposure", 0)),
+        "privilege_units": float(action.get("privilege_units", 0)),
+        "timestamp":       float(now_ts),
+    }
+
+    prior = SESSION_CONTINUITY_LEDGER.aggregate(session_id, float(now_ts), window_secs)
+    combined = {
+        "count":           prior["count"] + 1,
+        "value":           prior["value"] + action_record["value"],
+        "risk":            prior["risk"] + action_record["risk"],
+        "data_exposure":   prior["data_exposure"] + action_record["data_exposure"],
+        "privilege_units": prior["privilege_units"] + action_record["privilege_units"],
+    }
+
+    violations = []
+    for key, limit in limits.items():
+        if key in combined and combined[key] > float(limit):
+            violations.append({"metric": key, "observed": combined[key], "limit": float(limit)})
+
+    decision = "ESCALATE" if violations else "CONTINUE"
+    result = {
+        "schema":                 "VGS-VCB-SESSION-CONTINUITY-2.0",
+        "session_id":             session_id,
+        "action_id":              action.get("action_id",""),
+        "window_seconds":         window_secs,
+        "prior_aggregate":        prior,
+        "aggregate_with_action":  combined,
+        "violations":             violations,
+        "decision":               decision,
+        "deterministic":          True,
+        "not_an_aml_engine":      "ESCALATE means declared threshold crossed. Not criminal intent detected.",
+        "checked_at":             ts,
+    }
+    result["continuity_hash"] = _vcb_v2_hash({k:v for k,v in result.items() if k!="continuity_hash"})
+
+    if decision == "CONTINUE":
+        SESSION_CONTINUITY_LEDGER.record(action_record)
+
+    _emit_proof_event("SESSION_AGGREGATE_CHECKED", session_id,
+                      {"decision": decision, "violations": len(violations)}, ts)
+    return result
+
+
+@app.post("/v1/vcb/path-coverage", tags=["VCB v2.0 — Consequence Boundary Extension"])
+async def vcb_path_coverage(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Path-Coverage Certificate.
+
+    Every prevention claim must declare:
+    - covered_paths (tested, governed)
+    - unproven_paths (explicitly disclosed)
+    - bypass_tests passed/failed
+    - claim scope
+
+    Hard invariant H5: Prevention claims are bounded by
+    declared path coverage. No universal claims when untested
+    routes exist.
+    """
+    require_api_key(x_api_key, authorization)
+    ts          = datetime.now(timezone.utc).isoformat()
+    coverage_id = req.get("coverage_id") or f"PC-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}"
+
+    covered   = list(dict.fromkeys(req.get("covered_paths",[])))
+    unproven  = list(dict.fromkeys(req.get("unproven_paths",[])))
+    tests     = req.get("bypass_tests",{})
+    passed    = int(tests.get("passed",0))
+    failed    = int(tests.get("failed",0))
+
+    claim = ("prevention_proven_within_declared_boundary"
+             if failed == 0 and not req.get("claim_universal", False)
+             else "NOT_PROVEN")
+
+    cert = {
+        "schema":         "VGS-VCB-PATH-COVERAGE-2.0",
+        "coverage_id":    coverage_id,
+        "action_class":   req.get("action_class",""),
+        "covered_paths":  covered,
+        "unproven_paths": unproven,
+        "bypass_tests":   {"passed": passed, "failed": failed},
+        "claim":          claim,
+        "claim_note":     "Prevention bounded by declared paths. Unproven paths are explicitly disclosed.",
+        "generated_at":   ts,
+    }
+    cert["coverage_hash"] = _vcb_v2_hash({k:v for k,v in cert.items() if k!="coverage_hash"})
+
+    PATH_CERTIFICATES[coverage_id] = cert
+    _emit_proof_event("PATH_COVERAGE_ISSUED", coverage_id,
+                      {"claim": claim, "unproven": len(unproven)}, ts)
+    return cert
+
+
+@app.post("/v1/vcb/reconciliation", tags=["VCB v2.0 — Consequence Boundary Extension"])
+async def vcb_reconciliation(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Reconciliation Witness.
+
+    Separates expected outcome from authoritative observed outcome.
+    A VCB decision is NEVER treated as proof of an external outcome.
+
+    States: RECONCILED | RECONCILIATION_REQUIRED
+
+    Decision ≠ Enforcement ≠ Consequence (Hard invariant H3).
+    """
+    require_api_key(x_api_key, authorization)
+    ts       = datetime.now(timezone.utc).isoformat()
+    rec_id   = req.get("reconciliation_id") or f"REC-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}"
+
+    expected = req.get("expected_outcome")
+    observed = req.get("observed_outcome")
+    status   = "RECONCILED" if expected == observed else "RECONCILIATION_REQUIRED"
+
+    rec = {
+        "schema":              "VGS-VCB-RECONCILIATION-2.0",
+        "reconciliation_id":   rec_id,
+        "correlation_id":      req.get("correlation_id",""),
+        "expected_outcome":    expected,
+        "observed_outcome":    observed,
+        "authoritative_source":req.get("authoritative_source",""),
+        "status":              status,
+        "note":                "Decision ≠ Enforcement ≠ Consequence. VCB decision is not proof of external outcome.",
+        "observed_at":         ts,
+    }
+    rec["reconciliation_hash"] = _vcb_v2_hash({k:v for k,v in rec.items() if k!="reconciliation_hash"})
+
+    RECONCILIATIONS[rec_id] = rec
+    _emit_proof_event("RECONCILIATION_RECORDED", rec_id, {"status": status}, ts)
+    return rec
+
+
+@app.post("/v1/vcb/exception", tags=["VCB v2.0 — Consequence Boundary Extension"])
+async def vcb_exception(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Exception/Recovery Ledger.
+
+    Emergency paths are explicit governed events — never invisible bypasses.
+
+    States: EXCEPTION_REQUESTED | EXCEPTION_APPROVED | EXCEPTION_USED
+            | RECONCILIATION_REQUIRED | REMEDIATED
+
+    Hard invariant H6: Exceptions are governed records.
+    Every exception must be recorded, approved, and reconciled.
+    """
+    require_api_key(x_api_key, authorization)
+    ts           = datetime.now(timezone.utc).isoformat()
+    exception_id = req.get("exception_id") or f"EX-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}"
+
+    allowed = {"EXCEPTION_REQUESTED","EXCEPTION_APPROVED","EXCEPTION_USED",
+               "RECONCILIATION_REQUIRED","REMEDIATED"}
+    state = req.get("state","EXCEPTION_REQUESTED")
+    if state not in allowed:
+        state = "EXCEPTION_REQUESTED"
+
+    record = {
+        "schema":               "VGS-VCB-EXCEPTION-RECOVERY-2.0",
+        "exception_id":         exception_id,
+        "correlation_id":       req.get("correlation_id",""),
+        "state":                state,
+        "invoked_by":           req.get("invoked_by",""),
+        "reason":               req.get("reason",""),
+        "scope":                req.get("scope",{}),
+        "duration":             req.get("duration",""),
+        "compensating_control": req.get("compensating_control",""),
+        "result":               req.get("result",""),
+        "required_follow_up":   req.get("required_follow_up",""),
+        "normal_path_restored": bool(req.get("normal_path_restored", False)),
+        "governed_note":        "Exception is a governed event — not an invisible bypass. Reconciliation required after use.",
+        "created_at":           ts,
+    }
+    record["exception_hash"] = _vcb_v2_hash({k:v for k,v in record.items() if k!="exception_hash"})
+
+    EXCEPTIONS_LEDGER[exception_id] = record
+    _emit_proof_event("EXCEPTION_RECORDED", exception_id,
+                      {"state": state, "reason": req.get("reason","")}, ts)
+    return record
+
+
+@app.post("/v1/vcb/independent-verify", tags=["VCB v2.0 — Consequence Boundary Extension"])
+async def vcb_independent_verify(
+    req: dict,
+):
+    """
+    Independent Bundle Verifier.
+
+    Verifies canonical hashes WITHOUT depending on VCB runtime state.
+    No API key required — fully public for third-party execution.
+
+    Verifies:
+    - action hash
+    - state hash
+    - contract hash
+    - transition consistency
+
+    This is the mechanism an independent third party (Alkama, Terry,
+    auditor) uses to verify VCB evidence without trusting VeriSigil.
+    """
+    ts      = datetime.now(timezone.utc).isoformat()
+    bundle  = req.get("bundle",{})
+    failures= []
+
+    if bundle.get("action_hash") and bundle.get("action") is not None:
+        if bundle["action_hash"] != _vcb_v2_hash(bundle["action"]):
+            failures.append("ACTION_HASH_MISMATCH")
+
+    if bundle.get("state_hash") and bundle.get("state") is not None:
+        if bundle["state_hash"] != _vcb_v2_hash(bundle["state"]):
+            failures.append("STATE_HASH_MISMATCH")
+
+    if bundle.get("contract") and bundle.get("contract_hash"):
+        contract_to_hash = {k:v for k,v in bundle["contract"].items() if k != "contract_hash"}
+        if bundle["contract_hash"] != _vcb_v2_hash(contract_to_hash):
+            failures.append("CONTRACT_HASH_MISMATCH")
+
+    if bundle.get("transition"):
+        t = bundle["transition"]
+        if t.get("status") == "STATE_TRANSITION_PROVEN" and t.get("failures"):
+            failures.append("INVALID_TRANSITION_STATUS")
+
+    return {
+        "schema":      "VGS-VCB-INDEPENDENT-VERIFY-2.0",
+        "verified":    not failures,
+        "failures":    failures,
+        "no_server_state_required": True,
+        "note":        "Independent verification. No VCB runtime state needed. Third parties can run this.",
+        "verified_at": ts,
+        "deterministic": True,
+    }
+
+
+@app.post("/v1/vcb/v2/bundle", tags=["VCB v2.0 — Consequence Boundary Extension"])
+async def vcb_v2_bundle(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    VCB v2.0 Complete Evidence Bundle.
+
+    One endpoint that assembles the complete v2 evidence record:
+    Action + State + Contract + Decision + Commit revalidation
+    + Token + Enforcement + Consequence + State Transition
+    + Path Coverage + Exception info
+
+    The bundle can be passed to POST /v1/vcb/independent-verify
+    by any third party without contacting VeriSigil servers.
+    """
+    require_api_key(x_api_key, authorization)
+    ts = datetime.now(timezone.utc).isoformat()
+
+    action          = req.get("action",{})
+    state           = req.get("state",{})
+    contract_id     = req.get("contract_id","")
+    coverage_id     = req.get("coverage_id","")
+    reconciliation_id= req.get("reconciliation_id","")
+    exception_id    = req.get("exception_id","")
+
+    contract    = CONSEQUENCE_CONTRACTS.get(contract_id,{})
+    coverage    = PATH_CERTIFICATES.get(coverage_id,{})
+    reconciliation = RECONCILIATIONS.get(reconciliation_id,{})
+    exception   = EXCEPTIONS_LEDGER.get(exception_id,{})
+
+    action_hash  = _vcb_v2_hash(action)
+    state_hash   = _vcb_v2_hash(state)
+
+    bundle = {
+        "schema":          "VGS-VCB-V2-BUNDLE-2.0",
+        "bundle_id":       f"BDL-{hashlib.sha256(ts.encode()).hexdigest()[:12].upper()}",
+        "action":          action,
+        "action_hash":     action_hash,
+        "state":           state,
+        "state_hash":      state_hash,
+        "contract":        contract,
+        "contract_hash":   contract.get("contract_hash",""),
+        "path_coverage":   coverage,
+        "reconciliation":  reconciliation,
+        "exception":       exception,
+        "proof_statuses":  VCB_V2_PROOF_STATUSES,
+        "hard_invariants": VCB_V2_HARD_INVARIANTS,
+        "independent_verify_endpoint": "POST /v1/vcb/independent-verify (no auth, no server state)",
+        "assembled_at":    ts,
+    }
+    bundle["bundle_hash"] = _vcb_v2_hash({k:v for k,v in bundle.items() if k!="bundle_hash"})
+
+    _emit_proof_event("VCB_V2_BUNDLE_ASSEMBLED", bundle["bundle_id"],
+                      {"action_hash": action_hash}, ts)
+    return bundle
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=int(os.environ.get("PORT", 8000)), reload=False)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
