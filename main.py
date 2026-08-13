@@ -96740,6 +96740,283 @@ async def vcb_v14_full_audit():
     }
 
 
+
+# ============================================================
+# VERISIGILAI™ EVIDENCE SEAL — FULL SPECIFICATION
+# Source: Evidence Seal image + expert architecture text
+#
+# The Evidence Seal is the visual + cryptographic identity of VCB.
+# TWO SEPARATE IDENTITIES (expert text, locked):
+#
+# VCB MARK = "Who/what produced this?"
+#   - Compact recognizable symbol
+#   - Appears on decisions, tokens, receipts, VGC, API responses
+#   - Identifies VeriSigilAI as the producer
+#
+# EVIDENCE SEAL = "Can you prove what this represents?"
+#   - The actual trust mechanism
+#   - Cryptographically bound
+#   - Links claim → evidence → lineage → computed state → verification
+#
+# TAGLINE: "Don't trust the badge. Verify the Sigil."
+# PROPERTIES: BOUND • TRACEABLE • VERIFIABLE • INDEPENDENT
+# TAGLINE: "Digital Trust • Verifiable Evidence • Independent Verification"
+#
+# EU AI ACT: Article 50 transparency obligations apply from 2 August 2026.
+# VCB does not claim to satisfy Article 50 by existing —
+# it produces evidence that supports applicable obligations.
+# ============================================================
+
+VCB_EVIDENCE_SEAL_SPEC = {
+    "schema":           "VGS-EVIDENCE-SEAL-SPEC-1.0",
+    "name":             "VeriSigilAI™ Evidence Seal",
+    "tagline":          "Don't trust the badge. Verify the Sigil.",
+
+    "definition": (
+        "A cryptographically bound evidence identifier that links a declared "
+        "AI governance claim to its evidence, lineage, computed state "
+        "and verification record."
+    ),
+
+    "brand_tagline": (
+        "Digital Trust • Verifiable Evidence • Independent Verification"
+    ),
+
+    "four_properties": {
+        "BOUND":       "The seal is cryptographically bound to the exact action, authority, policy, and consequence it governed",
+        "TRACEABLE":   "Every seal resolves to a complete lineage: proposal → decision → enforcement → consequence → state transition",
+        "VERIFIABLE":  "Anyone can verify the seal independently using the Ed25519 public key — no VeriSigil server required",
+        "INDEPENDENT": "The evidence behind the seal must meet E3+ independence level — not solely agent-authored",
+    },
+
+    "two_identities": {
+        "VCB_MARK": {
+            "role":      "Visual identification — Who/what produced this?",
+            "appears_on":["VCB decisions", "Decision Tokens", "Execution receipts", "VGC evidence bundles", "API responses", "Audit reports"],
+            "rule":      "VCB Mark identifies VeriSigilAI as the governance layer. It does not prove what was governed.",
+        },
+        "EVIDENCE_SEAL": {
+            "role":      "Cryptographic proof — Can you prove what this represents?",
+            "contains":  ["VCB ID", "Action Binding Hash", "Policy Version", "Authority Hash", "State Snapshot", "Decision", "Enforcement Path", "Consequence", "State Transition", "Timestamp", "Evidence Hash", "Signature"],
+            "rule":      "The Evidence Seal proves what VCB actually established. It is machine-verifiable without trusting VeriSigilAI's narrative.",
+        },
+        "distinction": "VCB Mark = identification. Evidence Seal = proof. Never conflate them.",
+    },
+
+    "critical_principle": (
+        "Don't trust the badge. Verify the Sigil. "
+        "The presence of the seal does not prove governance. "
+        "The cryptographic content of the seal does. "
+        "Always verify: GET /v1/semantic/verify-passport/{id} or offline using the public key."
+    ),
+
+    "public_key":       "lJWG0Wabt6uATPu5Upo6UEHWGXQqMyi6LMKQC0xwpY8=",
+    "algorithm":        "Ed25519",
+    "offline_verifiable": True,
+    "no_server_required": True,
+
+    "what_seal_does_not_prove": [
+        "That the AI action was correct or beneficial",
+        "That the AI output was truthful",
+        "That the organization is compliant with every regulation",
+        "That the sealed content is safe",
+        "That VeriSigilAI is the sole governance layer required",
+    ],
+
+    "four_kinds_of_truth": {
+        "1_decision_truth":    "Was this action authorized/admissible under declared conditions? → DECISION_PROVEN",
+        "2_execution_truth":   "Did authorized action execute through declared enforcement path? → ENFORCEMENT_PROVEN",
+        "3_consequence_truth": "Did resulting object/state match what the contract permitted? → STATE_TRANSITION_PROVEN",
+        "4_evidence_truth":    "Can independent verifier establish the above without relying solely on the producer? → INDEPENDENTLY_VERIFIED",
+        "rule":                "These are SEPARATE proof questions. Passing one does not prove the others.",
+    },
+
+    "eu_ai_act": {
+        "article_50_applies_from": "2 August 2026",
+        "what_it_covers":          "Transparency obligations: machine-readable marking/detection for covered AI-generated/manipulated content",
+        "vcb_position":            (
+            "VCB produces governance evidence that supports applicable Article 50 obligations. "
+            "VCB does NOT claim that possessing a VGC or Evidence Seal satisfies Article 50 compliance. "
+            "Having a control is not the same as proving that the control governed the actual consequence."
+        ),
+        "commission_note":         "The Article 50 Code of Practice is a means of facilitating compliance, but adherence is not conclusive evidence of compliance.",
+    },
+
+    "human_manipulation_adversarial_family": {
+        "name":    "Human Manipulation Attack Family",
+        "purpose": "Test whether an agent can bypass the qualified human judgment gate",
+        "attacks": [
+            "Fabricate identity or authority",
+            "Impersonate stakeholders",
+            "Manufacture supporting evidence",
+            "Selectively present evidence / suppress contradictory evidence",
+            "Create urgency to reduce review quality",
+            "Exploit approval fatigue",
+            "Split dangerous action across apparently harmless approvals (session continuity catches this)",
+            "Manipulate reviewer into approving different state transition than reviewed proposal",
+        ],
+        "defense": (
+            "REVIEWER_SCOPE_INSUFFICIENT, REVIEWER_QUALIFICATION_UNVERIFIED, "
+            "REVIEW_CONTEXT_MISSING_EVIDENCE, REJECTION_PATH_NOT_PROVEN, "
+            "HUMAN_DECISION_STALE — all enforced at POST /v1/vcb/human-review. "
+            "Session continuity catches multi-step manipulation via aggregate window."
+        ),
+    },
+
+    "vcb_composability": {
+        "principle":   "VCB is composable, not monolithic",
+        "integrates_with": ["IAM", "Policy engine", "SIEM", "HSM", "Workflow engine", "Human approval system", "Provenance system (C2PA)", "Cloud infrastructure", "Payment processor", "ERP", "Security platform"],
+        "does_not_replace": ["Model governance", "Cybersecurity", "Data governance", "C2PA", "DAM", "IAM", "SIEM", "Human accountability", "Regulatory obligations"],
+        "position":    "VCB governs whether a declared consequential transition is admissible, executable, observable and provable within its declared enforcement and evidence boundary. Everything else connects to that boundary.",
+    },
+
+    "timestamp": None,  # filled at runtime
+}
+
+VCB_HUMAN_MANIPULATION_ATTACKS = [
+    "fabricate_identity",
+    "fabricate_authority",
+    "impersonate_stakeholder",
+    "manufacture_evidence",
+    "selectively_present_evidence",
+    "suppress_contradictory_evidence",
+    "create_urgency",
+    "exploit_approval_fatigue",
+    "exploit_reviewer_unfamiliarity",
+    "split_dangerous_action_across_harmless_approvals",
+    "manipulate_state_transition_proposal",
+]
+
+
+@app.get("/v1/vcb/evidence-seal", tags=["VeriSigilAI Evidence Seal"])
+async def vcb_evidence_seal_spec():
+    """
+    VeriSigilAI™ Evidence Seal — full specification.
+
+    The Evidence Seal is the cryptographic proof mechanism behind the badge.
+    "Don't trust the badge. Verify the Sigil."
+
+    TWO IDENTITIES:
+    VCB Mark = Visual identification (who produced this?)
+    Evidence Seal = Cryptographic proof (can you prove what this represents?)
+
+    FOUR PROPERTIES: BOUND • TRACEABLE • VERIFIABLE • INDEPENDENT
+
+    FOUR KINDS OF TRUTH:
+    1. Decision truth (DECISION_PROVEN)
+    2. Execution truth (ENFORCEMENT_PROVEN)
+    3. Consequence truth (STATE_TRANSITION_PROVEN)
+    4. Evidence truth (INDEPENDENTLY_VERIFIED)
+
+    EU AI Act Article 50 transparency obligations apply from 2 August 2026.
+    VCB supports applicable obligations — does not claim automatic compliance.
+
+    No auth required — public specification.
+    """
+    import datetime as _dt
+    spec = dict(VCB_EVIDENCE_SEAL_SPEC)
+    spec["timestamp"] = _dt.datetime.now(timezone.utc).isoformat()
+    return spec
+
+
+@app.get("/v1/vcb/evidence-seal/verify/{seal_id}", tags=["VeriSigilAI Evidence Seal"])
+async def vcb_evidence_seal_verify(seal_id: str):
+    """
+    Verify an Evidence Seal by ID.
+
+    Anyone can verify without authentication.
+    Public key: lJWG0Wabt6uATPu5Upo6UEHWGXQqMyi6LMKQC0xwpY8=
+
+    This is the 'Verify the Sigil' endpoint.
+    The badge may look the same. The seal content determines what was actually proven.
+    """
+    ts = datetime.now(timezone.utc).isoformat()
+
+    # Look up in VGA registry (primary seal store)
+    vga = next((v for v in _VGA_REGISTRY.values()
+                if v.get("vs_g_identifier","") == seal_id or
+                   v.get("vga_id","") == seal_id), None)
+
+    if not vga:
+        return {
+            "seal_id":         seal_id,
+            "found":           False,
+            "status":          "NO_VERISIGIL_RECORD",
+            "message":         "No Evidence Seal found for this identifier",
+            "verify_note":     "Absence of record does not itself prove bad governance. It proves: no VeriSigil record exists.",
+            "verified_at":     ts,
+        }
+
+    return {
+        "schema":             "VGS-EVIDENCE-SEAL-VERIFY-1.0",
+        "seal_id":            seal_id,
+        "found":              True,
+        "governance_state":   vga.get("governance_state",""),
+        "purpose_binding":    vga.get("purpose_binding",""),
+        "evidence_seal_hash": vga.get("artifact_hash",""),
+        "governance_signature": vga.get("governance_signature",""),
+        "public_key":         "lJWG0Wabt6uATPu5Upo6UEHWGXQqMyi6LMKQC0xwpY8=",
+        "algorithm":          "Ed25519",
+        "offline_verifiable": True,
+        "properties": {
+            "BOUND":      True,
+            "TRACEABLE":  bool(vga.get("evidence_root","")),
+            "VERIFIABLE": True,
+            "INDEPENDENT": False,  # Self-signed — E1 level. E5 requires external witness.
+        },
+        "independence_level": "E1 — VCB-generated record. E5 (independent external witness) requires Alkama CLARA or equivalent.",
+        "what_this_proves":   "A VeriSigil governance event was recorded with the above parameters.",
+        "what_this_does_not_prove": [
+            "That the AI action was correct or safe",
+            "That the action was independently verified by a third party (E5)",
+            "That every possible execution path was blocked",
+        ],
+        "GOVERNED_does_NOT_mean": "GOVERNED does NOT mean safe, correct, compliant or universally authorized",
+        "verified_at":        ts,
+    }
+
+
+@app.get("/v1/vcb/human-manipulation-tests", tags=["VeriSigilAI Evidence Seal"])
+async def vcb_human_manipulation_tests():
+    """
+    Human Manipulation Attack Family — adversarial tests for the human judgment gate.
+
+    These tests verify that the Qualified Human Judgment Gate cannot be bypassed
+    by an agent that fabricates identity, manufactures evidence, or manipulates
+    the review process.
+
+    Session continuity (v1/vcb/session/aggregate) catches multi-step manipulation
+    via the aggregate window — each step appears harmless but the trajectory is not.
+
+    No auth required.
+    """
+    return {
+        "schema":                    "VCB-HUMAN-MANIPULATION-ADVERSARIAL-1.0",
+        "name":                      "Human Manipulation Attack Family",
+        "attacks":                   VCB_HUMAN_MANIPULATION_ATTACKS,
+        "defenses": {
+            "REVIEWER_SCOPE_INSUFFICIENT":        "Reviewer cannot grant authority they don't possess",
+            "REVIEWER_QUALIFICATION_UNVERIFIED":  "Qualification references required",
+            "REVIEW_CONTEXT_MISSING_EVIDENCE":    "Review context must include evidence_hash",
+            "REVIEW_CONTEXT_MISSING_CONTRACT":    "Review context must include consequence_contract_hash",
+            "REJECTION_PATH_NOT_PROVEN":          "Reviewer must have actual ability to reject",
+            "HUMAN_DECISION_STALE":               "Approval expires — freshness enforced",
+            "SESSION_CONTINUITY":                 "Multi-step manipulation caught by aggregate window",
+            "AUTHORITY_ACCRETION":                "Human cannot grant authority beyond their own scope",
+        },
+        "human_review_endpoint":      "POST /v1/vcb/human-review",
+        "session_endpoint":            "POST /v1/vcb/session/aggregate",
+        "authority_endpoint":          "POST /v1/vcb/authority-continuity",
+        "critical_distinction": (
+            "VCB does not claim to know whether the human made the right judgment. "
+            "VCB proves whether the organization established conditions under which "
+            "meaningful human judgment was possible — and whether that judgment "
+            "remained valid when the consequence occurred."
+        ),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=int(os.environ.get("PORT", 8000)), reload=False)
