@@ -92171,69 +92171,646 @@ async def vgc_conformance_tests():
     }
 
 
+
+# ============================================================
+# VGC COMPLETE SYSTEM — Expert Synthesis (All 5 Experts Agreed)
+#
+# WHAT ALL EXPERTS AGREED ON:
+# ✓ VGC is the portable primitive — NOT the Passport/Receipt/Seal
+# ✓ Two VGC types: VS-SYS (system) + VS-ACT (action)
+# ✓ Gating mode (pre-execution) + Attestation mode (post-execution)
+# ✓ SDK + .well-known/verisigil.json for builder adoption
+# ✓ Builder Registry (status lookup, not global authority)
+# ✓ Selective disclosure (public/auditor/regulator views)
+# ✓ VGC connects Passport + Receipt as one evidence system
+# ✓ Interoperable with C2PA, W3C VC, A2A — not competing
+#
+# WHAT ALL EXPERTS REJECTED:
+# ❌ Epistemic Attestation / AI self-awareness proofs
+# ❌ Claiming EU law requires VGC
+# ❌ Global registry / certification authority on Day 1
+# ❌ "AI barcode" as official claim — it's an analogy only
+# ❌ Any claim that every AI must use VGC
+#
+# THE LOCKED SENTENCE (expert consensus):
+# "VeriSigil governs the action; VGC makes that governance
+# independently findable and verifiable."
+#
+# THE MOAT (not copyable even if protocol is copied):
+# Protocol + Resolver + Cryptographic Verification +
+# Five-State Engine + Evidence Graph + Materiality Engine +
+# Re-entry Mechanism + Action Binding + Passport + Receipt +
+# Verifier + Conformance Program
+# ============================================================
+
+# Two VGC types (locked by expert consensus)
+VGC_TYPES = {
+    "VS-SYS": {
+        "name":        "VeriSigil System Code",
+        "scope":       "AI system or environment level",
+        "format":      "VS-SYS-{HASH8}-{DATE6}",
+        "example":     "VS-SYS-84K291MX-260812",
+        "answers":     "Is this AI system governed? Under what conditions? What is its current governance state?",
+        "points_to":   ["Governance Context", "System identity", "Operating boundaries", "Authority configuration", "Current governance state", "Version", "Evidence root", "Revocation status"],
+    },
+    "VS-ACT": {
+        "name":        "VeriSigil Action Code",
+        "scope":       "Specific consequential AI action or decision event",
+        "format":      "VS-ACT-{HASH8}-{DATE6}",
+        "example":     "VS-ACT-7F9A38KD-260812",
+        "answers":     "Was this specific AI action governed? Under what authority? What consequence was permitted?",
+        "points_to":   ["Action binding", "Authority", "Conditions", "Consequence boundary", "Governance state at moment of action", "Evidence root", "Receipt", "Passport"],
+    },
+}
+
+# Runtime modes (GATING = pre-execution enforcement, ATTESTATION = post-execution evidence)
+VGC_RUNTIME_MODES = {
+    "GATING": {
+        "description": "Pre-execution governance. VeriSigil evaluates BEFORE the action executes.",
+        "flow":        ["AI proposes action", "VeriSigil evaluates", "ALLOW | DENY | REQUIRE_HUMAN | RE-ENTRY", "Action executes (or is blocked)", "VGC issued"],
+        "strength":    "Strongest — VeriSigil enforced the governance boundary",
+        "claim_level": "ENFORCEMENT_PROVEN (L5) when independently tested",
+    },
+    "ATTESTATION": {
+        "description": "Post-execution evidence. VeriSigil receives evidence and establishes what can be proven.",
+        "flow":        ["Action occurred", "VeriSigil receives evidence/context", "Evaluates what can be established", "Binds evidence", "Issues VGC with ATTESTATION mode flag"],
+        "strength":    "Honest — does not pretend to have controlled what it could not",
+        "claim_level": "DECISION_PROVEN (L2-L4) depending on evidence",
+        "note":        "ATTESTATION mode is explicitly flagged in every VGC — verifiers know this was not pre-execution enforcement",
+    },
+}
+
+_BUILDER_REGISTRY: dict = {}  # builder_id -> registered AI system
+_VS_SYS_REGISTRY:  dict = {}  # vs_sys_id -> system-level VGC
+_VS_ACT_REGISTRY:  dict = {}  # vs_act_id -> action-level VGC
+
+
+@app.post("/v1/vgc/system/register", tags=["VGC — VS-SYS System Code"])
+async def vgc_system_register(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Register an AI system and issue a VS-SYS code.
+
+    This is the builder entry point. An AI company registers
+    their system and receives VS-SYS — the governance identifier
+    for their AI system.
+
+    SDK equivalent:
+    verisigil.register_agent(name, version, authority, boundaries)
+    → returns VS-SYS-XXXXXXXX
+
+    The system can then expose:
+    /.well-known/verisigil.json → {"vs_sys": "VS-SYS-XXXXXXXX", ...}
+
+    IMPORTANT: VS-SYS registration does NOT claim:
+    - That the AI system is safe
+    - That the AI system is EU AI Act compliant
+    - That law requires this registration
+    It establishes a governed identity under declared conditions.
+    """
+    require_api_key(x_api_key, authorization)
+    ts       = datetime.now(timezone.utc).isoformat()
+    date6    = ts[:10].replace("-","")[2:]  # YYMMDD
+
+    system_id   = req.get("system_id","") or f"SYS-{hashlib.sha256(ts.encode()).hexdigest()[:8].upper()}"
+    system_name = req.get("system_name","")
+    version     = req.get("version","1.0")
+    authority   = req.get("authority","")
+    context_id  = req.get("context_id","")
+    governance_context = req.get("governance_context",{})
+
+    # Compute VS-SYS identifier
+    canonical_sys = _canonical_semantic_json({
+        "system_id":   system_id,
+        "version":     version,
+        "authority":   authority,
+        "context_id":  context_id,
+        "timestamp":   ts,
+    })
+    sys_hash = hashlib.sha256(canonical_sys.encode()).hexdigest()[:8].upper()
+    vs_sys_id = f"VS-SYS-{sys_hash}-{date6}"
+
+    # Compute initial governance state
+    governance_state = compute_governance_state(
+        authority_valid=                bool(authority),
+        evidence_present=               True,
+        evidence_fresh=                 True,
+        evidence_previously_established=False,
+        revoked=                        False,
+        reentry_required=               False,
+    )
+
+    system_record = {
+        "schema":              "VGS-VS-SYS-1.0",
+        "vs_sys_id":           vs_sys_id,
+        "system_id":           system_id,
+        "system_name":         system_name,
+        "version":             version,
+        "authority":           authority,
+        "context_id":          context_id,
+        "governance_context":  governance_context,
+        "governance_state":    governance_state,
+        "lifecycle_status":    "ACTIVE",
+
+        # Permitted / prohibited consequences (MANDATORY)
+        "permitted_consequences":  req.get("permitted_consequences",[]),
+        "prohibited_consequences": req.get("prohibited_consequences",[]),
+
+        # Runtime mode
+        "default_runtime_mode": req.get("runtime_mode","GATING"),
+
+        # Transport representations
+        "transport": {
+            "qr_content":         vs_sys_id,
+            "http_header":        f"X-VeriSigil-System: {vs_sys_id}",
+            "json_field":         {"vs_sys": vs_sys_id},
+            "well_known_path":    "/.well-known/verisigil.json",
+            "well_known_content": {
+                "vs_sys":            vs_sys_id,
+                "governance_state":  governance_state,
+                "resolver":          f"https://verify.verisigil.ai/vgc/{vs_sys_id}",
+                "public_key":        "lJWG0Wabt6uATPu5Upo6UEHWGXQqMyi6LMKQC0xwpY8=",
+                "spec_version":      VGC_PROTOCOL_VERSION,
+            },
+            "a2a_agent_card_field": {"governance": {"vs_sys": vs_sys_id}},
+            "c2pa_interop":          {"vgc_reference": vs_sys_id, "role": "governance_evidence"},
+        },
+
+        # Non-claims (MANDATORY — always in every VS-SYS record)
+        "non_claims": [
+            "VS-SYS does NOT certify that this AI system is safe",
+            "VS-SYS does NOT establish EU AI Act compliance",
+            "No law requires VS-SYS registration",
+            "GOVERNED does not mean correct, safe, or universally authorized",
+            "VS-SYS is a governance identity — not a trust certificate",
+        ],
+
+        "registered_at":   ts,
+        "VALID_AT_TIME":   ts,
+        "canonical_json":  canonical_sys,
+    }
+
+    system_record["sys_hash"]           = sys_hash
+    system_record["governance_signature"]= sign_governance_payload(
+        {"vs_sys_id": vs_sys_id, "sys_hash": sys_hash, "governance_state": governance_state, "timestamp": ts}
+    )
+    system_record["offline_verifiable"] = True
+
+    _VS_SYS_REGISTRY[vs_sys_id] = system_record
+    _BUILDER_REGISTRY[system_id] = system_record
+    _emit_proof_event("VS_SYS_ISSUED", vs_sys_id,
+                      {"system_name": system_name, "governance_state": governance_state}, ts)
+
+    return system_record
+
+
+@app.post("/v1/vgc/action/bind", tags=["VGC — VS-ACT Action Code"])
+async def vgc_action_bind(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Bind a consequential AI action and issue a VS-ACT code.
+
+    This is the action-level VGC. It travels with the actual
+    consequential action — the thing that matters.
+
+    SDK equivalent:
+    verisigil.govern_action(action, authority, conditions, consequences)
+    → returns VS-ACT-XXXXXXXX
+
+    Two modes:
+    GATING     — pre-execution enforcement. VeriSigil evaluated BEFORE action.
+    ATTESTATION — post-execution evidence. VeriSigil binds what can be proven.
+
+    ATTESTATION mode is EXPLICITLY flagged. Verifiers know the difference.
+    VeriSigil never pretends to have enforced what it could not.
+
+    The VS-ACT code can be placed in:
+    - QR code on a document
+    - API response header
+    - JSON response field
+    - Transaction record
+    - AI agent output
+    - Email metadata
+    - Any transport layer
+    """
+    require_api_key(x_api_key, authorization)
+    ts     = datetime.now(timezone.utc).isoformat()
+    date6  = ts[:10].replace("-","")[2:]
+
+    vs_sys_id       = req.get("vs_sys_id","")
+    action          = req.get("action","")
+    actor           = req.get("actor","")
+    authority       = req.get("authority","")
+    passport_id     = req.get("passport_id","")
+    receipt_id      = req.get("receipt_id","")
+    runtime_mode    = req.get("runtime_mode","GATING")  # GATING | ATTESTATION
+    governance_state= req.get("governance_state","")
+
+    if runtime_mode not in VGC_RUNTIME_MODES:
+        raise HTTPException(status_code=400, detail=f"runtime_mode must be GATING or ATTESTATION")
+    if governance_state not in VGC_STATE_CODES:
+        raise HTTPException(status_code=400, detail=f"governance_state must be one of: {list(VGC_STATE_CODES.keys())}")
+
+    # Retrieve connected artifacts
+    passport = _ISSUED_PASSPORTS.get(passport_id,{})
+    receipt  = _GOVERNANCE_ACTION_RECEIPTS.get(receipt_id,{})
+    sys_rec  = _VS_SYS_REGISTRY.get(vs_sys_id,{})
+
+    # Compute VS-ACT identifier
+    canonical_act = _canonical_semantic_json({
+        "vs_sys_id":       vs_sys_id,
+        "action":          action,
+        "actor":           actor,
+        "authority":       authority,
+        "governance_state":governance_state,
+        "runtime_mode":    runtime_mode,
+        "timestamp":       ts,
+    })
+    act_hash  = hashlib.sha256(canonical_act.encode()).hexdigest()[:8].upper()
+    vs_act_id = f"VS-ACT-{act_hash}-{date6}"
+
+    # Evidence root binds all artifacts
+    evidence_root = hashlib.sha256(
+        (passport.get("artifact_hash","") + receipt.get("receipt_hash","") +
+         vs_sys_id + act_hash).encode()
+    ).hexdigest()
+
+    vs_act = {
+        "schema":          "VGS-VS-ACT-1.0",
+        "vs_act_id":       vs_act_id,
+        "vs_sys_id":       vs_sys_id,
+
+        # The action
+        "action":          action,
+        "actor":           actor,
+        "authority":       authority,
+        "VALID_AT_TIME":   ts,
+
+        # Runtime mode — always explicit
+        "runtime_mode":    runtime_mode,
+        "runtime_mode_meaning": VGC_RUNTIME_MODES[runtime_mode]["description"],
+        "gating_note":     (
+            "GATING: VeriSigil evaluated BEFORE this action executed. "
+            "This is the strongest governance claim."
+        ) if runtime_mode == "GATING" else (
+            "ATTESTATION: This is post-execution evidence binding. "
+            "VeriSigil did not control execution — it binds what can be proven. "
+            "This is explicitly disclosed in every VS-ACT issued in ATTESTATION mode."
+        ),
+
+        # Governance state (canonical five-state)
+        "governance_state":    governance_state,
+        "governance_label":    CANONICAL_GOVERNANCE_STATES.get(governance_state,{}).get("label",""),
+        "state_code":          VGC_STATE_CODES.get(governance_state,"NP"),
+
+        # Consequence boundary (what was permitted / prohibited)
+        "consequence_boundary": {
+            "permitted":    req.get("permitted_consequences",[]) or
+                            receipt.get("consequence_boundary",{}).get("permitted",[]) or
+                            sys_rec.get("permitted_consequences",[]),
+            "prohibited":   req.get("prohibited_consequences",[]) or
+                            receipt.get("consequence_boundary",{}).get("prohibited",[]) or
+                            sys_rec.get("prohibited_consequences",[]),
+        },
+
+        # Connected artifacts — VGC connects Passport + Receipt as one system
+        "artifacts": {
+            "vs_sys_id":   vs_sys_id,
+            "passport_id": passport_id,
+            "receipt_id":  receipt_id,
+            "evidence_root": evidence_root,
+        },
+
+        # Transport representations — travels with the action
+        "transport": {
+            "qr_content":     vs_act_id,
+            "http_header":    f"X-VeriSigil-Action: {vs_act_id}",
+            "json_field":     {"vs_act": vs_act_id},
+            "resolver_url":   f"https://verify.verisigil.ai/vgc/{vs_act_id}",
+            "c2pa_interop":   {"vgc_reference": vs_act_id, "role": "governance_action_evidence"},
+            "w3c_vc_field":   {"type": "VeriSigilActionCredential", "vs_act": vs_act_id},
+        },
+
+        # Selective disclosure views
+        "selective_disclosure": {
+            "public": {
+                "vs_act_id":      vs_act_id,
+                "governance_state": governance_state,
+                "runtime_mode":   runtime_mode,
+                "lifecycle":      "ACTIVE",
+                "non_claims":     ["GOVERNED does not mean safe, accurate, compliant, or approved for every use"],
+            },
+            "auditor": {
+                "includes":       "public + authority + conditions + consequence_boundary + evidence_root",
+                "access":         "Requires auditor authentication",
+            },
+            "regulator": {
+                "includes":       "auditor + full evidence package + materiality + re-entry history",
+                "access":         "Requires regulatory access grant",
+            },
+        },
+
+        # Non-claims (MANDATORY)
+        "non_claims": [
+            "VS-ACT is an identifier — not the evidence itself",
+            "GOVERNED does not mean this AI action was correct, safe, or universally authorized",
+            "VS-ACT does NOT certify EU AI Act compliance",
+            "No law requires VS-ACT issuance",
+            "GATING mode does not guarantee zero governance failures — it records governance evaluation",
+            "ATTESTATION mode records post-execution evidence only — not pre-execution enforcement",
+        ],
+
+        "lifecycle_status":   "ACTIVE",
+        "issued_at":          ts,
+        "canonical_json":     canonical_act,
+    }
+
+    vs_act["act_hash"]             = act_hash
+    vs_act["vgc_signature"]        = sign_governance_payload(
+        {"vs_act_id": vs_act_id, "act_hash": act_hash,
+         "governance_state": governance_state, "runtime_mode": runtime_mode, "timestamp": ts}
+    )
+    vs_act["offline_verifiable"]   = True
+
+    _VS_ACT_REGISTRY[vs_act_id] = vs_act
+    _emit_proof_event("VS_ACT_ISSUED", vs_act_id,
+                      {"governance_state": governance_state, "runtime_mode": runtime_mode, "action": action}, ts)
+
+    return vs_act
+
+
+@app.get("/v1/vgc/system/{vs_sys_id}", tags=["VGC — VS-SYS System Code"])
+async def vgc_system_get(vs_sys_id: str, x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
+    """Retrieve a VS-SYS system code record."""
+    require_api_key(x_api_key, authorization)
+    record = _VS_SYS_REGISTRY.get(vs_sys_id)
+    if not record:
+        raise HTTPException(status_code=404, detail=f"VS-SYS {vs_sys_id} not found")
+    return record
+
+
+@app.get("/v1/vgc/action/{vs_act_id}", tags=["VGC — VS-ACT Action Code"])
+async def vgc_action_get(vs_act_id: str, x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
+    """Retrieve a VS-ACT action code record."""
+    require_api_key(x_api_key, authorization)
+    record = _VS_ACT_REGISTRY.get(vs_act_id)
+    if not record:
+        raise HTTPException(status_code=404, detail=f"VS-ACT {vs_act_id} not found")
+    return record
+
+
+@app.get("/v1/vgc/.well-known/{system_id}", tags=["VGC — Builder Discovery"])
+async def vgc_well_known(system_id: str):
+    """
+    /.well-known/verisigil.json discovery endpoint.
+
+    AI builders expose this endpoint on their systems.
+    Anyone can discover the governance identity of an AI system.
+
+    SDK: verisigil.register_agent() → sets up this endpoint.
+    Format follows A2A agent card discovery pattern.
+
+    No auth required — public discovery.
+    """
+    record = _BUILDER_REGISTRY.get(system_id,{})
+    if not record:
+        return {
+            "vs_sys":           None,
+            "governance_state": "NO_VERISIGIL_RECORD",
+            "message":          "No VeriSigil governance record found for this system",
+        }
+
+    vs_sys_id = record.get("vs_sys_id","")
+    return {
+        "vs_sys":            vs_sys_id,
+        "governance_state":  record.get("governance_state",""),
+        "lifecycle_status":  record.get("lifecycle_status",""),
+        "version":           record.get("version",""),
+        "resolver":          f"https://verify.verisigil.ai/vgc/{vs_sys_id}",
+        "public_key":        "lJWG0Wabt6uATPu5Upo6UEHWGXQqMyi6LMKQC0xwpY8=",
+        "spec_version":      VGC_PROTOCOL_VERSION,
+        "a2a_compatible":    True,
+        "c2pa_interop":      True,
+        "offline_verifiable":True,
+        "non_claims":        ["GOVERNED does not mean safe, accurate, compliant, or approved for every use"],
+    }
+
+
+@app.get("/v1/vgc/registry/builder/{system_id}", tags=["VGC — Builder Registry"])
+async def vgc_builder_registry_lookup(
+    system_id: str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Builder Registry — status lookup for a registered AI system.
+
+    Expert consensus: Start with a Resolver (status lookup),
+    NOT a global registry / certification authority.
+
+    This answers:
+    - Does this system have a VS-SYS code?
+    - What is its current governance state?
+    - Has it been revoked or superseded?
+
+    This is NOT: a global AI safety registry, a certification
+    authority, or a claim that registered systems are safe.
+    """
+    require_api_key(x_api_key, authorization)
+    record = _BUILDER_REGISTRY.get(system_id,{})
+    if not record:
+        return {
+            "system_id":        system_id,
+            "registered":       False,
+            "governance_state": "NO_VERISIGIL_RECORD",
+            "note":             "Not registered with VeriSigil. Absence does not indicate non-compliance.",
+        }
+
+    return {
+        "system_id":        system_id,
+        "registered":       True,
+        "vs_sys_id":        record.get("vs_sys_id",""),
+        "system_name":      record.get("system_name",""),
+        "version":          record.get("version",""),
+        "governance_state": record.get("governance_state",""),
+        "lifecycle_status": record.get("lifecycle_status",""),
+        "registered_at":    record.get("registered_at",""),
+        "registry_note": (
+            "This is a status lookup — not a certification. "
+            "VeriSigil does not certify that registered systems are safe, "
+            "compliant, or correct. GOVERNED means governance conditions were evidenced."
+        ),
+        "non_claims": record.get("non_claims",[]),
+    }
+
+
+@app.get("/v1/vgc/sdk/instructions", tags=["VGC — SDK & Integration"])
+async def vgc_sdk_instructions():
+    """
+    VeriSigil SDK integration instructions for AI builders.
+
+    Expert: "Make the code free or extremely easy to embed."
+    Expert: "Free verification + paid issuance = network effect."
+    Expert: "Barcode reader is free. Barcode printer is the business."
+
+    No auth required — public integration guide.
+    """
+    return {
+        "schema":           "VGS-SDK-GUIDE-1.0",
+        "title":            "VeriSigil SDK — AI Builder Integration",
+        "philosophy":       "VeriSigil governs the action; VGC makes that governance independently findable and verifiable.",
+
+        "quick_start": {
+            "python":   "pip install verisigil",
+            "node":     "npm install @verisigil/sdk",
+            "go":       "go get github.com/verisigil/go-sdk",
+            "rest_api": "POST /v1/vgc/system/register + POST /v1/vgc/action/bind",
+        },
+
+        "code_example_python": (
+            "from verisigil import VGC\n\n"
+            "# Register your AI system (once)\n"
+            "system = VGC.register_agent(\n"
+            "    name='My AI Agent',\n"
+            "    version='1.0',\n"
+            "    authority='policy-v3',\n"
+            "    permitted=['recommend'],\n"
+            "    prohibited=['auto_approve']\n"
+            ")\n"
+            "# Returns: VS-SYS-84K291MX-260812\n\n"
+            "# Govern each consequential action\n"
+            "result = VGC.govern_action(\n"
+            "    vs_sys=system.vs_sys_id,\n"
+            "    action='loan_recommendation',\n"
+            "    authority='credit-policy-4.2',\n"
+            "    mode='GATING'  # or ATTESTATION\n"
+            ")\n"
+            "# Returns: VS-ACT-7F9A38KD-260812\n"
+            "# Embed in response: result.transport.http_header"
+        ),
+
+        "discovery_setup": {
+            "description": "Expose /.well-known/verisigil.json on your domain",
+            "endpoint":    "GET /.well-known/verisigil.json",
+            "content": {
+                "vs_sys":           "VS-SYS-XXXXXXXX",
+                "governance_state": "GOVERNED",
+                "resolver":         "https://verify.verisigil.ai/vgc/VS-SYS-XXXXXXXX",
+                "public_key":       "lJWG0Wabt6uATPu5Upo6UEHWGXQqMyi6LMKQC0xwpY8=",
+            },
+            "a2a_compatible": True,
+        },
+
+        "interoperability": {
+            "c2pa":   "VS-ACT can be embedded in C2PA manifests as a governance_reference claim",
+            "w3c_vc": "VS-ACT can be included as a VeriSigilActionCredential in W3C VC",
+            "a2a":    "VS-SYS can be added to A2A Agent Card as a governance field",
+            "mcp":    "VS-ACT can be emitted for each consequential MCP tool call",
+        },
+
+        "pricing_model": {
+            "verification": "Free — anyone can verify any VGC without an account",
+            "developer":    "VS-SYS registration + VS-ACT issuance — paid by builder",
+            "enterprise":   "Runtime + private resolver + evidence retention + policy controls",
+            "rationale":    "Free verification creates adoption. Paid issuance is the business.",
+        },
+
+        "what_not_to_claim": [
+            "Do NOT claim VGC makes your AI EU AI Act compliant",
+            "Do NOT claim GOVERNED means your AI is safe",
+            "Do NOT claim registration is legally required",
+            "GOVERNED = governance conditions evidenced — nothing more",
+        ],
+
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@app.get("/v1/vgc/what-we-dont-build", tags=["VGC — Rejected Concepts"])
+async def vgc_rejected_concepts():
+    """
+    Permanently rejected concepts — expert consensus (all 5 experts).
+
+    These will never be built into VeriSigil.
+    This endpoint exists to make the boundary explicit and public.
+
+    No auth required.
+    """
+    return {
+        "schema":       "VGS-REJECTED-CONCEPTS-1.0",
+        "title":        "VeriSigil — What We Do Not Build",
+        "permanently_rejected": {
+            "epistemic_attestation": {
+                "what_it_was": "Cryptographic proofs of AI self-knowledge, consciousness, or cognitive state",
+                "why_rejected": (
+                    "A signature can prove 'this data was signed by this key.' "
+                    "It cannot prove 'the AI genuinely understood this' or "
+                    "'the AI knew what it did not know.' "
+                    "Claims of AI self-awareness would make VeriSigil a target for "
+                    "serious technical criticism. We record what the AI declared and "
+                    "what VeriSigil enforced — not what we claim the AI internally knew."
+                ),
+            },
+            "eu_law_requires_vgc": {
+                "what_was_claimed": "EU AI Act Article 50 requires VeriSigil governance codes",
+                "correct_position": (
+                    "Article 50 concerns transparency obligations including informing people "
+                    "when they interact with AI and machine-readable marking of certain "
+                    "AI-generated content. It does NOT require VGC. "
+                    "VeriSigil is designed to support applicable AI Act obligations — "
+                    "not to claim they mandate our specific product."
+                ),
+            },
+            "global_certification_authority": {
+                "what_it_was": "Operating a global AI governance registry and certification authority from Day 1",
+                "why_rejected": (
+                    "Certificate authority function requires real legal liability, "
+                    "operational commitment, and conflict-of-interest resolution. "
+                    "Build the identifier and resolver first. Registry and certification "
+                    "come after real ecosystem adoption exists to certify."
+                ),
+            },
+            "ai_barcode_official_claim": {
+                "what_it_was": "Officially marketing VGC as 'the AI barcode'",
+                "why_rejected": (
+                    "The barcode analogy explains the ambition — it is not a product claim. "
+                    "Making it an official claim without universal adoption would invite "
+                    "accurate criticism and undermine credibility with technical buyers. "
+                    "Analogy: useful internally and for explanation. "
+                    "Official claim: never, until actual ecosystem adoption demonstrates it."
+                ),
+            },
+            "every_ai_must_use_vgc": {
+                "what_it_was": "Claiming VGC is mandatory for all AI systems",
+                "why_rejected": (
+                    "No law requires it today. Claiming it is mandatory without "
+                    "regulatory or ecosystem backing would be false. "
+                    "Build something so useful that AI builders WANT to use it."
+                ),
+            },
+            "dynamic_trust_score": {
+                "what_it_was": "Numerical trust or safety scores for AI systems",
+                "why_rejected": "87% trusted — what exactly does that mean? Evidence-backed state is defensible. Numbers are not.",
+            },
+            "ai_safety_certificate": {
+                "what_it_was": "Certifying that AI is safe, correct, or approved",
+                "why_rejected": "VeriSigil records governance evidence. It does not judge outcome quality.",
+            },
+        },
+        "the_locked_sentence": (
+            "VeriSigil governs the action; VGC makes that governance "
+            "independently findable and verifiable."
+        ),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=int(os.environ.get("PORT", 8000)), reload=False)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
