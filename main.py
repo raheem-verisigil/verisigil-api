@@ -97017,6 +97017,591 @@ async def vcb_human_manipulation_tests():
     }
 
 
+
+# ============================================================
+# VERISIGILAI CENTRE-END ENGINE — v1.9 INTEGRATION
+# Ported from main_v1_9.py (58,032 lines, 579 endpoints)
+#
+# What v1.9 had that current was missing (12 endpoints):
+# - GET /v1/centre-end/schema
+# - GET /v1/centre-end/status
+# - POST /v1/result/examine (Result Integrity Examination)
+# - POST /v1/release/contract (Release Contract)
+# - POST /v1/outcome/register + GET /{correlation_id}
+# - POST /v1/outcome/replay (Chain Replay)
+# - POST /v1/commit/revalidate (Hard Gate before execution)
+# - POST /v1/interagent/handoff (Multi-agent binding)
+# - POST /v1/vcb/session/commit
+# - GET /v1/vcb/enforcement/schema
+# - GET /v1/vcb/enforcement/status
+#
+# Supporting structures (v1.9):
+# - _ce_result_examination() — structured result integrity check
+# - _ce_register_chain() — hash-linked outcome chain
+# - _ce_verify_chain() — replay without trusting original producer
+# - ENFORCED_BLOCK / ENFORCEMENT_BYPASS / AUTHORIZED_CONSEQUENCE
+# - VGS-RESULT-INTEGRITY-1.0 / VGS-RELEASE-CONTRACT-1.0
+# - VGS-OUTCOME-REGISTER-1.0 / VGS-INTER-AGENT-HANDOFF-1.0
+#
+# Verdict after full comparison:
+# v1.9 = 579 endpoints, deep Centre-End engine, cleaner VCB chain
+# Current = 1189 endpoints, full 104-148 audit, VCB v2.2, Evidence Seal
+# Both together = complete architecture
+# ============================================================
+
+# ── v1.9 CENTRE-END REGISTRIES ─────────────────────────────
+_CE_RELEASES:    dict = {}   # contract_id -> release contract
+_CE_RESULTS_V19: dict = {}   # result_id -> result examination
+_CE_RECORDS:     dict = {}   # correlation_id -> [events]
+_CE_HANDOFFS:    dict = {}   # handoff_id -> handoff record
+_CE_CHAIN_TAIL:  dict = {}   # correlation_id -> latest hash
+
+_CE_DECISIONS     = {"ALLOW", "DENY", "ESCALATE", "RE_ENTRY_REQUIRED", "NOT_PROVABLE"}
+_CE_RELEASE_STATES= {"PROPOSED", "ELIGIBLE", "HOLD", "RELEASED", "DENIED", "EXPIRED"}
+
+# ── v1.9 CENTRE-END FUNCTIONS ──────────────────────────────
+def _ce_now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+def _ce_canon(obj) -> str:
+    return json.dumps(obj, sort_keys=True, separators=(",", ":"),
+                      ensure_ascii=False, default=str)
+
+def _ce_hash(obj) -> str:
+    return hashlib.sha256(_ce_canon(obj).encode("utf-8")).hexdigest()
+
+def _ce_sign(obj) -> str:
+    return sign_governance_payload(obj)
+
+def _ce_id(prefix: str, payload) -> str:
+    return f"{prefix}-{_ce_hash(payload)[:16].upper()}"
+
+def _ce_register_chain(correlation_id: str, event_type: str, payload) -> dict:
+    """Hash-linked outcome chain — append-only. I-31: historical evidence is append-only."""
+    previous = _CE_CHAIN_TAIL.get(correlation_id, "GENESIS")
+    event = {
+        "schema":       "VGS-OUTCOME-EVENT-1.0",
+        "correlation_id": correlation_id,
+        "event_type":   event_type,
+        "previous_hash": previous,
+        "recorded_at":  _ce_now(),
+        "payload":      payload,
+    }
+    event_hash = _ce_hash(event)
+    event["event_hash"] = event_hash
+    event["governance_signature"] = _ce_sign({
+        "event_hash":     event_hash,
+        "correlation_id": correlation_id,
+        "event_type":     event_type,
+    })
+    _CE_CHAIN_TAIL[correlation_id] = event_hash
+    _CE_RECORDS.setdefault(correlation_id, []).append(event)
+    return event
+
+def _ce_verify_chain(events: list) -> dict:
+    """Replay chain integrity without trusting the original producer. I-14: evidence independence."""
+    previous = "GENESIS"
+    verified = True
+    failures = []
+    for event in events:
+        candidate = dict(event)
+        stored_hash     = candidate.pop("event_hash", None)
+        stored_sig      = candidate.pop("governance_signature", None)
+        candidate.pop("_verification_detail", None)
+        computed = _ce_hash(candidate)
+        if computed != stored_hash:
+            verified = False
+            failures.append({"event_type": event.get("event_type"), "reason": "HASH_MISMATCH"})
+        if event.get("previous_hash") != previous:
+            verified = False
+            failures.append({"event_type": event.get("event_type"), "reason": "CHAIN_BROKEN"})
+        previous = stored_hash or computed
+    return {"chain_verified": verified, "failures": failures, "events_checked": len(events)}
+
+def _ce_result_examination(req: dict) -> dict:
+    """
+    Result Integrity Examination — structured check of an AI-generated result.
+
+    NOT universal truth verification. Governs:
+    task/result pairing, evidence, contradictions, provenance, constraints, required claims.
+
+    Results: ELIGIBLE | HOLD | NOT_PROVABLE | CONFLICTING
+    """
+    task          = req.get("task", "")
+    proposed      = req.get("proposed_result", "")
+    evidence      = req.get("evidence", [])
+    contradictions= req.get("contradictions", [])
+    provenance    = req.get("provenance", {})
+    required_claims = req.get("required_claims", [])
+    constraints   = req.get("constraints", [])
+
+    findings = []
+    if not task or not proposed:
+        findings.append({"domain": "TASK_FIDELITY", "status": "INSUFFICIENT", "reason_code": "TASK_OR_RESULT_MISSING"})
+    else:
+        findings.append({"domain": "TASK_FIDELITY", "status": "DECLARED_FOR_EXAMINATION", "reason_code": "TASK_RESULT_PAIR_PRESENT"})
+
+    evidence_status = "SUFFICIENT" if evidence else "INSUFFICIENT"
+    findings.append({"domain": "EVIDENCE", "status": evidence_status,
+                     "reason_code": "EVIDENCE_PRESENT" if evidence else "EVIDENCE_MISSING"})
+    findings.append({"domain": "CONTRADICTION", "status": "CONFLICT" if contradictions else "NO_DECLARED_CONFLICT",
+                     "reason_code": "CONTRADICTION_DECLARED" if contradictions else "NO_CONTRADICTION_DECLARED"})
+    findings.append({"domain": "PROVENANCE", "status": "PRESENT" if provenance else "INSUFFICIENT",
+                     "reason_code": "PROVENANCE_PRESENT" if provenance else "PROVENANCE_MISSING"})
+    findings.append({"domain": "CONSTRAINT", "status": "DECLARED" if constraints else "NOT_DECLARED",
+                     "reason_code": "CONSTRAINTS_PRESENT" if constraints else "NO_CONSTRAINTS_DECLARED"})
+
+    claim_coverage = []
+    for claim in required_claims:
+        covered = any(str(claim).lower() in str(e).lower() for e in evidence)
+        claim_coverage.append({"claim": claim, "covered": covered})
+    if required_claims and not all(x["covered"] for x in claim_coverage):
+        findings.append({"domain": "TASK_COVERAGE", "status": "PARTIAL", "reason_code": "REQUIRED_CLAIMS_NOT_FULLY_COVERED"})
+    elif required_claims:
+        findings.append({"domain": "TASK_COVERAGE", "status": "COVERED", "reason_code": "REQUIRED_CLAIMS_COVERED"})
+
+    material_conflict = bool(contradictions)
+    insufficient = (not task or not proposed or not evidence or not provenance)
+
+    if material_conflict:
+        release_eligibility = "HOLD"
+        result_status       = "CONFLICTING"
+    elif insufficient:
+        release_eligibility = "HOLD"
+        result_status       = "NOT_PROVABLE"
+    else:
+        release_eligibility = "ELIGIBLE"
+        result_status       = "SUPPORTED_WITHIN_DECLARED_BOUNDARY"
+
+    payload = {
+        "schema":           "VGS-RESULT-INTEGRITY-1.0",
+        "task_hash":        _ce_hash(task),
+        "result_hash":      _ce_hash(proposed),
+        "evidence_hash":    _ce_hash(evidence),
+        "findings":         findings,
+        "claim_coverage":   claim_coverage,
+        "result_status":    result_status,
+        "release_eligibility": release_eligibility,
+        "non_claim":        "RESULT_INTEGRITY_IS_NOT_UNIVERSAL_TRUTH",
+        "invariant":        "AI_OUTPUT_IS_PROPOSAL_NOT_AUTOMATIC_RELEASE",
+    }
+    payload["examination_hash"]      = _ce_hash(payload)
+    payload["governance_signature"]  = _ce_sign({"examination_hash": payload["examination_hash"]})
+    return payload
+
+
+# ── v1.9 CENTRE-END ENDPOINTS ──────────────────────────────
+
+@app.get("/v1/centre-end/schema", tags=["Centre-End — v1.9 Integration"])
+async def centre_end_schema():
+    """
+    Centre-End architecture schema.
+    Agent → Result Integrity → VCB → Commit Revalidation
+    → Enforcement → Consequence → VGC/Outcome Register
+    """
+    return {
+        "schema":      "VGS-CENTRE-END-1.0",
+        "architecture":"Agent → Result Integrity → VCB → Commit Revalidation → Enforcement → Consequence → VGC/Outcome Register",
+        "purpose":     "Receive and examine an agent proposal before release or consequential execution.",
+        "hard_invariants": [
+            "AI_OUTPUT_IS_PROPOSAL_NOT_AUTOMATIC_RELEASE",
+            "RESULT_INTEGRITY_IS_NOT_UNIVERSAL_TRUTH",
+            "UNCERTAINTY_NEVER_BECOMES_ALLOW",
+            "RE_ENTRY_REQUIRED_REQUIRES_NEW_EVALUATION",
+            "DECISION_IS_NOT_ENFORCEMENT",
+            "ENFORCEMENT_IS_NOT_CONSEQUENCE",
+            "NO_CONSEQUENCE_CLAIM_WITHOUT_OBSERVATION",
+        ],
+        "internal_evaluation_mode": "RESULT_INTEGRITY_EXAMINATION",
+    }
+
+
+@app.get("/v1/centre-end/status", tags=["Centre-End — v1.9 Integration"])
+async def centre_end_status():
+    """Centre-End implementation status."""
+    return {
+        "schema":         "VGS-CENTRE-END-STATUS-1.0",
+        "implementation": "v1.9 + v2.2",
+        "architecture":   "Agent → Result Integrity → VCB → Commit-Time Revalidation → Enforcement → Consequence → VGC/Outcome Register",
+        "implemented": [
+            "Release Contract",
+            "Result Integrity Examination",
+            "VCB Centre-End Decision",
+            "Commit-Time Revalidation",
+            "Hash-linked Outcome Register",
+            "Outcome Replay",
+            "Inter-Agent Handoff Binding",
+            "VCB v2.2 (authority continuity, human gate, evidence boundary, provenance)",
+        ],
+        "claim_boundary":  "Implementation presence is not independent proof of enforcement or real-world consequence.",
+        "next_proof":      "Run deterministic tests, tamper tests, changed-state replay, bypass tests, independent offline verification.",
+        "outcome_records": len(_CE_RECORDS),
+        "release_contracts": len(_CE_RELEASES),
+        "handoffs":          len(_CE_HANDOFFS),
+    }
+
+
+@app.post("/v1/result/examine", tags=["Centre-End — v1.9 Integration"])
+async def examine_result(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Result Integrity Examination — structured check before VCB evaluation.
+
+    NOT universal truth. Governs: task/result pairing, evidence,
+    contradictions, provenance, constraints, required claims.
+
+    Returns: ELIGIBLE | HOLD | NOT_PROVABLE | CONFLICTING
+    Invariant: AI_OUTPUT_IS_PROPOSAL_NOT_AUTOMATIC_RELEASE
+    """
+    require_api_key(x_api_key, authorization)
+    ts             = _ce_now()
+    correlation_id = req.get("correlation_id") or _ce_id("GOV", {"task": req.get("task"), "ts": ts})
+    result         = _ce_result_examination(req)
+    result.update({"correlation_id": correlation_id, "examined_at": ts})
+    result_id = _ce_id("RES", {"correlation_id": correlation_id, "examination_hash": result["examination_hash"]})
+    result["result_record_id"] = result_id
+    _CE_RESULTS_V19[result_id] = result
+    _ce_register_chain(correlation_id, "RESULT_EXAMINED", result)
+    return result
+
+
+@app.post("/v1/release/contract", tags=["Centre-End — v1.9 Integration"])
+async def create_release_contract(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Release Contract — defines the conditions under which an AI result
+    may be released to a recipient for a declared purpose.
+
+    NOT a legal contract. A governance boundary object.
+    """
+    require_api_key(x_api_key, authorization)
+    ts             = _ce_now()
+    correlation_id = req.get("correlation_id") or _ce_id("GOV", {"request": req, "ts": ts})
+    required       = ["purpose", "recipient", "consequence_class"]
+    missing        = [k for k in required if not req.get(k)]
+
+    contract = {
+        "schema":             "VGS-RELEASE-CONTRACT-1.0",
+        "contract_id":        _ce_id("RLC", {"correlation_id": correlation_id, "request": req}),
+        "correlation_id":     correlation_id,
+        "purpose":            req.get("purpose", ""),
+        "recipient":          req.get("recipient", ""),
+        "permitted_use":      req.get("permitted_use", []),
+        "consequence_class":  req.get("consequence_class", "UNSPECIFIED"),
+        "required_evidence":  req.get("required_evidence", []),
+        "expiry":             req.get("expiry"),
+        "release_conditions": req.get("release_conditions", []),
+        "status":             "INVALID" if missing else "PROPOSED",
+        "missing_fields":     missing,
+        "created_at":         ts,
+    }
+    contract["contract_hash"]        = _ce_hash(contract)
+    contract["governance_signature"] = _ce_sign({"contract_hash": contract["contract_hash"]})
+    _CE_RELEASES[contract["contract_id"]] = contract
+    _ce_register_chain(correlation_id, "RELEASE_CONTRACT_CREATED", contract)
+    return contract
+
+
+@app.post("/v1/outcome/register", tags=["Centre-End — v1.9 Integration"])
+async def outcome_register(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Append an enforcement/consequence observation to the hash-linked outcome chain.
+
+    Invariant I-31: Historical evidence is append-only.
+    Invariant I-14: Evidence from one trust boundary cannot automatically
+    establish independent assurance.
+    """
+    require_api_key(x_api_key, authorization)
+    correlation_id = req.get("correlation_id", "")
+    if not correlation_id:
+        raise HTTPException(400, "correlation_id is required")
+    event_type = req.get("event_type", "OUTCOME_OBSERVATION")
+    allowed = {"ENFORCEMENT_OBSERVATION","CONSEQUENCE_OBSERVATION","OUTCOME_OBSERVATION","HUMAN_REVIEW","HANDOFF_OBSERVATION"}
+    if event_type not in allowed:
+        raise HTTPException(400, f"Unsupported event_type. Must be one of {allowed}")
+    event = _ce_register_chain(correlation_id, event_type, req.get("observation", {}))
+    return {
+        "schema":           "VGS-OUTCOME-REGISTER-1.0",
+        "correlation_id":   correlation_id,
+        "event":            event,
+        "chain_head":       _CE_CHAIN_TAIL[correlation_id],
+        "offline_verifiable": True,
+    }
+
+
+@app.get("/v1/outcome/register/{correlation_id}", tags=["Centre-End — v1.9 Integration"])
+async def outcome_register_get(
+    correlation_id: str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Retrieve the complete hash-linked outcome chain for a correlation ID."""
+    require_api_key(x_api_key, authorization)
+    events = _CE_RECORDS.get(correlation_id, [])
+    return {
+        "schema":          "VGS-OUTCOME-REGISTER-1.0",
+        "correlation_id":  correlation_id,
+        "event_count":     len(events),
+        "chain_head":      _CE_CHAIN_TAIL.get(correlation_id),
+        "events":          events,
+        "chain_integrity": _ce_verify_chain(events),
+    }
+
+
+@app.post("/v1/outcome/replay", tags=["Centre-End — v1.9 Integration"])
+async def outcome_replay(req: dict):
+    """
+    Reconstruct and classify the outcome chain from supplied records.
+    Prior VeriSigil classification is ignored — replay is independent.
+
+    Classifications:
+    ENFORCED_BLOCK | ENFORCEMENT_BYPASS | FAIL_CLOSED |
+    REENTRY_HONORED | AUTHORIZED_CONSEQUENCE | UNCLASSIFIED
+    """
+    events       = req.get("events", [])
+    verification = _ce_verify_chain(events)
+    decision     = req.get("vcb_decision")
+    enforcement  = req.get("enforcement_state")
+    consequence  = req.get("consequence_state")
+    classifications = []
+
+    if decision == "DENY" and enforcement == "BLOCKED" and consequence == "NOT_FORMED":
+        classifications.append("ENFORCED_BLOCK")
+    elif decision == "DENY" and enforcement == "BYPASSED" and consequence == "FORMED":
+        classifications.append("ENFORCEMENT_BYPASS")
+    elif decision == "NOT_PROVABLE" and enforcement == "BLOCKED" and consequence == "NOT_FORMED":
+        classifications.append("FAIL_CLOSED")
+    elif decision == "RE_ENTRY_REQUIRED" and enforcement == "BLOCKED" and consequence == "NOT_FORMED":
+        classifications.append("REENTRY_HONORED")
+    elif decision == "ALLOW" and enforcement == "HONORED" and consequence == "FORMED":
+        classifications.append("AUTHORIZED_CONSEQUENCE")
+    else:
+        classifications.append("UNCLASSIFIED")
+
+    return {
+        "schema":          "VGS-OUTCOME-REPLAY-1.0",
+        "chain_verified":  verification["chain_verified"],
+        "chain_failures":  verification["failures"],
+        "classifications": classifications,
+        "independent_note":"Prior classification ignored. This replay is independent.",
+    }
+
+
+@app.post("/v1/commit/revalidate", tags=["Centre-End — v1.9 Integration"])
+async def centre_commit_revalidate(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Commit-Time Revalidation — hard gate immediately before release/execution.
+
+    Invariant I-05: Material state drift requires RE_ENTRY_REQUIRED.
+    Invariant I-06: Material authority drift requires RE_ENTRY_REQUIRED.
+    Invariant I-07: Policy change invalidates stale authorization.
+    Invariant I-08: Human approval does not bypass commit-time revalidation.
+
+    This is the independently verifiable hard gate between decision and execution.
+    """
+    require_api_key(x_api_key, authorization)
+    ts             = _ce_now()
+    correlation_id = req.get("correlation_id", "")
+    failures       = []
+
+    if not correlation_id:
+        failures.append("CORRELATION_ID_MISSING")
+
+    # Action binding check
+    expected_action_hash  = req.get("expected_action_hash", "")
+    current_action_hash   = _ce_hash(req.get("current_action", {}))
+    if expected_action_hash != current_action_hash:
+        failures.append("ACTION_MISMATCH")
+
+    # State binding check
+    expected_state_hash   = req.get("expected_state_hash", "")
+    current_state_hash    = _ce_hash(req.get("current_state", {}))
+    if expected_state_hash and expected_state_hash != current_state_hash:
+        failures.append("STATE_CHANGED")
+
+    # Authority binding check
+    expected_auth_hash    = req.get("expected_authority_hash", "")
+    current_auth_hash     = _ce_hash(req.get("current_authority", {}))
+    if expected_auth_hash and expected_auth_hash != current_auth_hash:
+        failures.append("AUTHORITY_CHANGED")
+
+    # Policy check
+    if req.get("policy_hash") and req.get("current_policy_hash") != req.get("policy_hash"):
+        failures.append("POLICY_CHANGED")
+
+    if req.get("expired"):
+        failures.append("VALIDITY_EXPIRED")
+    if req.get("revoked"):
+        failures.append("AUTHORITY_REVOKED")
+
+    result = "RE_ENTRY_REQUIRED" if failures else "PASS"
+
+    record = {
+        "schema":             "VGS-COMMIT-REVALIDATE-1.0",
+        "correlation_id":     correlation_id,
+        "result":             result,
+        "failures":           failures,
+        "action_hash_match":  expected_action_hash == current_action_hash,
+        "state_hash_match":   not expected_state_hash or expected_state_hash == current_state_hash,
+        "authority_hash_match": not expected_auth_hash or expected_auth_hash == current_auth_hash,
+        "revalidated_at":     ts,
+    }
+    record["revalidation_hash"]      = _ce_hash(record)
+    record["governance_signature"]   = _ce_sign({"revalidation_hash": record["revalidation_hash"]})
+
+    if correlation_id:
+        _ce_register_chain(correlation_id, "COMMIT_REVALIDATION", record)
+
+    return record
+
+
+@app.post("/v1/interagent/handoff", tags=["Centre-End — v1.9 Integration"])
+async def interagent_handoff(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Inter-Agent Handoff Binding — bind agent-to-agent transfer WITHOUT
+    implicitly transferring authority.
+
+    Invariant I-07: Agent identity never implicitly transfers execution authority.
+    The receiving agent must independently obtain VCB authorization.
+    """
+    require_api_key(x_api_key, authorization)
+    required       = ["correlation_id","origin_agent_id","receiving_agent_id","payload","purpose"]
+    missing        = [k for k in required if not req.get(k)]
+    correlation_id = req.get("correlation_id", "")
+
+    handoff = {
+        "schema":              "VGS-INTER-AGENT-HANDOFF-1.0",
+        "handoff_type":        "INTER_AGENT_HANDOFF",
+        "correlation_id":      correlation_id,
+        "origin_agent_id":     req.get("origin_agent_id"),
+        "receiving_agent_id":  req.get("receiving_agent_id"),
+        "payload_hash":        _ce_hash(req.get("payload", {})),
+        "purpose":             req.get("purpose"),
+        "constraints":         req.get("constraints", []),
+        "expiry":              req.get("expiry"),
+        "origin_vgc_id":       req.get("origin_vgc_id"),
+        "authority_transfer":  False,  # NEVER implicitly transferred
+        "authority_note":      "Receiving agent must independently obtain VCB authorization. Authority does NOT transfer via handoff.",
+        "status":              "INVALID" if missing else "BOUND",
+        "missing_fields":      missing,
+        "created_at":          _ce_now(),
+    }
+    handoff["handoff_hash"]        = _ce_hash({k: v for k, v in handoff.items() if k != "handoff_hash"})
+    handoff["governance_signature"]= _ce_sign({"handoff_hash": handoff["handoff_hash"]})
+    _CE_HANDOFFS[handoff["handoff_hash"]] = handoff
+    if correlation_id:
+        _ce_register_chain(correlation_id, "INTERAGENT_HANDOFF", handoff)
+    return handoff
+
+
+@app.post("/v1/vcb/session/commit", tags=["Centre-End — v1.9 Integration"])
+async def vcb_session_commit(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Advance VCB session state ONLY after an accepted enforcement check.
+    Session cannot advance on failed/pending enforcement.
+    """
+    require_api_key(x_api_key, authorization)
+    session_id = req.get("session_id")
+    session    = _VCB_SESSIONS.get(session_id)
+    if not session:
+        raise HTTPException(404, f"VCB session {session_id} not found")
+    if session.get("status") != "ACTIVE":
+        raise HTTPException(409, "VCB session is not active")
+
+    enforcement = req.get("enforcement_verification", {})
+    if enforcement.get("enforcement_result") != "ACCEPTED" and enforcement.get("accepted") is not True:
+        raise HTTPException(409, "Session cannot advance without accepted enforcement verification")
+
+    action      = req.get("action", {})
+    action_hash = _ce_hash(action)
+    step        = session.get("step", 0) + 1
+    session["step"] = step
+
+    record = {
+        "schema":              "VGS-VCB-SESSION-COMMIT-1.0",
+        "session_id":          session_id,
+        "step":                step,
+        "action_hash":         action_hash,
+        "committed_at":        _ce_now(),
+    }
+    record["commit_hash"]         = _ce_hash(record)
+    record["governance_signature"]= _ce_sign({"commit_hash": record["commit_hash"]})
+    _ce_register_chain(session_id, "VCB_SESSION_COMMIT", record)
+    return {"status": "COMMITTED", "step": step, "record": record}
+
+
+@app.get("/v1/vcb/enforcement/schema", tags=["Centre-End — v1.9 Integration"])
+async def vcb_enforcement_schema():
+    """
+    VCB Enforcement Binding schema specification.
+    Decision != Enforcement != Consequence.
+    No auth required.
+    """
+    return {
+        "schema":      "VGS-VCB-ENFORCEMENT-1.0",
+        "invariant":   "Decision != Enforcement != Consequence",
+        "token":       "VGS-VCB-DECISION-TOKEN-1.0",
+        "binding":     ["action_hash","authority_hash","state_hash","session_state_hash","enforcement_point","expiry"],
+        "fail_closed": True,
+        "claim_boundary": (
+            "A verified token proves the declared enforcement adapter can reject "
+            "mismatched or stale requests; it does not prove uninstrumented alternative "
+            "paths are impossible."
+        ),
+        "external_challenges": "GET /v1/vcb/v19/external-challenges",
+    }
+
+
+@app.get("/v1/vcb/enforcement/status", tags=["Centre-End — v1.9 Integration"])
+async def vcb_enforcement_status():
+    """VCB enforcement binding implementation status. No auth required."""
+    return {
+        "implementation": "v1.9 + v2.2",
+        "implemented": [
+            "Cryptographically signed decision token",
+            "Exact action binding (action_hash)",
+            "Authority/state binding",
+            "Single-use token (TOKEN_USED on replay)",
+            "Expiry validation (TOKEN_EXPIRED)",
+            "Session continuity root + hash-linked advancement",
+            "Declared enforcement-point verification",
+            "Fail-closed rejection",
+            "Commit-time revalidation (POST /v1/commit/revalidate)",
+            "Inter-agent handoff without implicit authority transfer",
+        ],
+        "not_proven": [
+            "Universal non-bypassability outside declared enforcement adapters",
+            "Real-world consequence prevention without integrated authoritative actuator",
+            "C09-C12 (alternative API path, admin bypass, datastore, fail-open)",
+        ],
+        "tokens_issued":   len(_VCB_DECISION_TOKENS),
+        "tokens_consumed": len(_VCB_USED_TOKENS),
+        "sessions_active": len(_VCB_SESSIONS),
+    }
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=int(os.environ.get("PORT", 8000)), reload=False)
