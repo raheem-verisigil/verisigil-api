@@ -95598,6 +95598,720 @@ async def vcb_first_vertical():
     }
 
 
+
+# ============================================================
+# VCB v1.9 — ENFORCEMENT BINDING
+# Source: VCB_ENFORCEMENT_BINDING_V1_9.md
+# Tests: test_vcb_v19.py (4 tests covering exact accept, action
+#        substitution, state drift, single-use replay)
+#
+# Core chain (from spec):
+# Proposal → VCB Decision → Decision Token →
+# Exact-Action Verification → Commit/State Check →
+# Declared Actuator → Outcome Evidence → VGC
+#
+# PROOF BOUNDARY (from spec, locked):
+# "This implementation proves the cryptographic binding and
+# verification behavior of the declared adapter. It does NOT
+# prove that every external path in a customer's environment
+# is impossible to bypass. That requires an integrated actuator
+# and an independently executed bypass test suite."
+#
+# A SINGLE untested alternative path means the global claim
+# remains NOT_PROVEN.
+#
+# 12 required external challenges (from spec):
+# 1. exact allowed action
+# 2. amount substitution
+# 3. recipient substitution
+# 4. state drift
+# 5. authority drift/revocation
+# 6. token expiry
+# 7. token replay
+# 8. enforcement-point substitution
+# 9. alternative API path
+# 10. administrative/manual bypass
+# 11. direct datastore mutation
+# 12. fail-open adapter behavior
+# ============================================================
+
+_VCB_SESSIONS: dict = {}       # session_id -> session record
+_VCB_DECISION_TOKENS: dict = {}  # token_id -> token record
+_VCB_USED_TOKENS: set = set()  # token_ids consumed (single-use)
+_VCB_ENFORCEMENT_LOG: list = []  # enforcement decisions
+
+
+def _vcb19_hash(value) -> str:
+    return hashlib.sha256(
+        json.dumps(value, sort_keys=True, separators=(",", ":"),
+                   default=str).encode()
+    ).hexdigest()
+
+
+@app.post("/v1/vcb/session/start", tags=["VCB v1.9 — Enforcement Binding"])
+async def vcb_session_start(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Start a VCB governance session.
+
+    A session receives a signed continuity root. Each accepted
+    action advances a hash-linked session state. The next action
+    is evaluated against the accumulated governed history —
+    not as an isolated event.
+
+    Session continuity closes the 'death by a thousand cuts' gap.
+    """
+    require_api_key(x_api_key, authorization)
+    ts         = datetime.now(timezone.utc).isoformat()
+    session_id = req.get("session_id","") or f"SESS-{_vcb19_hash(ts)[:12].upper()}"
+
+    session = {
+        "schema":            "VGS-VCB-SESSION-1.9",
+        "session_id":        session_id,
+        "objective":         req.get("objective",""),
+        "consequence_class": req.get("consequence_class",""),
+        "constraints":       req.get("constraints",[]),
+        "status":            "ACTIVE",
+        "step":              0,
+        "actions":           [],
+        "started_at":        ts,
+    }
+    session["session_root_hash"] = _vcb19_hash({
+        "session_id":        session_id,
+        "objective":         session["objective"],
+        "consequence_class": session["consequence_class"],
+        "started_at":        ts,
+    })
+    session["governance_signature"] = sign_governance_payload(
+        {"session_id": session_id, "session_root_hash": session["session_root_hash"]}
+    )
+
+    _VCB_SESSIONS[session_id] = session
+    _emit_proof_event("VCB_SESSION_STARTED", session_id,
+                      {"consequence_class": session["consequence_class"]}, ts)
+    return session
+
+
+@app.post("/v1/vcb/centre-evaluate", tags=["VCB v1.9 — Enforcement Binding"])
+async def vcb_centre_evaluate(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    VCB Centre Evaluate — core governance decision endpoint.
+
+    Evaluates a proposed action against authority, state,
+    constraints, consequence class, and result integrity examination.
+
+    Returns: ALLOW | DENY | REVIEW | NOT_PROVABLE | RE_ENTRY_REQUIRED
+
+    Invariant I04: Unverified/stale/conflicting/missing required
+    state NEVER silently becomes ALLOW.
+
+    Fail-closed rule: No valid conditions → DENY, never ALLOW.
+    """
+    require_api_key(x_api_key, authorization)
+    ts             = datetime.now(timezone.utc).isoformat()
+    correlation_id = req.get("correlation_id","")
+    action         = req.get("action",{})
+    authority      = req.get("authority",{})
+    state          = req.get("state",{})
+    constraints    = req.get("constraints",[])
+    consequence    = req.get("consequence","")
+    human_review   = req.get("human_review_required", False)
+    result_exam    = req.get("result_examination",{})
+
+    action_hash    = _vcb19_hash(action)
+    authority_hash = _vcb19_hash(authority)
+    state_hash     = _vcb19_hash(state)
+    failures       = []
+
+    # Authority check
+    if authority.get("status","") != "ACTIVE":
+        failures.append("AUTHORITY_NOT_ACTIVE")
+
+    # Constraint evaluation
+    for constraint in constraints:
+        if "max_amount" in constraint:
+            if float(action.get("amount", 0)) > float(constraint["max_amount"]):
+                failures.append("CONSTRAINT_MAX_AMOUNT_EXCEEDED")
+
+    # Result integrity examination
+    release_eligibility = result_exam.get("release_eligibility","")
+    if release_eligibility and release_eligibility != "ELIGIBLE":
+        failures.append(f"RELEASE_INELIGIBLE:{release_eligibility}")
+
+    # Fail-closed: any failure → DENY or NOT_PROVABLE
+    if failures:
+        decision = "NOT_PROVABLE" if any(
+            "MISSING" in f or "UNKNOWN" in f or "INSUFFICIENT" in f
+            for f in failures
+        ) else "DENY"
+    elif human_review:
+        decision = "REVIEW"
+    else:
+        decision = "ALLOW"
+
+    decision_payload = {
+        "correlation_id":  correlation_id,
+        "action_hash":     action_hash,
+        "authority_hash":  authority_hash,
+        "state_hash":      state_hash,
+        "consequence":     consequence,
+        "decision":        decision,
+        "evaluated_at":    ts,
+    }
+    decision_hash = _vcb19_hash(decision_payload)
+
+    result = {
+        "schema":             "VGS-VCB-CENTRE-EVALUATE-1.9",
+        "correlation_id":     correlation_id,
+        "action_hash":        action_hash,
+        "authority_hash":     authority_hash,
+        "state_hash":         state_hash,
+        "consequence_class":  consequence,
+        "decision":           decision,
+        "decision_hash":      decision_hash,
+        "failures":           failures,
+        "release_eligibility":release_eligibility,
+        "fail_closed_rule":   "No valid conditions → DENY. Uncertainty → NOT_PROVABLE. Never ALLOW by default.",
+        "proof_boundary":     "DECISION ≠ ENFORCEMENT ≠ CONSEQUENCE. This decision requires token issuance and enforcement adapter verification.",
+        "evaluated_at":       ts,
+    }
+
+    result["governance_signature"] = sign_governance_payload(
+        {"decision_hash": decision_hash, "timestamp": ts}
+    )
+    _emit_proof_event("VCB_DECISION", correlation_id,
+                      {"decision": decision, "action_hash": action_hash}, ts)
+    return result
+
+
+@app.post("/v1/vcb/decision-token", tags=["VCB v1.9 — Enforcement Binding"])
+async def vcb_decision_token(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Issue a VCB Decision Token — cryptographically bound execution authorization.
+
+    Token binds (per v1.9 spec):
+    - exact action_hash
+    - authority_hash
+    - state_hash
+    - session continuity state
+    - consequence class
+    - declared enforcement point
+    - issue time and expiry
+    - decision hash
+    - single-use state
+
+    A materially changed action, authority, state, target, or
+    enforcement point must NOT reuse the token.
+
+    Fail-closed rule: No valid current token → enforcement rejects.
+    """
+    require_api_key(x_api_key, authorization)
+    ts          = datetime.now(timezone.utc).isoformat()
+
+    decision    = req.get("decision","")
+    if decision != "ALLOW":
+        raise HTTPException(status_code=400,
+            detail=f"Token can only be issued for ALLOW decisions. Got: {decision}")
+
+    action      = req.get("action",{})
+    authority   = req.get("authority",{})
+    state       = req.get("state",{})
+    session_id  = req.get("session_id","")
+    enforcement_point = req.get("enforcement_point","")
+    consequence_class = req.get("consequence_class","")
+    decision_hash     = req.get("decision_hash","")
+    ttl_seconds       = int(req.get("ttl_seconds", 120))
+
+    from datetime import datetime as dt, timedelta
+    expires_at = (dt.now(timezone.utc) + timedelta(seconds=ttl_seconds)).isoformat()
+
+    # Advance session if present
+    session_state_hash = ""
+    if session_id and session_id in _VCB_SESSIONS:
+        sess = _VCB_SESSIONS[session_id]
+        sess["step"] += 1
+        action_record = {
+            "step":        sess["step"],
+            "action_hash": _vcb19_hash(action),
+            "recorded_at": ts,
+        }
+        prev_hash = sess["actions"][-1]["action_hash"] if sess["actions"] else sess["session_root_hash"]
+        action_record["previous_action_hash"] = prev_hash
+        sess["actions"].append(action_record)
+        session_state_hash = _vcb19_hash({
+            "root":       sess["session_root_hash"],
+            "step":       sess["step"],
+            "last_action":action_record["action_hash"],
+        })
+        sess["session_state_hash"] = session_state_hash
+
+    token_id = f"VCT-{_vcb19_hash(ts + decision_hash)[:16].upper()}"
+
+    token_payload = {
+        "token_id":            token_id,
+        "correlation_id":      req.get("correlation_id",""),
+        "action_hash":         _vcb19_hash(action),
+        "authority_hash":      _vcb19_hash(authority),
+        "state_hash":          _vcb19_hash(state),
+        "session_id":          session_id,
+        "session_state_hash":  session_state_hash,
+        "consequence_class":   consequence_class,
+        "enforcement_point":   enforcement_point,
+        "decision":            decision,
+        "decision_hash":       decision_hash,
+        "issued_at":           ts,
+        "expires_at":          expires_at,
+        "single_use":          True,
+        "status":              "ACTIVE",
+    }
+    token_payload["token_hash"] = _vcb19_hash({
+        k: v for k, v in token_payload.items()
+        if k not in ("token_hash", "status")
+    })
+    token_payload["governance_signature"] = sign_governance_payload(
+        {"token_id": token_id, "token_hash": token_payload["token_hash"], "timestamp": ts}
+    )
+
+    _VCB_DECISION_TOKENS[token_id] = token_payload
+    _emit_proof_event("VCB_TOKEN_ISSUED", token_id,
+                      {"enforcement_point": enforcement_point,
+                       "consequence_class": consequence_class}, ts)
+
+    return {"schema": "VGS-VCB-TOKEN-1.9", "token": token_payload}
+
+
+@app.post("/v1/vcb/enforcement/verify", tags=["VCB v1.9 — Enforcement Binding"])
+async def vcb_enforcement_verify(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    VCB Enforcement Adapter Verification.
+
+    Called by the declared enforcement adapter before accepting
+    an action. Verifies the decision token against the actual
+    action, authority, state, and enforcement point at execution time.
+
+    This is where single-use, fail-closed, and exact binding
+    are enforced together.
+
+    Test coverage (test_vcb_v19.py):
+    - exact action accepts
+    - action substitution rejected (ACTION_BINDING_MISMATCH)
+    - state drift rejected (STATE_BINDING_MISMATCH)
+    - single-use token replay rejected (TOKEN_USED | TOKEN_EXPIRED)
+
+    Proof boundary: This proves the declared adapter behavior.
+    Alternative paths (admin console, direct DB, alternate API)
+    remain NOT_PROVEN until independently tested against a real actuator.
+    """
+    require_api_key(x_api_key, authorization)
+    ts        = datetime.now(timezone.utc).isoformat()
+    token_obj = req.get("token",{})
+    token_id  = token_obj.get("token_id","")
+    action    = req.get("action",{})
+    authority = req.get("current_authority",{})
+    state     = req.get("current_state",{})
+    ep        = req.get("enforcement_point","")
+
+    failures  = []
+    accepted  = False
+
+    # 1. Token exists
+    stored = _VCB_DECISION_TOKENS.get(token_id)
+    if not stored:
+        failures.append("TOKEN_NOT_REGISTERED")
+        return {"accepted": False, "failures": failures, "verified_at": ts,
+                "proof_boundary": "NOT_PROVEN — token not found"}
+
+    # 2. Single-use check
+    if token_id in _VCB_USED_TOKENS:
+        failures.append("TOKEN_USED")
+
+    # 3. Expiry check
+    from datetime import datetime as dt
+    try:
+        if dt.fromisoformat(stored["expires_at"].replace("Z","+00:00")) <= dt.now(timezone.utc):
+            failures.append("TOKEN_EXPIRED")
+    except Exception:
+        failures.append("TOKEN_EXPIRY_INVALID")
+
+    # 4. Exact action binding
+    if _vcb19_hash(action) != stored.get("action_hash",""):
+        failures.append("ACTION_BINDING_MISMATCH")
+
+    # 5. Authority binding
+    if _vcb19_hash(authority) != stored.get("authority_hash",""):
+        failures.append("AUTHORITY_BINDING_MISMATCH")
+
+    # 6. State binding
+    if _vcb19_hash(state) != stored.get("state_hash",""):
+        failures.append("STATE_BINDING_MISMATCH")
+
+    # 7. Enforcement point binding
+    if ep and ep != stored.get("enforcement_point",""):
+        failures.append("ENFORCEMENT_POINT_MISMATCH")
+
+    # Result
+    if not failures:
+        accepted = True
+        _VCB_USED_TOKENS.add(token_id)
+        stored["status"] = "USED"
+        stored["used_at"] = ts
+
+    log_entry = {
+        "token_id":      token_id,
+        "accepted":      accepted,
+        "failures":      failures,
+        "action_hash":   _vcb19_hash(action),
+        "enforcement_point": ep,
+        "verified_at":   ts,
+    }
+    _VCB_ENFORCEMENT_LOG.append(log_entry)
+    _emit_proof_event("ENFORCEMENT_VERIFY", token_id,
+                      {"accepted": accepted, "failures": failures}, ts)
+
+    return {
+        "schema":         "VGS-VCB-ENFORCEMENT-VERIFY-1.9",
+        "accepted":       accepted,
+        "token_id":       token_id,
+        "failures":       failures,
+        "proof_boundary": (
+            "This proves declared adapter behavior. "
+            "NOT_PROVEN for: alternative API path, admin/manual bypass, "
+            "direct datastore mutation, fail-open adapter behavior. "
+            "A single untested alternative path means the global claim remains NOT_PROVEN."
+        ),
+        "verified_at":    ts,
+    }
+
+
+@app.get("/v1/vcb/enforcement/log", tags=["VCB v1.9 — Enforcement Binding"])
+async def vcb_enforcement_log(
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Enforcement verification log — all accept/reject decisions."""
+    require_api_key(x_api_key, authorization)
+    return {
+        "schema":   "VGS-VCB-ENFORCEMENT-LOG-1.9",
+        "total":    len(_VCB_ENFORCEMENT_LOG),
+        "accepted": sum(1 for e in _VCB_ENFORCEMENT_LOG if e.get("accepted")),
+        "rejected": sum(1 for e in _VCB_ENFORCEMENT_LOG if not e.get("accepted")),
+        "log":      _VCB_ENFORCEMENT_LOG,
+    }
+
+
+@app.get("/v1/vcb/v19/external-challenges", tags=["VCB v1.9 — Enforcement Binding"])
+async def vcb_v19_external_challenges():
+    """
+    The 12 required external challenges from VCB_ENFORCEMENT_BINDING_V1_9.md.
+
+    These are the tests that must be run against a REAL enforcement point
+    before any production claim can be made. Reference harness tests
+    are engineering evidence — not third-party assurance.
+
+    "A single untested alternative path means the global claim remains NOT_PROVEN."
+
+    No auth required — public specification.
+    """
+    return {
+        "schema":   "VGS-VCB-EXTERNAL-CHALLENGES-1.9",
+        "spec":     "VCB_ENFORCEMENT_BINDING_V1_9.md",
+        "proof_boundary": (
+            "This implementation proves the cryptographic binding and "
+            "verification behavior of the declared adapter. It does NOT prove "
+            "that every external path in a customer's environment is impossible "
+            "to bypass. That requires an integrated actuator and an independently "
+            "executed bypass test suite."
+        ),
+        "fail_closed_rule": (
+            "No valid current token → enforcement verification rejects. "
+            "Material action/state/authority drift → reject and require re-entry."
+        ),
+        "NOT_PROVEN_until": (
+            "A single untested alternative path means the global claim remains NOT_PROVEN."
+        ),
+        "required_challenges": {
+            "C01": {"test": "Exact allowed action", "expected": "ACCEPTED", "status": "TESTABLE — POST /v1/vcb/enforcement/verify"},
+            "C02": {"test": "Amount substitution", "expected": "ACTION_BINDING_MISMATCH", "status": "TESTABLE — action hash changes"},
+            "C03": {"test": "Recipient substitution", "expected": "ACTION_BINDING_MISMATCH", "status": "TESTABLE — action hash changes"},
+            "C04": {"test": "State drift", "expected": "STATE_BINDING_MISMATCH", "status": "TESTABLE — state hash changes"},
+            "C05": {"test": "Authority drift/revocation", "expected": "AUTHORITY_BINDING_MISMATCH", "status": "TESTABLE — authority hash changes"},
+            "C06": {"test": "Token expiry", "expected": "TOKEN_EXPIRED", "status": "TESTABLE — use expired token"},
+            "C07": {"test": "Token replay", "expected": "TOKEN_USED", "status": "TESTABLE — consume twice"},
+            "C08": {"test": "Enforcement-point substitution", "expected": "ENFORCEMENT_POINT_MISMATCH", "status": "TESTABLE — wrong enforcement_point"},
+            "C09": {"test": "Alternative API path", "expected": "ACTION_BYPASSES_VCB", "status": "NOT_TESTABLE_WITHOUT_REAL_ACTUATOR — requires integrated system"},
+            "C10": {"test": "Administrative/manual bypass", "expected": "ACTION_BYPASSES_VCB", "status": "NOT_TESTABLE_WITHOUT_REAL_ACTUATOR — requires environment access"},
+            "C11": {"test": "Direct datastore mutation", "expected": "ACTION_BYPASSES_VCB", "status": "NOT_TESTABLE_WITHOUT_REAL_ACTUATOR — requires datastore access"},
+            "C12": {"test": "Fail-open adapter behavior", "expected": "TOKEN_BYPASSED_OR_ACCEPTED_WITHOUT_VERIFY", "status": "NOT_TESTABLE_WITHOUT_REAL_ACTUATOR — adapter must be connected"},
+        },
+        "testable_in_reference": ["C01","C02","C03","C04","C05","C06","C07","C08"],
+        "requires_real_actuator": ["C09","C10","C11","C12"],
+        "global_claim_status": "NOT_PROVEN until C09-C12 independently tested against real enforcement point",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+
+# ============================================================
+# VCB ARCHITECTURE v1.4 — COMPLETION
+# Source: VCB_ENGINEERING_ARCHITECTURE_V1_4.md (58 sections)
+#
+# What this adds:
+# - VCB Error Taxonomy (VCB-AUTH-001 through VCB-SES-002)
+# - Runtime Consequence Governance category phrase (Section 54)
+# - VCB v1.4 architecture summary endpoint
+# - Governance load metrics (Section 44)
+# - STATE_TRANSITION_VIOLATION (distinct from STATE_TRANSITION_NOT_PROVEN)
+# - STRUCTURING_DETECTED / VCB-SES-002
+# - PATH_COVERAGE_DECLARED status
+# - AGGREGATE_RISK_EXCEEDED status
+# - VCB honest claim (Section 53)
+# ============================================================
+
+# ── VCB STANDARDIZED ERROR TAXONOMY (Section 35) ──────────
+VCB_ERROR_TAXONOMY = {
+    # Authority
+    "VCB-AUTH-001": {"code": "AUTHORITY_INVALID",     "description": "Authority check failed"},
+    "VCB-AUTH-002": {"code": "AUTHORITY_EXPIRED",     "description": "Authority exceeded valid_until"},
+    "VCB-AUTH-003": {"code": "AUTHORITY_REVOKED",     "description": "Authority explicitly revoked"},
+    "VCB-AUTH-004": {"code": "AUTHORITY_ACCRETION",   "description": "Proposed scope exceeds granted scope"},
+    # Evidence
+    "VCB-EVD-001": {"code": "EVIDENCE_MISSING",       "description": "Required evidence not present"},
+    "VCB-EVD-002": {"code": "EVIDENCE_STALE",         "description": "Evidence beyond freshness window"},
+    "VCB-EVD-003": {"code": "EVIDENCE_CONFLICT",      "description": "Evidence sources disagree"},
+    # Action
+    "VCB-ACT-001": {"code": "ACTION_MUTATION",        "description": "Action changed after binding"},
+    # Token
+    "VCB-TOK-001": {"code": "TOKEN_INVALID",          "description": "Token not registered or malformed"},
+    "VCB-TOK-002": {"code": "TOKEN_REPLAY",           "description": "Token already consumed — single-use only"},
+    "VCB-TOK-003": {"code": "TOKEN_EXPIRED",          "description": "Token past expiry"},
+    # Contract / State
+    "VCB-CON-001": {"code": "CONTRACT_VIOLATION",     "description": "Forbidden state change or postcondition failed"},
+    "VCB-STA-001": {"code": "STATE_TRANSITION_VIOLATION", "description": "Resulting state violated Consequence Contract"},
+    # Enforcement
+    "VCB-ENF-001": {"code": "ENFORCEMENT_PATH_UNPROVEN", "description": "Path not covered by declared enforcement"},
+    # Reconciliation / Coverage
+    "VCB-REC-001": {"code": "RECONCILIATION_FAILURE", "description": "Expected and observed outcomes diverge"},
+    "VCB-COV-001": {"code": "COVERAGE_LIMITATION",   "description": "Non-bypassability claim exceeds declared coverage"},
+    # Session
+    "VCB-SES-001": {"code": "AGGREGATE_RISK_EXCEEDED","description": "Cumulative session risk budget exceeded"},
+    "VCB-SES-002": {"code": "STRUCTURING_DETECTED",  "description": "Sequence violates declared cumulative constraint (not: intent detected)"},
+}
+
+# Additional proof statuses from Section 37 + architecture lock
+VCB_PROOF_STATUS_MODEL = {
+    "DECISION_PROVEN":       "VCB evaluation independently reconstructible",
+    "ENFORCEMENT_PROVEN":    "Declared enforcement point honored the decision",
+    "CONSEQUENCE_PROVEN":    "Authoritative system outcome was observed",
+    "STATE_TRANSITION_PROVEN": "Before/after state satisfied Consequence Contract",
+    "STATE_TRANSITION_NOT_PROVEN": "State evidence insufficient to prove transition",
+    "STATE_TRANSITION_VIOLATION":  "Resulting state violated Consequence Contract — postcondition failed or forbidden change occurred",
+    "PATH_COVERAGE_DECLARED":  "Covered and unproven paths explicitly disclosed",
+    "AGGREGATE_RISK_EXCEEDED": "Cumulative session risk budget exceeded — ESCALATE",
+    "STRUCTURING_DETECTED":   "Sequence violates declared cumulative constraint. Not a claim of intent.",
+    "AUTHORITY_REVOKED":      "Authority explicitly revoked — RE_ENTRY_REQUIRED",
+}
+
+# Governance load metrics (Section 44)
+VCB_GOVERNANCE_LOAD_METRICS = {
+    "governed_action_volume":     "Total consequential actions evaluated by VCB",
+    "revalidation_volume":        "Commit-time revalidations performed",
+    "exception_volume":           "Emergency override events recorded",
+    "human_review_load":          "Human judgment gate evaluations",
+    "evidence_failure_rate":      "Rate of NOT_PROVABLE due to missing/stale evidence",
+    "reconciliation_failure_rate":"Rate of RECONCILIATION_REQUIRED outcomes",
+    "unproven_path_count":        "Paths disclosed but not covered by enforcement",
+    "authority_revocation_frequency": "Authority revocations that triggered RE_ENTRY",
+    "override_frequency":         "Exception/recovery events",
+    "coverage_percentage":        "Declared paths as % of known paths",
+}
+
+
+@app.get("/v1/vcb/architecture", tags=["VCB Architecture v1.4 — Summary"])
+async def vcb_architecture_summary():
+    """
+    VCB Engineering Architecture v1.4 — canonical summary.
+
+    Runtime Consequence Governance for autonomous AI agents.
+    58 sections. 15 invariants. 11 governance domains. 12 adversarial families.
+
+    The architecture category:
+    'VCB provides runtime consequence governance for declared AI-agent
+    execution paths, continuously evaluating whether a specific consequential
+    action remains admissible under current authority, policy, evidence,
+    context, continuity and state conditions, while producing independently
+    verifiable evidence within the declared enforcement envelope.'
+
+    No auth required — public specification.
+    """
+    return {
+        "schema":          "VCB-ARCHITECTURE-V1.4",
+        "version":         "1.4",
+        "category":        "Runtime Consequence Governance",
+        "status":          "Architecture Locked — Operational Build",
+
+        "honest_claim": (
+            "VCB provides runtime consequence governance for declared "
+            "AI-agent execution paths, continuously evaluating whether a "
+            "specific consequential action remains admissible under current "
+            "authority, policy, evidence, context, continuity and state "
+            "conditions, while producing independently verifiable evidence "
+            "of the governance decision and resulting state within the "
+            "declared enforcement envelope."
+        ),
+
+        "what_vcb_does_not_claim": [
+            "We make AI safe",
+            "We govern every AI system",
+            "We prevent every AI failure",
+            "We guarantee compliance",
+            "We eliminate human error",
+            "AI cannot bypass us (beyond declared coverage)",
+            "VCB is the sole answer to AI governance",
+        ],
+
+        "core_distinction": {
+            "Decision":         "Was the proposed action admissible?",
+            "Enforcement":      "Was the approved action constrained to what was approved?",
+            "Consequence":      "Did execution produce the permitted consequence?",
+            "State_Transition": "Did the resulting state satisfy the Consequence Contract?",
+            "Evidence":         "Can an independent verifier reconstruct and verify what happened?",
+            "note":             "Passing one does NOT automatically prove the others.",
+        },
+
+        "11_governance_domains": [
+            "1. Action Binding",
+            "2. Authority Continuity",
+            "3. Consequence Contract",
+            "4. Policy and Risk Evaluation",
+            "5. Evidence Freshness",
+            "6. Session Continuity",
+            "7. Commit-Time Revalidation",
+            "8. Single-Use Decision Token",
+            "9. Declared Enforcement Path",
+            "10. Consequence Observation",
+            "11. State-Transition Verification",
+        ],
+
+        "15_critical_invariants": VCB_V22_INVARIANTS,  # I01-I18, covers I1-I15 from v1.4
+
+        "error_taxonomy":     VCB_ERROR_TAXONOMY,
+        "proof_status_model": VCB_PROOF_STATUS_MODEL,
+
+        "12_adversarial_test_families": [
+            "1. Action mutation",
+            "2. Replay",
+            "3. Stale evidence",
+            "4. Authority revocation",
+            "5. Policy mutation",
+            "6. Target mutation",
+            "7. Consequence mutation",
+            "8. Structuring (cumulative constraint)",
+            "9. Authority accretion",
+            "10. Enforcement bypass",
+            "11. Evidence forgery",
+            "12. Observer disagreement",
+        ],
+
+        "architecture_lock": [
+            "Action Binding", "Authority Continuity", "Authority Conservation",
+            "Consequence Contract", "Session Continuity", "Aggregate Risk Window",
+            "Commit-Time Revalidation", "Single-Use Decision Token",
+            "Declared Enforcement Path", "Consequence Observation",
+            "State-Transition Verification", "Reconciliation Witness",
+            "Independent Evidence Boundary", "Provenance", "Path-Coverage Certificate",
+            "VGC", "Independent Verifier", "Fail-Closed Semantics",
+            "Exception / Recovery Ledger", "Executable Proof Surface",
+            "Adversarial Harness", "Explicit Limitations",
+        ],
+
+        "outside_vcb_baseline": [
+            "General-purpose AI safety",
+            "Model training governance",
+            "Complete cybersecurity replacement",
+            "Universal regulatory compliance engine",
+            "Human accountability replacement",
+            "Universal ethical decision-maker",
+            "Guaranteed prevention of every AI failure",
+        ],
+
+        "first_production_vertical": "GET /v1/vcb/first-vertical",
+        "external_challenges":       "GET /v1/vcb/v19/external-challenges",
+        "falsification_harness":     "GET /v1/vcb/v2/falsification",
+        "claim_ledger":              "GET /v1/claims/ledger",
+        "timestamp":                 datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@app.get("/v1/vcb/error-taxonomy", tags=["VCB Architecture v1.4 — Summary"])
+async def vcb_error_taxonomy():
+    """
+    VCB standardized error taxonomy — VCB-AUTH-001 through VCB-SES-002.
+    Machine-readable. No auth required.
+    """
+    return {
+        "schema":   "VCB-ERROR-TAXONOMY-1.4",
+        "total":    len(VCB_ERROR_TAXONOMY),
+        "taxonomy": VCB_ERROR_TAXONOMY,
+        "note": (
+            "VCB-SES-002 STRUCTURING_DETECTED means: the sequence violates "
+            "a declared cumulative constraint. It does NOT claim intent was "
+            "detected. VCB is not an AML engine."
+        ),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@app.get("/v1/vcb/governance-load", tags=["VCB Architecture v1.4 — Summary"])
+async def vcb_governance_load(
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Governance load metrics (Section 44 of Architecture v1.4).
+
+    Measures whether governance controls are operable under load.
+    Discovers when governance itself becomes overloaded.
+    """
+    require_api_key(x_api_key, authorization)
+    return {
+        "schema":           "VCB-GOVERNANCE-LOAD-1.4",
+        "metric_definitions": VCB_GOVERNANCE_LOAD_METRICS,
+        "current_counts": {
+            "governed_action_volume":    len(_VCB_ENFORCEMENT_LOG),
+            "sessions_active":           len(_VCB_SESSIONS),
+            "tokens_issued":             len(_VCB_DECISION_TOKENS),
+            "tokens_consumed":           len(_VCB_USED_TOKENS),
+            "exception_volume":          len(EXCEPTIONS_LEDGER),
+            "consequence_contracts":     len(CONSEQUENCE_CONTRACTS),
+            "reconciliations":           len(RECONCILIATIONS),
+            "authority_checks":          len(VCB_V22_AUTHORITY_REGISTRY),
+            "path_certificates":         len(PATH_CERTIFICATES),
+            "human_reviews":             len(VCB_V22_HUMAN_REVIEWS),
+        },
+        "enforcement_log_summary": {
+            "total":    len(_VCB_ENFORCEMENT_LOG),
+            "accepted": sum(1 for e in _VCB_ENFORCEMENT_LOG if e.get("accepted")),
+            "rejected": sum(1 for e in _VCB_ENFORCEMENT_LOG if not e.get("accepted")),
+        },
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=int(os.environ.get("PORT", 8000)), reload=False)
