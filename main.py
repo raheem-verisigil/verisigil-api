@@ -97199,65 +97199,6 @@ async def vcb_sigilmark_verify(req: dict):
     )
 
 
-# ── PRODUCTION GATE UPDATE (Section 72 — extended) ───────────
-
-PRODUCTION_GATE_V2 = {
-    "schema":  "VGS-PRODUCTION-GATE-2.0",
-    "checklist": {
-        # Code quality
-        "duplicate_route_count_0":              "PASS",
-        "one_canonical_VCB_decision_path":      "PARTIAL — VCBFinalEngine built, routes consolidated",
-        "VSL_cannot_bypass_VCB":                "PASS",
-        "semantic_binding_enforced":            "PASS",
-        "TransitionIntegrityRecord_enforced":   "PASS — build_transition_integrity_record()",
-        "authority_conservation_enforced":      "PASS — AUTHORITY_ACCRETION detection",
-        "no_silent_inheritance":                "PASS",
-        "requalification_enforced":             "PASS",
-        "atomic_token_consumption":             "PENDING — threading.Lock not multi-instance safe",
-        "cryptographic_JWT_verification":       "PENDING — JWKS env config required",
-        "no_unsafe_PQ_fallback":                "PASS — raises RuntimeError(PQ_UNAVAILABLE)",
-        "production_CORS":                      "PASS",
-        "canonical_UTC_timestamps":             "PASS",
-        # New in v2
-        "consequence_envelope_implemented":     "PASS — evaluate_consequence_envelope()",
-        "consequence_bounds_enforced":          "PASS — VCBFinalEngine steps 9-11",
-        "novelty_assessment_implemented":       "PASS — evaluate_novelty()",
-        "predictability_assessment_implemented":"PASS — evaluate_predictability()",
-        "reversibility_assessment_implemented": "PASS — evaluate_reversibility()",
-        "counterfactual_evaluation_tested":     "PARTIAL — reference implementation",
-        "coherence_evaluation_tested":          "PARTIAL — reference implementation",
-        "session_constraints_enforced":         "PASS",
-        # Proof path
-        "Payment_Destination_Change_passes":    "PARTIAL — reference actuator",
-        "amount_substitution_blocked":          "PASS — A02 adversarial test",
-        "recipient_substitution_blocked":       "PASS — A02 adversarial test",
-        "stale_proof_blocked":                  "PASS — A01 adversarial test",
-        "replay_blocked":                       "PASS — A05 adversarial test",
-        "authority_revocation_blocked":         "PASS — AUTHORITY_REVOKED path",
-        "policy_drift_blocked":                 "PASS — POLICY_MISMATCH",
-        "state_drift_blocked":                  "PASS — STATE_CONFLICT",
-        "alternative_path_tested":              "PENDING — C09-C12",
-        "manual_admin_path_tested":             "PENDING",
-        "datastore_mutation_tested":            "PENDING",
-        "fail_open_actuator_tested":            "PENDING",
-        "consequence_observation_implemented":  "PASS — CONSEQUENCE_NOT_OBSERVED",
-        "reconciliation_implemented":           "PASS",
-        "Evidence_Seal_complete":               "PASS",
-        "Proof_Passport_complete":              "PASS",
-        "offline_verification_works":           "PASS — verify_vcc_independent()",
-        "SigilMark_independent_verify":         "PASS — verify_sigilmark_independent()",
-        "evidence_classes_preserved":           "PASS — E0-E5",
-        "public_claims_match_proof":            "PASS — ENGINEERING_BASELINE only",
-        "offline_proof_package":                "PASS — build_offline_proof_package()",
-        # Gate 7
-        "external_reproduction":                "PENDING — Gate 7",
-    },
-    "current_designation": "ENGINEERING_BASELINE_V1",
-    "ready_for_pilot_when": "All PENDING items resolved and adversarial suite executed against real actuator",
-}
-
-
-
 @app.get("/v1/adversarial/alternate-allow-paths", tags=["Adversarial Proof Gates"])
 async def adversarial_alternate_allow_paths(
     x_api_key: Optional[str] = Header(None),
