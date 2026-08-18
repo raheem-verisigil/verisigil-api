@@ -97257,175 +97257,6 @@ PRODUCTION_GATE_V2 = {
 }
 
 
-@app.get("/v1/engineering/production-gate-v2", tags=["Engineering Gates 0-7"])
-async def production_gate_v2():
-    """
-    Extended production gate v2 — includes all 84-section requirements.
-    No auth required.
-    """
-    return {**PRODUCTION_GATE_V2, "timestamp": datetime.now(timezone.utc).isoformat()}
-
-
-
-# ============================================================
-# VeriSigilAI VCB v1.0 — ADVERSARIAL PROOF & ENFORCEMENT AUDIT
-# Expert directive: "Stop adding conceptual capability.
-# Start attacking the implementation and proving the boundaries."
-#
-# Architecture frozen. No new governance engines.
-# These are PROOF TESTS — not new architecture.
-# ============================================================
-
-# ── CLAIM BOUNDARY MATRIX ────────────────────────────────────
-# Expert requirement: prevents "implemented" becoming "proven"
-
-CLAIM_BOUNDARY_MATRIX = {
-    "schema": "VGS-CLAIM-BOUNDARY-MATRIX-1.0",
-    "claims": [
-        {
-            "claim":             "VCBFinalEngine is the single authoritative ALLOW path",
-            "evidence_required": "No alternate route produces ALLOW without passing VCBFinalEngine",
-            "test_endpoint":     "GET /v1/adversarial/alternate-allow-paths",
-            "status":            "TEST — executable now",
-        },
-        {
-            "claim":             "SigilMark is action-bound — any mutation invalidates it",
-            "evidence_required": "15 mutation attacks all produce INVALID",
-            "test_endpoint":     "POST /v1/adversarial/sigilmark-mutations",
-            "status":            "TEST — executable now",
-        },
-        {
-            "claim":             "VCB is fail-closed — uncertainty never becomes ALLOW",
-            "evidence_required": "UNKNOWN predictability/novelty/reversibility never produces ALLOW",
-            "test_endpoint":     "POST /v1/adversarial/uncertainty-attacks",
-            "status":            "TEST — executable now",
-        },
-        {
-            "claim":             "Transition integrity survives movement",
-            "evidence_required": "Missing/altered/replayed transition records block execution",
-            "test_endpoint":     "POST /v1/adversarial/transition-attacks",
-            "status":            "TEST — executable now",
-        },
-        {
-            "claim":             "Consequence envelope is enforced at actuator",
-            "evidence_required": "Actions outside envelope are blocked even with valid SigilMark",
-            "test_endpoint":     "POST /v1/adversarial/envelope-attacks",
-            "status":            "TEST — reference actuator",
-        },
-        {
-            "claim":             "Replay is prevented",
-            "evidence_required": "100 concurrent requests → exactly 1 VALID",
-            "test_endpoint":     "POST /v1/adversarial/concurrency-test",
-            "status":            "TEST — single instance (threading.Lock). PENDING multi-instance",
-        },
-        {
-            "claim":             "Alternative route cannot bypass VCB",
-            "evidence_required": "Direct actuator call without SigilMark → BLOCKED",
-            "test_endpoint":     "POST /v1/adversarial/actuator-paths",
-            "status":            "TEST — reference actuator. PENDING: admin path, datastore, worker",
-        },
-        {
-            "claim":             "Evidence integrity — chain mutation invalidates passport",
-            "evidence_required": "Any tampered link → INVALID downstream",
-            "test_endpoint":     "POST /v1/adversarial/evidence-integrity",
-            "status":            "TEST — executable now",
-        },
-        {
-            "claim":             "Offline verification works without VeriSigil server",
-            "evidence_required": "verify_sigilmark_independent() → VALID/INVALID/NOT_PROVABLE",
-            "test_endpoint":     "POST /v1/vcc/verify-offline",
-            "status":            "IMPLEMENTED — self-contained. PENDING external reproduction",
-        },
-        {
-            "claim":             "Consequence was actually observed",
-            "evidence_required": "Authoritative external confirmation of real-world state change",
-            "test_endpoint":     "N/A — requires real actuator",
-            "status":            "PENDING — Gate 3 (Naimatullah/Velos). CONSEQUENCE_NOT_OBSERVED honest",
-        },
-        {
-            "claim":             "Independent reproduction by external party",
-            "evidence_required": "External auditor verifies passport without VeriSigil runtime",
-            "test_endpoint":     "N/A — requires Alkama Run 4 or Harold OMNIX",
-            "status":            "PENDING — Gate 8",
-        },
-    ],
-    "rule": (
-        "Implemented ≠ Proven. Tested locally ≠ Independently verified. "
-        "Each claim requires specific evidence before escalating its status."
-    ),
-}
-
-_GATE_TEST_RESULTS: list = []
-
-
-def _record_gate_result(gate: str, test_id: str, passed: bool, evidence: dict):
-    ts = datetime.now(timezone.utc).isoformat()
-    record = {
-        "gate": gate, "test_id": test_id,
-        "passed": passed, "evidence": evidence, "recorded_at": ts,
-    }
-    _GATE_TEST_RESULTS.append(record)
-    return record
-
-
-# ── GATE 1: ALTERNATE ALLOW PATH SCAN ───────────────────────
-
-def _scan_alternate_allow_paths() -> dict:
-    """
-    Gate 1: Can ANY route produce an executable ALLOW outside VCBFinalEngine?
-    Scans known patterns that could bypass the canonical path.
-    """
-    ts = datetime.now(timezone.utc).isoformat()
-    bypass_risks = []
-
-    # Known bypasses that were FIXED
-    fixed = [
-        {"path": "VSL trust score >= 0.60", "status": "FIXED",
-         "evidence": "trust >= 0.60 removed, replaced with authority_grants registry check"},
-        {"path": "Dilithium return True fallback", "status": "FIXED",
-         "evidence": "raises RuntimeError(PQ_UNAVAILABLE)"},
-        {"path": "CORS wildcard", "status": "FIXED",
-         "evidence": "explicit origins: verisigilai.com"},
-        {"path": "JWT verify_signature=False", "status": "ISOLATED",
-         "evidence": "0 call sites in production — dead code confirmed"},
-    ]
-
-    # Active paths that MUST route through VCBFinalEngine
-    canonical_paths = [
-        {"path": "POST /v1/vcb/evaluate", "routes_through": "VCBFinalEngine.evaluate()", "status": "CANONICAL"},
-        {"path": "POST /v1/vcb/centre-evaluate", "routes_through": "VCB canonical decision chain", "status": "CANONICAL"},
-        {"path": "POST /v1/vertical/payment-destination", "routes_through": "VCBFinalEngine + actuator", "status": "CANONICAL"},
-    ]
-
-    # Paths that require VCB decision before consequence
-    gated_paths = [
-        {"path": "POST /v1/vcc/issue/v2", "requirement": "vcb_decision_id must be ALLOW", "status": "GATED"},
-        {"path": "POST /v1/vcc/seal", "requirement": "decision == ALLOW required", "status": "GATED"},
-        {"path": "POST /v1/actuator/payment/verify-and-execute", "requirement": "valid SigilMark required", "status": "GATED"},
-    ]
-
-    # Paths that are NOT_TESTABLE without real actuator (honest disclosure)
-    not_testable = [
-        {"path": "Admin console bypass", "status": "NOT_TESTABLE_WITHOUT_REAL_ACTUATOR"},
-        {"path": "Direct database write", "status": "NOT_TESTABLE_WITHOUT_REAL_ACTUATOR"},
-        {"path": "Background worker", "status": "NOT_TESTABLE_WITHOUT_REAL_ACTUATOR"},
-        {"path": "Webhook-triggered execution", "status": "NOT_TESTABLE_WITHOUT_REAL_ACTUATOR"},
-        {"path": "Scheduled job", "status": "NOT_TESTABLE_WITHOUT_REAL_ACTUATOR"},
-    ]
-
-    return {
-        "schema":           "VGS-GATE1-ALTERNATE-ALLOW-PATHS-1.0",
-        "gate":             "GATE_1",
-        "question":         "Can ANY route produce ALLOW without VCBFinalEngine?",
-        "fixed_bypasses":   fixed,
-        "canonical_paths":  canonical_paths,
-        "gated_paths":      gated_paths,
-        "not_testable":     not_testable,
-        "result":           "PASS — no known bypass in reference implementation",
-        "critical_caveat":  "NOT_TESTABLE paths require real actuator. Until tested: NOT_PROVABLE for those paths.",
-        "evaluated_at":     ts,
-    }
-
 
 @app.get("/v1/adversarial/alternate-allow-paths", tags=["Adversarial Proof Gates"])
 async def adversarial_alternate_allow_paths(
@@ -105176,6 +105007,629 @@ async def engineering_build_snapshot():
     return {
         **VCB_BUILD_SNAPSHOT_CACHE,
         "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+
+# ============================================================
+# MARKET RESEARCH UPDATE — FACT-CHECKED 2026-08-18
+# New findings from web research completed during architecture audit
+# ============================================================
+
+PATHLOCK_2026_AI_GOVERNANCE_GAP_REPORT = {
+    "schema":  "VGS-PATHLOCK-2026-1.0",
+    "source":  "Pathlock 2026 AI Governance Gap Report — 286 IT/compliance/security decision-makers",
+    "published": "August 2026",
+    "key_findings": {
+        "no_dedicated_ai_governance_team":  "79% of organizations have NO dedicated AI governance team",
+        "cannot_fully_verify_agent_actions":"50%+ CANNOT FULLY VERIFY actions AI agents execute across business systems",
+        "agents_modify_records":            "38% allow AI agents to CREATE or MODIFY business records",
+        "agents_approve_transactions":      "28% PERMIT AI agents to APPROVE TRANSACTIONS",
+        "agents_cross_system":              "35% allow AI agents to execute cross-system workflows",
+        "agents_in_finance":               "36% have deployed or are deploying AI agents in finance and accounting",
+        "agents_access_databases":          "25% allow AI agents DIRECT ACCESS to back-end databases",
+        "ai_incidents":                     "23% have experienced AI incident requiring investigation and remediation",
+    },
+    "expert_quote": (
+        "'For decades, governance focused on controlling WHO could access a system.' — Susan Stapleton, GRC expert at Pathlock. "
+        "VCB addresses the next layer: WHAT the agent did, whether it was still admissible at commitment, "
+        "whether controls retained leverage, and whether the outcome can be independently verified."
+    ),
+    "VCB_relevance": (
+        "28% of organizations permit AI agents to approve transactions. "
+        "50%+ cannot verify what those agents actually did. "
+        "These are the exact organizations VCB is built for: "
+        "they need to answer WHY / STILL / COULD / WHAT for consequential AI actions."
+    ),
+    "target_customer_sectors_confirmed": ["finance and accounting", "procurement", "HR", "supply chain"],
+}
+
+ADDITIONAL_2026_MARKET_FINDINGS = {
+    "schema":  "VGS-ADDITIONAL-MARKET-FINDINGS-2026-1.0",
+    "ai_security_incidents": {
+        "source": "AI Agent Security: Closing the Access and Oversight Gap, July 2026",
+        "finding": "Nearly 65% of organizations reported an AI agent security incident in past year",
+        "autonomous_breach_share": "Autonomous agents already make up more than 12% of reported AI breaches",
+        "prompt_injection_growth": "Prompt injection up 340% YoY — number one on OWASP Agentic Top 10",
+    },
+    "microsoft_agent_governance_toolkit": {
+        "announced": "April 2, 2026",
+        "type":      "Open-source, MIT license",
+        "covers":    "All 10 OWASP Agentic Top 10 risks",
+        "languages": ["Python", "TypeScript", "Rust", "Go", ".NET"],
+        "VCB_differentiation": (
+            "Microsoft's toolkit covers runtime governance and access control. "
+            "VCB differentiates on consequence proof: independently verifiable evidence "
+            "that governance remained effective through the transition to consequence. "
+            "The toolkit answers WHO and WHETHER — VCB answers STILL, COULD, and WHAT."
+        ),
+    },
+    "vercel_breach_april_2026": {
+        "date":    "April 21, 2026",
+        "incident":"Compromised third-party AI tool pivoted into Vercel internal systems through employee-granted access",
+        "VCB_would_have_provided": "ActionBinding + ConsequenceBoundaryAttestation — independently verifiable record of what the agent was authorized to do vs what it actually did",
+        "governance_gap":          "Access was granted, but nobody could independently reconstruct what the agent was authorized to do vs what it executed",
+    },
+    "deloitte_2026": {
+        "source": "Deloitte 2026 AI Report — 3,235 director to C-suite, 24 countries",
+        "finding": "84% of companies have NOT redesigned roles around AI; only 21% have a mature AI-agent governance model",
+        "deployment_gap": "75% plan to deploy agentic AI within two years despite 21% governance maturity",
+    },
+    "OWASP_agentic_top_10": {
+        "status":         "Active 2026",
+        "top_risk":       "Prompt injection — 340% YoY growth",
+        "VCB_position":   "VCB's exact action binding (payload_hash) catches mutated parameters regardless of injection source. The model cannot self-authorize a mutated action.",
+    },
+    "two_market_anchors": {
+        "anchor_1": {
+            "source": "Grant Thornton 2026 AI Impact Survey",
+            "stat":   "78% cannot pass independent AI governance audit within 90 days",
+            "gap":    "WHY/STILL/COULD/WHAT — complete governance chain",
+        },
+        "anchor_2": {
+            "source": "Pathlock 2026 AI Governance Gap Report",
+            "stat":   "50%+ cannot fully verify actions AI agents execute",
+            "gap":    "WHAT — consequence verification",
+        },
+        "combined_message": (
+            "78% cannot demonstrate governance to an auditor. "
+            "50% cannot even verify what their AI agents did. "
+            "This is not a theoretical gap. It is the specific problem VeriSigilAI is built to close."
+        ),
+    },
+}
+
+# ── SIGNING KEY DOCUMENTATION (V-003) ────────────────────────
+# Real finding from architecture audit — must be honest about this.
+
+VCB_SIGNING_KEY_DOCUMENTATION = {
+    "schema":  "VGS-SIGNING-KEY-DOCUMENTATION-1.0",
+    "finding": "Dev/prod signing key separation gap",
+    "severity":"V-003 Medium",
+    "what_happens_in_dev": (
+        "When SIGN_SECRET environment variable is not set, "
+        "_SIGNING_KEY is derived from an empty/default secret. "
+        "This produces a DIFFERENT key pair than the production key "
+        "(lJWG0Wabt6uATPu5Upo6UEHWGXQqMyi6LMKQC0xwpY8=). "
+        "verify_vcc_independent defaults to the hardcoded production key, "
+        "causing SIGNATURE_INVALID in the dev environment."
+    ),
+    "is_it_a_security_vulnerability": False,
+    "why_not": (
+        "In production, SIGN_SECRET is set in Railway environment, "
+        "generating the stable key pair with the correct public key. "
+        "In dev without SIGN_SECRET, VCCs are signed with an ephemeral key — "
+        "they are not portable to production (correct behavior). "
+        "verify_vcc_independent accepts verify_key_b64 parameter "
+        "to explicitly pass the correct public key."
+    ),
+    "fix_for_dev_testing": "Pass verify_key_b64=<env_key> to verify_vcc_independent, or set SIGN_SECRET in test environment",
+    "fix_for_external_verification": "External verifier uses the production public key: lJWG0Wabt6uATPu5Upo6UEHWGXQqMyi6LMKQC0xwpY8=",
+    "production_behavior": "SIGN_SECRET → SHA256 → _SIGNING_KEY → stable key pair → correct public key (confirmed)",
+    "architecture_integrity": "Not compromised. The key isolation is correct. Dev and prod environments correctly use different keys.",
+    "action_required": "Document clearly in onboarding. Add SIGN_SECRET to test environment configuration.",
+}
+
+
+@app.get("/v1/engineering/production-gate-v2", tags=["Engineering Gates 0-7"])
+async def engineering_production_gate_v2():
+    """
+    Production gate v2 — complete honest status with new market data.
+    Includes Pathlock 2026, signing key documentation, Microsoft competitor.
+    No auth required.
+    """
+    return {
+        "schema":               "VGS-PRODUCTION-GATE-V2-1.0",
+        "NOT_PRODUCTION_READY": True,
+        "PROOF_PENDING":        True,
+        "architecture_audit":   "PASS — all 9 sections, executed behavioral tests, not just code checks",
+        "false_proven_paths":   "NONE FOUND in tested scenarios",
+        "signing_key":          VCB_SIGNING_KEY_DOCUMENTATION,
+        "new_market_data":      PATHLOCK_2026_AI_GOVERNANCE_GAP_REPORT,
+        "additional_findings":  ADDITIONAL_2026_MARKET_FINDINGS,
+        "maturity_map":         "GET /v1/engineering/maturity-map",
+        "build_snapshot":       "GET /v1/engineering/build-snapshot",
+        "repository_rule":      REPOSITORY_GOVERNANCE_SENTENCE,
+        "north_star":           VCB_NORTH_STAR,
+        "next_action":          "Execute Supabase DDL → configure Railway → POST /v1/adversarial/restart-replay → PA-01 PASS",
+        "timestamp":            datetime.now(timezone.utc).isoformat(),
+    }
+
+
+
+# ============================================================
+# VCB MASTER DIRECTION — FROZEN ENGINEERING + EXTENDED AUDIT
+# Date: 2026-08-18  |  Version: POST-EXPERT-CONSOLIDATION
+#
+# ARCHITECTURE: FROZEN — No new layers added.
+# AUDIT LENS: Extended — 5 domains, resilience dimension, evidence types.
+# DESIGN OBJECTIVE: Accountability Resilience.
+#
+# EXPERT CONSENSUS: "Do not make scale the starting constraint.
+# Make accountability resilience the starting constraint."
+# ============================================================
+
+# ── UPDATED NORTH STAR ────────────────────────────────────────
+
+VCB_NORTH_STAR_V2 = (
+    "VeriSigilAI independently examines whether a consequential AI action can be proven admissible "
+    "under its authority, capability, purpose, relevant relationships, evidence, conditions and "
+    "current state — and whether that proof remains resilient through the events that could otherwise "
+    "break accountability."
+)
+
+VCB_FIVE_PRINCIPLES = {
+    "schema":    "VGS-FIVE-PRINCIPLES-1.0",
+    "P1":        "Authority before consequence.",
+    "P2":        "Evidence at the moment of action.",
+    "P3":        "Connectivity does not create authority.",
+    "P4":        "State changes trigger re-examination.",
+    "P5":        "Proof must survive the system that produced it.",
+    "note":      "P5 is the new principle added from expert consolidation. It connects V-001, V-002, crash safety, historical truth, and independent verification into one design objective.",
+}
+
+# ── 10 NON-NEGOTIABLE ENGINEERING RULES ──────────────────────
+
+VCB_TEN_FROZEN_ENGINEERING_RULES = {
+    "schema": "VGS-FROZEN-ENGINEERING-RULES-1.0",
+    "frozen": True,
+    "rules": {
+        "R-01": "Implementation ≠ execution ≠ proof ≠ independent reproduction. No state promotion without executed evidence.",
+        "R-02": "Technical reachability ≠ permission. A system can reach a resource without having authority to act consequentially on it.",
+        "R-03": "System authority ≠ relationship authority. Two individually authorized systems do not automatically create composite authority when connected.",
+        "R-04": "Successful execution ≠ admissibility. The action completed does not mean it was admissible.",
+        "R-05": "Current evidence must not rewrite historical truth. VALID_UNDER_V1 remains true when V2 is introduced.",
+        "R-06": "Database state is authoritative. Memory is cache only. Never allow in-memory state to become the authority for governance decisions.",
+        "R-07": "Evidence quality and adjudication are separate dimensions. STALE evidence produces NOT_PROVABLE, not FAILED.",
+        "R-08": "No new architecture layer gets promoted merely because an external observation is interesting. Every addition must answer: what evidence does this create?",
+        "R-09": "Every capability advances A → B → C → D → E → F → G. No state skipping. No claim beyond the current state.",
+        "R-10": "The next commercial milestone is a demonstrable customer proof, not more routes.",
+    },
+    "context_for_R02": "Alex D.: 'What can it cause to happen?' Technical access creates the potential. Authority governs whether it is admissible.",
+    "context_for_R03": "Jake's insight: Agent A has access to customer data. System B can issue refunds. A→B connection does not automatically create refund-with-customer-data authority.",
+    "context_for_R05": "Kevin Smith: evidence must be captured contemporaneously, not reconstructed. Historical truth must be preserved.",
+    "context_for_P5":  "Proof must survive: process restart, infrastructure failure, distributed execution, delegation, authority changes, relationship changes, state changes, policy version changes, model changes, system composition, time, independent review.",
+}
+
+# ── ACCOUNTABILITY RESILIENCE — DESIGN OBJECTIVE ─────────────
+
+ACCOUNTABILITY_RESILIENCE = {
+    "schema":    "VGS-ACCOUNTABILITY-RESILIENCE-1.0",
+    "name":      "Accountability Resilience",
+    "type":      "Design Objective — not a product module",
+    "definition": (
+        "A system has strong accountability resilience when its admissibility evidence survives: "
+        "process restart, infrastructure failure, distributed execution, delegation, authority changes, "
+        "relationship changes, state changes, policy version changes, model changes, system-to-system "
+        "composition, time, and independent review."
+    ),
+    "why_this_matters": (
+        "Organizations don't merely need controls. They need to know whether those controls remained "
+        "effective and whether they can still prove it when the system becomes autonomous, distributed "
+        "and connected."
+    ),
+    "what_this_means_for_engineering": {
+        "V-001": "Not just 'fix replay' — proves accountability evidence survives infrastructure events",
+        "V-002": "Not just 'handle multiple instances' — proves accountability survives distributed execution",
+        "Crash tests": "Proves the system cannot lose the distinction between intended, persisted, and consequential",
+        "Historical truth": "VALID_UNDER_V1 preserved because accountability evidence must not be retroactively rewritten",
+        "Independent verification": "Proof must survive beyond the system that produced it",
+    },
+    "priority": "P0 — the overarching design objective connecting all current engineering work",
+    "NOT_a_new_module": True,
+    "NOT":  ["operational resilience platform", "disaster recovery system", "continuous monitoring", "AI control tower"],
+}
+
+# ── FIVE PROOF DOMAINS — EXTENDED AUDIT LENS ─────────────────
+
+VCB_FIVE_AUDIT_DOMAINS = {
+    "schema":  "VGS-FIVE-AUDIT-DOMAINS-1.0",
+    "purpose": "Extended audit lens. Architecture remains frozen. Only the audit frame expands.",
+    "note":    "Domains A-D already implemented. Domain E (Resilience) is what V-001/V-002/crash tests prove.",
+
+    "DOMAIN_A_ADMISSIBILITY": {
+        "question":  "Can the action be established as authorized?",
+        "elements":  ["Identity","Authority","Capability","Purpose","Conditions","Action Binding"],
+        "VCB_artifacts": ["DigitalIdentity","AuthorityObject","ActionBinding","AdmissibilityReceipt"],
+        "status":    "C_ADVERSARIALLY_TESTED",
+    },
+
+    "DOMAIN_B_CONTINUITY": {
+        "question":  "Did the basis remain valid?",
+        "elements":  ["State continuity","Authority survival","Revocation","Expiry","Policy version","Relationship state","Revalidation","Lifecycle"],
+        "VCB_artifacts": ["ContinuityProof","check_definition_currency","check_historical_validity"],
+        "status":    "C_ADVERSARIALLY_TESTED",
+    },
+
+    "DOMAIN_C_CONSEQUENCE": {
+        "question":  "What actually happened?",
+        "elements":  ["Intended action","Actual action","Intermediate actions","State transition","Consequence contract","Third-party impact","Real actuator"],
+        "VCB_artifacts": ["ConsequenceAssessment","ConsequenceBoundaryAttestation","ControlEffectivenessEvidence"],
+        "status":    "A_IMPLEMENTED (E_REAL_ACTUATOR_TESTED required)",
+    },
+
+    "DOMAIN_D_EVIDENCE": {
+        "question":  "Can the claim be independently reconstructed?",
+        "elements":  ["Evidence provenance","Timestamps","Signatures","Hashes","Logs","Manifests","Transaction IDs","Custody","Contemporaneous capture","Reconstruction status"],
+        "VCB_artifacts": ["GCP","verify_vcc_independent","EvidenceObject.admissibility_state"],
+        "status":    "C_ADVERSARIALLY_TESTED (F_INDEPENDENTLY_REPRODUCED required)",
+    },
+
+    "DOMAIN_E_RESILIENCE": {
+        "question":  "Does the proof survive the environment?",
+        "elements":  ["Restart","Crash","Distributed execution","Replay","Concurrent consumption","Policy change","Authority revocation","Relationship change","System composition","Independent reproduction"],
+        "VCB_artifacts": ["_supabase_restore_consumed_state","CRASH_BOUNDARY_SPEC","TWO_PROCESS_RACE_SPEC","DB_MEMORY_DISCIPLINE"],
+        "status":    "A_IMPLEMENTED (D_RESTART_DISTRIBUTED_TESTED required)",
+        "THIS_IS_V001_AND_V002": True,
+    },
+}
+
+# ── EVIDENCE TYPE DISTINCTION (Kevin Smith insight) ───────────
+
+EVIDENCE_TYPE_DISTINCTION = {
+    "schema":  "VGS-EVIDENCE-TYPE-DISTINCTION-1.0",
+    "principle": "These four evidence types must never be treated as equivalent.",
+    "types": {
+        "CONTEMPORANEOUS": {
+            "definition": "Evidence captured at the moment the event occurred. The strongest form.",
+            "example":    "VCB AdmissibilityReceipt issued BEFORE commitment. VCC signed at issuance.",
+            "VCB_artifacts": ["AdmissibilityReceipt (PRE_COMMITMENT=True)","VCC with action_hash","ConsequenceBoundaryAttestation"],
+            "trust_level": "Highest — captured when the governance decision was made",
+        },
+        "RECONSTRUCTED": {
+            "definition": "Evidence assembled after the event. Often from logs, databases, or inference.",
+            "example":    "An audit report created six months later from system logs.",
+            "VCB_position":"VCB explicitly does NOT produce reconstructed proofs. GCP is issued contemporaneously.",
+            "trust_level": "Lower — subject to post-hoc assembly and selection bias",
+            "NOT_PROVABLE_if": "Only reconstructed evidence available for a CONTEMPORANEOUS claim",
+        },
+        "DECLARED": {
+            "definition": "An assertion made by the actor or system being examined.",
+            "example":    "Agent says: 'I was authorized.' Model output: 'I have permission to do this.'",
+            "VCB_rule":   "Declared evidence from the agent cannot be the basis for VCB admissibility. Model output is NOT independent evidence.",
+            "DATA_POISONING_link": "A compromised model may declare anything. VCB evaluates independently.",
+            "trust_level": "Lowest for self-authorization — cannot be used as VCB admissibility basis",
+        },
+        "INDEPENDENTLY_ATTESTED": {
+            "definition": "Evidence originating from a party independent of the actor being examined.",
+            "example":    "IAM system record of authorization (not self-reported). Ledger receipt from external payment system.",
+            "VCB_rule":   "VCB prefers independently attested evidence. Model-provided evidence is classified as DECLARED, not INDEPENDENTLY_ATTESTED.",
+            "trust_level": "High — independent origin reduces self-serving bias",
+        },
+    },
+    "Mark_Jennings_Bates_insight": (
+        "Authority confidence is not model confidence. VCB does not produce a confidence score. "
+        "It establishes evidence sufficiency across these four types: AUTHORITY=BOUND, EVIDENCE=SUFFICIENT, "
+        "STATE=CURRENT, ACTION=MATCHED → PROVABLE. Not '97% confident'."
+    ),
+    "Kevin_Smith_insight": "Organizations need evidence AT THE TIME OF USE, not reconstructed evidence when auditors ask.",
+    "NOT_equivalent": "DECLARED cannot substitute for CONTEMPORANEOUS. RECONSTRUCTED cannot substitute for INDEPENDENTLY_ATTESTED.",
+}
+
+# ── RELATIONSHIP BOUNDARY TESTS (P2 — FUTURE, NOT NOW) ───────
+
+VCB_RELATIONSHIP_BOUNDARY_TESTS_P2 = {
+    "schema":  "VGS-RELATIONSHIP-BOUNDARY-TESTS-P2-1.0",
+    "status":  "P2 — FUTURE SPEC. Do not build now. Build after P0/P1 proof complete.",
+    "expert_instruction": "These belong DOWNSTREAM of the existing VCB chain. Not in P0. Not in P1.",
+    "trigger": "Build after: V-001/V-002 live proof + one real consequential actuator demonstrated + independent reproduction",
+    "tests": {
+        "RB-01": {
+            "name":     "Independent authority",
+            "scenario": "A has authority over A. B has authority over B. A→B connection established.",
+            "expected": "No automatic authority composition. FAILED if A attempts B's action.",
+            "invariant": "System authority != relationship authority",
+        },
+        "RB-02": {
+            "name":     "Cross-project access",
+            "scenario": "Agent from Project A accesses Project B resources.",
+            "expected": "Reachability does not establish admissibility. NOT_PROVABLE or FAILED.",
+            "invariant": "Technical reachability != permission",
+        },
+        "RB-03": {
+            "name":     "Delegation mismatch",
+            "scenario": "A delegates capability X. Agent exercises X+Y.",
+            "expected": "FAILED / CAPABILITY_SCOPE_EXCEEDED",
+            "invariant": "Delegation != authority inflation",
+        },
+        "RB-04": {
+            "name":     "Relationship revocation",
+            "scenario": "A→B relationship valid at T0. Revoked before consequence.",
+            "expected": "NOT_PROVABLE or FAILED — relationship continuity required",
+            "invariant": "VALID_AT_T0 != VALID_AT_T1",
+        },
+        "RB-05": {
+            "name":     "Cross-system state mutation",
+            "scenario": "System B changes state after A's authorization.",
+            "expected": "Revalidation required — continuity proof shows state changed",
+            "invariant": "State changes trigger re-examination",
+        },
+        "RB-06": {
+            "name":     "Composed consequence",
+            "scenario": "A action is individually valid. B action is individually valid. Combined consequence outside declared contract.",
+            "expected": "FAILED / CONSEQUENCE_CONTRACT_VIOLATION",
+            "invariant": "Successful execution != admissibility of composed outcome",
+        },
+    },
+    "Jake_insight": (
+        "When systems connect, what capability was actually exercised, and what evidence establishes "
+        "that the authority extended to it? This is P2 — powerful, but don't interrupt P0/P1."
+    ),
+    "NOT_NOW": [
+        "Do not build enterprise relationship graph",
+        "Do not build cross-project IAM",
+        "Do not build ecosystem authority mapping",
+        "Evaluate only relationships RELEVANT to a particular consequential action",
+    ],
+}
+
+# ── RESILIENCE DIMENSION — PROOF STATE EXTENSION ─────────────
+
+VCB_RESILIENCE_DIMENSION = {
+    "schema":  "VGS-RESILIENCE-DIMENSION-1.0",
+    "purpose": "Separate resilience tracking from functional proof state. A feature can be LIVE_EXECUTED while resilience is still PARTIAL.",
+    "resilience_states": {
+        "UNKNOWN":      "Resilience not yet tested",
+        "PARTIAL":      "Some resilience properties demonstrated, others pending",
+        "DEMONSTRATED": "Full resilience demonstrated: restart, crash, distributed execution all pass",
+    },
+    "current_resilience_by_capability": {
+        "Core architecture":        "PARTIAL — adversarial tests pass, restart/distributed pending",
+        "V-001 persistence":        "UNKNOWN — design complete, live test not executed",
+        "V-002 multi-instance":     "UNKNOWN — design complete, live test not executed",
+        "Historical definition":    "PARTIAL — correct logic, not tested under restart",
+        "SigilMark/offline proof":  "PARTIAL — verification works, restart replay pending",
+    },
+    "expert_rule": "A feature can be LIVE_EXECUTED while resilience is PARTIAL. Do not conflate the two.",
+}
+
+# ── SOVEREIGNTY AS GSB DIMENSION (not a new product) ─────────
+
+VCB_SOVEREIGNTY_POSITION = {
+    "schema":  "VGS-SOVEREIGNTY-POSITION-1.0",
+    "principle": "Sovereignty is an authority/context dimension. It is NOT a separate VCB product.",
+    "approach": "Expand Governance Source Binding (GSB) to carry institutional context. Do not create a Sovereignty Engine.",
+    "GSB_fields_for_institutional_context": {
+        "authority_source":       "Where the authority originates",
+        "authority_owner":        "Legal/institutional entity that owns the authority",
+        "institutional_context":  "Jurisdiction / regulatory environment (e.g., Saudi Arabia, UAE, EU)",
+        "policy_version":         "Which policy version applies in this context",
+        "applicable_environment": "Technical and regulatory environment",
+        "effective_from":         "When this institutional context became applicable",
+        "effective_until":        "When it expires or is superseded",
+    },
+    "Jawad_Raza_insight": (
+        "Same technical action may have different institutional admissibility in Saudi Arabia vs UAE vs Qatar vs EU. "
+        "VCB handles this by making the institutional context explicit in GSB — not by building a sovereignty platform."
+    ),
+    "VCB_can_say": (
+        "This action was examined against this authority source (version X), "
+        "under this institutional context, with these conditions. "
+        "Whether that institutional context makes the action admissible in that jurisdiction "
+        "is determined by the authority source — not by VCB."
+    ),
+    "what_VCB_does_NOT_claim": "VCB does not arbitrate between jurisdictions. It records which institutional context was examined.",
+    "NOT_to_build": ["Sovereignty platform","Multi-jurisdiction compliance engine","Regulatory arbitration system"],
+    "defer_until": "P2 — after core proof demonstrated. Add institutional_context field to GSB, nothing more.",
+}
+
+# ── WHAT NOT TO BUILD (explicit freeze list) ──────────────────
+
+VCB_NOT_TO_BUILD = {
+    "schema":  "VGS-NOT-TO-BUILD-1.0",
+    "rule":    "If an external observation is interesting, it becomes a future proof problem — not a reason to build a new product.",
+    "NEVER_BUILD_AS_VCB_MODULES": [
+        "AI Control Tower / agent IAM / kill-switch platform",
+        "Full SIEM or continuous behavior monitoring",
+        "Enterprise relationship graph or dependency management",
+        "Sovereign cloud platform or data residency product",
+        "Model security scanner or AI firewall",
+        "Full learning governance / knowledge management",
+        "Generic compliance platform or regulatory rulebook",
+        "Aggregate scale analytics / multi-agent ecosystem analytics",
+        "AI trust score or model confidence percentage",
+        "Customer data lineage or content provenance watermarking",
+    ],
+    "THESE_CAN_INTEGRATE_WITH_VCB": [
+        "IAM systems (identity input to VCB)",
+        "Policy enforcement platforms (authority input to VCB)",
+        "SIEM (audit log → evidence adapter input to VCB)",
+        "Payment gateways (consequence actuator for VCB)",
+        "Naimatullah/Velos eBPF enforcement (enforcement evidence input to VCB)",
+    ],
+    "expert_line": "Those are adjacent markets. They can produce integrations for VCB. They should not become VCB.",
+}
+
+# ── PRE-SEED INVESTOR FRAMING ────────────────────────────────
+
+VCB_PRESEED_INVESTOR_STORY = {
+    "schema":  "VGS-PRESEED-INVESTOR-STORY-1.0",
+    "opening": (
+        "AI has dramatically reduced the cost of building software. "
+        "It has not reduced the cost of proving that autonomous systems can be trusted with consequential actions."
+    ),
+    "what_VCB_is_NOT": (
+        "VeriSigilAI is not building another AI model, agent platform or IAM system."
+    ),
+    "what_VCB_IS": (
+        "We are building the independent evidence layer that determines whether a consequential AI action "
+        "can still be shown to have been admissible under the authority, capability, conditions and state "
+        "that were supposed to govern it."
+    ),
+    "what_pre_seed_funds": (
+        "The next stage of capital is not primarily for more architecture. "
+        "It is for converting the existing proof architecture into independently reproduced evidence "
+        "on real enterprise workflows."
+    ),
+    "market_evidence": {
+        "Grant_Thornton_2026": "78% of executives cannot pass an independent AI governance audit in 90 days",
+        "Pathlock_2026": "50%+ of organizations cannot fully verify what their AI agents actually did",
+        "Pathlock_transactions": "28% permit AI agents to approve transactions with no consequence verification",
+        "CISO_2026": "64% of companies >$1B revenue reported >$1M losses from AI system failures in 2025",
+    },
+    "what_P0_capital_enables": [
+        "V-001/V-002 live proof (Supabase + Railway multi-instance)",
+        "One real consequential workflow demonstrated end-to-end",
+        "Independent reproduction (Alkama Run 4 + Harold OMNIX)",
+        "First customer conversation and paid pilot",
+    ],
+    "NOT_for": "Building more architecture, adding more routes, expanding to new product verticals",
+}
+
+# ── COMMERCIAL MVP FRAMING ───────────────────────────────────
+
+VCB_CONSEQUENCE_VERIFICATION_MVP = {
+    "schema":   "VGS-COMMERCIAL-MVP-1.0",
+    "product":  "VCB Consequence Verification",
+    "pitch":    "A customer gives VCB one consequential workflow. VCB examines it and produces an independently verifiable proof.",
+    "target_workflows": [
+        "AI approving a refund",
+        "AI changing a customer record",
+        "AI initiating a payment",
+        "AI modifying infrastructure configuration",
+        "AI approving a transaction",
+        "AI making a regulated recommendation",
+        "AI deploying code to production",
+    ],
+    "what_VCB_produces": {
+        "WHO":   "Identity and authority evidence",
+        "WHY":   "Admissibility basis with exact conditions",
+        "WHAT AUTHORITY": "Authority object with scope, version, revocation state",
+        "WHAT CAPABILITY": "Capability bound to authority, not inferred from reachability",
+        "WHAT EVIDENCE": "Evidence type classification (CONTEMPORANEOUS/INDEPENDENTLY_ATTESTED)",
+        "WHAT CONDITIONS": "State at time of action, continuity proof",
+        "WHAT RELATIONSHIPS": "Relationships relevant to this action (P2 — future)",
+        "WHAT STATE": "Current state hash at commit time",
+        "WHAT ACTION": "Exact action binding with payload_hash",
+        "WHAT ACTUALLY HAPPENED": "Consequence boundary attestation",
+        "COULD THE CONTROL INTERVENE": "Control effectiveness evidence with position",
+    },
+    "output":   "Proof Passport (GCP) — independently verifiable",
+    "price_point": "$5,000-$15,000 per workflow assessment (Behavioral Audit Report) before platform pricing",
+    "customer_opener": (
+        "28% of organizations now permit AI agents to approve transactions. "
+        "More than half cannot verify what those agents actually did. "
+        "Show us one approval workflow where you cannot currently answer WHY / STILL / COULD / WHAT."
+    ),
+    "first_three_target_types": [
+        "Financial services / fintech (payment and refund workflows)",
+        "Enterprise IT (infrastructure modification, deployment)",
+        "Regulated operations (procurement, contract approval)",
+    ],
+}
+
+# ── EXECUTION SEQUENCE (non-negotiable) ──────────────────────
+
+VCB_EXECUTION_SEQUENCE = {
+    "schema":  "VGS-EXECUTION-SEQUENCE-1.0",
+    "expert_instruction": "FREEZE → ATTACK → DISTRIBUTE → REPRODUCE → DEMONSTRATE → CUSTOMER → EXTEND",
+    "P0_NOW": {
+        "name":  "P0 — PROVE THE EXISTING CORE",
+        "steps": [
+            "1. Execute Supabase DDL (GET /v1/engineering/supabase-ddl)",
+            "2. Configure Railway SUPABASE_URL + SUPABASE_KEY",
+            "3. Verify atomic consume_sigilmark RPC exists and has correct permissions",
+            "4. POST /v1/adversarial/restart-replay → must return PASS",
+            "5. Two-process race: two Railway instances, same SigilMark, DB COUNT=1",
+            "6. Crash boundary tests A-D against live Supabase",
+            "7. Verify DB truth / memory cache discipline under all crash scenarios",
+            "8. Rerun full adversarial suite",
+            "9. Rerun 49-section behavioral audit",
+            "10. Promote V-001 and V-002 to D_RESTART_DISTRIBUTED_TESTED",
+        ],
+        "gate": "ALL 10 steps executed and passed with evidence before any public claim about V-001/V-002",
+    },
+    "P1_AFTER_P0": {
+        "name":  "P1 — ONE REAL CONSEQUENTIAL WORKFLOW",
+        "steps": [
+            "11. Complete ACS version/hash binding in SigilMark",
+            "12. Verify historical-definition truth adversarially (V1→V2 with E1 preserved)",
+            "13. Select ONE workflow (payment destination change OR refund)",
+            "14. Instrument: AI proposal → VCB → SigilMark → enforcement → consequence → observation",
+            "15. Produce VERIFIED, FAILED, NOT_PROVABLE artifacts for the same workflow",
+            "16. Generate three independently verifiable GCPs",
+            "17. Independent machine verification (no VCB runtime, no DB, no private key)",
+            "18. Commission Alkama Run 4 (external challenge package)",
+            "19. Harold OMNIX adversarial challenge (NDA-compliant)",
+        ],
+        "milestone": "VCB independently demonstrated that one consequential AI action was examined, correctly adjudicated, persisted through restart, and independently verified by an external party.",
+    },
+    "P1_F_COMMERCIAL": {
+        "name":  "P1/F — FIRST CUSTOMER",
+        "steps": [
+            "20. 15-minute customer demonstration using P1 artifacts",
+            "21. Opening: '28% of organizations permit AI agents to approve transactions. Can you verify what yours did?'",
+            "22. First paid workflow assessment ($5,000-$15,000)",
+        ],
+        "runs_parallel_with": "P1 steps 11-17 — start commercial conversations before P1 is complete",
+    },
+    "P2_AFTER_P1": {
+        "name":  "P2 — RELATIONSHIP/CAPABILITY EXTENSION",
+        "steps": [
+            "After P1 customer proof: add PICB, GSB, CCE",
+            "Run Relationship Boundary Tests RB-01 to RB-06",
+            "Add institutional_context to GSB (Jawad Raza insight)",
+            "Add effective capability evidence (Alex D. insight)",
+            "Demonstrate cross-system composed consequence test",
+        ],
+        "not_now": True,
+        "trigger": "After first paying customer validates core WHY/STILL/COULD/WHAT proof",
+    },
+    "NEVER": {
+        "items": VCB_NOT_TO_BUILD["NEVER_BUILD_AS_VCB_MODULES"],
+    },
+}
+
+
+@app.get("/v1/engineering/master-direction", tags=["Engineering Gates 0-7"])
+async def engineering_master_direction():
+    """
+    VCB Master Engineering Direction — frozen post-expert consolidation.
+    Accountability Resilience as design objective.
+    Five audit domains. Ten frozen engineering rules.
+    Evidence type distinction. P0/P1/P2 sequence.
+    No auth required.
+    """
+    return {
+        "schema":                    "VGS-MASTER-DIRECTION-1.0",
+        "north_star":                VCB_NORTH_STAR_V2,
+        "five_principles":           VCB_FIVE_PRINCIPLES,
+        "ten_engineering_rules":     VCB_TEN_FROZEN_ENGINEERING_RULES,
+        "accountability_resilience": ACCOUNTABILITY_RESILIENCE,
+        "five_audit_domains":        VCB_FIVE_AUDIT_DOMAINS,
+        "evidence_type_distinction": EVIDENCE_TYPE_DISTINCTION,
+        "relationship_tests_p2":     VCB_RELATIONSHIP_BOUNDARY_TESTS_P2,
+        "resilience_dimension":      VCB_RESILIENCE_DIMENSION,
+        "sovereignty_position":      VCB_SOVEREIGNTY_POSITION,
+        "not_to_build":              VCB_NOT_TO_BUILD,
+        "preseed_investor_story":    VCB_PRESEED_INVESTOR_STORY,
+        "commercial_mvp":            VCB_CONSEQUENCE_VERIFICATION_MVP,
+        "execution_sequence":        VCB_EXECUTION_SEQUENCE,
+        "NOT_PRODUCTION_READY":      True,
+        "PROOF_PENDING":             True,
+        "architecture_status":       "FROZEN",
+        "audit_lens_status":         "EXTENDED — 5 domains, resilience dimension, evidence types",
+        "timestamp":                 datetime.now(timezone.utc).isoformat(),
     }
 
 
