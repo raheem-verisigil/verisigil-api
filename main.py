@@ -99792,15 +99792,6 @@ PROOF_SEMANTICS = {
 }
 
 
-@app.get("/v1/vcb/proof-semantics", tags=["VCB — Canonical API"])
-async def vcb_proof_semantics():
-    """
-    Canonical proof semantics — NOT_PROVABLE as first-class outcome.
-    Expert requirement: make semantic distinctions machine-readable.
-    No auth required.
-    """
-    return {**PROOF_SEMANTICS, "timestamp": datetime.now(timezone.utc).isoformat()}
-
 
 # ── VCB TRUSTED COMPUTING BASE (TCB) ─────────────────────────
 # Expert Section 10: Identify the smallest code that determines
@@ -105464,6 +105455,386 @@ async def vcb_authority_continuity_record(
         context_at_commit      = req.get("context_at_commit"),
         acs_version            = req.get("acs_version","1.0"),
     )
+
+
+
+# ============================================================
+# VCB MARKET RESEARCH INTEGRATION — FACT-CHECKED 2026
+# Sources: Grant Thornton AI Impact Survey 2026, DEMM-Bench arXiv 2606.20634,
+# Zylos AI Research May 2026, CISO AI Risk Report 2026,
+# EU AI Act enforcement August 2, 2026, SR 26-2 Federal Reserve 2026,
+# Singapore IMDA Agentic AI Framework 2026, arxiv 2603.16586, 2605.04093
+# ============================================================
+
+# ── THE AI PROOF GAP (Grant Thornton, 2026) ──────────────────
+# This is VCB's market entry point — a named, quantified, documented problem
+
+AI_PROOF_GAP = {
+    "schema":  "VGS-AI-PROOF-GAP-MARKET-RESEARCH-1.0",
+    "named":   "AI Proof Gap",
+    "source":  "Grant Thornton 2026 AI Impact Survey — ~1,000 senior business leaders, US, early 2026",
+    "finding": "78% of business executives lack strong confidence they could pass an independent AI governance audit within 90 days.",
+    "consequence": "Organizations deploying AI cannot show how decisions are made and who is accountable for the outcome.",
+    "secondary_finding": "Organizations with fully integrated AI are nearly 4× more likely to report revenue growth (58% vs 15%).",
+    "CISO_finding": {
+        "source": "2026 CISO AI Risk Report — 235 large-enterprise security leaders",
+        "finding_1": "92% lack full visibility into their AI identities",
+        "finding_2": "86% do not enforce access policies for AI identities",
+        "finding_3": "71% report AI systems have access to ERP/CRM/financial systems while only 16% govern that access effectively",
+        "finding_4": "64% of organizations with revenue above $1B reported losses exceeding $1M associated with AI system failures in 2025",
+    },
+    "VCB_relevance": (
+        "VeriSigilAI addresses the specific proof gap: organizations cannot produce "
+        "independently verifiable evidence of whether a consequential AI action was "
+        "admissible, whether that admissibility remained valid, whether controls "
+        "retained intervention capacity, and what actually happened. "
+        "This is the WHY / STILL / COULD / WHAT problem."
+    ),
+    "customer_opening": (
+        "Show us one consequential AI workflow where you currently cannot answer "
+        "WHY the action was admissible, whether that basis STILL applied at commitment, "
+        "whether your control COULD have intervened, and WHAT actually happened. "
+        "If you cannot pass a governance audit, that is the gap VeriSigilAI closes."
+    ),
+}
+
+# ── MARKET POSITION — WHAT OTHERS HAVE vs WHAT VCB HAS ──────
+# Research-backed: identity/authorization/runtime are crowded. Consequence proof is not.
+
+VCB_MARKET_POSITION = {
+    "schema":   "VGS-MARKET-POSITION-1.0",
+    "research_basis": "arXiv 2605.05440 (Authorization Propagation in Multi-Agent AI), arXiv 2603.16586 (Runtime Governance for AI Agents), Zylos AI May 2026, GitHub systempromptio/awesome-ai-agent-governance",
+
+    "what_market_has_built": {
+        "identity":              "Strong — NIST CAISI, Singapore IMDA, Microsoft Entra Agent Identity",
+        "runtime_authorization": "Strong — CapFence, AgentLock, CrowdStrike, Delinea, Microsoft Authorization Fabric",
+        "policy_enforcement":    "Strong — PEP/PDP patterns, OPA, Azure Functions",
+        "audit_logs":            "Established — tamper-evident write-once logs, OTel-based tracing",
+        "monitoring":            "Strong — IBM agentic monitoring, DataDog, FutureAGI",
+        "execution_gates":       "Established — inline gateway policies, 50-70ms p95 enforcement",
+        "replay_evidence":       "Emerging — AgentLock, CapFence, Proofpane (offline Ed25519-signed evidence pack)",
+        "decision_evidence":     "Emerging — Proof of Execution (arXiv 2607.05397), DEMM-Bench framework",
+    },
+
+    "what_market_has_NOT_solved": {
+        "consequence_proof":         "NOT SOLVED — no standard independently verifiable proof of what happened downstream",
+        "intervention_effectiveness":"NOT SOLVED — control presence != control effectiveness (DEMM-Bench confirms gap)",
+        "admissibility_continuity":  "NOT SOLVED — whether admissibility basis remained valid through commitment",
+        "responsibility_integrity":  "NOT SOLVED — responsibility binding as distinct from authority",
+        "consequence_position":      "NOT SOLVED — WHERE in the consequence path did governance state change?",
+        "historical_definition_truth":"NOT SOLVED — E1 under V1 vs E2 under V2 as distinct historical records",
+        "counterfactual_evidence":   "NOT SOLVED — what would have happened if control had intervened at T-1?",
+        "evidence_sufficiency":      "DEMM-Bench arXiv 2606.20634 shows 53.6% completeness in multi-agent cross-stack evidence — gap confirmed by research",
+    },
+
+    "VCB_defensible_claims": [
+        "VCB produces independently verifiable evidence of whether a consequential AI action was admissible",
+        "VCB preserves the COMPLETE evidence chain from authorization through consequence",
+        "VCB distinguishes CONTROL_PRESENT from CONTROL_EFFECTIVE — a gap no current vendor addresses",
+        "VCB's Continuity Proof shows what changed between authorization and commitment — not just 'stale'",
+        "VCB's GCP is independently verifiable without trusting the VeriSigilAI runtime",
+        "VCB preserves historical definition truth: V1 decisions remain valid under V1 when V2 is introduced",
+    ],
+
+    "VCB_IS_NOT": [
+        "An IAM replacement (identity is input, not VCB's job)",
+        "A runtime enforcement platform (CapFence/AgentLock/Microsoft do this well)",
+        "An audit log system (tamper-evident logs are commodity)",
+        "A model safety/alignment system",
+        "A compliance dashboard",
+        "A governance scoring engine",
+    ],
+
+    "competitor_awareness": {
+        "Proofpane": "Offline Ed25519-signed evidence pack, NIST AI RMF mapping — partial overlap with GCP. VCB differentiates on consequence/intervention effectiveness proof, not just decision evidence.",
+        "CapFence":  "Pre-execution authorization + replay prevention. Similar to SigilMark issuance. VCB differentiates on consequence-to-authorization chain proof.",
+        "AgentLock": "Deterministic pre-execution authorization + evidence. VCB differentiates on WHY/STILL/COULD/WHAT chain and consequence reconciliation.",
+        "Microsoft Authorization Fabric": "PEP/PDP for agents. Strong on runtime decision. VCB differentiates on consequence proof and intervention effectiveness, not runtime decision.",
+        "FutureAGI/traceAI": "Runtime enforcement + audit trail. VCB differentiates on independently verifiable GCP and historical truth preservation.",
+    },
+
+    "strategic_rule": (
+        "VCB wins not by possessing identity, authorization, enforcement, and audit — "
+        "those are available from established vendors. "
+        "VCB wins by producing a proof artifact that is materially harder for any other "
+        "system to produce: independently verifiable evidence of whether governance "
+        "remained effective through the transition to consequence."
+    ),
+}
+
+# ── CONSEQUENCE PROOF CLAIM (defensible, fact-checked) ────────
+
+CONSEQUENCE_PROOF_CLAIM = {
+    "schema":  "VGS-CONSEQUENCE-PROOF-CLAIM-1.0",
+    "claim":   "VeriSigilAI produces independently reproducible proof of consequential AI action admissibility and governance effectiveness.",
+    "what_this_means": {
+        "independently_reproducible": "The Governance Closure Proof (GCP) can be verified without the VeriSigil runtime, database, or private key.",
+        "admissibility_proof":        "The Admissibility Receipt captures the exact basis — identity, authority, responsibility, definition, evidence — before commitment.",
+        "governance_effectiveness":   "The Control Effectiveness Evidence distinguishes CONTROL_PRESENT from CONTROL_EFFECTIVE. CONTROL_FIRED != CONTROL_EFFECTIVE.",
+        "consequence":                "The Consequence Boundary Attestation records what actually happened at the execution boundary.",
+    },
+    "what_this_does_NOT_mean": [
+        "VCB prevents all unauthorized AI actions",
+        "VCB replaces runtime enforcement",
+        "VCB eliminates model backdoors",
+        "VCB certifies model safety",
+        "VCB guarantees regulatory compliance",
+        "VCB is production-ready (NOT YET — until PA-01 to PA-05 pass)",
+    ],
+    "proof_level_current": "L3 — adversarially tested internally. L4 pending (live Supabase). L5 pending (external reproduction).",
+    "evidence_for_claim": [
+        "20/20 architecture components pass behavioral audit",
+        "Zero false-PROVEN paths found in tested scenarios",
+        "SigilMark mutations (amount/beneficiary/currency) all produce INVALID",
+        "Signed-empty grant correctly produces INADMISSIBLE",
+        "TOCTOU: T0:ADMISSIBLE → T1:revoke → Continuity: NO_LONGER_VALID with what_changed",
+        "GCP tamper detection: gcp_hash changes on any field modification",
+    ],
+    "not_yet_evidenced": [
+        "Live Supabase persistence (PA-01 to PA-04 pending)",
+        "Multi-instance distributed race test (PA-02 pending)",
+        "External reproduction (Alkama Run 4, Harold OMNIX pending)",
+        "Real consequential actuator (L6 pending)",
+    ],
+}
+
+# ── REGULATORY ALIGNMENT MATRIX ──────────────────────────────
+# Fact-checked from research. Not a compliance claim — a positioning map.
+
+EU_AI_ACT_ALIGNMENT = {
+    "schema":  "VGS-EU-AI-ACT-ALIGNMENT-1.0",
+    "disclaimer": "This is a positioning map, not a legal compliance certification. VCB provides technical mechanisms; legal compliance requires organizational assessment.",
+    "enforcement_date": "August 2, 2026 — EU AI Office enforcement powers live",
+    "penalties": "Up to €35M or 7% of global annual turnover for high-risk system non-compliance",
+    "articles_addressed": {
+        "Article 9 — Risk management lifecycle": {
+            "requirement": "Establish, implement, and maintain a risk management system throughout the AI system lifecycle",
+            "VCB_mechanism": "GCP records governance basis at every consequential action; Definition history preserves evidence across system lifetime",
+            "evidence_type": "AdmissibilityReceipt + ContinuityProof + GCP per consequential action",
+        },
+        "Article 12 — Record-keeping": {
+            "requirement": "Technical capability for automatic recording of events including inputs, outputs, and relevant parameters",
+            "VCB_mechanism": "GCP captures identity, authority, action_binding, CSEGA_result, consequence boundary per action. Not just what happened — what governance decision was made.",
+            "evidence_type": "GCP (Governance Closure Proof) with cryptographic commitments",
+            "research_note": "arXiv 2603.16586: 'records not just what the agent did but what the governance system decided about it, including policy version in force at the time'",
+        },
+        "Article 14 — Human oversight": {
+            "requirement": "Systems must be designed so natural persons can effectively oversee them and intervene when necessary",
+            "VCB_mechanism": "InterventionRecord + ControlEffectivenessEvidence + InterventionWindow. VCB proves whether intervention capacity existed and whether it was effective.",
+            "evidence_type": "ControlEffectivenessEvidence with BEFORE/DURING/AFTER/UNAVOIDABLE position",
+            "key_distinction": "VCB goes beyond logging an intervention — it establishes whether the intervention had meaningful leverage.",
+        },
+        "Article 19 — Six-month log retention": {
+            "requirement": "Minimum six months log retention for high-risk systems",
+            "VCB_mechanism": "Definition history (immutable), GCP records (persistent when Supabase configured), proof records",
+            "status": "PARTIAL — requires V-001 fix for durable persistence",
+        },
+    },
+    "SR_26_2_BANKING": {
+        "name":   "SR 26-2 — Federal Reserve / OCC / FDIC Banking AI Framework 2026",
+        "relevance": "Financial sector explicitly requires explainable AI decisions with evidence of authorization chain",
+        "VCB_mechanism": "Full WHY/STILL/COULD/WHAT chain with independently verifiable GCP satisfies the audit reconstruction requirement",
+    },
+    "Singapore_IMDA": {
+        "name":   "Singapore IMDA Agentic AI Framework — January 2026",
+        "requirement": "Each agent must carry verifiable digital identity and audit trail of which agent acted under whose authorization",
+        "VCB_mechanism": "DigitalIdentity + AuthorityObject + ActionBinding + GCP forms the required audit trail",
+        "VCB_extension": "VCB extends beyond identity/authorization to consequence effectiveness — what Singapore requires and what auditors will increasingly demand",
+    },
+    "NIST_AI_RMF": {
+        "name":   "NIST AI RMF + AI Agent Standards Initiative (February 2026)",
+        "VCB_alignment": {
+            "GOVERN": "VCB_FROZEN_INVARIANTS, CONSEQUENCE_BOUND_EVIDENCE_INFRASTRUCTURE",
+            "MAP":    "DATA_POISONING_THREAT_MODEL, VCB_MARKET_POSITION",
+            "MEASURE":"MASTER_PROOF_LADDER L0-L7, PRODUCTION_ACCEPTANCE_TEST_SPEC",
+            "MANAGE": "CSEGA adjudication, GCP per consequential action",
+        },
+    },
+}
+
+# ── EVIDENCE SUFFICIENCY MODEL (DEMM-Bench research) ─────────
+
+EVIDENCE_SUFFICIENCY_MODEL = {
+    "schema":  "VGS-EVIDENCE-SUFFICIENCY-MODEL-1.0",
+    "research_basis": "DEMM-Bench: A Cross-Regime Benchmark for Agent-Runtime Governance-Evidence Sufficiency, arXiv 2606.20634",
+    "key_finding": "53.6% evidence completeness in multi-agent cross-stack scenarios — gap confirmed by independent research",
+    "structurally_unfillable": "Some evidence cells cannot be filled by any current governance mechanism. VCB must NOT claim to fill them — it must return NOT_PROVABLE.",
+    "evidence_completeness_levels": {
+        "COMPLETE":          "All required evidence elements present, admissible, current, and bound to the exact action",
+        "PARTIAL":           "Some required elements missing or inadmissible — CONDITIONALLY_SUPPORTED",
+        "INCOMPLETE":        "Material evidence missing — NOT_SUPPORTED",
+        "STRUCTURALLY_UNFILLABLE": "Evidence cannot be obtained by any current mechanism — NOT_PROVABLE (this is correct behavior, not system failure)",
+        "CONFLICTED":        "Evidence exists but contradicts itself — NOT_PROVABLE with NP-007",
+    },
+    "VCB_commitment": "VCB returns NOT_PROVABLE with explicit reason code when evidence is insufficient. It never manufactures certainty.",
+    "research_quote_paraphrase": (
+        "Conventional 'enforce at runtime, audit after' frameworks are operationally vulnerable "
+        "in cases where evidence is structurally unfillable: there is no audit surface to verify "
+        "what enforcement produced. VCB's GCP is designed to surface this gap explicitly rather than silently fail."
+    ),
+}
+
+# ── REAL INCIDENT REGISTRY (grounds the product in reality) ──
+
+REAL_INCIDENT_REGISTRY = {
+    "schema":  "VGS-REAL-INCIDENT-REGISTRY-1.0",
+    "purpose": "These documented incidents establish that the governance gap VCB addresses is real, not theoretical.",
+    "incidents": {
+        "Replit_DROP_DATABASE_July_2025": {
+            "description": "AI agent executed DROP DATABASE in production",
+            "governance_gap": "Under what governance regime was this destructive mutation authorised? No single record answered this.",
+            "VCB_would_have_provided": "ActionBinding with payload_hash, AdmissibilityReceipt before execution, consequence_boundary_state distinguishing QUEUED from COMMITTED",
+            "source": "arXiv 2605.04093 — Decision Evidence Maturity Model for Agentic AI",
+        },
+        "Cursor_destructive_shell_August_2025": {
+            "description": "Coding assistant executed destructive shell command",
+            "governance_gap": "Authorisation chain could not be reconstructed from available logs",
+            "VCB_would_have_provided": "GCP with identity_manifest, authority_manifest, exact action_binding — independently reproducible without trusting the runtime",
+            "source": "arXiv 2605.04093",
+        },
+        "Claude_Code_Terraform_destroy_February_2026": {
+            "description": "Claude Code executed Terraform destroy in DataTalks.Club environment",
+            "governance_gap": "Governance regime for the destructive action was not documented in any single auditable record",
+            "VCB_would_have_provided": "CSEGA adjudication before execution, ContinuityProof at commit time, CONTROL_POSITION evidence",
+            "source": "arXiv 2605.04093",
+        },
+        "Moltbook_API_Token_Leak_January_2026": {
+            "description": "1.5M API tokens leaked from AI agent platform with misconfigured database",
+            "governance_gap": "Agent identity/authorization chain was not independently verifiable",
+            "VCB_would_have_provided": "DigitalIdentity + AuthorityObject + supply chain security spec protecting higher-integrity assets",
+            "source": "Studio Global AI / Carnegie Europe report",
+        },
+        "Enterprise_AI_Losses_2025": {
+            "description": "64% of companies with revenue >$1B reported losses >$1M from AI system failures in 2025",
+            "governance_gap": "Attribution chains not instrumented in real-time cannot be reliably reconstructed after the fact",
+            "VCB_would_have_provided": "Immutable evidence chain: WHY was it admitted, STILL valid at commit, COULD control have intervened, WHAT happened",
+            "source": "2026 CISO AI Risk Report — 235 enterprise security leaders",
+        },
+    },
+    "common_pattern": (
+        "In each incident, the audit question was: under what governance regime was this consequential action authorised? "
+        "Existing systems logged what happened. None could independently prove whether it was admissible, "
+        "whether admissibility remained valid, whether controls could have intervened, or what the actual consequence was. "
+        "That is the specific gap VCB is designed to close."
+    ),
+}
+
+# ── ENGINEERING DIRECTION CONSOLIDATION ──────────────────────
+# Make the next session's direction clear and self-contained
+
+VCB_ENGINEERING_DIRECTION_FINAL = {
+    "schema":    "VGS-ENGINEERING-DIRECTION-FINAL-1.0",
+    "version":   "After three expert audit cycles",
+    "status":    "ARCHITECTURE FROZEN. PROOF PENDING. NOT PRODUCTION READY.",
+
+    "what_is_frozen": [
+        "VCB consequence-bound evidence infrastructure",
+        "CSEGA engine (Question A Admissibility + Question B Governability)",
+        "GCP four proof families",
+        "Core object model (15 objects)",
+        "24 frozen invariants",
+        "NP-001 to NP-025 reason codes",
+        "Control maturity ladder DECLARED→PROVABLE",
+        "Execution boundary states PROPOSED→CONSEQUENCE_ESTABLISHED",
+        "Four VCB questions: WHY / STILL / COULD / WHAT",
+        "Evidence vocabulary: SUPPORTED/NOT_PROVABLE/STALE/DEGRADED/DEFINITION_DRIFT",
+    ],
+
+    "what_must_be_proven_next": [
+        "PA-01: Supabase restart replay — issue→consume→restart→replay→MUST FAIL",
+        "PA-02: Two-process race — exactly 1 DB row consumed across concurrent instances",
+        "PA-03: Crash before DB commit → SigilMark still NOT_YET_CONSUMED",
+        "PA-04: Crash after DB commit before response → retry rejected ALREADY_CONSUMED",
+        "PA-05: Full 49-section behavioral audit rerun after V-001/V-002 fixed",
+    ],
+
+    "what_external_advice_is_WELCOME": [
+        "New attack vectors against the existing proof chain",
+        "Regulatory-specific evidence requirements (EU AI Act Article 12/14, SR 26-2, IMDA)",
+        "Customer-specific consequence workflows to instrument",
+        "Independent reproduction of the GCP by external party",
+        "Integration patterns with existing identity/authorization systems (they are INPUTS to VCB)",
+    ],
+
+    "what_external_advice_must_NOT_become": [
+        "A reason to redesign the VCB architecture",
+        "A reason to add another governance engine or scoring layer",
+        "A reason to claim production readiness before PA-01 to PA-05 pass",
+        "A reason to expand public claims beyond what evidence supports",
+        "A reason to rename VCB's existing primitives to match competitor vocabulary",
+    ],
+
+    "commercial_track": {
+        "start_now":     True,
+        "parallel_with": "Engineering proof ladder",
+        "target":        "Organizations with consequential AI workflows who cannot answer WHY/STILL/COULD/WHAT",
+        "sectors":       ["financial services","fintech","insurance","enterprise operations"],
+        "opening_question": "Show us one consequential AI workflow where you cannot currently pass an independent governance audit.",
+        "first_post_message": AI_PROOF_GAP["customer_opening"],
+    },
+
+    "attack_posture": {
+        "Terry_Snyder_test": "Before any public claim: can a technically capable outsider disprove this in 5 minutes?",
+        "false_proven_protection": "Zero false-PROVEN paths found. This is the red-line property. Maintain it.",
+        "defensible_positioning": CONSEQUENCE_PROOF_CLAIM["claim"],
+        "what_we_do_not_claim": CONSEQUENCE_PROOF_CLAIM["what_this_does_NOT_mean"],
+    },
+}
+
+
+@app.get("/v1/engineering/market-research", tags=["Engineering Gates 0-7"])
+async def engineering_market_research():
+    """
+    VCB market research — fact-checked 2026.
+    Grant Thornton AI Proof Gap, CISO AI Risk Report, DEMM-Bench,
+    EU AI Act enforcement, SR 26-2 banking, Singapore IMDA,
+    competitor awareness, real incident registry.
+    No auth required.
+    """
+    return {
+        "AI_proof_gap":           AI_PROOF_GAP,
+        "market_position":        VCB_MARKET_POSITION,
+        "consequence_proof_claim":CONSEQUENCE_PROOF_CLAIM,
+        "regulatory_alignment":   EU_AI_ACT_ALIGNMENT,
+        "evidence_sufficiency":   EVIDENCE_SUFFICIENCY_MODEL,
+        "real_incidents":         REAL_INCIDENT_REGISTRY,
+        "engineering_direction":  VCB_ENGINEERING_DIRECTION_FINAL,
+        "timestamp":              datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@app.get("/v1/vcb/proof-semantics", tags=["VCB — Canonical API"])
+async def vcb_proof_semantics():
+    """
+    VCB proof semantics — what each state means, what it does NOT mean.
+    Public reference. No auth required.
+    """
+    return {
+        "schema":   "VGS-PROOF-SEMANTICS-1.0",
+        "master_principle": VCB_MASTER_PRINCIPLE,
+        "consequence_proof_claim": CONSEQUENCE_PROOF_CLAIM,
+        "evidence_vocabulary": PUBLIC_CLAIM_DISCIPLINE["evidence_vocabulary"],
+        "frozen_invariants": [
+            "IDENTITY != AUTHORITY",
+            "AUTHORIZATION != EXECUTION",
+            "EXECUTION != CONSEQUENCE",
+            "CONTROL_FIRED != CONTROL_EFFECTIVE",
+            "SIGNED != AUTHORIZED",
+            "VALID_AT_T0 != VALID_AT_T1",
+            "NOT_PROVABLE != FAILURE_OF_SYSTEM",
+            "ALL_INSPECTED_EVIDENCE_PASSED != ALL_MATERIAL_EVIDENCE_WAS_INSPECTED",
+            "AUDIT_LOG != GOVERNANCE_PROOF",
+            "STOP_BUTTON != EFFECTIVE_INTERVENTION",
+        ],
+        "NOT_PROVABLE_rule": "NOT_PROVABLE with an explicit NP code is a first-class outcome. It is never silently converted to ALLOW.",
+        "market_position": {
+            "what_others_have":    "Identity, runtime authorization, policy enforcement, audit logs, monitoring",
+            "what_VCB_adds":       "Independently verifiable proof that governance remained effective through the transition to consequence",
+            "unique_contribution": "WHY was it admissible + STILL valid + COULD control have intervened + WHAT happened — as one independently verifiable artifact",
+        },
+        "NOT_PROVEN_until": MASTER_PROOF_LADDER["current_positions"],
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
 
 
 if __name__ == "__main__":
