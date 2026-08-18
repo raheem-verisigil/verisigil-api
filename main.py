@@ -95051,296 +95051,6 @@ async def vcc_schema():
     }
 
 
-@app.get("/v1/engineering/baseline-gate", tags=["Engineering Baseline Gate"])
-async def engineering_baseline_gate():
-    """
-    Engineering baseline gate — complete current state.
-    Duplicate function register, JWT isolation, PQ gate, deployment status.
-    No auth required.
-    """
-    return {
-        "schema":          "VGS-ENGINEERING-BASELINE-GATE-1.0",
-        "document":        "VeriSigilAI Canonical Engineering Baseline & VCC Integration Gate v1.0",
-        "baseline_stats": {
-            "lines":            94670,
-            "routes":           1152,
-            "duplicate_routes": 0,
-            "duplicate_funcs":  23,
-            "syntax":           "CLEAN",
-        },
-        "gate_status":     "ENGINEERING_BASELINE — NOT PRODUCTION_PROVEN",
-        "duplicate_functions": VCC_DUPLICATE_FUNCTION_REGISTER,
-        "jwt_isolation":   _JWT_ISOLATION_CONFIRMED,
-        "pq_gate":         _PQ_GATE_CONFIRMED,
-        "deployment_label":"ENGINEERING_BASELINE",
-        "ready_for_controlled_pilot_when": [
-            "syntax PASS",
-            "duplicate routes PASS",
-            "duplicate functions resolved or documented",
-            "JWT JWKS verification configured in env",
-            "PQ fail-closed behavioral test PASS",
-            "replay protection PASS",
-            "VCB invariants PASS (all 18)",
-            "VCC action binding PASS",
-            "payment vertical E2E test PASS",
-            "adversarial suite executed (17 attack classes)",
-            "known limitations recorded",
-        ],
-        "current_pass": ["syntax", "duplicate_routes", "duplicate_funcs_documented",
-                         "pq_fail_closed_confirmed", "jwt_isolated_confirmed"],
-        "current_fail": ["jwt_jwks_env_config", "payment_vertical_e2e",
-                         "vcc_actuator_connected", "adversarial_suite_run"],
-        "architecture_freeze": "ACTIVE — no new governance layers per gate document Section 21",
-        "next_milestone": (
-            "One real consequential action successfully governed from proposal "
-            "through execution and independently verifiable afterward."
-        ),
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-    }
-
-
-
-# ============================================================
-# GATE DOCUMENT SECTIONS 14-24 — LOCKED CONSTANTS
-# VeriSigilAI Canonical Engineering Baseline & VCC Integration Gate v1.0
-# These constants lock the exact language of the gate document into code.
-# ============================================================
-
-# S14 — Payment Destination Change: First Real Vertical
-PAYMENT_DESTINATION_CHANGE = "PAYMENT_DESTINATION_CHANGE"
-
-VCC_PAYMENT_VERTICAL_PATH = {
-    "name":    PAYMENT_DESTINATION_CHANGE,
-    "steps": [
-        "Proposal",
-        "Authority validation",
-        "Semantic/material commitment binding",
-        "VCB admissibility",
-        "Commit-Time Requalification",
-        "VCC issuance",
-        "Enforcement boundary",
-        "Payment destination actuator",
-        "Consequence observation",
-        "Evidence Seal",
-        "Proof Passport",
-        "Independent verification",
-    ],
-    "rule":    "Do not expand to multiple industries until this vertical is independently verified.",
-    "status":  "DECLARED — actuator integration pending (S23.9)",
-}
-
-# S15 — Decision / Enforcement / Consequence Separation
-VCC_SEPARATION_RULE = {
-    "principle":
-        "Decision, enforcement and consequence remain separate evidence objects.",
-    "ALLOW_plus_signed_log_is_NOT_consequence_proved": True,
-    "CONSEQUENCE_UNKNOWN": "DISTINCT from BLOCKED and from CONSEQUENCE_PROVEN",
-    "rule":
-        "If the downstream effect cannot be observed: CONSEQUENCE_UNKNOWN. "
-        "This must remain distinct from BLOCKED and from CONSEQUENCE_PROVEN.",
-}
-
-# S16 — Independent Verification
-VCC_INDEPENDENT_VERIFICATION_PRINCIPLE = {
-    "principle":
-        "A signature proves integrity/authorship of an artifact; "
-        "it does not by itself prove authorization, enforcement or consequence.",
-    "verifier_must_evaluate": [
-        "artifact integrity", "action binding", "authority evidence",
-        "policy/state evidence", "freshness", "consequence constraints",
-        "enforcement evidence", "consequence evidence where available",
-        "non-claims", "proof-level ceiling",
-    ],
-}
-
-# S17 — Evidence Seal / Proof Passport / VCC distinction
-VCC_ARTIFACT_DISTINCTION = {
-    "VCB = decision/admissibility mechanism": True,
-    "VCC = compact portable verification carrier": True,
-    "Evidence Seal = cryptographically bound evidence": True,
-    "Proof Passport = complete portable evidence package": True,
-    "Independent Verifier = external verification mechanism": True,
-    "must not be conflated": True,
-}
-
-# S18 — Adversarial Test Gate (17 attack classes)
-VCC_ADVERSARIAL_ATTACK_CLASSES = [
-    "stale authority",
-    "revoked authority",
-    "expired authority",
-    "delegation authority escalation",
-    "semantic/material commitment mutation",
-    "beneficiary substitution",
-    "amount escalation",
-    "replay",
-    "race-condition double execution",
-    "policy change after initial decision",
-    "state change before commit",
-    "human approval manipulation",
-    "direct actuator bypass",
-    "VCC substitution",
-    "VCC payload mutation",
-    "evidence substitution",
-    "consequence mismatch",
-]
-
-VCC_ADVERSARIAL_CLAIM_RULE = (
-    "Do NOT report 'zero bypasses' as a universal security claim. "
-    "Report: 'VCB/VCC vX was evaluated against the defined attack suite "
-    "under environment/version Y; results and limitations are documented.'"
-)
-
-# S19 — Preflight must test behavior
-VCC_PREFLIGHT_RULE = {
-    "BAD_pattern":  "Search source for 'return True' (text pattern)",
-    "GOOD_pattern": "Invoke actual verification function; confirm RuntimeError/PQ_UNAVAILABLE",
-    "BAD_jwt":      "Search for verify_signature=False (text pattern)",
-    "GOOD_jwt":     "Determine whether disabled verifier can influence production authorization",
-    "gate_must_distinguish": [
-        "actual failure",
-        "intentional fail-closed behavior",
-        "configuration requirement",
-        "non-production test code",
-        "textual false positive",
-    ],
-    "false_positive_preflight_FAIL_is_engineering_defect": True,
-}
-
-# S20 — Deployment Gate
-DEPLOYMENT_GATE_READY_FOR_CONTROLLED_PILOT = "READY_FOR_CONTROLLED_PILOT"
-DEPLOYMENT_GATE_NOT_PRODUCTION_PROVEN      = "NOT FULLY PRODUCTION-PROVEN until real actuator evidence exists"
-
-VCC_DEPLOYMENT_GATE = {
-    "label_when_complete":  DEPLOYMENT_GATE_READY_FOR_CONTROLLED_PILOT,
-    "NOT_label":            "FULLY PRODUCTION-PROVEN",
-    "NOT_label_until":      "Real actuator evidence exists",
-    "requires": [
-        "syntax PASS", "import/startup PASS", "duplicate routes PASS",
-        "duplicate functions resolved/documented",
-        "authentication path PASS", "authorization path PASS",
-        "PQ fail-closed behavior PASS", "actuator boundary tested",
-        "replay protection PASS", "VCB invariants PASS",
-        "payment vertical end-to-end test PASS",
-        "VCC action binding PASS", "independent verification PASS",
-        "adversarial suite executed", "known limitations recorded",
-    ],
-}
-
-# S21 — No Further Architecture Expansion
-VCC_ARCHITECTURE_EXPANSION_GATE = {
-    "status":             "FROZEN",
-    "NO_new_conceptual_layers":      True,
-    "NO_new_governance_engines":     True,
-    "NO_new_competing_policy_engine":True,
-    "NO_new_naming_exercise":        True,
-    "NO_expansion_from_posts_alone": True,
-    "future_work_must_answer_one_of": [
-        "Does it close a demonstrated attack?",
-        "Does it make an existing invariant enforceable?",
-        "Does it improve interoperability?",
-        "Does it improve independent verification?",
-        "Does it produce real actuator/consequence evidence?",
-        "Does it reduce a demonstrated production risk?",
-    ],
-    "otherwise": "DEFER",
-}
-
-# S22 — Engineering objective
-VCC_ENGINEERING_OBJECTIVE = {
-    "phase":            "PROVE → NOT EXPAND",
-    "objective":        "Turn the frozen VCB architecture into a demonstrated, "
-                        "independently verifiable consequence-control path on one real actuator.",
-    "NOT":              ["Build more architecture", "Add more endpoints",
-                         "Add more governance terminology"],
-    "success_metric":   "The success metric is evidence.",
-}
-
-# S23 — Immediate Sequence (12 steps)
-VCC_IMMEDIATE_SEQUENCE = {
-    "STEP_1":  "Keep the canonical working main.py — DONE",
-    "STEP_2":  "Resolve/document the 23 duplicate function definitions — DONE (documented)",
-    "STEP_3":  "Resolve the production authentication/signature gate — DONE (isolated, documented)",
-    "STEP_4":  "Correct the preflight false-positive checks — DOCUMENTED (_PQ_GATE_CONFIRMED)",
-    "STEP_5":  "Run the complete VCB v2.2 test suite — PENDING",
-    "STEP_6":  "Implement the minimal VCC serializer — DONE (issue_vcc, POST /v1/vcc/issue)",
-    "STEP_7":  "Implement an independent VCC verifier — DONE (verify_vcc, POST /v1/vcc/verify)",
-    "STEP_8":  "Bind VCC to the payment-destination-change payload — DECLARED (actuator pending)",
-    "STEP_9":  "Place VCC verification at the real actuator boundary — PENDING",
-    "STEP_10": "Run the adversarial suite — PENDING (17 attack classes defined)",
-    "STEP_11": "Produce Decision Proof, Enforcement Proof, Consequence Proof, "
-               "Evidence Seal, Proof Passport, VCC artifact, Independent verification result — PENDING",
-    "STEP_12": "Only after those results exist, freeze the engineering baseline again — PENDING",
-}
-
-# S24 — Final Engineering Rule
-VCC_FINAL_ENGINEERING_RULE = {
-    "phase":                "PROVE → NOT EXPAND",
-    "do_NOT_interpret_as":  "Permission to redesign VCB",
-    "DO_interpret_as":      "Permission to finish, connect, attack and independently verify what already exists",
-    "next_milestone_is_NOT":"Another architecture document",
-    "next_milestone_IS": (
-        "One real consequential action successfully governed from proposal "
-        "through execution and independently verifiable afterward."
-    ),
-    "acceptance_criterion": (
-        "One real consequential action successfully governed from proposal "
-        "through execution and independently verifiable afterward."
-    ),
-}
-
-# S9 — VCB Governance Core (also referenced in Section 9)
-VCB_GOVERNANCE_CORE_RULE = {
-    "VCB remains responsible for": [
-        "Authority", "State", "Semantic/Material Commitment", "Consequence Conditions",
-    ],
-    "chain": [
-        "Admissibility", "Commit-Time Requalification", "Enforcement",
-        "Consequence Observation", "Evidence", "Independent Verification",
-    ],
-    "do_NOT_create": [
-        "Another VCB successor",
-        "Another policy engine",
-        "Another governance layer",
-    ],
-}
-
-# S5 — PRODUCTION BLOCKER criterion (explicit)
-JWT_PRODUCTION_BLOCKER_CRITERION = (
-    "If production authorization can depend on the disabled verification path: "
-    "PRODUCTION BLOCKER. "
-    "Do not mark deployment production-ready until real JWKS/signature verification "
-    "path is configured and tested."
-)
-
-# S11 — External verifier does not need VeriSigil servers
-VCC_OFFLINE_PRINCIPLE = (
-    "The external verifier must not need VeriSigil servers to verify "
-    "the cryptographic integrity of the VCC."
-)
-
-# S1/S21 — No new governance engine
-NO_NEW_GOVERNANCE_ENGINE = (
-    "NO NEW GOVERNANCE ENGINE. NO NEW MAJOR ARCHITECTURAL LAYER. "
-    "Architecture freeze remains active."
-)
-
-# S2 — Capability ledger confirmation
-VCB_V22_COMPOSITION_CONFIRMED = [
-    "Authority Continuity / Conservation",
-    "Human Judgment Gate",
-    "Independent Evidence Boundary",
-    "Governed Object / Artifact Provenance Binding",
-    "Policy Snapshot / Version Binding",
-    "VCBFinalEngine",
-    "Session continuity",
-    "Capability ledger",
-    "Payment vertical workflow",
-    "Independent verification",
-    "Evidence Seal / Proof Passport chain",
-    "18 non-negotiable invariants (I01-I18)",
-]
-
-
 @app.get("/v1/vcb/gate-document", tags=["Engineering Baseline Gate"])
 async def vcb_gate_document():
     """
@@ -105834,6 +105544,273 @@ async def vcb_proof_semantics():
         },
         "NOT_PROVEN_until": MASTER_PROOF_LADDER["current_positions"],
         "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+
+# ============================================================
+# ASSESSMENT AGREEMENT — WHAT THIS MEANS FOR THE CODEBASE
+# ============================================================
+#
+# Agreed with in full:
+#
+# 1. "Architecture expansion: STOPPED" — enforced here. No new engines.
+# 2. "NOT_PRODUCTION_READY: True / PROOF_PENDING: True" — locked, never softened.
+# 3. "Master Proof Ladder L0-L7 prevents 'implemented = proven' inflation" — active.
+# 4. "DB = truth / Memory = cache — hard production guard" — _require_supabase_or_fail_closed().
+# 5. "Decision ≠ Enforcement ≠ Consequence — machine-readable separation" — active.
+# 6. "Public claim discipline — forbidden language list" — active.
+# 7. "Customer validation track explicitly started in parallel" — CUSTOMER_VALIDATION_SPEC.
+# 8. "Next single most important action: Run the first real customer-validation conversation
+#    using WHY/STILL/COULD/WHAT, keeping all claims inside achieved proof-ladder levels."
+#
+# What the assessment says the code must now produce:
+# — One clean end-to-end demonstration with 3 artifacts: VERIFIED + FAILED + NOT_PROVABLE
+# — Exact public messaging strings that match proof-ladder levels
+# — Limitations explicitly stated inside the demo output
+# — Website / public messaging that cannot drift from engineering status
+#
+# The assessment's hardest point: "Proof Ladder positions are still low.
+# Public language must stay tightly constrained until L6 and L7 exist."
+# ============================================================
+
+# ── THREE DEMONSTRATION ARTIFACTS (what a customer receives) ─
+# Expert Section 50: the demo must produce three artifacts.
+# A verifier who receives these must independently reproduce the finding.
+
+def _build_three_demo_artifacts() -> dict:
+    """
+    Build the three demonstration artifacts every customer demonstration must produce.
+    Expert: "Then give an external engineer the GCPs. They should independently reproduce the findings."
+    These three are the standard shareable package — not sales material, evidence material.
+    """
+    ts = datetime.now(timezone.utc).isoformat()
+    action_ok  = {"type":"payment_destination_change","amount":50000,"beneficiary":"SUPPLIER-001","currency":"NGN","purpose":"supplier_payment"}
+    action_bad = {**action_ok, "amount":5000000}           # 100× escalation
+    auth_ok    = make_authority_object("ORG-ABC","AGENT-REFUND","REFUND_SYSTEM","PAYMENT",scope=["payment_destination_change"],action_scope=["issue_payment"])
+    auth_rev   = {**auth_ok, "revocation_state":"REVOKED","status":"REVOKED"}
+    ident      = make_digital_identity("AI_agent","AGENT-REFUND","PRINCIPAL-ABC")
+    resp       = make_responsibility_object("ORG-ABC","AGENT-REFUND","PAYMENT_OPS","Supplier payment processing",
+                     permitted_outcomes=["payment_issued","supplier_credited"],
+                     prohibited_outcomes=["payment_exceeds_limit","unauthorized_beneficiary"])
+    def_v1     = make_definition_integrity("DEF-PAY-001","policy_definition","Payment policy: approved suppliers, max ₦500k","1.0","ORG-ABC")
+    binding_ok = make_action_binding("ORG-ABC","AGENT-REFUND",auth_ok["authority_id"],resp["responsibility_id"],
+                                     "PAYMENT_DESTINATION_CHANGE","PAYMENT_GATEWAY",action_ok,"1.0","","PAYMENT_GATEWAY")
+
+    # ── ARTIFACT 1: VERIFIED ─────────────────────────────────
+    ar_1 = issue_admissibility_receipt(
+        action=action_ok, identity=ident, authority=auth_ok, responsibility=resp,
+        definition=def_v1, policy_version="1.0", enforcement_point="PAYMENT_GATEWAY",
+        admissibility_basis="All predicates satisfied: authority active, definition current, action within bounds, responsibility bound",
+        result="ADMISSIBLE",
+    )
+    cp_1 = build_continuity_proof(original_ar=ar_1, current_authority=auth_ok, current_context={},
+                                   current_policy_version="1.0", action=action_ok)
+    cee_1= assess_control_effectiveness(control_id="PAYMENT_GATEWAY",control_present=True,
+                                         control_reachable=True,control_invoked=True,
+                                         control_executed=True,control_effective=True,
+                                         consequence_state="BLOCKED_THEN_ALLOWED")
+    cba_1= make_consequence_boundary_attestation(action=action_ok,enforcement_point="PAYMENT_GATEWAY",
+                                                  boundary_state="COMMITTED",reversibility="LOW_REVERSIBILITY",
+                                                  ar_reference=ar_1["ar_id"])
+    csega_1 = run_csega_v2(
+        claim=make_governance_claim("PAYMENT","Supplier payment ₦50,000","AGENT-REFUND",
+                                    consequence_boundary_id="CB-PAY-001"),
+        identity=ident,authority=auth_ok,responsibility=resp,
+        action_binding=binding_ok,definition=def_v1,
+        continuity_proof=cp_1,control_effectiveness=cee_1,
+        consequence_boundary=cba_1,
+    )
+    gcp_1 = build_gcp_v2(claim=make_governance_claim("PAYMENT","Supplier payment ₦50,000","AGENT-REFUND",consequence_boundary_id="CB-PAY-001"),
+                          identity=ident,authority=auth_ok,responsibility=resp,
+                          action_binding=binding_ok,definition=def_v1,
+                          admissibility_receipt=ar_1,continuity_proof=cp_1,
+                          control_effectiveness=cee_1,consequence_boundary_attestation=cba_1)
+
+    ARTIFACT_1_VERIFIED = {
+        "artifact":          "1 of 3",
+        "label":             "VERIFIED",
+        "scenario":          "Valid supplier payment ₦50,000 — all governance predicates satisfied",
+        "CSEGA_result":      csega_1["CSEGA_result"],
+        "admissibility":     csega_1["ADMISSIBILITY_FINDING"]["result"],
+        "governability":     csega_1["GOVERNABILITY_FINDING"]["result"],
+        "ar_id":             ar_1["ar_id"],
+        "continuity":        cp_1["result"],
+        "control_position":  cee_1["result"],
+        "consequence_state": cba_1["boundary_state"],
+        "gcp_hash":          gcp_1["cryptographic_commitments"]["gcp_hash"][:32],
+        "verify_with":       "POST /v1/vcc/verify-offline or run verify_sigilmark_independent() offline",
+        "passed":            csega_1["CSEGA_result"] == "VERIFIED",
+    }
+
+    # ── ARTIFACT 2: FAILED ───────────────────────────────────
+    # Authority revoked between authorization and commitment
+    ar_2 = issue_admissibility_receipt(
+        action=action_ok, identity=ident, authority=auth_ok, responsibility=resp,
+        definition=def_v1, policy_version="1.0", enforcement_point="PAYMENT_GATEWAY",
+        admissibility_basis="Baseline admissibility at T0",
+        result="ADMISSIBLE",
+    )
+    cp_2 = build_continuity_proof(original_ar=ar_2, current_authority=auth_rev, current_context={},
+                                   current_policy_version="1.0", action=action_ok)
+    csega_2 = run_csega_v2(
+        claim=make_governance_claim("PAYMENT","Supplier payment — authority revoked at T3","AGENT-REFUND"),
+        identity=ident, authority=auth_rev,
+        action_binding=binding_ok, continuity_proof=cp_2,
+    )
+    ARTIFACT_2_FAILED = {
+        "artifact":          "2 of 3",
+        "label":             "FAILED",
+        "scenario":          "Same action — authority revoked between T0 (ALLOW) and T3 (commit attempt)",
+        "CSEGA_result":      csega_2["CSEGA_result"],
+        "admissibility":     csega_2["ADMISSIBILITY_FINDING"]["result"],
+        "failures":          csega_2["ADMISSIBILITY_FINDING"]["failures"],
+        "continuity":        cp_2["result"],
+        "what_changed":      list(cp_2["what_changed"].keys()),
+        "invariant_proven":  "VALID_AT_T0 != VALID_AT_T1",
+        "passed":            csega_2["CSEGA_result"] == "FAILED",
+    }
+
+    # ── ARTIFACT 3: NOT_PROVABLE ─────────────────────────────
+    # Action proposed by AI agent with no action binding and no definition
+    csega_3 = run_csega_v2(
+        claim=make_governance_claim("PAYMENT","AI-proposed payment — no binding","AGENT-REFUND"),
+        identity=ident, authority=auth_ok,
+        action_binding=None,   # no binding — basis cannot be established
+        definition=None,       # no definition
+    )
+    ARTIFACT_3_NOT_PROVABLE = {
+        "artifact":          "3 of 3",
+        "label":             "NOT_PROVABLE",
+        "scenario":          "AI proposes a payment. No action binding. No definition. Admissibility cannot be established.",
+        "CSEGA_result":      csega_3["CSEGA_result"],
+        "admissibility":     csega_3["ADMISSIBILITY_FINDING"]["result"],
+        "np_codes":          csega_3["all_np_codes"],
+        "np_meanings":       csega_3["np_meanings"],
+        "rule":              "NOT_PROVABLE is a first-class outcome. It is NOT a system failure. It means the evidence does not support the claim.",
+        "NOT_PROVABLE_rule": "NOT_PROVABLE must never silently become ALLOW.",
+        "passed":            csega_3["CSEGA_result"] == "NOT_PROVABLE",
+    }
+
+    all_pass = ARTIFACT_1_VERIFIED["passed"] and ARTIFACT_2_FAILED["passed"] and ARTIFACT_3_NOT_PROVABLE["passed"]
+    return {
+        "schema":              "VGS-THREE-DEMO-ARTIFACTS-1.0",
+        "purpose":             "The three artifacts every VeriSigilAI demonstration must produce.",
+        "expert_requirement":  "Give an external engineer the GCPs. They independently reproduce the findings.",
+        "generated_at":        ts,
+        "ARTIFACT_1_VERIFIED":   ARTIFACT_1_VERIFIED,
+        "ARTIFACT_2_FAILED":     ARTIFACT_2_FAILED,
+        "ARTIFACT_3_NOT_PROVABLE": ARTIFACT_3_NOT_PROVABLE,
+        "all_three_passed":    all_pass,
+        "verification_instructions": {
+            "ARTIFACT_1": "Verify GCP hash + admissibility_receipt signature offline. CSEGA_result should be VERIFIED.",
+            "ARTIFACT_2": "Same action, revoked authority → FAILED. Continuity shows what_changed.",
+            "ARTIFACT_3": "No binding → NOT_PROVABLE with explicit NP codes. Reproduce CSEGA adjudication independently.",
+        },
+        "proof_level":         "L3 — adversarially tested internally. L5 pending (external reproduction).",
+        "limitations_explicit": [
+            "Reference actuator only — real bank payment not demonstrated (L6 pending)",
+            "Multi-instance atomicity: V-001/V-002 fix required (PA-01 to PA-04 pending)",
+            "External reproduction: Alkama Run 4 + Harold OMNIX pending (L5 pending)",
+            "Production designation: NOT YET — until PA-01 to PA-05 actually pass",
+            "This demonstration is at L3. Public claims must match L3, not L6 or L7.",
+        ],
+    }
+
+
+# ── PUBLIC MESSAGING — PROOF-LEVEL-LOCKED (Assessment Point 4) ─
+
+PUBLIC_MESSAGING_LOCKED = {
+    "schema":           "VGS-PUBLIC-MESSAGING-LOCKED-1.0",
+    "locking_rule":     "Every public statement about VeriSigilAI must map to an achieved proof-ladder level. Drift = vulnerability.",
+    "current_status_PUBLIC": "Research / Phase 0 — Internally adversarially tested, externally unverified, not production-designated.",
+    "website_status":        "PROOF PENDING",
+    "linkedin_status":       "Pre-production AI governance infrastructure — behavioral audit complete, production gates pending.",
+
+    "ALLOWED_to_say": [
+        "VeriSigilAI produces independently verifiable evidence of whether a consequential AI action was admissible — at L3, adversarially tested.",
+        "Internal behavioral audit found no false-PROVEN paths in tested scenarios.",
+        "Our current implementation distinguishes CONTROL_FIRED from CONTROL_EFFECTIVE — most governance systems do not.",
+        "We're testing the claim before asking customers to trust it.",
+        "We're building toward a system where WHY was it admissible, STILL valid, COULD control intervene, and WHAT happened are independently answerable.",
+    ],
+
+    "NOT_ALLOWED_to_say": [
+        "VeriSigilAI is production-ready (NOT until PA-01 to PA-05 pass)",
+        "VCB prevents unauthorized AI actions (too broad)",
+        "VCB eliminates AI governance risk (too broad)",
+        "VCB is independently verified (NOT until L5 external reproduction)",
+        "VCB has been customer-validated (NOT until L7)",
+        "Our system has 1,251 routes and 105,934 lines (irrelevant to customers)",
+        "We invented runtime authorization (incorrect — CapFence/Microsoft/AgentLock predate this)",
+    ],
+
+    "first_customer_message_EXACT": (
+        "We're building a system that asks whether a consequential AI action can be "
+        "independently justified before it becomes a consequence — and we're deliberately "
+        "testing that claim rather than asking customers to trust it."
+    ),
+
+    "first_LinkedIn_post_EXACT": (
+        "Most AI governance systems can tell you what an AI agent did. "
+        "Few can tell you whether it was admissible, whether that admissibility remained valid, "
+        "whether the control could still have intervened, and what actually happened — "
+        "as independently verifiable evidence. "
+        "78% of business executives lack strong confidence they could pass an independent AI governance audit in 90 days. "
+        "That is the specific gap we're building toward closing. "
+        "We're not declaring it solved. We're testing whether we've solved it."
+    ),
+
+    "technical_claim_EXACT": (
+        "Our implementation has undergone behavioral and adversarial testing across identity, "
+        "authority, responsibility, evidence, exact-action binding, revalidation, consequence "
+        "timing and verification. The latest internal audit found no false-PROVEN paths in the "
+        "tested scenarios. Production designation remains gated on persistent-state, "
+        "distributed-instance and full re-audit validation."
+    ),
+
+    "Terry_Snyder_test": (
+        "Before publishing any claim: can a technically capable outsider disprove this in 5 minutes? "
+        "If yes, rewrite before publishing."
+    ),
+
+    "deploy_language_LOCKED": {
+        "CORRECT":   "Deploying to controlled validation environment for infrastructure verification.",
+        "INCORRECT": "Deployed. Production-ready. Live.",
+        "RULE":      "Deploy to test != production designation. The system enforces its own governance philosophy.",
+    },
+}
+
+
+@app.get("/v1/engineering/baseline-gate", tags=["Engineering Gates 0-7"])
+async def engineering_baseline_gate():
+    """
+    Engineering baseline gate — the single honest status page.
+    Returns: architecture status, proof ladder positions, production gate status,
+    three demo artifacts, public messaging locked strings.
+    This is what to show a technically capable reviewer before any partnership or pilot.
+    No auth required.
+    """
+    artifacts = _build_three_demo_artifacts()
+    return {
+        "schema":              "VGS-ENGINEERING-BASELINE-GATE-1.0",
+        "NOT_PRODUCTION_READY": True,
+        "PROOF_PENDING":        True,
+        "architecture_status":  "FROZEN — 20/20 components pass behavioral audit",
+        "false_proven_paths":   "NONE FOUND in tested scenarios",
+        "proof_ladder":         MASTER_PROOF_LADDER["current_positions"],
+        "production_gate":      "PA-01 to PA-05 required. Status: PENDING.",
+        "three_demo_artifacts": artifacts,
+        "public_messaging":     PUBLIC_MESSAGING_LOCKED,
+        "audit_report":         "GET /v1/engineering/audit-report",
+        "market_research":      "GET /v1/engineering/market-research",
+        "assessment_agreement": {
+            "status":    "AGREED IN FULL",
+            "key_line":  "Do not prove that a control exists. Prove what the control could do, whether it remained effective, and what actually happened.",
+            "next_action": "Run the first real customer-validation conversation using WHY/STILL/COULD/WHAT — keeping all public claims inside achieved proof-ladder levels.",
+            "what_this_means": "L3 claims only. No L6 or L7 language until actuator and customer evidence exists.",
+        },
+        "timestamp":            datetime.now(timezone.utc).isoformat(),
     }
 
 
