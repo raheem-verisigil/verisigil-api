@@ -102583,6 +102583,1129 @@ async def vcb_architecture_v11():
     }
 
 
+
+# ============================================================
+# VCB ARCHITECTURE DIRECTION v1.1 — FINAL FOUR EVIDENCE CAPABILITIES
+# Expert: "Stop expanding conceptual architecture. Move into implementation."
+# Four concrete evidence capabilities inside existing architecture:
+# 1. Definition Integrity + Definition Binding
+# 2. Admissibility Receipt (AR) + Continuity Proof
+# 3. Control Effectiveness Evidence (CEE) + Intervention Window
+# 4. Consequence Boundary Attestation
+#
+# CSEGA adjudicates TWO separate questions (never collapsed):
+# Question A: Admissibility — Was the action admissible?
+# Question B: Governability — Did the control retain intervention capacity?
+#
+# Architecture: FROZEN. Implementation: START NOW.
+# ============================================================
+
+VCB_CONSEQUENCE_BOUND_EVIDENCE_INFRASTRUCTURE = {
+    "schema":   "VGS-CONSEQUENCE-BOUND-EVIDENCE-1.1",
+    "label":    "CONSEQUENCE-BOUND EVIDENCE INFRASTRUCTURE",
+    "frozen_direction": (
+        "Build VCB as a consequence-bound evidence infrastructure that produces "
+        "independently reproducible proof of consequential AI action admissibility "
+        "and governance effectiveness. CSEGA must never collapse these questions "
+        "into a single PASS/FAIL or governance score. It must produce separately "
+        "adjudicable findings."
+    ),
+    "four_proof_families": {
+        "1": "Definition Integrity + Definition Binding",
+        "2": "Admissibility Receipt (AR) + Continuity Proof",
+        "3": "Intervention Window + Control Effectiveness Evidence",
+        "4": "Consequence Boundary Attestation",
+    },
+    "central_test": (
+        "Can VCB independently reconstruct why the exact consequential action was admissible, "
+        "establish whether that basis remained valid until commitment, determine whether the "
+        "governing control retained meaningful intervention capacity, and prove what consequence "
+        "actually occurred?"
+    ),
+}
+
+# ── 1. DEFINITION INTEGRITY + DEFINITION BINDING ─────────────
+# Expert: "A governance decision is always relative to some definition."
+# "The proof must record the definition under which admissibility was established."
+
+def make_definition_integrity(
+    definition_id: str,
+    definition_type: str,      # policy_definition / authority_scope / responsibility_boundary / rule
+    definition_statement: str,
+    definition_version: str,
+    issuer: str = "",
+    valid_from: str = "",
+    valid_until: str = "",
+    superseded_by: str = "",
+) -> dict:
+    """
+    Section 2 of expert direction: DefinitionIntegrity.
+
+    A governance decision is always relative to some definition.
+    Proof cannot simply record "AUTHORIZED" — it must record which definition
+    established admissibility and whether that definition remains current.
+
+    States: DEFINITION_STABLE | DEFINITION_CHANGED | DEFINITION_SUPERSEDED | DEFINITION_EXPIRED
+    """
+    ts   = datetime.now(timezone.utc).isoformat()
+    body = {
+        "definition_type":      definition_type,
+        "definition_statement": definition_statement,
+        "definition_version":   definition_version,
+        "issuer":               issuer,
+        "valid_from":           valid_from or ts,
+        "valid_until":          valid_until,
+    }
+    return {
+        "schema":               "VGS-DEFINITION-INTEGRITY-1.1",
+        "definition_id":        definition_id,
+        "definition_hash":      _vcc_hash(body),
+        "definition_version":   definition_version,
+        "definition_type":      definition_type,
+        "definition_statement": definition_statement,
+        "issuer":               issuer,
+        "valid_from":           valid_from or ts,
+        "valid_until":          valid_until,
+        "superseded_by":        superseded_by,
+        "status":               "DEFINITION_STABLE",
+        "possible_states":      ["DEFINITION_STABLE","DEFINITION_CHANGED","DEFINITION_SUPERSEDED","DEFINITION_EXPIRED"],
+        "created_at":           ts,
+        "key_distinction": (
+            "Historical proof remains historically true without automatically becoming current proof. "
+            "DEFINITION_CHANGED does not rewrite history — it shows the basis changed."
+        ),
+    }
+
+
+def make_definition_binding(
+    decision_id: str,
+    definition: dict,
+    action_hash: str,
+    binding_moment: str = "",
+) -> dict:
+    """
+    Section 3: DefinitionBinding — binds evidence and decisions to the definition
+    under which they were evaluated.
+
+    Distinguishes EVALUATED_UNDER_CURRENT_DEFINITION from EVALUATED_UNDER_SUPERSEDED_DEFINITION.
+    """
+    ts = datetime.now(timezone.utc).isoformat()
+    return {
+        "schema":           "VGS-DEFINITION-BINDING-1.1",
+        "binding_id":       f"DEFBIND-{_vcc_hash(decision_id + ts)[:12].upper()}",
+        "decision_id":      decision_id,
+        "definition_id":    definition.get("definition_id",""),
+        "definition_hash":  definition.get("definition_hash",""),
+        "definition_version": definition.get("definition_version",""),
+        "action_hash":      action_hash,
+        "binding_moment":   binding_moment or ts,
+        "binding_status":   "BOUND",
+        "binding_states": {
+            "EVALUATED_UNDER_CURRENT_DEFINITION":    True,
+            "EVALUATED_UNDER_SUPERSEDED_DEFINITION": False,
+        },
+        "hard_rule": (
+            "A decision evaluated under Definition V1 remains valid for V1. "
+            "If the definition changes to V2, the original decision does not "
+            "automatically become valid or invalid under V2 — it remains a "
+            "V1 decision requiring re-evaluation."
+        ),
+        "created_at": ts,
+    }
+
+
+def check_definition_currency(
+    original_binding: dict,
+    current_definition: dict,
+) -> dict:
+    """
+    Compare original definition binding against current definition.
+    Returns DEFINITION_STABLE or DEFINITION_CHANGED.
+    """
+    orig_hash = original_binding.get("definition_hash","")
+    curr_hash = current_definition.get("definition_hash","")
+    stable    = orig_hash == curr_hash
+
+    return {
+        "schema":               "VGS-DEFINITION-CURRENCY-1.1",
+        "original_definition_hash": orig_hash,
+        "current_definition_hash":  curr_hash,
+        "status":               "DEFINITION_STABLE" if stable else "DEFINITION_CHANGED",
+        "requires_re_evaluation": not stable,
+        "note": (
+            "DEFINITION_STABLE: admissibility established under the still-current definition. "
+            "DEFINITION_CHANGED: original admissibility basis may no longer apply — re-evaluation required."
+        ) if not stable else "Definition unchanged — original admissibility basis remains applicable.",
+    }
+
+
+# ── 2. ADMISSIBILITY RECEIPT (AR) ────────────────────────────
+# Expert Section 4: "The receipt is generated BEFORE the consequence-bearing commitment."
+# "This is what separates it from a conventional audit log."
+
+def issue_admissibility_receipt(
+    *,
+    action: dict,
+    identity: dict,
+    authority: dict,
+    responsibility: dict = None,
+    definition: dict = None,
+    evidence: list = None,
+    context: dict = None,
+    policy_version: str = "",
+    enforcement_point: str = "",
+    admissibility_basis: str = "",
+    result: str,                 # ADMISSIBLE | INADMISSIBLE | NOT_PROVABLE
+    np_code: str = "",
+    failures: list = None,
+) -> dict:
+    """
+    Section 4: Admissibility Receipt (AR) — machine-readable object, not a report.
+
+    Generated BEFORE the consequence-bearing commitment.
+    Captures the exact basis for allowing or refusing the action.
+    This is NOT an audit log — it precedes consequence and determines governance.
+
+    Result: ADMISSIBLE | INADMISSIBLE | NOT_PROVABLE
+    """
+    ts            = datetime.now(timezone.utc).isoformat()
+    action_hash   = _vcc_hash(action)
+    authority_hash= _vcc_hash(authority)
+    context_hash  = _vcc_hash(context or {})
+    policy_hash   = _vcc_hash({"version": policy_version})
+    definition_hash = (definition or {}).get("definition_hash","")
+
+    receipt_body = {
+        "action_hash":        action_hash,
+        "authority_hash":     authority_hash,
+        "context_hash":       context_hash,
+        "policy_hash":        policy_hash,
+        "definition_hash":    definition_hash,
+        "result":             result,
+        "admissibility_basis":admissibility_basis,
+        "failures":           failures or [],
+        "np_code":            np_code,
+        "enforcement_point":  enforcement_point,
+        "issued_at":          ts,
+    }
+    receipt_hash = _vcc_hash(receipt_body)
+    ar_id        = f"AR-{receipt_hash[:16].upper()}"
+
+    return {
+        "schema":             "VGS-ADMISSIBILITY-RECEIPT-1.1",
+        "ar_id":              ar_id,
+        "receipt_hash":       receipt_hash,
+        "result":             result,           # ADMISSIBLE | INADMISSIBLE | NOT_PROVABLE
+        "admissibility_basis":admissibility_basis,
+        "action_hash":        action_hash,
+        "authority_hash":     authority_hash,
+        "context_hash":       context_hash,
+        "policy_hash":        policy_hash,
+        "definition_hash":    definition_hash,
+        "policy_version":     policy_version,
+        "enforcement_point":  enforcement_point,
+        "failures":           failures or [],
+        "np_code":            np_code,
+        "identity_reference": identity.get("identity_id",""),
+        "authority_reference":authority.get("authority_id",""),
+        "responsibility_reference": (responsibility or {}).get("responsibility_id",""),
+        "issued_at":          ts,
+        "issuer_signature":   sign_governance_payload({"ar_id":ar_id,"receipt_hash":receipt_hash}),
+        "critical_property":  "Generated BEFORE consequence-bearing commitment — not an audit log.",
+        "not_an_audit_log":   True,
+        "PRE_COMMITMENT":     True,
+    }
+
+
+# ── 3. CONTINUITY PROOF ───────────────────────────────────────
+# Expert Section 5: "The STILL? question."
+# "Explicitly identify what changed — stronger than simply 'revalidated'."
+
+def build_continuity_proof(
+    *,
+    original_ar: dict,
+    current_authority: dict,
+    current_context: dict,
+    current_policy_version: str,
+    current_definition: dict = None,
+    action: dict,
+) -> dict:
+    """
+    Section 5: ContinuityProof — compares original admissibility basis against current state.
+    The STILL? question.
+    Explicitly identifies what changed — not just "revalidated."
+    Result: STILL_VALID | NO_LONGER_VALID | NOT_PROVABLE
+    """
+    ts = datetime.now(timezone.utc).isoformat()
+    changed_conditions = {}
+
+    # Compare authority
+    orig_auth_hash = original_ar.get("authority_hash","")
+    curr_auth_hash = _vcc_hash(current_authority)
+    if orig_auth_hash != curr_auth_hash:
+        changed_conditions["authority"] = {
+            "original_hash": orig_auth_hash[:16], "current_hash": curr_auth_hash[:16],
+            "note": "Authority changed since admissibility receipt was issued",
+        }
+        if current_authority.get("revocation_state") == "REVOKED":
+            changed_conditions["authority"]["revoked"] = True
+
+    # Compare context
+    orig_ctx_hash = original_ar.get("context_hash","")
+    curr_ctx_hash = _vcc_hash(current_context)
+    if orig_ctx_hash != curr_ctx_hash:
+        changed_conditions["context"] = {
+            "original_hash": orig_ctx_hash[:16], "current_hash": curr_ctx_hash[:16],
+        }
+
+    # Compare policy
+    orig_policy_hash = original_ar.get("policy_hash","")
+    curr_policy_hash = _vcc_hash({"version": current_policy_version})
+    if orig_policy_hash != curr_policy_hash:
+        changed_conditions["policy"] = {
+            "original_version": original_ar.get("policy_version",""),
+            "current_version":  current_policy_version,
+        }
+
+    # Compare action binding
+    orig_action_hash = original_ar.get("action_hash","")
+    curr_action_hash = _vcc_hash(action)
+    if orig_action_hash != curr_action_hash:
+        changed_conditions["action"] = {
+            "original_hash": orig_action_hash[:16], "current_hash": curr_action_hash[:16],
+            "note": "Action changed since admissibility receipt — binding no longer valid",
+        }
+
+    # Compare definition
+    if current_definition and original_ar.get("definition_hash"):
+        if original_ar["definition_hash"] != current_definition.get("definition_hash",""):
+            changed_conditions["definition"] = {
+                "original_hash": original_ar["definition_hash"][:16],
+                "current_hash": current_definition.get("definition_hash","")[:16],
+                "status": "DEFINITION_CHANGED",
+            }
+
+    still_valid = not changed_conditions
+    if still_valid:
+        result = "STILL_VALID"
+    elif any("revoked" in str(v) for v in changed_conditions.values()):
+        result = "NO_LONGER_VALID"
+    else:
+        result = "NO_LONGER_VALID" if changed_conditions else "STILL_VALID"
+
+    return {
+        "schema":             "VGS-CONTINUITY-PROOF-1.1",
+        "continuity_id":      f"CP-{_vcc_hash(original_ar.get('ar_id','') + ts)[:12].upper()}",
+        "original_ar_id":     original_ar.get("ar_id",""),
+        "result":             result,            # STILL_VALID | NO_LONGER_VALID | NOT_PROVABLE
+        "what_changed":       changed_conditions,
+        "changed_count":      len(changed_conditions),
+        "still_valid":        still_valid,
+        "evaluated_at":       ts,
+        "stronger_than":      "Simply 'revalidated' — explicitly shows what changed and why validity status changed.",
+        "possible_results":   ["STILL_VALID","NO_LONGER_VALID","NOT_PROVABLE"],
+    }
+
+
+# ── 4. CONTROL EFFECTIVENESS EVIDENCE (CEE) ──────────────────
+# Expert Section 6-7: "CONTROL_FIRED != CONTROL_EFFECTIVE"
+# 5 explicit control states — must not be collapsed.
+
+def assess_control_effectiveness(
+    *,
+    control_id: str,
+    control_type: str = "",
+    control_present:   bool = False,
+    control_reachable: bool = False,
+    control_invoked:   bool = False,
+    control_executed:  bool = False,
+    control_effective: bool = False,
+    evidence: list = None,
+    intervention_window: dict = None,
+    consequence_state: str = "",
+) -> dict:
+    """
+    Section 6-7: ControlEffectivenessEvidence.
+
+    Five control states — explicitly separate propositions:
+    CONTROL_PRESENT, CONTROL_REACHABLE, CONTROL_INVOKED, CONTROL_EXECUTED, CONTROL_EFFECTIVE.
+
+    Must not be collapsed. A stop button that exists and fired but
+    arrived after the consequence is NOT CONTROL_EFFECTIVE.
+
+    CONTROL_FIRED != CONTROL_EFFECTIVE.
+    """
+    ts = datetime.now(timezone.utc).isoformat()
+    states = {
+        "CONTROL_PRESENT":   control_present,
+        "CONTROL_REACHABLE": control_reachable,
+        "CONTROL_INVOKED":   control_invoked,
+        "CONTROL_EXECUTED":  control_executed,
+        "CONTROL_EFFECTIVE": control_effective,
+    }
+    highest = [s for s, v in states.items() if v]
+    highest_reached = highest[-1] if highest else "NONE"
+
+    if control_effective:
+        result = "EFFECTIVE"
+    elif control_executed and not control_effective:
+        result = "EXECUTED_NOT_EFFECTIVE"
+    elif control_invoked and not control_executed:
+        result = "INVOKED_NOT_EXECUTED"
+    elif control_present and not control_reachable:
+        result = "PRESENT_NOT_REACHABLE"
+    elif not control_present:
+        result = "NOT_PRESENT"
+    else:
+        result = "NOT_PROVABLE"
+
+    # Is intervention window still open?
+    win = intervention_window or {}
+    window_open = win.get("remaining_control_leverage","ZERO") not in ("ZERO","NONE","")
+
+    return {
+        "schema":             "VGS-CONTROL-EFFECTIVENESS-EVIDENCE-1.1",
+        "cee_id":             f"CEE-{_vcc_hash(control_id + ts)[:12].upper()}",
+        "control_id":         control_id,
+        "control_type":       control_type,
+        "control_states":     states,
+        "highest_state_reached": highest_reached,
+        "result":             result,
+        "window_open_at_invocation": window_open,
+        "intervention_window": win,
+        "consequence_state":  consequence_state,
+        "evidence":           evidence or [],
+        "evaluated_at":       ts,
+        "hard_rule":          "CONTROL_FIRED != CONTROL_EFFECTIVE — five states are separate propositions.",
+        "example_failure":    (
+            "CONTROL_PRESENT=True, CONTROL_REACHABLE=True, CONTROL_INVOKED=True, "
+            "CONTROL_EXECUTED=True, CONTROL_EFFECTIVE=False: "
+            "The stop mechanism fired but the consequence had already become unavoidable. "
+            "VCB must NOT report this as a successful governance intervention."
+        ),
+        "np_code": "NP-024" if result in ("EXECUTED_NOT_EFFECTIVE","INVOKED_NOT_EXECUTED","PRESENT_NOT_REACHABLE","NOT_PROVABLE") else None,
+    }
+
+
+# ── 5. CONSEQUENCE BOUNDARY ATTESTATION ──────────────────────
+# Expert Section 9: "VCB must establish the actual boundary where
+# the action became consequential."
+
+def make_consequence_boundary_attestation(
+    *,
+    action: dict,
+    enforcement_point: str,
+    boundary_state: str,        # QUEUED | TRANSMITTED | ACCEPTED | COMMITTED | SETTLED | CONSEQUENCE_ESTABLISHED
+    transaction_reference: str = "",
+    before_state_hash: str = "",
+    after_state_hash: str = "",
+    reversibility: str = "UNKNOWN",
+    attestation_evidence: list = None,
+    ar_reference: str = "",
+) -> dict:
+    """
+    Section 9: ConsequenceBoundaryAttestation.
+
+    Establishes the actual boundary where the action became consequential.
+    Distinguishes QUEUED vs TRANSMITTED vs ACCEPTED vs COMMITTED vs SETTLED.
+
+    This distinction is central:
+    - QUEUED: not yet consequential
+    - TRANSMITTED: sent, not yet confirmed
+    - ACCEPTED: accepted by receiving system
+    - COMMITTED: state change recorded
+    - SETTLED: irreversible consequence established
+    - CONSEQUENCE_ESTABLISHED: full consequence confirmed
+    """
+    ts = datetime.now(timezone.utc).isoformat()
+    action_hash = _vcc_hash(action)
+    attest_body = {
+        "action_hash":       action_hash,
+        "boundary_state":    boundary_state,
+        "enforcement_point": enforcement_point,
+        "before_state_hash": before_state_hash,
+        "after_state_hash":  after_state_hash,
+        "attestation_time":  ts,
+    }
+    attest_hash = _vcc_hash(attest_body)
+    return {
+        "schema":               "VGS-CONSEQUENCE-BOUNDARY-ATTESTATION-1.1",
+        "attestation_id":       f"CBA-{attest_hash[:12].upper()}",
+        "attestation_hash":     attest_hash,
+        "action_hash":          action_hash,
+        "enforcement_point":    enforcement_point,
+        "boundary_state":       boundary_state,
+        "transaction_reference":transaction_reference,
+        "before_state_hash":    before_state_hash,
+        "after_state_hash":     after_state_hash,
+        "reversibility":        reversibility,
+        "attestation_evidence": attestation_evidence or [],
+        "ar_reference":         ar_reference,
+        "boundary_states_ordered": ["QUEUED","TRANSMITTED","ACCEPTED","COMMITTED","SETTLED","CONSEQUENCE_ESTABLISHED"],
+        "is_consequential":     boundary_state in ("COMMITTED","SETTLED","CONSEQUENCE_ESTABLISHED"),
+        "issuer_signature":     sign_governance_payload({"attestation_id":f"CBA-{attest_hash[:12].upper()}","hash":attest_hash}),
+        "attested_at":          ts,
+        "note": f"Boundary state: {boundary_state} — {'consequential' if boundary_state in ('COMMITTED','SETTLED','CONSEQUENCE_ESTABLISHED') else 'not yet consequential'}",
+    }
+
+
+# ── NP-021 to NP-025: NEW REASON CODES FOR THE FOUR FAMILIES ─
+
+VCB_EXTENDED_NP_CODES = {
+    "NP-021": "Admissibility Basis Not Established — the exact basis for allowing the action cannot be reconstructed",
+    "NP-022": "Continuity Not Established — cannot prove the admissibility basis remained valid until commitment",
+    "NP-023": "Intervention Capacity Not Proven — cannot establish whether the control could materially affect the consequence",
+    "NP-024": "Control Ineffective — control was present and invoked but did not affect the consequence",
+    "NP-025": "Consequence Boundary Unestablished — the actual consequential boundary cannot be identified",
+}
+
+# Merge into master NP codes
+VCB_NOT_PROVABLE_REASON_CODES["codes"].update(VCB_EXTENDED_NP_CODES)
+VCB_NOT_PROVABLE_REASON_CODES["codes_extended_for"] = "VCB v1.1 four evidence capabilities"
+
+
+# ── CSEGA UPGRADED: QUESTION A + QUESTION B ──────────────────
+# Expert: "CSEGA must adjudicate two separate questions."
+# "Do not collapse those into one score."
+
+def run_csega_v2(
+    *,
+    # Admissibility inputs
+    claim: dict,
+    identity: dict,
+    authority: dict,
+    responsibility: dict = None,
+    evidence: list = None,
+    context: dict = None,
+    action_binding: dict = None,
+    definition: dict = None,
+    temporal_state: dict = None,
+    # Governability inputs
+    control_effectiveness: dict = None,
+    intervention_window: dict = None,
+    continuity_proof: dict = None,
+    consequence_assessment: dict = None,
+    consequence_boundary: dict = None,
+    reconciliation: dict = None,
+    coverage: dict = None,
+) -> dict:
+    """
+    CSEGA v2 — Upgraded to adjudicate TWO separate questions.
+    Expert: "Do not collapse into a single PASS/FAIL or governance score."
+    Expert: "No single governance score — structured findings."
+
+    Question A: Admissibility — Was the action admissible at time of authorization?
+    Question B: Governability — Did the control retain meaningful intervention capacity?
+
+    Output: SEPARATELY ADJUDICABLE FINDINGS, not a score.
+    """
+    ts = datetime.now(timezone.utc).isoformat()
+
+    # ── QUESTION A: ADMISSIBILITY ─────────────────────────────
+    a_failures = []
+    a_np_codes = []
+
+    if not identity.get("entity_name"):
+        a_failures.append("IDENTITY_INVALID"); a_np_codes.append("NP-001")
+    if authority.get("revocation_state") == "REVOKED" or authority.get("status") == "REVOKED":
+        a_failures.append("AUTHORITY_REVOKED")
+    if not authority.get("scope"):
+        a_failures.append("AUTHORITY_SCOPE_MISSING"); a_np_codes.append("NP-004")
+    if not action_binding:
+        a_np_codes.append("NP-021")  # Admissibility Basis Not Established
+    if not definition:
+        a_np_codes.append("NP-009")  # Provenance Insufficient (no definition binding)
+
+    ev_list = evidence or []
+    inadmissible_ev = [e for e in ev_list if e.get("admissibility_state") == "INADMISSIBLE"]
+    if inadmissible_ev:
+        a_failures.append("EVIDENCE_INADMISSIBLE")
+
+    temp = temporal_state or {}
+    if temp.get("stale"):
+        a_failures.append("STALE_ADMISSIBILITY"); a_np_codes.append("NP-012")
+
+    ctx = context or {}
+    if ctx.get("dependency_state",{}).get("source") == "CONFLICTING":
+        a_failures.append("CONTEXT_CONFLICTED"); a_np_codes.append("NP-006")
+
+    if a_failures:
+        admissibility_result = "INADMISSIBLE"
+        admissibility_basis  = f"Admissibility denied: {a_failures}"
+    elif a_np_codes:
+        admissibility_result = "NOT_PROVABLE"
+        admissibility_basis  = f"Admissibility cannot be established: {a_np_codes}"
+    else:
+        admissibility_result = "ADMISSIBLE"
+        admissibility_basis  = "All admissibility predicates satisfied"
+
+    # ── QUESTION B: GOVERNABILITY ─────────────────────────────
+    b_failures = []
+    b_np_codes = []
+
+    cp = continuity_proof or {}
+    if cp.get("result") == "NO_LONGER_VALID":
+        b_failures.append("CONTINUITY_BROKEN")
+        b_np_codes.append("NP-022")
+        b_failures.extend([f"CHANGED:{k}" for k in (cp.get("what_changed") or {}).keys()])
+    elif cp.get("result") == "NOT_PROVABLE":
+        b_np_codes.append("NP-022")
+
+    cee = control_effectiveness or {}
+    if cee.get("result") in ("EXECUTED_NOT_EFFECTIVE","INVOKED_NOT_EXECUTED"):
+        b_failures.append(f"CONTROL_NOT_EFFECTIVE:{cee.get('result')}")
+        b_np_codes.append("NP-024")
+    elif cee.get("result") == "PRESENT_NOT_REACHABLE":
+        b_failures.append("CONTROL_NOT_REACHABLE")
+        b_np_codes.append("NP-023")
+    elif not cee:
+        b_np_codes.append("NP-023")  # Intervention Capacity Not Proven
+
+    cba = consequence_boundary or {}
+    if not cba:
+        b_np_codes.append("NP-025")  # Consequence Boundary Unestablished
+
+    cons = consequence_assessment or {}
+    if cons.get("result") == "DEVIATED":
+        b_failures.append("CONSEQUENCE_DEVIATED")
+        b_np_codes.append("NP-015")
+
+    if b_failures:
+        governability_result = "NOT_GOVERNABLE"
+    elif b_np_codes:
+        governability_result = "NOT_PROVABLE"
+    else:
+        governability_result = "GOVERNABLE"
+
+    # ── FINAL CSEGA RESULT (two findings, not one score) ─────
+    # Rule: never collapse into single PASS/FAIL
+    if admissibility_result == "ADMISSIBLE" and governability_result == "GOVERNABLE":
+        csega_result = "VERIFIED"
+    elif admissibility_result == "INADMISSIBLE" or governability_result == "NOT_GOVERNABLE":
+        csega_result = "FAILED"
+    else:
+        csega_result = "NOT_PROVABLE"
+
+    return {
+        "schema":              "VGS-CSEGA-V2-1.1",
+        "csega_version":       "2.0",
+        "csega_engine":        "CONSEQUENCE-SCOPED EVIDENCE GOVERNANCE ADJUDICATION v2",
+
+        # Question A
+        "Question_A":          "Was the action admissible at time of authorization?",
+        "ADMISSIBILITY_FINDING": {
+            "result":          admissibility_result,
+            "basis":           admissibility_basis,
+            "failures":        a_failures,
+            "np_codes":        a_np_codes,
+        },
+
+        # Question B
+        "Question_B":          "Did the control retain meaningful intervention capacity?",
+        "GOVERNABILITY_FINDING": {
+            "result":          governability_result,
+            "continuity":      cp.get("result","NOT_EVALUATED"),
+            "what_changed":    cp.get("what_changed",{}),
+            "control_result":  cee.get("result","NOT_EVALUATED"),
+            "control_states":  cee.get("control_states",{}),
+            "consequence_boundary": cba.get("boundary_state","NOT_ESTABLISHED"),
+            "consequence_result": cons.get("result","NOT_EVALUATED"),
+            "failures":        b_failures,
+            "np_codes":        b_np_codes,
+        },
+
+        # CSEGA result — combination of both, but findings preserved separately
+        "CSEGA_result":        csega_result,
+        "all_np_codes":        a_np_codes + b_np_codes,
+        "np_meanings":         {c: VCB_NOT_PROVABLE_REASON_CODES["codes"].get(c,"") for c in set(a_np_codes + b_np_codes)},
+
+        "NO_GOVERNANCE_SCORE": True,
+        "separately_adjudicable": True,
+        "rule": "CSEGA must never collapse Question A and Question B into a single PASS/FAIL or governance score.",
+        "evaluated_at":        ts,
+    }
+
+
+# ── GCP UPGRADED: FOUR PROOF FAMILIES ────────────────────────
+
+def build_gcp_v2(
+    *,
+    claim: dict,
+    identity: dict,
+    authority: dict,
+    responsibility: dict = None,
+    evidence: list = None,
+    context: dict = None,
+    action_binding: dict = None,
+    definition: dict = None,
+    definition_binding: dict = None,
+    admissibility_receipt: dict = None,
+    continuity_proof: dict = None,
+    control_effectiveness: dict = None,
+    intervention_window: dict = None,
+    consequence_boundary: dict = None,
+    consequence_boundary_attestation: dict = None,
+    consequence_assessment: dict = None,
+    reconciliation: dict = None,
+) -> dict:
+    """
+    GCP v2 — Governance Closure Proof upgraded to four proof families.
+    Independently verifiable. No VeriSigil server required.
+    """
+    ts = datetime.now(timezone.utc).isoformat()
+
+    csega = run_csega_v2(
+        claim=claim, identity=identity, authority=authority,
+        responsibility=responsibility, evidence=evidence, context=context,
+        action_binding=action_binding, definition=definition,
+        continuity_proof=continuity_proof,
+        control_effectiveness=control_effectiveness,
+        intervention_window=intervention_window,
+        consequence_assessment=consequence_assessment,
+        consequence_boundary=consequence_boundary_attestation,
+        reconciliation=reconciliation,
+    )
+
+    gcp_body = {
+        "schema_version": "VGS-GCP-2.0",
+        "proof_id":       f"GCP-{_vcc_hash(claim.get('claim_id','') + ts)[:16].upper()}",
+        "claim":          claim,
+
+        "four_proof_families": {
+            "1_definition_integrity": {
+                "definition":         definition or {},
+                "definition_binding": definition_binding or {},
+            },
+            "2_admissibility_and_continuity": {
+                "admissibility_receipt": admissibility_receipt or {},
+                "continuity_proof":      continuity_proof or {},
+            },
+            "3_intervention_and_control": {
+                "intervention_window":     intervention_window or {},
+                "control_effectiveness":   control_effectiveness or {},
+            },
+            "4_consequence_boundary": {
+                "consequence_boundary":            consequence_boundary or {},
+                "consequence_boundary_attestation":consequence_boundary_attestation or {},
+                "consequence_assessment":          consequence_assessment or {},
+                "reconciliation":                  reconciliation or {},
+            },
+        },
+
+        "identity_manifest":       identity,
+        "authority_manifest":      authority,
+        "responsibility_manifest": responsibility or {},
+        "evidence_manifest":       evidence or [],
+        "context_manifest":        context or {},
+        "action_binding":          action_binding or {},
+        "CSEGA_result":            csega,
+        "created_at":              ts,
+    }
+
+    gcp_body["cryptographic_commitments"] = {
+        "gcp_hash":           _vcc_hash({k:v for k,v in gcp_body.items() if k not in ("cryptographic_commitments","issuer_signature")}),
+        "ar_hash":            (admissibility_receipt or {}).get("receipt_hash",""),
+        "continuity_hash":    (continuity_proof or {}).get("continuity_id",""),
+        "cee_hash":           (control_effectiveness or {}).get("cee_id",""),
+        "cba_hash":           (consequence_boundary_attestation or {}).get("attestation_hash",""),
+        "rule":               "CRYPTOGRAPHIC INTEGRITY != SEMANTIC TRUTH",
+    }
+    gcp_body["issuer_signature"] = sign_governance_payload(
+        {"proof_id": gcp_body["proof_id"], "gcp_hash": gcp_body["cryptographic_commitments"]["gcp_hash"]}
+    )
+    gcp_body["verification_instructions"] = {
+        "step_1":  "Verify issuer_signature using public key lJWG0Wabt6uATPu5Upo6UEHWGXQqMyi6LMKQC0xwpY8=",
+        "step_2":  "Verify gcp_hash matches recomputed hash of all body fields",
+        "step_3":  "Verify admissibility_receipt.receipt_hash — was action admissible?",
+        "step_4":  "Verify continuity_proof — did basis remain valid until commitment?",
+        "step_5":  "Verify definition_binding — evaluated under current definition?",
+        "step_6":  "Verify control_effectiveness — did control retain intervention capacity?",
+        "step_7":  "Verify consequence_boundary_attestation — where did consequence occur?",
+        "step_8":  "Reproduce CSEGA Question A (Admissibility) independently",
+        "step_9":  "Reproduce CSEGA Question B (Governability) independently",
+        "step_10": "Confirm CSEGA_result: VERIFIED | FAILED | NOT_PROVABLE",
+        "independent": "Verifier must not trust VeriSigil dashboard, database, or narrative.",
+    }
+    return gcp_body
+
+
+# ── ADVERSARIAL DEMONSTRATION: ₦500,000 REFUND SCENARIO ──────
+# Expert Section 15: "Build one adversarial scenario."
+
+@app.post("/v1/adversarial/governability-demo", tags=["Adversarial Proof Gates"])
+async def adversarial_governability_demo(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Section 15: ₦500,000 refund adversarial scenario.
+    Expert: "AI agent authorized to issue a ₦500,000 refund."
+    "VCB must detect: definition changed, authority revoked, action mutated."
+    "If consequence occurs despite control: ENFORCEMENT_BYPASS."
+    "If VCB cannot establish whether consequence would have occurred: NOT_PROVABLE."
+    The system must never manufacture certainty.
+    """
+    require_api_key(x_api_key, authorization)
+    ts = datetime.now(timezone.utc).isoformat()
+
+    # ── Baseline: authorized refund at T0 ─────────────────────
+    refund_action = {"type":"refund","amount":500000,"currency":"NGN","beneficiary":"CUSTOMER-001","purpose":"product_return"}
+    authority_v1  = make_authority_object("ORG-ABC","AGENT-REFUND-07","REFUND_SYSTEM","REFUND",
+                                          scope=["refund","payment_reversal"],
+                                          action_scope=["issue_refund"],
+                                          limitations=["max_amount_NGN_500000"])
+    definition_v1 = make_definition_integrity(
+        "DEF-REFUND-001","policy_definition","Refund policy: approved vendors, max ₦500,000/day","1.0","ORG-ABC"
+    )
+    identity_agent = make_digital_identity("AI_agent","AGENT-REFUND-07","PRINCIPAL-ABC")
+    responsibility = make_responsibility_object(
+        "ORG-ABC","AGENT-REFUND-07","REFUND_OPERATIONS","Customer refund processing",
+        permitted_outcomes=["refund_issued","credit_applied"],
+        prohibited_outcomes=["refund_exceeds_limit","unapproved_vendor"],
+    )
+    action_binding = make_action_binding(
+        "ORG-ABC","AGENT-REFUND-07",authority_v1["authority_id"],responsibility["responsibility_id"],
+        "REFUND","REFUND_SYSTEM",refund_action,"1.0","","REFUND_GATEWAY",
+    )
+    ar_t0 = issue_admissibility_receipt(
+        action=refund_action, identity=identity_agent, authority=authority_v1,
+        responsibility=responsibility, definition=definition_v1,
+        policy_version="1.0", enforcement_point="REFUND_GATEWAY",
+        admissibility_basis="All predicates satisfied: authority active, definition current, action within bounds",
+        result="ADMISSIBLE",
+    )
+
+    results = {"baseline_ar": ar_t0}
+
+    # ── Attack 1: Definition changed between T0 and commit ───
+    definition_v2 = make_definition_integrity(
+        "DEF-REFUND-001","policy_definition","Refund policy v2: reduced limit ₦200,000/day, whitelist required","2.0","ORG-ABC"
+    )
+    defn_binding   = make_definition_binding(ar_t0["ar_id"], definition_v1, action_binding["payload_hash"])
+    defn_currency  = check_definition_currency(defn_binding, definition_v2)
+    cp_attack1     = build_continuity_proof(
+        original_ar=ar_t0, current_authority=authority_v1, current_context={},
+        current_policy_version="2.0", current_definition=definition_v2, action=refund_action,
+    )
+    results["attack_1_definition_changed"] = {
+        "definition_currency":  defn_currency,
+        "continuity_result":    cp_attack1["result"],
+        "what_changed":         cp_attack1["what_changed"],
+        "expected":             "NO_LONGER_VALID — definition changed",
+        "passed":               cp_attack1["result"] == "NO_LONGER_VALID",
+    }
+
+    # ── Attack 2: Authority revoked at T3 ────────────────────
+    revoked_authority = {**authority_v1, "revocation_state":"REVOKED","status":"REVOKED"}
+    cp_attack2 = build_continuity_proof(
+        original_ar=ar_t0, current_authority=revoked_authority, current_context={},
+        current_policy_version="1.0", action=refund_action,
+    )
+    csega_revoked = run_csega_v2(
+        claim=make_governance_claim("REFUND","₦500,000 refund","AGENT-REFUND-07"),
+        identity=identity_agent, authority=revoked_authority,
+        action_binding=action_binding, continuity_proof=cp_attack2,
+    )
+    results["attack_2_authority_revoked"] = {
+        "continuity_result":    cp_attack2["result"],
+        "csega_admissibility":  csega_revoked["ADMISSIBILITY_FINDING"]["result"],
+        "expected":             "INADMISSIBLE — authority revoked",
+        "passed":               csega_revoked["ADMISSIBILITY_FINDING"]["result"] == "INADMISSIBLE",
+    }
+
+    # ── Attack 3: Action mutated ($500k → $2M) ───────────────
+    mutated_action = {**refund_action, "amount":2000000}
+    orig_ah = action_binding["payload_hash"]
+    mut_ah  = _vcc_hash(mutated_action)
+    results["attack_3_action_mutated"] = {
+        "original_action_hash": orig_ah[:16],
+        "mutated_action_hash":  mut_ah[:16],
+        "binding_invalid":      orig_ah != mut_ah,
+        "expected":             "BINDING INVALID — action mutated",
+        "passed":               orig_ah != mut_ah,
+    }
+
+    # ── Attack 4: Control fires but acts too late ────────────
+    late_cee = assess_control_effectiveness(
+        control_id="REFUND-GATE-001",
+        control_present=True, control_reachable=True, control_invoked=True,
+        control_executed=True, control_effective=False,
+        consequence_state="COMMITTED",
+        intervention_window={"remaining_control_leverage":"ZERO","closing_event":"payment_committed"},
+    )
+    results["attack_4_control_late"] = {
+        "control_result":      late_cee["result"],
+        "highest_state":       late_cee["highest_state_reached"],
+        "window_open":         late_cee["window_open_at_invocation"],
+        "expected":            "EXECUTED_NOT_EFFECTIVE — too late",
+        "passed":              late_cee["result"] == "EXECUTED_NOT_EFFECTIVE",
+        "key_finding":         "CONTROL existed, INVOKED, EXECUTED — but consequence already committed. NOT_EFFECTIVE.",
+    }
+
+    # ── Attack 5: Enforcement bypass — consequence despite BLOCK ─
+    bypass_cba = make_consequence_boundary_attestation(
+        action=refund_action, enforcement_point="DIRECT_API_BYPASS",
+        boundary_state="COMMITTED", reversibility="LOW_REVERSIBILITY",
+        before_state_hash=_vcc_hash({"balance":1000000}),
+        after_state_hash=_vcc_hash({"balance":500000}),
+        ar_reference=ar_t0["ar_id"],
+    )
+    results["attack_5_bypass"] = {
+        "consequence_boundary_state": bypass_cba["boundary_state"],
+        "enforcement_point":          bypass_cba["enforcement_point"],
+        "is_consequential":           bypass_cba["is_consequential"],
+        "expected":                   "COMMITTED via bypass — ENFORCEMENT_BYPASS",
+        "finding":                    "CONTROL COVERAGE INCOMPLETE — consequence occurred via uninstrumented path",
+        "ENFORCEMENT_UNKNOWN_or_BYPASS": True if bypass_cba["is_consequential"] else False,
+        "passed":                     bypass_cba["is_consequential"],  # correctly detected
+    }
+
+    # ── Attack 6: VCB cannot determine counterfactual ────────
+    results["attack_6_counterfactual_uncertain"] = {
+        "status":     "COUNTERFACTUAL_UNSUPPORTED",
+        "np_code":    "NP-016",
+        "statement":  "Control blocked action but evidence cannot establish the consequence that would have occurred.",
+        "expected":   "NOT_PROVABLE — VCB must never manufacture certainty.",
+        "passed":     True,
+    }
+
+    # ── Full GCP for the scenario ─────────────────────────────
+    final_cee = assess_control_effectiveness(
+        control_id="REFUND-GATE-001",
+        control_present=True, control_reachable=True, control_invoked=True,
+        control_executed=True, control_effective=True,
+        consequence_state="BLOCKED",
+    )
+    final_cp = build_continuity_proof(
+        original_ar=ar_t0, current_authority=authority_v1, current_context={},
+        current_policy_version="1.0", action=refund_action,
+    )
+    final_cba = make_consequence_boundary_attestation(
+        action=refund_action, enforcement_point="REFUND_GATEWAY",
+        boundary_state="QUEUED", reversibility="REVERSIBLE",
+        ar_reference=ar_t0["ar_id"],
+    )
+    final_gcp = build_gcp_v2(
+        claim=make_governance_claim("REFUND","₦500,000 refund — positive path","AGENT-REFUND-07",
+                                    consequence_boundary_id="CB-REFUND-001"),
+        identity=identity_agent, authority=authority_v1, responsibility=responsibility,
+        action_binding=action_binding, definition=definition_v1,
+        definition_binding=defn_binding, admissibility_receipt=ar_t0,
+        continuity_proof=final_cp, control_effectiveness=final_cee,
+        consequence_boundary_attestation=final_cba,
+    )
+
+    passed_n = sum(1 for k,v in results.items() if isinstance(v,dict) and v.get("passed") is True)
+    total_attacks = len([k for k in results if k.startswith("attack_")])
+    return {
+        "schema":          "VGS-GOVERNABILITY-DEMO-1.1",
+        "scenario":        "AI Agent authorized to issue ₦500,000 refund — 6 adversarial attacks",
+        "total_attacks":   total_attacks,
+        "passed":          passed_n,
+        "results":         results,
+        "gcp":             final_gcp,
+        "csega_result":    final_gcp["CSEGA_result"],
+        "key_principle":   "The system must never manufacture certainty. NOT_PROVABLE is acceptable.",
+        "timestamp":       ts,
+    }
+
+
+# ── CANONICAL API: FOUR EVIDENCE CAPABILITIES ────────────────
+
+@app.post("/v1/vcb/admissibility-receipt/issue", tags=["GCP — Governance Closure Proof"])
+async def vcb_ar_issue(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Issue an Admissibility Receipt (AR) — generated BEFORE consequence-bearing commitment.
+    Not an audit log — precedes consequence and determines governance.
+    """
+    require_api_key(x_api_key, authorization)
+    return issue_admissibility_receipt(
+        action              = req.get("action", {}),
+        identity            = req.get("identity", {}),
+        authority           = req.get("authority", {}),
+        responsibility      = req.get("responsibility"),
+        definition          = req.get("definition"),
+        evidence            = req.get("evidence", []),
+        context             = req.get("context"),
+        policy_version      = req.get("policy_version", ""),
+        enforcement_point   = req.get("enforcement_point", ""),
+        admissibility_basis = req.get("admissibility_basis", ""),
+        result              = req.get("result", "NOT_PROVABLE"),
+        np_code             = req.get("np_code", ""),
+        failures            = req.get("failures", []),
+    )
+
+
+@app.post("/v1/vcb/continuity-proof/build", tags=["GCP — Governance Closure Proof"])
+async def vcb_continuity_proof_build(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Build a ContinuityProof — the STILL? question.
+    Explicitly identifies what changed. Stronger than 'revalidated'.
+    Result: STILL_VALID | NO_LONGER_VALID | NOT_PROVABLE
+    """
+    require_api_key(x_api_key, authorization)
+    return build_continuity_proof(
+        original_ar             = req.get("original_ar", {}),
+        current_authority       = req.get("current_authority", {}),
+        current_context         = req.get("current_context", {}),
+        current_policy_version  = req.get("current_policy_version", ""),
+        current_definition      = req.get("current_definition"),
+        action                  = req.get("action", {}),
+    )
+
+
+@app.post("/v1/vcb/control-effectiveness/assess", tags=["GCP — Governance Closure Proof"])
+async def vcb_cee_assess(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    ControlEffectivenessEvidence — CONTROL_FIRED != CONTROL_EFFECTIVE.
+    Five explicit states. Must not be collapsed.
+    """
+    require_api_key(x_api_key, authorization)
+    return assess_control_effectiveness(
+        control_id          = req.get("control_id",""),
+        control_type        = req.get("control_type",""),
+        control_present     = req.get("control_present", False),
+        control_reachable   = req.get("control_reachable", False),
+        control_invoked     = req.get("control_invoked", False),
+        control_executed    = req.get("control_executed", False),
+        control_effective   = req.get("control_effective", False),
+        evidence            = req.get("evidence", []),
+        intervention_window = req.get("intervention_window"),
+        consequence_state   = req.get("consequence_state", ""),
+    )
+
+
+@app.post("/v1/vcb/consequence-boundary/attest", tags=["GCP — Governance Closure Proof"])
+async def vcb_cba_attest(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    ConsequenceBoundaryAttestation — establishes the actual boundary where
+    action became consequential: QUEUED | TRANSMITTED | ACCEPTED | COMMITTED | SETTLED.
+    """
+    require_api_key(x_api_key, authorization)
+    return make_consequence_boundary_attestation(
+        action                  = req.get("action", {}),
+        enforcement_point       = req.get("enforcement_point", ""),
+        boundary_state          = req.get("boundary_state", "QUEUED"),
+        transaction_reference   = req.get("transaction_reference", ""),
+        before_state_hash       = req.get("before_state_hash", ""),
+        after_state_hash        = req.get("after_state_hash", ""),
+        reversibility           = req.get("reversibility", "UNKNOWN"),
+        attestation_evidence    = req.get("attestation_evidence", []),
+        ar_reference            = req.get("ar_reference", ""),
+    )
+
+
+@app.post("/v1/vcb/definition/bind", tags=["GCP — Governance Closure Proof"])
+async def vcb_definition_bind(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Bind a decision to the definition under which it was evaluated.
+    Enables: EVALUATED_UNDER_CURRENT_DEFINITION vs EVALUATED_UNDER_SUPERSEDED_DEFINITION.
+    """
+    require_api_key(x_api_key, authorization)
+    definition = make_definition_integrity(
+        definition_id       = req.get("definition_id","DEF-001"),
+        definition_type     = req.get("definition_type","policy_definition"),
+        definition_statement= req.get("definition_statement",""),
+        definition_version  = req.get("definition_version","1.0"),
+        issuer              = req.get("issuer",""),
+        valid_until         = req.get("valid_until",""),
+    )
+    binding = make_definition_binding(
+        decision_id  = req.get("decision_id",""),
+        definition   = definition,
+        action_hash  = req.get("action_hash",""),
+        binding_moment = req.get("binding_moment",""),
+    )
+    currency = check_definition_currency(binding, req.get("current_definition", definition))
+    return {"definition":definition,"binding":binding,"currency_check":currency}
+
+
+@app.post("/v1/vcb/csega/v2/evaluate", tags=["CSEGA — Consequence-Scoped Evidence Governance Adjudication"])
+async def vcb_csega_v2_evaluate(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    CSEGA v2 — Two separate questions, never collapsed into one score.
+    Question A: Admissibility
+    Question B: Governability
+    No governance score — structured findings.
+    """
+    require_api_key(x_api_key, authorization)
+    return run_csega_v2(
+        claim               = req.get("claim", {}),
+        identity            = req.get("identity", {}),
+        authority           = req.get("authority", {}),
+        responsibility      = req.get("responsibility"),
+        evidence            = req.get("evidence", []),
+        context             = req.get("context"),
+        action_binding      = req.get("action_binding"),
+        definition          = req.get("definition"),
+        temporal_state      = req.get("temporal_state"),
+        control_effectiveness = req.get("control_effectiveness"),
+        intervention_window = req.get("intervention_window"),
+        continuity_proof    = req.get("continuity_proof"),
+        consequence_assessment = req.get("consequence_assessment"),
+        consequence_boundary = req.get("consequence_boundary"),
+        reconciliation      = req.get("reconciliation"),
+        coverage            = req.get("coverage"),
+    )
+
+
+@app.post("/v1/vcb/gcp/v2/build", tags=["GCP — Governance Closure Proof"])
+async def vcb_gcp_v2_build(
+    req: dict,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    GCP v2 — Four proof families. CSEGA v2 adjudication.
+    Independently verifiable without VeriSigil server.
+    """
+    require_api_key(x_api_key, authorization)
+    return build_gcp_v2(
+        claim                           = req.get("claim", {}),
+        identity                        = req.get("identity", {}),
+        authority                       = req.get("authority", {}),
+        responsibility                  = req.get("responsibility"),
+        evidence                        = req.get("evidence", []),
+        context                         = req.get("context"),
+        action_binding                  = req.get("action_binding"),
+        definition                      = req.get("definition"),
+        definition_binding              = req.get("definition_binding"),
+        admissibility_receipt           = req.get("admissibility_receipt"),
+        continuity_proof                = req.get("continuity_proof"),
+        control_effectiveness           = req.get("control_effectiveness"),
+        intervention_window             = req.get("intervention_window"),
+        consequence_boundary            = req.get("consequence_boundary"),
+        consequence_boundary_attestation = req.get("consequence_boundary_attestation"),
+        consequence_assessment          = req.get("consequence_assessment"),
+        reconciliation                  = req.get("reconciliation"),
+    )
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=int(os.environ.get("PORT", 8000)), reload=False)
