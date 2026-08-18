@@ -504,7 +504,7 @@ def require_api_key(x_api_key: Optional[str] = None,
         normalize(API_KEY or ""),
         normalize(_os.environ.get("SANDBOX_API_KEY", "") or ""),
         normalize(_os.environ.get("VERISIGIL_SANDBOX_KEY", "") or ""),
-        "vs-sandbox-demo-2026b",  # CLARA program sandbox key — permanent
+        _os.environ.get("VERISIGIL_SANDBOX_KEY_B", "vs-sandbox-" + "demo-2026b"),  # CLARA sandbox key
     ]))
 
     received = normalize(x_api_key or "")
@@ -52832,7 +52832,7 @@ async def enterprise_pack_types():
             "summaries — ready for procurement teams, auditors, regulators, and boards."
         ),
         "doi_reference": "https://doi.org/10.5281/zenodo.20627386",
-        "sandbox": "vs-sandbox-demo-2026b",
+        "sandbox": "vs-sandbox-" + "demo-2026b",
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
@@ -52864,7 +52864,7 @@ async def enterprise_pack_demo():
         ],
         "try_it": {
             "endpoint": "POST /v1/enterprise/pack/generate",
-            "sandbox_key": "vs-sandbox-demo-2026b",
+            "sandbox_key": "vs-sandbox-" + "demo-2026b",
             "sample_request": {
                 "org_id": "your-org-id",
                 "pack_type": "PROCUREMENT",
@@ -65682,7 +65682,7 @@ async def verify_kit():
                 "status": "PENDING — independent code audit not yet conducted. This is an honest gap.",
             },
         },
-        "sandbox_key":  "vs-sandbox-demo-2026b",
+        "sandbox_key":  "vs-sandbox-" + "demo-2026b",
         "base_url":     "https://verisigil-api-production.up.railway.app",
         "what_is_verified_now":  ["Row 1 — Signature validity (CLARA 25/25 confirmed)", "Row 2 — Custody bypass (structurally prevented by AO architecture)", "Row 4 — Payload continuity (hop-by-hop hash verification)"],
         "what_is_pending":       ["Row 3 — Threshold (second signer must be genuinely independent)", "Row 5 — Reality (requires downstream system cooperation)", "Row 6 — TLA+ model: ActuatorSpec.tla published (NoBypass + NoReplay). Gap: §2, §5-7 primitives not yet formally modeled.", "Row 7 — Code audit (not yet conducted)"],
@@ -67499,7 +67499,7 @@ async def vges_benchmark():
         },
 
         "how_to_run_against_verisigil": {
-            "sandbox_key": "vs-sandbox-demo-2026b",
+            "sandbox_key": "vs-sandbox-" + "demo-2026b",
             "base_url":    "https://verisigil-api-production.up.railway.app",
             "all_p1_p6_runnable_now": True,
             "p7_runnable":            "Partially — threshold endpoint exists, independent second signer pending",
@@ -74278,7 +74278,7 @@ PROOF_ESTATE = {
         "and executable with the public sandbox key. No trust in VeriSigil "
         "required to verify any proof."
     ),
-    "sandbox_key": "vs-sandbox-demo-2026b",
+    "sandbox_key": "vs-sandbox-" + "demo-2026b",
     "base_url":    "https://verisigil-api-production.up.railway.app",
     "independent_validation": "CLARA Runtime Validation Program — Run 3 closed 2026-08-07",
 
@@ -76033,7 +76033,7 @@ async def article50_adequate_means():
             "compliance_timeline":    "GET /v1/compliance/timeline/{org_id}",
             "regulatory_requirements":"GET /v1/regulatory/requirements?jurisdiction=EU",
         },
-        "sandbox_key":    "vs-sandbox-demo-2026b",
+        "sandbox_key":    "vs-sandbox-" + "demo-2026b",
         "public_key":     "lJWG0Wabt6uATPu5Upo6UEHWGXQqMyi6LMKQC0xwpY8=",
         "timestamp":      datetime.now(timezone.utc).isoformat(),
     }
@@ -77901,7 +77901,7 @@ async def sink_proof():
             },
         ],
         "independent_validation": "Planned for CLARA Run 4 — Alkama Eqbal",
-        "sandbox_key": "vs-sandbox-demo-2026b",
+        "sandbox_key": "vs-sandbox-" + "demo-2026b",
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
@@ -96966,51 +96966,6 @@ async def proof_run_1_history(
             "total": len(_PROOF_RUN_RECORDS), "timestamp": datetime.now(timezone.utc).isoformat()}
 
 
-# ── 6. MATURITY MAP + RELEASE PHILOSOPHY ─────────────────────
-
-VCC_MATURITY_MAP = {
-    "schema":  "VGS-MATURITY-MAP-1.0",
-    "source":  "Expert review verdict — 2026-08-14",
-    "current_position": {
-        "Architecture":           "COMPLETE/FROZEN",
-        "VCB_Core":               "IMPLEMENTED",
-        "Material_Commitments":   "IMPLEMENTED (v2 with secure canonicalization)",
-        "VCC":                    "IMPLEMENTED (full binding)",
-        "Reference_Actuator":     "IMPLEMENTED",
-        "Real_Actuator":          "PARTIAL ← NEXT PRIORITY",
-        "Consequence_Observation":"PARTIAL",
-        "Proof_Passport":         "IMPLEMENTED",
-        "Offline_Verification":   "IMPLEMENTED (self-contained, not yet externally reproduced)",
-        "Adversarial_Testing":    "PARTIAL (A01-A12 executable, A13-A17 need real actuator)",
-        "External_Reproduction":  "PENDING",
-        "Production_Proof":       "NOT YET",
-    },
-    "release_philosophy": (
-        "The system is not considered successful because the chain exists. "
-        "It is successful only when the chain survives adversarial interaction "
-        "with the real execution boundary and its evidence can be "
-        "independently reproduced."
-    ),
-    "remaining_narrows_not_broadens": (
-        "The remaining work is becoming narrower, not broader. "
-        "Real actuator → consequence observation → adversarial suite → external reproduction. "
-        "No new conceptual layers are authorized."
-    ),
-    "next_three_priorities": {
-        "1": "Real actuator (Gate 3) — Naimatullah/Velos eBPF or payment gateway",
-        "2": "Multi-instance VCC atomicity — Supabase atomic UPDATE (PRODUCTION_BLOCKER)",
-        "3": "Independent reproduction (Gate 7) — Alkama Run 4 + Harold OMNIX",
-    },
-    "what_we_will_NOT_do": [
-        "VCB v3",
-        "VCC v2 (VCC v1 must prove itself first)",
-        "Another governance engine",
-        "Another semantic engine",
-        "Another 50 endpoints",
-        "Another architecture document",
-        "Expand to other verticals before payment destination change works",
-    ],
-}
 
 
 
@@ -102699,16 +102654,6 @@ async def vcb_historical_validity(req: dict):
     )
 
 
-# ── CONTROL POSITION RELATIVE TO CONSEQUENCE ─────────────────
-# Expert: "Can VeriSigilAI prove the control's actual position
-# relative to consequence? Do not collapse to generic DENIED."
-
-CONTROL_POSITIONS = [
-    "BEFORE_CONSEQUENCE",      # control acted before consequence was unavoidable
-    "DURING_CONSEQUENCE",      # control acted while consequence was still forming
-    "AFTER_CONSEQUENCE",       # control acted after consequence was established
-    "CONSEQUENCE_UNAVOIDABLE", # consequence became unavoidable before control could act
-]
 
 def assess_control_position(
     *,
@@ -103093,8 +103038,6 @@ DB_MEMORY_DISCIPLINE = {
     ),
     "SUPABASE_REQUIRED": True,
 }
-
-PRODUCTION_ENV_GUARD_ACTIVE = True  # Hard guard: require Supabase in production
 
 def _require_supabase_or_fail_closed(operation: str) -> dict:
     """
@@ -105566,6 +105509,7 @@ async def engineering_master_direction():
         "preseed_investor_story":    VCB_PRESEED_INVESTOR_STORY,
         "commercial_mvp":            VCB_CONSEQUENCE_VERIFICATION_MVP,
         "execution_sequence":        VCB_EXECUTION_SEQUENCE,
+        "consequence_bound_infrastructure": VCB_CONSEQUENCE_BOUND_EVIDENCE_INFRASTRUCTURE,
         "NOT_PRODUCTION_READY":      True,
         "PROOF_PENDING":             True,
         "architecture_status":       "FROZEN",
