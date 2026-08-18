@@ -1,0 +1,25 @@
+# VeriSigilAI VCB — Git line ending configuration
+# Forces LF line endings for all Python files on all platforms
+# Prevents Windows CRLF conversion warnings on GitHub
+
+# Python source
+*.py text eol=lf
+
+# Config files
+*.json text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.toml text eol=lf
+*.txt text eol=lf
+*.md text eol=lf
+*.sh text eol=lf
+
+# Binary — no line ending conversion
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.zip binary
+*.gz binary
