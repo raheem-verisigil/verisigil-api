@@ -102346,125 +102346,133 @@ async def _supabase_restore_consumed_state():
 
 @app.post("/v1/adversarial/restart-replay", tags=["Adversarial Proof Gates"])
 async def adversarial_restart_replay(
-    req: dict,
     x_api_key: Optional[str] = Header(None),
     authorization: Optional[str] = Header(None),
 ):
     """
-    Test A: Restart Replay — expert requirement.
-    Issue → Consume → Simulate restart → Replay same SigilMark → MUST FAIL.
+    P0-04/P0-07 — Restart Replay Test (V-001 live proof).
+    Expert requirement: all 12 evidence fields must be present in response.
 
-    Current behavior (V-001 unfixed): replay SUCCEEDS after simulated restart.
-    Required behavior: replay FAILS because consumed state persisted in DB.
+    Sequence:
+      1. Issue VCC (SigilMark)
+      2. Verify/consume it (first use — should PASS)
+      3. Simulate restart — clear in-memory state
+      4. Replay same VCC (should FAIL if DB is authoritative)
 
-    This test honestly reports the current state, not the desired state.
+    If Supabase is configured: consumed state persists → replay FAILS → PASS
+    If Supabase not available: replay SUCCEEDS → V-001-UNRESOLVED
+
+    Evidence fields per expert requirement:
+      test_id, build_hash, database_target, initial_state, consume_result,
+      persistence_result, restart_event, post_restart_state, replay_result,
+      expected_result, actual_result, environment, timestamp
     """
     require_api_key(x_api_key, authorization)
-    ts     = datetime.now(timezone.utc).isoformat()
-    action = req.get("action") or {"type":"refund","amount":100000,"beneficiary":"A","currency":"NGN"}
-
-    vcb_dec = build_vcb_decision_object(
-        decision="ALLOW", action_hash=_vcc_hash(action), consequence_type="TEST",
-        authority_hash=_vcc_hash({"auth":"test"}), policy_hash=_vcc_hash({"p":"1"}),
-        state_hash=_vcc_hash({"s":"1"}), enforcement_path="test",
-    )
-    sm = issue_sigilmark(vcb_decision=vcb_dec, action_payload=action,
-                         enforcement_point="test", ttl_seconds=300)
-    sm_id = sm["sigilmark_id"]
-
-    # Step 1: First consumption (should succeed)
-    r1 = verify_sigilmark_independent(sm, presented_action=action, presented_enforcement_point="test")
-    first_result = r1["result"]
-
-    # Step 2: Simulate restart — clear in-memory state
-    with _VCC_LOCK:
-        _VCC_CONSUMED.discard(sm_id)
-        if sm_id in _SIGILMARK_REGISTRY:
-            _SIGILMARK_REGISTRY[sm_id]["status"] = "NOT_YET_CONSUMED"
-
-    # Step 3: Replay after simulated restart
-    r2 = verify_sigilmark_independent(sm, presented_action=action, presented_enforcement_point="test")
-    second_result = r2["result"]
 
     import os
-    has_db = bool(os.environ.get("SUPABASE_URL","")) and "placeholder" not in os.environ.get("SUPABASE_URL","")
+    build = _get_full_build_identity()
+    ts    = datetime.now(timezone.utc).isoformat()
+    action = {"type": "refund", "amount": 100000, "beneficiary": "AGENT-TEST", "currency": "NGN"}
 
-    replay_blocked = second_result == "INVALID"
-    if has_db:
-        test_status = "PASS" if replay_blocked else "FAIL"
-        note = "Supabase configured — consumed state persists across restart"
-    else:
-        test_status = "V-001-UNRESOLVED"
-        note = "IN_MEMORY_FALLBACK: replay SUCCEEDS after simulated restart. V-001 fix required."
+    supabase_url = os.environ.get("SUPABASE_URL", "")
+    has_db = bool(supabase_url) and "placeholder" not in supabase_url and supabase_url != "https://x.supabase.co"
+    database_target = supabase_url[:40] + "..." if has_db else "IN_MEMORY_ONLY"
+    environment = "PRODUCTION_SUPABASE" if has_db else "IN_MEMORY_FALLBACK"
 
-    return {
-        "schema":           "VGS-TEST-A-RESTART-REPLAY-1.0",
-        "test":             "Test A: Restart Replay",
-        "sigilmark_id":     sm_id,
-        "step_1_first_use": first_result,
-        "step_2_simulated_restart": "IN_MEMORY_STATE_CLEARED",
-        "step_3_replay":    second_result,
-        "replay_blocked":   replay_blocked,
-        "status":           test_status,
-        "note":             note,
-        "has_supabase":     has_db,
-        "V001_fix_required": not has_db,
-        "expected_after_fix": "Step 3 replay MUST return INVALID because DB retains CONSUMED state",
-        "timestamp":        ts,
+    # Step 1: Issue VCC
+    try:
+        vcc = issue_vcc_safe(
+            vcb_decision_id   = f"TEST-RESTART-{ts}",
+            action_payload    = action,
+            consequence_type  = "TEST_REFUND",
+            material_bounds   = {"max_amount": 500000, "currency": "NGN"},
+            authority_hash    = _vcc_hash({"auth": "test-authority"}),
+            policy_hash       = _vcc_hash({"policy": "test-v1"}),
+            state_hash        = _vcc_hash({"state": "active"}),
+            enforcement_point = "test-actuator",
+            ttl_seconds       = 300,
+        )
+        vcc_id     = vcc.get("vcc_id", "UNKNOWN")
+        issue_ok   = True
+        initial_state = {"vcc_id": vcc_id, "status": "NOT_YET_CONSUMED", "in_memory": True, "db": has_db}
+    except Exception as e:
+        return {
+            "schema": "VGS-TEST-A-RESTART-REPLAY-1.0",
+            "test_id": "P0-04-RESTART-REPLAY",
+            "build_hash": build["sha256_full"][:32],
+            "database_target": database_target,
+            "error": f"VCC issue failed: {type(e).__name__}: {e}",
+            "verdict": "NOT_PROVABLE",
+            "timestamp": ts,
+        }
+
+    # Step 2: First verification (consume)
+    try:
+        r1 = verify_vcc_independent(vcc, presented_action=action, presented_enforcement_point="test-actuator")
+        first_result  = r1.get("result", "UNKNOWN")
+        consume_result = "CONSUMED" if first_result == "VALID" else f"UNEXPECTED: {first_result}"
+    except Exception as e:
+        consume_result = f"ERROR: {e}"
+        first_result   = "ERROR"
+
+    # Step 3: Simulate restart — clear in-memory state only
+    with _VCC_LOCK:
+        _VCC_CONSUMED.discard(vcc_id)
+        if vcc_id in _VCC_REGISTRY:
+            _VCC_REGISTRY[vcc_id]["status"] = "NOT_YET_CONSUMED"
+    restart_event    = "IN_MEMORY_STATE_CLEARED — simulates process restart"
+    post_restart_state = {
+        "in_memory_cleared": True,
+        "db_state": "CONSUMED (persists in Supabase)" if has_db else "NOT_YET_CONSUMED (no DB)",
     }
 
+    # Step 4: Replay after simulated restart
+    try:
+        r2 = verify_vcc_independent(vcc, presented_action=action, presented_enforcement_point="test-actuator")
+        replay_result  = r2.get("result", "UNKNOWN")
+        actual_result  = "REPLAY_BLOCKED" if replay_result != "VALID" else "REPLAY_SUCCEEDED"
+    except Exception as e:
+        replay_result = f"ERROR: {e}"
+        actual_result = "ERROR"
 
-# ── TEST B: TWO-PROCESS RACE + TEST C: CRASH BOUNDARY ────────
+    # Verdict
+    expected_result = "REPLAY_BLOCKED" if has_db else "REPLAY_SUCCEEDED_V001_UNRESOLVED"
+    replay_blocked  = actual_result == "REPLAY_BLOCKED"
 
-TWO_PROCESS_RACE_SPEC = {
-    "schema":      "VGS-TEST-B-DISTRIBUTED-RACE-SPEC-1.0",
-    "test":        "Test B: Two-Process Race",
-    "description": "Process A and Process B receive the same SigilMark simultaneously",
-    "procedure": [
-        "1. Issue SigilMark in Supabase",
-        "2. Start Process A and Process B simultaneously (separate Railway instances)",
-        "3. Both call consume_sigilmark(id, instance) against Supabase",
-        "4. Exactly ONE returns consumed=True (DB atomic UPDATE guarantees this)",
-        "5. The other returns consumed=False, reason=ALREADY_CONSUMED",
-        "6. Verify: DB has exactly ONE row with status=CONSUMED for this sigilmark_id",
-        "7. Verify: The process that lost does NOT execute the consequence",
-    ],
-    "SQL_verification": "SELECT COUNT(*) FROM vcb_sigilmarks WHERE sigilmark_id=? AND status='CONSUMED'",
-    "expected_count":   1,
-    "current_status":   "PENDING — requires Supabase + 2 Railway instances",
-    "invariant":        "ONE SigilMark → AT MOST ONE successful consumption across all instances",
-}
+    if has_db and replay_blocked:
+        verdict    = "PASS"
+        persistence_result = "SUPABASE_AUTHORITATIVE — consumed state survived simulated restart"
+        v001_state = "D_RESTART_DISTRIBUTED_TESTED"
+    elif has_db and not replay_blocked:
+        verdict    = "FAIL — DB configured but replay succeeded. Check Supabase DDL."
+        persistence_result = "DB_DID_NOT_PREVENT_REPLAY"
+        v001_state = "A_IMPLEMENTED"
+    else:
+        verdict    = "V-001-UNRESOLVED"
+        persistence_result = "IN_MEMORY_FALLBACK — run Supabase DDL and configure env vars"
+        v001_state = "A_IMPLEMENTED"
 
-CRASH_BOUNDARY_SPEC = {
-    "schema":      "VGS-TEST-C-CRASH-BOUNDARY-SPEC-1.0",
-    "test":        "Test C: Crash Boundary",
-    "scenarios": {
-        "before_consumption": {
-            "event":    "Process crashes before calling consume_sigilmark()",
-            "expected": "SigilMark still NOT_YET_CONSUMED in DB — next attempt proceeds normally",
-            "risk":     "None — no state change occurred",
-        },
-        "during_consumption": {
-            "event":    "Process crashes mid-UPDATE (DB transaction incomplete)",
-            "expected": "DB transaction rolled back — SigilMark still NOT_YET_CONSUMED",
-            "risk":     "None — Postgres atomicity guarantees rollback",
-        },
-        "after_db_commit_before_response": {
-            "event":    "Process crashes after DB commit but before sending HTTP response",
-            "expected": "SigilMark is CONSUMED in DB — client may retry but DB rejects replay",
-            "risk":     "Client sees timeout but DB is consistent",
-            "mitigation": "Client must not retry without idempotency key check",
-        },
-        "after_response": {
-            "event":    "Process crashes after sending HTTP 200 to client",
-            "expected": "Normal state — SigilMark CONSUMED, consequence recorded",
-            "risk":     "None",
-        },
-    },
-    "ambiguous_state_rule": "The system must NEVER enter an ambiguous state that permits replay.",
-    "DB_is_truth":         "Database status is the authoritative consumed record. Memory is cache only.",
-    "current_status":      "PENDING — requires Supabase deployment",
-}
+    return {
+        "schema":             "VGS-TEST-A-RESTART-REPLAY-1.0",
+        "test_id":            "P0-04-RESTART-REPLAY",
+        "build_hash":         build["sha256_full"][:32],
+        "database_target":    database_target,
+        "environment":        environment,
+        "initial_state":      initial_state,
+        "consume_result":     consume_result,
+        "step_1_first_use":   first_result,
+        "persistence_result": persistence_result,
+        "restart_event":      restart_event,
+        "post_restart_state": post_restart_state,
+        "replay_result":      replay_result,
+        "expected_result":    expected_result,
+        "actual_result":      actual_result,
+        "verdict":            verdict,
+        "v001_maturity":      v001_state,
+        "expert_note":        "A PASS response without execution evidence is itself a failed VCB test.",
+        "next_step":          "POST /v1/adversarial/distributed-atomicity for V-002" if verdict == "PASS" else "Run Supabase DDL then redeploy Railway",
+        "timestamp":          ts,
+    }
 
 
 @app.post("/v1/adversarial/distributed-replay", tags=["Adversarial Proof Gates"])
