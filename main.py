@@ -504,7 +504,7 @@ def require_api_key(x_api_key: Optional[str] = None,
         normalize(API_KEY or ""),
         normalize(_os.environ.get("SANDBOX_API_KEY", "") or ""),
         normalize(_os.environ.get("VERISIGIL_SANDBOX_KEY", "") or ""),
-        _os.environ.get("VERISIGIL_SANDBOX_KEY_B", "vs-sandbox-" + "demo-2026b"),  # CLARA sandbox key
+        "vs-sandbox-demo-2026b",  # CLARA program sandbox key — permanent
     ]))
 
     received = normalize(x_api_key or "")
@@ -52832,7 +52832,7 @@ async def enterprise_pack_types():
             "summaries — ready for procurement teams, auditors, regulators, and boards."
         ),
         "doi_reference": "https://doi.org/10.5281/zenodo.20627386",
-        "sandbox": "vs-sandbox-" + "demo-2026b",
+        "sandbox": "vs-sandbox-demo-2026b",
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
@@ -52864,7 +52864,7 @@ async def enterprise_pack_demo():
         ],
         "try_it": {
             "endpoint": "POST /v1/enterprise/pack/generate",
-            "sandbox_key": "vs-sandbox-" + "demo-2026b",
+            "sandbox_key": "vs-sandbox-demo-2026b",
             "sample_request": {
                 "org_id": "your-org-id",
                 "pack_type": "PROCUREMENT",
@@ -65682,7 +65682,7 @@ async def verify_kit():
                 "status": "PENDING — independent code audit not yet conducted. This is an honest gap.",
             },
         },
-        "sandbox_key":  "vs-sandbox-" + "demo-2026b",
+        "sandbox_key":  "vs-sandbox-demo-2026b",
         "base_url":     "https://verisigil-api-production.up.railway.app",
         "what_is_verified_now":  ["Row 1 — Signature validity (CLARA 25/25 confirmed)", "Row 2 — Custody bypass (structurally prevented by AO architecture)", "Row 4 — Payload continuity (hop-by-hop hash verification)"],
         "what_is_pending":       ["Row 3 — Threshold (second signer must be genuinely independent)", "Row 5 — Reality (requires downstream system cooperation)", "Row 6 — TLA+ model: ActuatorSpec.tla published (NoBypass + NoReplay). Gap: §2, §5-7 primitives not yet formally modeled.", "Row 7 — Code audit (not yet conducted)"],
@@ -67499,7 +67499,7 @@ async def vges_benchmark():
         },
 
         "how_to_run_against_verisigil": {
-            "sandbox_key": "vs-sandbox-" + "demo-2026b",
+            "sandbox_key": "vs-sandbox-demo-2026b",
             "base_url":    "https://verisigil-api-production.up.railway.app",
             "all_p1_p6_runnable_now": True,
             "p7_runnable":            "Partially — threshold endpoint exists, independent second signer pending",
@@ -74278,7 +74278,7 @@ PROOF_ESTATE = {
         "and executable with the public sandbox key. No trust in VeriSigil "
         "required to verify any proof."
     ),
-    "sandbox_key": "vs-sandbox-" + "demo-2026b",
+    "sandbox_key": "vs-sandbox-demo-2026b",
     "base_url":    "https://verisigil-api-production.up.railway.app",
     "independent_validation": "CLARA Runtime Validation Program — Run 3 closed 2026-08-07",
 
@@ -76033,7 +76033,7 @@ async def article50_adequate_means():
             "compliance_timeline":    "GET /v1/compliance/timeline/{org_id}",
             "regulatory_requirements":"GET /v1/regulatory/requirements?jurisdiction=EU",
         },
-        "sandbox_key":    "vs-sandbox-" + "demo-2026b",
+        "sandbox_key":    "vs-sandbox-demo-2026b",
         "public_key":     "lJWG0Wabt6uATPu5Upo6UEHWGXQqMyi6LMKQC0xwpY8=",
         "timestamp":      datetime.now(timezone.utc).isoformat(),
     }
@@ -77901,7 +77901,7 @@ async def sink_proof():
             },
         ],
         "independent_validation": "Planned for CLARA Run 4 — Alkama Eqbal",
-        "sandbox_key": "vs-sandbox-" + "demo-2026b",
+        "sandbox_key": "vs-sandbox-demo-2026b",
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
@@ -105515,6 +105515,594 @@ async def engineering_master_direction():
         "architecture_status":       "FROZEN",
         "audit_lens_status":         "EXTENDED — 5 domains, resilience dimension, evidence types",
         "timestamp":                 datetime.now(timezone.utc).isoformat(),
+    }
+
+
+
+# ============================================================
+# VCB PRE-PUBLIC RED TEAM REPORT — ATTACK BEFORE INTRODUCTION
+# Expert: "Before introducing VeriSigilAI's terrain publicly,
+#          attack the terrain ourselves."
+# Architecture: FROZEN. Proof: NOT COMPLETE. Claims: RESTRICTED.
+#
+# "Your strongest future story isn't: we built 105,735 lines.
+#  It's: we subjected our own examination layer to adversarial examination."
+# ============================================================
+
+# ── TERMINOLOGY FIX: 20/20 REPOSITORY VERIFICATION ───────────
+# Expert: "'20/20 verified' is dangerously easy to misread.
+# Change to: 20/20 REPOSITORY VERIFICATION CHECKS PASS."
+
+REPOSITORY_VERIFICATION_STATUS = {
+    "schema":       "VGS-REPOSITORY-VERIFICATION-STATUS-1.0",
+    "CORRECT_TERM": "20/20 REPOSITORY VERIFICATION CHECKS PASS",
+    "NOT":          "20/20 verified (ambiguous — does not specify verified HOW or WHERE)",
+    "what_this_means": {
+        "verification_type":        "Static source inspection + behavioral function calls against in-process module",
+        "verification_environment": "Local Python process with test environment variables",
+        "NOT_live_database":        True,
+        "NOT_multi_instance":       True,
+        "NOT_external_reproduction":True,
+    },
+    "honest_status": {
+        "REPOSITORY_VERIFICATION":      "PASSING",
+        "LIVE_INFRASTRUCTURE_PROOF":    "0 — PENDING",
+        "V001_RESILIENCE":              "UNKNOWN",
+        "V002_RESILIENCE":              "UNKNOWN",
+        "PRODUCTION_DESIGNATION":       "NO",
+    },
+}
+
+# ── PUBLIC CLAIM REGISTER — MACHINE-READABLE ─────────────────
+# Expert: "No social-media statement should exist unless it maps to an approved row."
+
+PUBLIC_CLAIM_REGISTER = {
+    "schema":  "VGS-PUBLIC-CLAIM-REGISTER-1.0",
+    "rule":    "No public statement without an approved row in this register.",
+    "claims": {
+        "CL-01": {
+            "claim":    "VCB architecture exists and is frozen",
+            "evidence": "Source code + repository verification",
+            "state":    "B_DETERMINISTICALLY_TESTED",
+            "PUBLIC":   True,
+            "approved": True,
+        },
+        "CL-02": {
+            "claim":    "20/20 repository verification checks pass",
+            "evidence": "Behavioral function calls against in-process module",
+            "state":    "B_DETERMINISTICALLY_TESTED",
+            "PUBLIC":   True,
+            "approved": True,
+            "note":     "NOT 'independently verified'. NOT 'live proven'.",
+        },
+        "CL-03": {
+            "claim":    "V-001 persistence implemented",
+            "evidence": "Code inspection — Supabase RPC and DDL present",
+            "state":    "A_IMPLEMENTED",
+            "PUBLIC":   False,
+            "approved": False,
+            "blocked_reason": "live test not executed — resilience UNKNOWN",
+        },
+        "CL-04": {
+            "claim":    "V-002 multi-instance atomicity implemented",
+            "evidence": "Code inspection — atomic DB mechanism designed",
+            "state":    "A_IMPLEMENTED",
+            "PUBLIC":   False,
+            "approved": False,
+            "blocked_reason": "live distributed test not executed",
+        },
+        "CL-05": {
+            "claim":    "No false-PROVEN paths found",
+            "evidence": "Adversarial behavioral tests in-process",
+            "state":    "C_ADVERSARIALLY_TESTED",
+            "PUBLIC":   True,
+            "approved": True,
+            "qualifier":"'in tested scenarios' — not against live infrastructure",
+        },
+        "CL-06": {
+            "claim":    "Five audit domains A-E defined",
+            "evidence": "Source code + specification",
+            "state":    "A_IMPLEMENTED",
+            "PUBLIC":   True,
+            "approved": True,
+        },
+        "CL-07": {
+            "claim":    "VCB is production-ready",
+            "evidence": "N/A",
+            "state":    "NOT_CLAIMED",
+            "PUBLIC":   False,
+            "approved": False,
+            "blocked_reason": "PA-01 through PA-05 not passed",
+        },
+        "CL-08": {
+            "claim":    "V-001 and V-002 are fixed",
+            "evidence": "N/A",
+            "state":    "NOT_CLAIMED",
+            "PUBLIC":   False,
+            "approved": False,
+            "blocked_reason": "live infrastructure tests not executed — resilience UNKNOWN",
+        },
+        "CL-09": {
+            "claim":    "Evidence is independently reproducible",
+            "evidence": "N/A",
+            "state":    "NOT_CLAIMED",
+            "PUBLIC":   False,
+            "approved": False,
+            "blocked_reason": "external party reproduction not yet executed (F_INDEPENDENTLY_REPRODUCED pending)",
+        },
+        "CL-10": {
+            "claim":    "VCB proves AI governance",
+            "evidence": "N/A",
+            "state":    "NOT_CLAIMED",
+            "PUBLIC":   False,
+            "approved": False,
+            "blocked_reason": "too broad — VCB examines whether a consequential action was admissible",
+        },
+        "CL-11": {
+            "claim":    "WHY/STILL/COULD/WHAT implemented and adversarially tested",
+            "evidence": "Behavioral test execution — 19/19 PASS",
+            "state":    "C_ADVERSARIALLY_TESTED",
+            "PUBLIC":   True,
+            "approved": True,
+            "qualifier":"'in-process tests' qualifier required",
+        },
+        "CL-12": {
+            "claim":    "VCB proof survives restart and distributed execution",
+            "evidence": "N/A",
+            "state":    "NOT_PROVEN",
+            "PUBLIC":   False,
+            "approved": False,
+            "blocked_reason": "requires live Supabase + Railway restart + distributed race test",
+        },
+    },
+}
+
+# ── DO NOT SAY REGISTER ───────────────────────────────────────
+
+DO_NOT_SAY = {
+    "schema": "VGS-DO-NOT-SAY-REGISTER-1.0",
+    "frozen": True,
+    "blocked_claims": [
+        "VCB is production-ready",
+        "VCB is production-proven",
+        "V-001 is fixed",
+        "V-002 is fixed",
+        "VCB is independently verified",
+        "VCB is independently reproduced",
+        "VCB is customer-validated",
+        "VCB prevents unauthorized AI actions",
+        "VCB guarantees AI safety",
+        "VCB guarantees authorization",
+        "VCB guarantees compliance",
+        "VCB proves an action was legal",
+        "VCB prevents model backdoors",
+        "VCB eliminates AI risk",
+        "VCB is a trust score system",
+        "VCB is an AI control tower",
+        "VCB is an IAM system",
+        "VCB is an AI firewall",
+        "VCB is a sovereignty platform",
+        "We have 1,253 routes therefore this is proven",
+        "We have 105,735 lines therefore this is proven",
+        "20/20 verified (without specifying verified HOW and WHERE)",
+        "Distributed proof proven (until live race test passes)",
+        "Crash resilience proven (until crash-boundary tests execute on live infra)",
+    ],
+    "approved_alternative": "See PUBLIC_CLAIM_REGISTER for approved claims and their evidence states.",
+}
+
+# ── P0 BLOCKERS — 12 MANDATORY GATES ─────────────────────────
+# Expert: "Any one of these = NO PUBLIC PRODUCTION-STYLE CLAIM."
+
+VCB_P0_BLOCKERS = {
+    "schema": "VGS-P0-BLOCKERS-1.0",
+    "rule":   "Zero unresolved P0 blockers required before any production-style public claim.",
+    "blockers": {
+        "P0-01": {
+            "name":     "Route count unexplained",
+            "question": "Can the build snapshot machine-explain every route count number?",
+            "current":  "RESOLVED — /v1/engineering/build-snapshot explains 1248 decorators + 1 api_route + 3 framework + 1 OAuth = 1253",
+            "status":   "RESOLVED",
+        },
+        "P0-02": {
+            "name":     "Authoritative endpoints disagree",
+            "question": "Do /build-snapshot, /maturity-map, /behavioral-preflight, /master-direction agree on V-001 state, V-002 state, live test count, production readiness, route count?",
+            "current":  "PENDING — consistency check not yet automated",
+            "status":   "OPEN",
+        },
+        "P0-03": {
+            "name":     "PASS without executed evidence",
+            "question": "Can any endpoint report PASS when Supabase is unavailable, database unreachable, persistence unavailable?",
+            "current":  "PARTIAL — _require_supabase_or_fail_closed() exists but live test not confirmed",
+            "status":   "OPEN",
+        },
+        "P0-04": {
+            "name":     "V-001 replay succeeds after restart",
+            "question": "Does POST /v1/adversarial/restart-replay return PASS on live infrastructure?",
+            "current":  "PENDING — Supabase not configured on live Railway",
+            "status":   "OPEN — requires live Supabase",
+        },
+        "P0-05": {
+            "name":     "V-002 race permits >1 successful transition",
+            "question": "Do two concurrent instances successfully consume the same SigilMark?",
+            "current":  "PENDING — live distributed test not executed",
+            "status":   "OPEN — requires 2 Railway instances",
+        },
+        "P0-06": {
+            "name":     "Database unavailable but action proceeds",
+            "question": "When Supabase is unavailable in production mode, does consequential action proceed or fail closed?",
+            "current":  "PARTIAL — _require_supabase_or_fail_closed() coded but not live-tested",
+            "status":   "OPEN",
+        },
+        "P0-07": {
+            "name":     "Restart loses authoritative state",
+            "question": "After restart, can a consumed SigilMark be re-presented and accepted?",
+            "current":  "PENDING — live restart test not executed",
+            "status":   "OPEN — requires live Supabase",
+        },
+        "P0-08": {
+            "name":     "Crash creates ambiguous consumption state",
+            "question": "After crash at each boundary (before commit, during, after, before response), is DB state deterministic?",
+            "current":  "SPECIFIED — crash-boundary scenarios documented but not live-tested",
+            "status":   "OPEN",
+        },
+        "P0-09": {
+            "name":     "Evidence can be substituted across actions",
+            "question": "Can Evidence-A (valid for Action-A) be presented as authorization for Action-B?",
+            "current":  "PARTIALLY TESTED — action_hash binding in-process tests pass",
+            "status":   "PARTIAL",
+        },
+        "P0-10": {
+            "name":     "Historical result changes after policy update",
+            "question": "When Policy V2 is introduced, does a V1 decision become FAILED_UNDER_V2?",
+            "current":  "IMPLEMENTED — check_historical_validity() preserves VALID_UNDER_V1",
+            "status":   "PARTIAL — adversarial live test required",
+        },
+        "P0-11": {
+            "name":     "Actuator can bypass VCB",
+            "question": "Can the actuator be reached directly without VCB examination when VCB is mandatory?",
+            "current":  "DEPLOYMENT ARCHITECTURE QUESTION — not yet verified in live deployment",
+            "status":   "OPEN — requires deployment boundary verification",
+        },
+        "P0-12": {
+            "name":     "Proof Passport cannot be independently verified",
+            "question": "Can an external party with only the GCP, public key, and verification instructions reproduce the adjudication?",
+            "current":  "PARTIAL — verify_vcc_independent works in-process; external reproduction pending",
+            "status":   "OPEN — requires external party (Alkama Run 4)",
+        },
+    },
+    "resolved_count": 1,   # P0-01
+    "partial_count":  3,   # P0-09, P0-10, P0-03/P0-06 (coded but not live-confirmed)
+    "open_count":     8,
+    "PRODUCTION_CLAIM_ALLOWED": False,
+}
+
+# ── TRUTH ENDPOINT CONSISTENCY MATRIX ────────────────────────
+# Expert: "These must agree. Never disagree about V001 maturity, V002 maturity,
+# live test count, production readiness, route count, architecture status."
+
+TRUTH_ENDPOINTS_MUST_AGREE = {
+    "schema":    "VGS-TRUTH-ENDPOINT-CONSISTENCY-1.0",
+    "endpoints": [
+        "GET /v1/engineering/build-snapshot",
+        "GET /v1/engineering/maturity-map",
+        "GET /v1/engineering/behavioral-preflight",
+        "GET /v1/engineering/master-direction",
+    ],
+    "must_agree_on": {
+        "V001_maturity":         "A_IMPLEMENTED",
+        "V002_maturity":         "A_IMPLEMENTED",
+        "live_tests_executed":   0,
+        "NOT_PRODUCTION_READY":  True,
+        "PROOF_PENDING":         True,
+        "route_count":           "See /build-snapshot for authoritative breakdown",
+        "architecture_status":   "FROZEN",
+    },
+    "attack": (
+        "If any two truth endpoints disagree about the values above, "
+        "that is a P0-02 blocker. An external attacker will find this in 30 seconds."
+    ),
+}
+
+# ── ATTACK REGISTRY — 12 INTERNAL ATTACK DOMAINS ─────────────
+
+VCB_RED_TEAM_ATTACKS = {
+    "schema":  "VGS-RED-TEAM-ATTACKS-1.0",
+    "principle": "Attack VCB before introducing it publicly. The examination layer must itself survive examination.",
+
+    "Attack_01_Route_Integrity": {
+        "target":    "Route count and registration",
+        "questions": [
+            "How many decorated routes (@app.*)?",
+            "How many FastAPI len(app.routes)?",
+            "How many authoritative user routes?",
+            "Any duplicates?",
+            "Any shadow routes (registered without decorator)?",
+            "Does build-snapshot explain every number?",
+        ],
+        "current_state": "RESOLVED — /v1/engineering/build-snapshot explains all numbers",
+        "evidence":      "1248 @app.* + 1 @app.api_route = 1249 user routes. FastAPI adds 4 = 1253.",
+        "status":        "PASS",
+    },
+
+    "Attack_02_Endpoint_Truthfulness": {
+        "target":    "Does each engineering endpoint return accurate state?",
+        "questions": [
+            "Does it actually exist as a live HTTP endpoint?",
+            "Does it return success when condition holds?",
+            "Does it return failure when condition fails?",
+            "Does it ever report PASS without executed evidence?",
+            "Does it expose stale cached information?",
+            "Does it contradict another authoritative endpoint?",
+        ],
+        "current_state": "PARTIAL — endpoints exist but cross-consistency not automated",
+        "status":        "OPEN",
+    },
+
+    "Attack_03_Twenty_Over_Twenty_Claim": {
+        "target":    "What does '20/20 verified' actually mean?",
+        "attack":    "Ask: verified by what? source inspection? unit tests? live DB? adversarial? external?",
+        "correct_claim": "20/20 REPOSITORY VERIFICATION CHECKS PASS — static + in-process behavioral tests only",
+        "NOT_claimed":   "Live database execution. Multi-instance. External reproduction.",
+        "status":        "RESOLVED — REPOSITORY_VERIFICATION_STATUS locked in code",
+    },
+
+    "Attack_04_PASS_Without_Proof": {
+        "target":    "Can VCB say PASS when underlying evidence is missing?",
+        "scenarios": [
+            "Supabase unavailable → consequential action proceeds → MUST FAIL CLOSED",
+            "Database unreachable → SigilMark consumed in memory → MUST WARN not silently pass",
+            "Required evidence missing → CSEGA returns NOT_PROVABLE → MUST NOT become ALLOW",
+            "Persistence unavailable → MUST refuse consequential operations in production mode",
+        ],
+        "expected":  "FAIL CLOSED — never silently ALLOW when evidence is unavailable",
+        "current":   "_require_supabase_or_fail_closed() coded — live test pending",
+        "status":    "OPEN — P0-03 / P0-06",
+    },
+
+    "Attack_05_V001_Live_Replay": {
+        "target":    "Does consumed SigilMark stay consumed after restart?",
+        "sequence":  ["Issue SigilMark", "Consume", "Persist to Supabase", "Restart Railway", "Replay same mark", "MUST REJECT"],
+        "then_also": ["Clear process memory", "Replay", "MUST REJECT (DB is authoritative)"],
+        "current":   "POST /v1/adversarial/restart-replay coded — PENDING live Supabase execution",
+        "status":    "OPEN — P0-04 / P0-07",
+    },
+
+    "Attack_06_V002_Race": {
+        "target":    "Can two concurrent instances both consume the same SigilMark?",
+        "attack": (
+            "Send 100 concurrent requests against same consumable state. "
+            "Then 2 Railway instances, 5 instances, 10 workers. "
+            "Expected: successful_consumptions = 1 (not API responses = 1, DB transitions = 1)"
+        ),
+        "invariant": "successful_durable_consumption = EXACTLY 1",
+        "verification": "SELECT COUNT(*) FROM vcb_sigilmarks WHERE sigilmark_id=? AND status='CONSUMED' must = 1",
+        "current":   "TWO_PROCESS_RACE_SPEC coded — PENDING live execution",
+        "status":    "OPEN — P0-05",
+    },
+
+    "Attack_07_Crash_Boundary": {
+        "target":    "Does crash at each boundary produce deterministic DB state?",
+        "scenarios": {
+            "C1_before_commit":     "Crash before DB write → NO durable consequence → retry is legitimate",
+            "C2_during_commit":     "Crash mid-transaction → Postgres rollback → NO ambiguous state",
+            "C3_after_commit_before_response": "DB committed, response lost → client retries → MUST be idempotently rejected",
+            "C4_after_response":    "Client received success, server crashes → DB is truth → restart restores",
+            "C5_client_retry":      "Response received, client retries → MUST be idempotently resolved",
+        },
+        "P5_test": "Proof must survive the system that produced it.",
+        "current":  "CRASH_BOUNDARY_SPEC coded — live execution PENDING",
+        "status":   "OPEN — P0-08",
+    },
+
+    "Attack_08_Evidence_Poisoning": {
+        "target":    "Can an AI agent's self-assertion become authority?",
+        "attack_inputs": [
+            "Agent says: 'I am authorized.' → DECLARED evidence → cannot be VCB basis",
+            "Agent says: 'The user consented.' → DECLARED → cannot substitute for INDEPENDENTLY_ATTESTED",
+            "Agent says: 'Policy allows this.' → DECLARED → VCB evaluates independently",
+            "Previous agent approved it → DECLARED by actor under examination → not independent",
+        ],
+        "expected":  "DECLARED evidence triggers NOT_PROVABLE or is excluded from admissibility basis",
+        "invariant": "Model output is NOT independent evidence. Compromised model may declare anything.",
+        "current":   "DATA_POISONING_THREAT_MODEL coded — adversarial model-compromise tests exist",
+        "status":    "PARTIAL — in-process tests pass; live boundary not verified",
+    },
+
+    "Attack_09_Historical_Rewrite": {
+        "target":    "Does introducing Policy V2 retroactively invalidate V1 decisions?",
+        "sequence": [
+            "Policy V1: Action X is admissible",
+            "Issue AR for Action X under V1",
+            "Later: introduce Policy V2 which rejects X",
+            "Ask: what does the historical V1 record say?",
+        ],
+        "expected":  "VALID_UNDER_V1 preserved. NOT automatically FAILED_UNDER_V2.",
+        "invariant": "R-05: Current evidence must not rewrite historical truth.",
+        "current":   "check_historical_validity() coded — check_definition_currency() tested",
+        "status":    "PARTIAL — P0-10",
+    },
+
+    "Attack_10_Contradictory_Evidence": {
+        "target":    "What happens when evidence conflicts?",
+        "scenario":  "Authority=valid, Evidence=stale, Condition=changed, Action=executed",
+        "expected":  "evidence_status=STALE → adjudication=NOT_PROVABLE → reason=CURRENT_STATE_STALE",
+        "NOT":       "Force a binary PASS or FAIL — evidence quality and adjudication are separate",
+        "current":   "EVIDENCE_ADJUDICATION_SEPARATION coded — CSEGA v2 tested in-process",
+        "status":    "PARTIAL",
+    },
+
+    "Attack_11_Bypass_VCB": {
+        "target":    "Can the actuator be reached without VCB examination?",
+        "attack": (
+            "AI → Actuator directly (skipping VCB). "
+            "If consequence occurs without VCB examination, the claim "
+            "'VCB sits between proposal and consequence' is not established."
+        ),
+        "expected":  "Direct actuator path is blocked or triggers evidence gap detection",
+        "required":  "Deployment boundary verification — not just code inspection",
+        "current":   "Deployment architecture question — live Railway deployment boundary not verified",
+        "status":    "OPEN — P0-11",
+    },
+
+    "Attack_12_External_Verifier_Disagreement": {
+        "target":    "Does independent verifier reach same adjudication as VCB?",
+        "protocol": [
+            "Give external verifier: Proof Passport + public key + verification instructions",
+            "Do NOT give: application database, private keys, VCB runtime",
+            "External verifier runs verification independently",
+            "Compare: VCB says PROVABLE → verifier must also say PROVABLE",
+            "If VCB=PROVABLE, verifier=NOT_PROVABLE → proof reproducibility problem",
+        ],
+        "expected":  "Agreement on all adjudication results",
+        "candidates":"Alkama Eqbal (Run 4), Harold OMNIX",
+        "current":   "verify_vcc_independent works in-process — external party pending",
+        "status":    "OPEN — P0-12",
+    },
+
+    "Attack_13_Stale_Cache_Authorization": {
+        "target":    "Does stale memory override DB truth?",
+        "attack":    "DB=REVOKED, memory cache=ACTIVE → attempt consequential action",
+        "expected":  "REJECT — DB is authoritative, memory is cache only",
+        "invariant": "R-06: Database state is authoritative. Memory is cache only.",
+        "if_fails":  "P0 BLOCKER — cache cannot authorize when DB says revoked",
+        "current":   "DB_MEMORY_DISCIPLINE coded — live test pending",
+        "status":    "OPEN",
+    },
+
+    "Attack_14_Evidence_Substitution": {
+        "target":    "Can Evidence-A (valid for Action-A) authorize Action-B?",
+        "attack":    "Issue VCC for Action-A. Present to actuator as authorization for Action-B.",
+        "expected":  "INVALID — action_hash mismatch",
+        "invariant": "Evidence must be bound to exact action + principal + context + authority + time",
+        "current":   "action_hash binding tested in-process — mutations INVALID confirmed",
+        "status":    "PARTIAL — in-process PASS; live actuator pending",
+    },
+
+    "Attack_15_Consequence_Mismatch": {
+        "target":    "Is $100 approval usable to execute $10,000 refund?",
+        "attack":    "VCB authorizes refund $100. Actuator executes refund $10,000.",
+        "expected":  "ACTION_MISMATCH or CONSEQUENCE_CONTRACT_VIOLATION",
+        "invariant": "R-04: Successful execution != admissibility. Exact amount binding enforced.",
+        "current":   "material_bounds and action_hash binding coded — tested in-process",
+        "status":    "PARTIAL",
+    },
+
+    "Attack_16_Time_Travel": {
+        "target":    "Can T0 authorization be made to appear valid at T2 after T1 condition change?",
+        "sequence": [
+            "T0: Authority active → Authorization granted",
+            "T1: Authority revoked",
+            "T2: Attacker manipulates system to present T0 authorization as current",
+        ],
+        "expected":  "NOT_PROVABLE or FAILED — ContinuityProof detects T1 change",
+        "invariant": "R-05 + VALID_AT_T0 != VALID_AT_T1",
+        "current":   "build_continuity_proof() tested — NO_LONGER_VALID on revocation confirmed",
+        "status":    "PARTIAL",
+    },
+}
+
+# ── VCB PRE-PUBLIC RED TEAM REPORT ────────────────────────────
+
+VCB_PRE_PUBLIC_RED_TEAM_REPORT = {
+    "schema":   "VGS-PRE-PUBLIC-RED-TEAM-REPORT-1.0",
+    "purpose":  "Attack VCB before introducing it publicly. Every finding must be resolved or documented.",
+    "principle":"VCB asks customers to prove their AI controls remained effective. We must prove our own controls remained effective.",
+    "requirement": "Zero unresolved P0 blockers before any production-style public claim.",
+
+    "build_integrity": {
+        "sha256":         "22ff80f8dd40e0ee5796badc84e98301",
+        "lines":          105620,
+        "user_routes":    1249,
+        "dup_routes":     0,
+        "dup_functions":  23,
+        "endpoint":       "GET /v1/engineering/build-snapshot",
+    },
+
+    "route_integrity": {
+        "status":  "RESOLVED",
+        "detail":  "1248 @app.* + 1 @app.api_route (counts as 2 FastAPI) + 3 framework + 1 OAuth = 1253 FastAPI total",
+        "authoritative": "GET /v1/engineering/build-snapshot",
+    },
+
+    "endpoint_cross_consistency": {
+        "status":   "OPEN — P0-02",
+        "must_agree": TRUTH_ENDPOINTS_MUST_AGREE,
+    },
+
+    "verification_claim": {
+        "status":   "RESOLVED",
+        "correct":  REPOSITORY_VERIFICATION_STATUS,
+    },
+
+    "p0_blockers":       VCB_P0_BLOCKERS,
+    "attacks":           VCB_RED_TEAM_ATTACKS,
+    "claim_register":    PUBLIC_CLAIM_REGISTER,
+    "do_not_say":        DO_NOT_SAY,
+
+    "status_summary": {
+        "ARCHITECTURE":               "FROZEN",
+        "REPOSITORY_VERIFICATION":    "PASSING",
+        "LIVE_INFRASTRUCTURE_PROOF":  "PENDING",
+        "REAL_CONSEQUENCE":           "PENDING",
+        "INDEPENDENT_REPRODUCTION":   "PENDING",
+        "P0_BLOCKERS_RESOLVED":       "1 of 12",
+        "PRODUCTION_DESIGNATION":     "NOT_READY",
+        "PUBLIC_CLAIMS_APPROVED":     [k for k,v in PUBLIC_CLAIM_REGISTER["claims"].items() if v.get("approved")],
+        "PUBLIC_CLAIMS_BLOCKED":      [k for k,v in PUBLIC_CLAIM_REGISTER["claims"].items() if not v.get("approved")],
+    },
+
+    "what_can_be_public_now": [
+        "The problem: 78% cannot pass AI governance audit (Grant Thornton 2026)",
+        "The problem: 50%+ cannot verify AI agent actions (Pathlock 2026)",
+        "The five principles — especially P5: proof must survive the system that produced it",
+        "The four questions: WHY / STILL / COULD / WHAT",
+        "The five audit domains: Admissibility, Continuity, Consequence, Evidence, Resilience",
+        "The engineering philosophy: implementation != execution != proof != independent reproduction",
+        "The enterprise discovery question (see CUSTOMER_VALIDATION_SPEC)",
+    ],
+
+    "what_cannot_be_public_yet": "See DO_NOT_SAY register",
+    "next_gate": "Execute V-001 and V-002 live proof. Then rerun full adversarial suite.",
+}
+
+
+@app.get("/v1/engineering/red-team-report", tags=["Engineering Gates 0-7"])
+async def engineering_red_team_report():
+    """
+    VCB Pre-Public Red Team Report.
+    All 12 P0 blockers with current status.
+    16 attack scenarios with expected vs actual results.
+    Public Claim Register — approved and blocked claims.
+    DO NOT SAY register.
+    No auth required — transparency is part of the philosophy.
+    """
+    return {
+        **VCB_PRE_PUBLIC_RED_TEAM_REPORT,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@app.get("/v1/engineering/claim-register", tags=["Engineering Gates 0-7"])
+async def engineering_claim_register():
+    """
+    Machine-readable Public Claim Register.
+    Every row is either APPROVED or BLOCKED with evidence state and reason.
+    No social-media statement should exist without an approved row here.
+    No auth required.
+    """
+    approved = {k:v for k,v in PUBLIC_CLAIM_REGISTER["claims"].items() if v.get("approved")}
+    blocked  = {k:v for k,v in PUBLIC_CLAIM_REGISTER["claims"].items() if not v.get("approved")}
+    return {
+        "schema":          "VGS-CLAIM-REGISTER-1.0",
+        "total_claims":    len(PUBLIC_CLAIM_REGISTER["claims"]),
+        "approved_count":  len(approved),
+        "blocked_count":   len(blocked),
+        "approved_claims": approved,
+        "blocked_claims":  blocked,
+        "do_not_say":      DO_NOT_SAY["blocked_claims"],
+        "rule":            PUBLIC_CLAIM_REGISTER["rule"],
+        "timestamp":       datetime.now(timezone.utc).isoformat(),
     }
 
 
