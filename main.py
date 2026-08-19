@@ -105554,6 +105554,8 @@ async def engineering_master_direction():
         "commercial_mvp":            VCB_CONSEQUENCE_VERIFICATION_MVP,
         "execution_sequence":        VCB_EXECUTION_SEQUENCE,
         "consequence_bound_infrastructure": VCB_CONSEQUENCE_BOUND_EVIDENCE_INFRASTRUCTURE,
+        "evidence_hierarchy":        VCB_EVIDENCE_HIERARCHY,
+        "structural_refusal":        "GET /v1/engineering/structural-refusal-spec",
         "NOT_PRODUCTION_READY":      True,
         "PROOF_PENDING":             True,
         "architecture_status":       "FROZEN",
