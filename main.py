@@ -106559,9 +106559,404 @@ async def engineering_build_baseline():
     }
 
 
+
+# ============================================================
+# STRUCTURAL REFUSAL — MERGING RAVI SHANKAR + EXPERT DIRECTION
+# Expert: "Turn Structural Refusal into a red-team proof dimension
+#          of VCB's existing Consequence Boundary architecture."
+#
+# Ravi: "A log is evidence of what happened.
+#        It is not evidence that the system could have stopped it."
+#
+# Expert frozen doctrine (now in code):
+# "Detection is not prevention.
+#  Adjudication is not enforcement.
+#  A refusal record is not proof of structural refusal.
+#  A successful action is not proof of admissibility.
+#  A log is evidence of what happened; it is not, by itself, evidence
+#  that the system could have stopped it.
+#  Where VCB is mandatory at the consequential boundary, VCB must prove
+#  whether an inadmissible action was actually refused and whether
+#  the consequence was prevented."
+# ============================================================
+
+VCB_STRUCTURAL_REFUSAL_DOCTRINE = {
+    "schema":   "VGS-STRUCTURAL-REFUSAL-DOCTRINE-1.0",
+    "frozen":   True,
+    "source":   "Merged: Ravi Shankar (Governance Theatre Series Part 6) + Expert direction 2026-08-19",
+
+    "frozen_principles": [
+        "Detection is not prevention.",
+        "Adjudication is not enforcement.",
+        "A refusal record is not proof of structural refusal.",
+        "A successful action is not proof of admissibility.",
+        "A log is evidence of what happened; it is not, by itself, evidence that the system could have stopped it.",
+        "Where VCB is mandatory at the consequential boundary, VCB must prove whether an inadmissible action was actually refused and whether the consequence was prevented.",
+    ],
+
+    "Ravi_distinction": {
+        "procedural_discouragement": (
+            "Policy says don't do this. Depends on humans remembering, noticing, "
+            "being available, trained, willing to act. Fails silently when any condition breaks."
+        ),
+        "structural_refusal": (
+            "The governed execution path itself refuses the consequential action "
+            "when a required authority, condition, or evidence element is absent or invalid."
+        ),
+        "VCB_position": (
+            "VCB does not claim structural impossibility everywhere. "
+            "VCB claims structural refusal within the declared governed execution path — "
+            "provided: NO BYPASS + MANDATORY VCB + FAILED ADJUDICATION + "
+            "ACTUATOR REFUSAL + NO DURABLE CONSEQUENCE."
+        ),
+    },
+
+    "COULD_question_expanded": {
+        "original":   "Could the control still affect the consequence?",
+        "expanded": [
+            "Was intervention technically available (control present and reachable)?",
+            "Was intervention actually exercised (control invoked)?",
+            "Did the actuator refuse (ACTUATOR_REFUSED)?",
+            "Was the consequence prevented (CONSEQUENCE_PREVENTED)?",
+            "Can structural refusal be independently verified (STRUCTURAL_REFUSAL_VERIFIED)?",
+        ],
+        "proof_progression": [
+            "CONTROL_PRESENT",
+            "CONTROL_AVAILABLE",
+            "CONTROL_EXERCISED",
+            "ACTUATOR_REFUSED",
+            "CONSEQUENCE_PREVENTED",
+            "STRUCTURAL_REFUSAL_VERIFIED",
+        ],
+    },
+
+    "Jake_plus_Ravi_plus_VCB": {
+        "Jake":  "Connections create new capabilities that nobody explicitly examined.",
+        "Ravi":  "Controls must actually refuse the consequence, not merely detect the attempt.",
+        "VCB":   "Can the entire action be independently proven admissible?",
+        "combined": (
+            "SYSTEM CONNECTION → NEW EFFECTIVE CAPABILITY → AUTHORITY → CONDITIONS → "
+            "EVIDENCE → EXACT ACTION → VCB ADJUDICATION → IF INVALID → STRUCTURAL REFUSAL "
+            "→ NO CONSEQUENCE → INDEPENDENT PROOF."
+        ),
+    },
+
+    "log_vs_refusal": {
+        "log_proves":         "An event occurred.",
+        "log_does_NOT_prove": "The system had the ability to prevent the event.",
+        "VCB_question":       "Can you prove not only what happened, but whether the control still had effective leverage over the consequence at the moment of commitment?",
+    },
+}
+
+# ── STRUCTURAL REFUSAL PROOF SCHEMA ──────────────────────────
+
+def make_structural_refusal_proof(
+    build_identity: dict,
+    workflow_id: str,
+    action_hash: str,
+    principal: str,
+    authority_reference: str,
+    required_conditions: list,
+    removed_condition: str,
+    vcb_adjudication: str,          # VERIFIED / FAILED / NOT_PROVABLE
+    sigilmark_status: str,          # ISSUED / NOT_ISSUED / CONSUMED / REJECTED
+    actuator_request: dict,
+    actuator_response: str,         # REFUSED / ALLOWED / ERROR
+    commit_attempt: str,            # ATTEMPTED / NOT_ATTEMPTED
+    commit_result: str,             # COMMITTED / REFUSED / NO_ATTEMPT
+    pre_state: dict,
+    post_state: dict,
+    bypass_paths_tested: list,
+) -> dict:
+    """
+    Build a STRUCTURAL_REFUSAL_PROOF artifact.
+    Expert: "The result should not simply be PASS.
+             It should be STRUCTURAL_REFUSAL_VERIFIED only when evidence actually supports it."
+    """
+    import hashlib
+    from datetime import datetime, timezone
+
+    consequence_occurred = commit_result == "COMMITTED"
+    structural_refusal_verified = (
+        vcb_adjudication in ("FAILED", "NOT_PROVABLE") and
+        sigilmark_status in ("NOT_ISSUED", "REJECTED") and
+        actuator_response == "REFUSED" and
+        commit_result in ("REFUSED", "NO_ATTEMPT") and
+        not consequence_occurred and
+        len(bypass_paths_tested) > 0
+    )
+
+    proof_data = {
+        "schema":               "VGS-STRUCTURAL-REFUSAL-PROOF-1.0",
+        "build_identity":       build_identity,
+        "workflow_id":          workflow_id,
+        "action_hash":          action_hash,
+        "principal":            principal,
+        "authority_reference":  authority_reference,
+        "required_conditions":  required_conditions,
+        "removed_condition":    removed_condition,
+        "vcb_adjudication":     vcb_adjudication,
+        "sigilmark_status":     sigilmark_status,
+        "actuator_request":     actuator_request,
+        "actuator_response":    actuator_response,
+        "commit_attempt":       commit_attempt,
+        "commit_result":        commit_result,
+        "pre_state":            pre_state,
+        "post_state":           post_state,
+        "consequence_occurred": consequence_occurred,
+        "bypass_paths_tested":  bypass_paths_tested,
+        "timestamp":            datetime.now(timezone.utc).isoformat(),
+    }
+
+    proof_hash = hashlib.sha256(str(sorted(proof_data.items())).encode()).hexdigest()
+
+    if structural_refusal_verified:
+        verdict = "STRUCTURAL_REFUSAL_VERIFIED"
+        verdict_explanation = (
+            "VCB adjudicated as inadmissible, SigilMark was not issued, "
+            "actuator refused the request, no durable consequence committed, "
+            "and bypass paths were tested and failed."
+        )
+    else:
+        verdict = "NOT_PROVABLE"
+        missing_evidence = []
+        if vcb_adjudication not in ("FAILED","NOT_PROVABLE"): missing_evidence.append("VCB_ADJUDICATION_NOT_ADVERSE")
+        if sigilmark_status not in ("NOT_ISSUED","REJECTED"):  missing_evidence.append("SIGILMARK_WAS_ISSUED")
+        if actuator_response != "REFUSED":                     missing_evidence.append("ACTUATOR_DID_NOT_REFUSE")
+        if commit_result == "COMMITTED":                       missing_evidence.append("CONSEQUENCE_OCCURRED")
+        if not bypass_paths_tested:                            missing_evidence.append("NO_BYPASS_PATHS_TESTED")
+        verdict_explanation = f"Missing evidence: {missing_evidence}"
+
+    proof_data["verdict"] = verdict
+    proof_data["verdict_explanation"] = verdict_explanation
+    proof_data["evidence_hash"] = proof_hash
+    return proof_data
+
+
+# ── CONDITION REMOVAL MATRIX ─────────────────────────────────
+
+VCB_CONDITION_REMOVAL_MATRIX = {
+    "schema":    "VGS-CONDITION-REMOVAL-MATRIX-1.0",
+    "purpose":   "For every material condition, remove it and verify VCB refuses + actuator refuses + no consequence.",
+    "source":    "Merged: Ravi Shankar Refusal Test + Expert P0-11 expansion",
+    "attacks": {
+        "AUTHORITY_REVOKED": {
+            "removal":        "Revoke authority between T0 (authorize) and T2 (execute)",
+            "expected_vcb":   "NOT_PROVABLE",
+            "expected_actuator": "REFUSED",
+            "expected_consequence": "NONE",
+            "invariant":      "VALID_AT_T0 != VALID_AT_T2 — continuity proof must catch this",
+        },
+        "CONSENT_REMOVED": {
+            "removal":        "Remove required consent before execution",
+            "expected_vcb":   "NOT_PROVABLE",
+            "expected_actuator": "REFUSED",
+            "expected_consequence": "NONE",
+        },
+        "SIGILMARK_CONSUMED": {
+            "removal":        "Present a SigilMark that has already been consumed",
+            "expected_vcb":   "FAILED — VCC_CONSUMED",
+            "expected_actuator": "REFUSED",
+            "expected_consequence": "NONE",
+        },
+        "AMOUNT_CHANGED": {
+            "removal":        "Mutate amount between authorization and execution (e.g. $100 → $10,000)",
+            "expected_vcb":   "FAILED — ACTION_MISMATCH",
+            "expected_actuator": "REFUSED",
+            "expected_consequence": "NONE",
+            "invariant":      "payload_hash mismatch detected",
+        },
+        "PRINCIPAL_CHANGED": {
+            "removal":        "Swap the executing agent between authorization and execution",
+            "expected_vcb":   "FAILED — IDENTITY_MISMATCH",
+            "expected_actuator": "REFUSED",
+            "expected_consequence": "NONE",
+        },
+        "POLICY_EXPIRED": {
+            "removal":        "Allow policy version to change after authorization was granted under old version",
+            "expected_vcb":   "NOT_PROVABLE — DEFINITION_DRIFT",
+            "expected_actuator": "REFUSED",
+            "expected_consequence": "NONE",
+            "invariant":      "VALID_UNDER_V1 preserved but REQUIRES_REVALIDATION=True",
+        },
+        "EVIDENCE_STALE": {
+            "removal":        "Let evidence age beyond validity window",
+            "expected_vcb":   "NOT_PROVABLE — CURRENT_STATE_STALE",
+            "expected_actuator": "REFUSED",
+            "expected_consequence": "NONE",
+        },
+        "RELATIONSHIP_EXPIRED": {
+            "removal":        "Revoke the delegation or relationship that established authority",
+            "expected_vcb":   "NOT_PROVABLE — RELATIONSHIP_CONTINUITY_BROKEN",
+            "expected_actuator": "REFUSED",
+            "expected_consequence": "NONE",
+        },
+        "SIGILMARK_EXPIRED_TTL": {
+            "removal":        "Present SigilMark after TTL expiry",
+            "expected_vcb":   "FAILED — VCC_EXPIRED",
+            "expected_actuator": "REFUSED",
+            "expected_consequence": "NONE",
+        },
+        "DB_UNAVAILABLE": {
+            "removal":        "Make Supabase unavailable during execution attempt",
+            "expected_vcb":   "NOT_PROVABLE — DB_UNAVAILABLE",
+            "expected_actuator": "REFUSED — fail closed",
+            "expected_consequence": "NONE",
+            "invariant":      "DB=truth — no DB means no authority to proceed",
+        },
+    },
+}
+
+# ── P0-11 EXPANDED: A/B/C/D/E ────────────────────────────────
+
+VCB_P0_11_EXPANDED = {
+    "schema":  "VGS-P0-11-EXPANDED-1.0",
+    "purpose": "P0-11 split into five sub-tests per expert recommendation.",
+    "expert":  "Keep the original bypass test AND expand it into refusal + consequence prevention.",
+
+    "P0-11A_Bypass_Test": {
+        "question":   "Can the actuator be reached directly without VCB examination?",
+        "attack":     "AI → Actuator (skipping VCB entirely)",
+        "expected":   "NO — actuator path requires valid SigilMark from VCB",
+        "status":     "OPEN — deployment architecture verification required",
+        "evidence_required": ["deployment boundary map", "actuator access control config"],
+    },
+    "P0-11B_Refusal_Test": {
+        "question":   "When VCB adjudicates FAILED, does the actuator refuse?",
+        "attack":     "VCB returns FAILED → attempt actuator with invalid/no SigilMark",
+        "expected":   "REFUSED — actuator checks SigilMark validity before execution",
+        "status":     "OPEN — requires live actuator with SigilMark enforcement",
+        "evidence_required": ["vcb_adjudication=FAILED", "actuator_response=REFUSED", "no_consequence"],
+    },
+    "P0-11C_Consequence_Prevention_Test": {
+        "question":   "When VCB fails and actuator refuses, does the database show no consequence?",
+        "attack":     "VCB FAILED → Actuator REFUSED → Check database",
+        "expected":   "consequence_occurred=False, database shows no committed state change",
+        "status":     "OPEN — requires live Supabase + actuator",
+        "evidence_required": ["pre_state", "post_state", "db_count=0", "STRUCTURAL_REFUSAL_VERIFIED"],
+    },
+    "P0-11D_Condition_Removal_Matrix": {
+        "question":   "Does removal of each required condition cause structural refusal?",
+        "attack":     "Remove each condition in VCB_CONDITION_REMOVAL_MATRIX one at a time",
+        "expected":   "All 10 removals → NOT_PROVABLE/FAILED → REFUSED → NONE",
+        "status":     "OPEN — requires live infrastructure for each removal scenario",
+        "matrix":     VCB_CONDITION_REMOVAL_MATRIX,
+    },
+    "P0-11E_Alternate_Path_Attack": {
+        "question":   "Can the consequence be reached via any alternate route when VCB refuses?",
+        "attack": [
+            "AI → actuator (direct, no VCB)",
+            "AI → stale credential → actuator",
+            "AI → replayed SigilMark → actuator",
+            "AI → altered amount → actuator",
+            "AI → altered principal → actuator",
+            "AI → expired authorization → actuator",
+            "AI → alternate service account → actuator",
+        ],
+        "expected":   "ALL alternate paths → REFUSED → consequence=NONE",
+        "status":     "OPEN — requires deployment boundary verification",
+        "critical_note": (
+            "If any alternate path succeeds, VCB cannot claim structural refusal "
+            "for that governed path. The boundary must be proven watertight."
+        ),
+    },
+}
+
+# ── P0-13: STRUCTURAL REFUSAL TEST ───────────────────────────
+
+VCB_P0_13 = {
+    "schema":  "VGS-P0-13-1.0",
+    "test_id": "P0-13",
+    "name":    "Structural Refusal / Consequence Prevention Test",
+    "source":  "Ravi Shankar Refusal Test + Expert recommendation 2026-08-19",
+    "priority":"P0 — must pass before production designation",
+
+    "test_scenario": {
+        "T0": "Authority=ACTIVE, Condition=VALID, VCB=PROVABLE",
+        "T1": "Authority=REVOKED (or other material condition removed)",
+        "T2": "Attempt consequential action",
+        "VCB_expected": "NOT_PROVABLE or FAILED",
+        "SigilMark_expected": "NOT_ISSUED",
+        "Actuator_expected": "REFUSED",
+        "Database_expected": "NO CONSEQUENCE",
+    },
+
+    "three_layers_required": [
+        "1. VCB decision (adjudication result)",
+        "2. Actuator decision (refused or allowed)",
+        "3. Durable consequence state (database/ledger shows no committed consequence)",
+    ],
+
+    "expert_rule": (
+        "A FAILED response from VCB alone is insufficient. "
+        "All three layers must be observed and evidenced."
+    ),
+
+    "verdict_options": {
+        "STRUCTURAL_REFUSAL_VERIFIED": "All three layers confirmed. Consequence prevented.",
+        "NOT_PROVABLE":                "Evidence insufficient for one or more layers.",
+        "FAILED":                      "One or more layers allowed the consequence.",
+    },
+
+    "status": "OPEN — requires live Supabase + actuator + proof artifact",
+}
+
+
+@app.get("/v1/engineering/structural-refusal-spec", tags=["Engineering Gates 0-7"])
+async def engineering_structural_refusal_spec():
+    """
+    Structural Refusal Specification — the terrain built from merging:
+    1. Ravi Shankar's Governance Theatre Series Part 6 (structural impossibility)
+    2. Jake's cross-system capability insight (P2)
+    3. Expert direction: turn structural refusal into a proof dimension of existing VCB architecture
+
+    Shows: frozen doctrine, COULD question expanded, condition removal matrix,
+    P0-11 A-E, P0-13, STRUCTURAL_REFUSAL_PROOF schema.
+    No auth required.
+    """
+    return {
+        "schema":                      "VGS-STRUCTURAL-REFUSAL-SPEC-1.0",
+        "doctrine":                    VCB_STRUCTURAL_REFUSAL_DOCTRINE,
+        "condition_removal_matrix":    VCB_CONDITION_REMOVAL_MATRIX,
+        "p0_11_expanded":              VCB_P0_11_EXPANDED,
+        "p0_13":                       VCB_P0_13,
+        "structural_refusal_proof_schema": {
+            "required_fields": [
+                "build_identity", "workflow_id", "action_hash", "principal",
+                "authority_reference", "required_conditions", "removed_condition",
+                "vcb_adjudication", "sigilmark_status", "actuator_request",
+                "actuator_response", "commit_attempt", "commit_result",
+                "pre_state", "post_state", "consequence_occurred",
+                "bypass_paths_tested", "timestamp", "evidence_hash",
+            ],
+            "verdict_options": ["STRUCTURAL_REFUSAL_VERIFIED", "NOT_PROVABLE"],
+            "rule": "Never return PASS. Return STRUCTURAL_REFUSAL_VERIFIED only when all evidence supports it.",
+        },
+        "six_control_states": [
+            "CONTROL_PRESENT",
+            "CONTROL_AVAILABLE",
+            "CONTROL_EXERCISED",
+            "ACTUATOR_REFUSED",
+            "CONSEQUENCE_PREVENTED",
+            "STRUCTURAL_REFUSAL_VERIFIED",
+        ],
+        "sequencing": {
+            "P0": "Prove VCB itself survives attack (including P0-11A-E, P0-13)",
+            "P1": "Prove one real consequential workflow — VALID→COMMIT and INVALID→REFUSE",
+            "P2": "Cross-system relationships create no unexamined effective authority (Jake)",
+            "P3": "Independent external reproduction",
+        },
+        "NOT_to_build": "A separate Structural Impossibility Platform. This is a proof dimension, not a new product.",
+        "final_evidence_rule": VCB_FINAL_EVIDENCE_RULE,
+        "frozen_doctrine":     VCB_STRUCTURAL_REFUSAL_DOCTRINE["frozen_principles"],
+        "timestamp":           datetime.now(timezone.utc).isoformat(),
+    }
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=int(os.environ.get("PORT", 8000)), reload=False)
+
 
 
 
