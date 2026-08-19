@@ -102421,16 +102421,38 @@ async def adversarial_restart_replay(
         if vcc_id in _VCC_REGISTRY:
             _VCC_REGISTRY[vcc_id]["status"] = "NOT_YET_CONSUMED"
     restart_event    = "IN_MEMORY_STATE_CLEARED — simulates process restart"
+
+    # Step 3b: Restore consumed state from Supabase (as real restart would do)
+    db_restore_result = "SKIPPED_NO_DB"
+    if has_db:
+        try:
+            restore = await _supabase_restore_consumed_state()
+            db_restore_result = f"RESTORED_{restore.get('restored', 0)}_RECORDS"
+        except Exception as e:
+            db_restore_result = f"RESTORE_ERROR: {e}"
+
     post_restart_state = {
         "in_memory_cleared": True,
+        "db_restore_attempted": has_db,
+        "db_restore_result": db_restore_result,
         "db_state": "CONSUMED (persists in Supabase)" if has_db else "NOT_YET_CONSUMED (no DB)",
     }
 
     # Step 4: Replay after simulated restart
+    # Now use _supabase_consume_sigilmark for the replay check
+    # This checks the DB directly, not just in-memory
     try:
-        r2 = verify_vcc_independent(vcc, presented_action=action, presented_enforcement_point="test-actuator")
-        replay_result  = r2.get("result", "UNKNOWN")
-        actual_result  = "REPLAY_BLOCKED" if replay_result != "VALID" else "REPLAY_SUCCEEDED"
+        if has_db:
+            # Use the production path: attempt DB consumption
+            replay_db = await _supabase_consume_sigilmark(vcc_id)
+            replay_blocked_by_db = not replay_db.get("consumed", True)
+            replay_result  = "ALREADY_CONSUMED" if replay_blocked_by_db else "CONSUMED_AGAIN"
+            actual_result  = "REPLAY_BLOCKED" if replay_blocked_by_db else "REPLAY_SUCCEEDED"
+        else:
+            # No DB: use in-memory verify
+            r2 = verify_vcc_independent(vcc, presented_action=action, presented_enforcement_point="test-actuator")
+            replay_result  = r2.get("result", "UNKNOWN")
+            actual_result  = "REPLAY_BLOCKED" if replay_result != "VALID" else "REPLAY_SUCCEEDED"
     except Exception as e:
         replay_result = f"ERROR: {e}"
         actual_result = "ERROR"
@@ -106966,104 +106988,3 @@ async def engineering_structural_refusal_spec():
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=int(os.environ.get("PORT", 8000)), reload=False)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
