@@ -105483,6 +105483,385 @@ async def engineering_structural_refusal_spec():
     }
 
 
+
+# ══════════════════════════════════════════════════════════════════════════════
+# VCB FULL ENGINEERING AUDIT & PROOF ARCHITECTURE — LOCKED
+# Source: Expert direction 2026-08-19 — "Architecture must become harder, not broader"
+# Rule:  No production-style claim until the system has demonstrated that its
+#        own controls remain effective under attack.
+# ══════════════════════════════════════════════════════════════════════════════
+
+# ── CORE VCB DOCTRINE: P1 through P12 ────────────────────────────────────────
+
+VCB_CORE_DOCTRINE = {
+    "schema":  "VGS-CORE-DOCTRINE-1.0",
+    "frozen":  True,
+    "source":  "Expert engineering audit direction 2026-08-19",
+    "central_objective": (
+        "VCB must prove not only that a consequential action was examined, "
+        "but that the examination remained valid at the execution boundary, "
+        "that the exact action was bound to the proof, "
+        "that an inadmissible action could not reach consequence, "
+        "and that an independent party can later reproduce the proof "
+        "without trusting VCB's internal state."
+    ),
+    "five_properties": [
+        "1. Examination correctness — VCB evaluates the correct conditions.",
+        "2. Continuity correctness — Conditions remain valid until consequence.",
+        "3. Execution-boundary enforcement — Inadmissible action cannot proceed and become an audit record.",
+        "4. Durable-state resilience — Restart, concurrency, crash, stale cache, DB failure cannot create unauthorized consequences.",
+        "5. Independent reproducibility — External verifier can reproduce proof without trusting VCB runtime, DB or private keys.",
+    ],
+    "engineering_philosophy": (
+        "IMPLEMENTED ≠ EXECUTED ≠ ADVERSARIALLY PROVEN ≠ "
+        "LIVE INFRASTRUCTURE PROVEN ≠ INDEPENDENTLY REPRODUCED"
+    ),
+    "principles": {
+        "P1_EXAMINATION_BEFORE_CONSEQUENCE": {
+            "statement": "A consequential action must not cross the execution boundary without the required VCB examination.",
+            "invariant":  "examination_complete BEFORE consequence_committed",
+        },
+        "P2_EXACT_ACTION_BINDING": {
+            "statement": "Authorization/evidence must bind to the exact principal, action, action hash, target, parameters, material bounds, authority, context, relevant time, policy definition, and required conditions.",
+            "invariant":  "changing any material parameter MUST invalidate the proof",
+            "bound_fields": ["principal","action","action_hash","target","parameters",
+                             "material_bounds","authority","context","relevant_time",
+                             "policy_definition","required_conditions"],
+        },
+        "P3_CURRENT_STATE_VALIDITY": {
+            "statement": "A decision valid at T0 does not automatically remain admissible at T1.",
+            "distinction": {
+                "VALID_AT_T0":        "Conditions satisfied when proof was issued",
+                "VALID_AT_EXECUTION": "Conditions still satisfied at the execution boundary",
+            },
+            "invariant": "VALID_AT_T0 does NOT imply VALID_AT_EXECUTION — must revalidate",
+        },
+        "P4_NO_PROOF_NO_CONSEQUENCE": {
+            "statement": "If required admissibility proof is absent, stale, expired, revoked, mismatched, unverifiable, independently invalid, or based on unavailable evidence — the consequential operation MUST NOT proceed.",
+            "expected_results": ["DENY", "NOT_PROVABLE", "ESCALATE"],
+            "invariant": "durable_external_consequence == 0",
+        },
+        "P5_STRUCTURAL_REFUSAL": {
+            "statement": "A control is stronger when the execution environment refuses the action rather than merely recording that the action occurred.",
+            "test": "Can the actuator actually be reached without admissible VCB proof?",
+            "invariant": "If yes → system cannot claim structural execution-boundary enforcement",
+        },
+        "P6_DATABASE_AUTHORITY": {
+            "statement": "Application memory is never authoritative for consequential authorization. Database state is authoritative.",
+            "memory_role": "CACHE — never AUTHORITY",
+            "invariant": "DB_STATE wins over MEMORY_STATE for all consequential authorization",
+        },
+        "P7_DURABLE_CONSUMPTION": {
+            "statement": "A consumable proof must remain consumed across restart, process loss, multiple workers, multiple instances, retries, delayed responses.",
+            "invariant": "consumed_at_T0 REMAINS consumed after any failure mode",
+        },
+        "P8_HISTORICAL_TRUTH": {
+            "statement": "A later policy change must not rewrite what was historically valid under the earlier policy.",
+            "distinction": {
+                "VALID_UNDER_V1": "Action was admissible under V1 at T0",
+                "INVALID_UNDER_V2": "Action is inadmissible under current V2",
+            },
+            "invariant": "historical_truth ≠ current_admissibility — kept as separate dimensions",
+        },
+        "P9_EVIDENCE_INDEPENDENCE": {
+            "statement": "Evidence declared by the system or actor under examination cannot automatically become independent evidence.",
+            "example": "'The AI says the user authorized this' is NOT independent authorization evidence.",
+            "invariant": "MODEL_OUTPUT != INDEPENDENT_EVIDENCE",
+        },
+        "P10_PORTABLE_PROOF": {
+            "statement": "A Proof Passport/VCC must be independently verifiable using portable evidence.",
+            "verifier_must_NOT_need": ["VCB private keys","VCB database","VCB runtime",
+                                       "hidden application state","internal caches"],
+            "invariant": "proof_validity REPRODUCIBLE from public artifacts alone",
+        },
+        "P11_TRUTH_ENDPOINT_INTEGRITY": {
+            "statement": "Engineering truth endpoints must agree on build identity, source identity, route identity, maturity, test execution state, production designation, architecture state.",
+            "gate": "P0-02A/B/C",
+        },
+        "P12_TRUTH_MUST_BE_ATTACKABLE": {
+            "statement": "A red-team gate is not sufficiently demonstrated because it returns CONSISTENT=TRUE. It must also demonstrate: when deliberately given an inconsistent state, it returns FALSE.",
+            "gate": "P0-02C controlled contradiction test",
+        },
+    },
+}
+
+# ── INVARIANT-E01 — Machine-checkable execution invariant ────────────────────
+
+VCB_INVARIANT_E01 = {
+    "schema":      "VGS-INVARIANT-E01-1.0",
+    "frozen":      True,
+    "id":          "INVARIANT-E01",
+    "name":        "No-Proof-No-Consequence Execution Invariant",
+    "statement":   (
+        "If an action is consequential and required admissibility proof "
+        "does not cover the exact action AND current execution conditions, "
+        "the actuator MUST NOT commit the consequence."
+    ),
+    "formal": {
+        "precondition":  "action.is_consequential == True",
+        "requirement":   "proof.covers(exact_action) AND proof.covers(current_conditions)",
+        "invariant":     "NOT(requirement) => external_consequence_count == 0",
+        "equivalent":    "inadmissible_action => external_consequence_count == 0",
+    },
+    "test_requirement": "This invariant must be TESTED not merely DOCUMENTED",
+    "test_id":          "PA-08, P0-11, P0-13",
+    "status":           "OPEN — requires live actuator and database for verification",
+}
+
+# ── EXECUTION-BOUNDARY REVALIDATION ─────────────────────────────────────────
+
+VCB_EXECUTION_BOUNDARY_REVALIDATION = {
+    "schema":  "VGS-EXECUTION-BOUNDARY-REVALIDATION-1.0",
+    "frozen":  True,
+    "concept": "Integrate into existing STILL capability. Do NOT create a separate governance layer.",
+    "STILL_expanded": {
+        "original_question":  "Does the authorization remain valid now?",
+        "expanded_checks": {
+            "AUTHORITY": [
+                "authority still exists",
+                "authority has not been revoked",
+                "authority scope has not changed",
+                "authority has not expired",
+            ],
+            "MANDATE": [
+                "mandate still applies",
+                "purpose has not changed",
+                "delegation remains valid",
+                "no authority inflation occurred",
+            ],
+            "PRINCIPAL": [
+                "exact principal remains the same",
+                "relationship remains valid",
+                "session/identity state remains valid",
+            ],
+            "MATERIAL_STATE": [
+                "relevant resource state remains valid",
+                "amount remains within approved bound",
+                "recipient/target remains unchanged",
+                "environmental assumptions remain valid",
+            ],
+            "SECURITY": [
+                "relevant security conditions remain satisfied",
+                "kill switch remains available",
+                "intervention rights remain available",
+            ],
+            "EVIDENCE": [
+                "evidence remains current",
+                "evidence has not expired",
+                "evidence has not been revoked",
+                "evidence remains bound to the exact action",
+            ],
+            "POLICY": [
+                "policy definition remains applicable",
+                "historical/current policy distinction is preserved",
+            ],
+        },
+        "failure_result": "NOT_PROVABLE or FAILED and NO_CONSEQUENCE",
+    },
+    "state_distinction": {
+        "VALID_AT_T0":        "Conditions satisfied when proof was issued — DOES NOT guarantee current validity",
+        "VALID_AT_EXECUTION": "Conditions confirmed at execution boundary — REQUIRED for consequential authorization",
+    },
+}
+
+# ── FIVE-LAYER MATURITY MODEL ─────────────────────────────────────────────────
+
+VCB_MATURITY_MODEL = {
+    "schema": "VGS-MATURITY-MODEL-1.0",
+    "frozen": True,
+    "levels": {
+        "A_IMPLEMENTED":               "Code exists. Implementation present.",
+        "B_DETERMINISTICALLY_TESTED":  "Local deterministic tests pass.",
+        "C_ADVERSARIALLY_TESTED":      "Deliberate attacks/mutations pass.",
+        "D_LIVE_INFRASTRUCTURE_TESTED":"Real Railway/Supabase/distributed infrastructure passes.",
+        "E_REAL_CONSEQUENCE_TESTED":   "Actuator boundary tested against real or controlled consequential operation.",
+        "F_INDEPENDENTLY_REPRODUCED":  "External verifier independently reproduces result without trusting VCB runtime.",
+    },
+    "rule": "No control may be described publicly using a stronger maturity level than the evidence supports.",
+}
+
+# ── PRODUCTION GATE — ALL CONDITIONS REQUIRED ────────────────────────────────
+
+VCB_PRODUCTION_GATE = {
+    "schema": "VGS-PRODUCTION-GATE-1.0",
+    "frozen": True,
+    "name":   "Production Designation Gate",
+    "all_required": {
+        "P0_blockers_open":              "== 0",
+        "V001_maturity":                 ">= D_LIVE_INFRASTRUCTURE_TESTED",
+        "V002_maturity":                 ">= D_LIVE_INFRASTRUCTURE_TESTED",
+        "P0_03_P0_06_fail_closed":       "PASS",
+        "P0_08_crash_resilience":        "PASS",
+        "P0_11_structural_refusal":      "PASS",
+        "real_actuator_boundary":        "VERIFIED",
+        "external_reproduction_P0_12":   "PASS",
+        "build_identity_matched":        "LOCAL == DEPLOYED",
+        "truth_endpoints_consistent":    "CONSISTENT == True",
+        "contradiction_test_P0_02C":     "PASS",
+        "full_adversarial_regression":   "PASS after above",
+    },
+    "transition": {
+        "from": "PROOF_PENDING",
+        "to":   "PRODUCTION_DESIGNATED",
+        "requirement": "ALL above conditions confirmed with live execution evidence",
+    },
+    "currently": "PROOF_PENDING — production designation blocked",
+}
+
+# ── FULL RED-TEAM MATRIX ──────────────────────────────────────────────────────
+
+VCB_FULL_RED_TEAM_MATRIX = {
+    "schema": "VGS-RED-TEAM-MATRIX-1.0",
+    "frozen": True,
+    "gates": {
+        "P0-01":  {"attack":"Route integrity",         "required_proof":"Every route explained",              "status":"RESOLVED"},
+        "P0-02A": {"attack":"Truth consistency",       "required_proof":"Endpoints agree",                    "status":"RESOLVED"},
+        "P0-02B": {"attack":"Deployment identity",     "required_proof":"Local = deployed SHA",               "status":"OPEN"},
+        "P0-02C": {"attack":"Contradiction detection", "required_proof":"False state detected",               "status":"RESOLVED"},
+        "P0-03":  {"attack":"Missing DB evidence",     "required_proof":"Fail closed",                        "status":"OPEN"},
+        "P0-04":  {"attack":"Restart replay",          "required_proof":"Replay rejected — DB authoritative", "status":"OPEN"},
+        "P0-05":  {"attack":"Distributed race",        "required_proof":"Exactly 1 durable consumption",     "status":"OPEN"},
+        "P0-06":  {"attack":"DB unavailable",          "required_proof":"No consequence",                     "status":"OPEN"},
+        "P0-07":  {"attack":"Restart state",           "required_proof":"DB remains authoritative",           "status":"OPEN"},
+        "P0-08":  {"attack":"Crash boundaries",        "required_proof":"Deterministic state C1-C5",          "status":"OPEN"},
+        "P0-09":  {"attack":"Evidence substitution",   "required_proof":"Action binding holds",               "status":"OPEN"},
+        "P0-10":  {"attack":"Historical rewrite",      "required_proof":"Historical truth preserved",         "status":"OPEN"},
+        "P0-11":  {"attack":"Actuator bypass",         "required_proof":"Structural refusal verified",        "status":"OPEN"},
+        "P0-12":  {"attack":"External verification",   "required_proof":"Independent reproduction",           "status":"OPEN"},
+        "P0-13":  {"attack":"Structural refusal",      "required_proof":"All 3 layers: VCB+Actuator+DB",      "status":"OPEN"},
+        "PA-06":  {"attack":"Stale authorization",     "required_proof":"Execution-time rejection",           "status":"OPEN"},
+        "PA-07":  {"attack":"Exact action mutation",   "required_proof":"Hash mismatch detected",             "status":"OPEN"},
+        "PA-08":  {"attack":"No proof presented",      "required_proof":"Zero durable consequence",           "status":"OPEN"},
+        "PA-09":  {"attack":"Revocation race",         "required_proof":"Fresh authority required — DB wins", "status":"OPEN"},
+        "PA-10":  {"attack":"Multi-principal",         "required_proof":"Authority explicitly bound",         "status":"FUTURE_P2"},
+    },
+    "PRODUCTION_CLAIM_ALLOWED": False,
+}
+
+# ── FINAL MACHINE-READABLE AUDIT OBJECT (28 fields) ─────────────────────────
+
+VCB_FINAL_AUDIT_OBJECT = {
+    "schema": "VGS-FINAL-AUDIT-OBJECT-1.0",
+    "frozen": True,
+    "purpose": (
+        "Before public production-style positioning, produce this machine-readable "
+        "audit object. Every field must have status, maturity, test_id, "
+        "execution_environment, build_id, timestamp, evidence_reference, failure_reason. "
+        "No PASS may exist without execution evidence appropriate to that maturity level."
+    ),
+    "required_fields": {
+        "BUILD_IDENTITY":              {"status":"PRESENT",    "maturity":"B","test_id":"P0-02B","evidence":"SHA256 + line count"},
+        "ROUTE_INTEGRITY":             {"status":"PRESENT",    "maturity":"B","test_id":"P0-01","evidence":"build-snapshot dynamic count"},
+        "TRUTH_ENDPOINT_CONSISTENCY":  {"status":"RESOLVED",   "maturity":"B","test_id":"P0-02A","evidence":"CONSISTENT=True"},
+        "DEPLOYMENT_IDENTITY":         {"status":"OPEN",       "maturity":"A","test_id":"P0-02B","evidence":"Railway SHA must match local"},
+        "CONTRADICTION_DETECTION":     {"status":"RESOLVED",   "maturity":"B","test_id":"P0-02C","evidence":"False state detected"},
+        "V001_PERSISTENCE":            {"status":"OPEN",       "maturity":"A","test_id":"P0-04","evidence":"live restart-replay on Railway"},
+        "V002_DISTRIBUTED_ATOMICITY":  {"status":"OPEN",       "maturity":"A","test_id":"P0-05","evidence":"2+ Railway instances, 1 durable consumption"},
+        "FAIL_CLOSED":                 {"status":"OPEN",       "maturity":"A","test_id":"P0-03/P0-06","evidence":"Supabase kill test"},
+        "RESTART_RESILIENCE":          {"status":"OPEN",       "maturity":"A","test_id":"P0-07","evidence":"DB authoritative after restart"},
+        "CRASH_RESILIENCE":            {"status":"OPEN",       "maturity":"A","test_id":"P0-08","evidence":"C1-C5 boundary tests"},
+        "EVIDENCE_BINDING":            {"status":"OPEN",       "maturity":"A","test_id":"PA-07","evidence":"action hash mismatch test"},
+        "HISTORICAL_TRUTH":            {"status":"IMPLEMENTED","maturity":"A","test_id":"P0-10","evidence":"VALID_UNDER_V1 preserved"},
+        "STALE_AUTHORIZATION":         {"status":"OPEN",       "maturity":"A","test_id":"PA-06","evidence":"T0 valid, T1 revoked, T2 rejected"},
+        "REVOCATION_RACE":             {"status":"OPEN",       "maturity":"A","test_id":"PA-09","evidence":"DB revoked overrides memory cache"},
+        "NO_PROOF_NO_CONSEQUENCE":     {"status":"OPEN",       "maturity":"A","test_id":"PA-08","evidence":"zero consequence without valid proof"},
+        "STRUCTURAL_REFUSAL":          {"status":"OPEN",       "maturity":"A","test_id":"P0-11/P0-13","evidence":"all 3 layers confirmed"},
+        "ACTUATOR_BOUNDARY":           {"status":"OPEN",       "maturity":"A","test_id":"P0-11A","evidence":"no bypass path reaches actuator"},
+        "INDEPENDENT_REPRODUCTION":    {"status":"OPEN",       "maturity":"A","test_id":"P0-12","evidence":"Alkama/Harold external verification"},
+        "PUBLIC_CLAIM_STATUS":         {"status":"BLOCKED",    "maturity":"N/A","test_id":"claim-register","evidence":"see /v1/engineering/claim-register"},
+        "PRODUCTION_DESIGNATION":      {"status":"BLOCKED",    "maturity":"N/A","test_id":"production-gate","evidence":"all P0 gates must pass first"},
+    },
+}
+
+# ── ADVERSARIAL IMPLEMENTATION ORDER (PHASES 1-6) ───────────────────────────
+
+VCB_IMPLEMENTATION_ORDER = {
+    "schema":  "VGS-IMPLEMENTATION-ORDER-1.0",
+    "frozen":  True,
+    "rule":    "Do NOT build everything simultaneously. Execute in order.",
+    "phases": {
+        "PHASE_1_TRUTH_INTEGRITY": {
+            "status": "COMPLETE",
+            "gates":  ["P0-02A RESOLVED","P0-02B OPEN","P0-02C RESOLVED","build-baseline DONE"],
+        },
+        "PHASE_2_PERSISTENCE": {
+            "status": "IN_PROGRESS",
+            "steps":  ["Supabase DDL executed","Railway env vars set","V-001 restart-replay","complete execution evidence","DB state verified"],
+            "gate":   "V001 = D",
+        },
+        "PHASE_3_DISTRIBUTED_ATOMICITY": {
+            "status": "OPEN",
+            "steps":  ["2 Railway instances","1 consumable SigilMark","concurrent requests","inspect DB transitions","verify exactly 1"],
+            "gate":   "V002 = D",
+        },
+        "PHASE_4_FAILURE_CRASH_RESILIENCE": {
+            "status": "OPEN",
+            "steps":  ["DB unavailable","C1-C5 crash boundaries","stale cache","revoked authority","expired authorization"],
+            "gates":  ["P0-03","P0-06","P0-07","P0-08","P0-13"],
+        },
+        "PHASE_5_EXECUTION_BOUNDARY": {
+            "status": "OPEN",
+            "steps":  ["real actuator","bypass test","missing/expired/revoked proof","mutated action","stale authority"],
+            "gates":  ["P0-11","PA-06 through PA-09"],
+            "invariant": "NO VALID PROOF => NO CONSEQUENCE",
+        },
+        "PHASE_6_INDEPENDENT_REPRODUCTION": {
+            "status": "OPEN",
+            "give_verifier": ["Proof Passport","GCP","public key","verification instructions","public artifacts"],
+            "withhold":      ["VCB database","private keys","runtime","internal cache","hidden state"],
+            "gate":          "P0-12 = PASS",
+        },
+    },
+    "final_test": (
+        "When an AI proposes a consequential action, and we deliberately remove, alter, "
+        "expire, revoke, corrupt, substitute, stale, or bypass one required condition — "
+        "can the environment prove the consequence could not occur? "
+        "Answer must be demonstrated through: EXAMINATION + REVALIDATION + EXACT BINDING + "
+        "STRUCTURAL REFUSAL + DURABLE STATE + PORTABLE PROOF + INDEPENDENT REPRODUCTION."
+    ),
+}
+
+
+@app.get("/v1/engineering/master-audit", tags=["Engineering Gates 0-7"])
+async def engineering_master_audit():
+    """
+    Master Audit Object — the single authoritative status of all 20 proof fields.
+    Section 28 of the engineering direction: machine-readable audit before any
+    public production-style positioning.
+
+    Every field has: status, maturity, test_id, execution_environment,
+    build_id, evidence_reference, failure_reason.
+    No PASS without execution evidence appropriate to that maturity level.
+    No auth required.
+    """
+    build = _get_full_build_identity()
+    snap  = _compute_authoritative_build_snapshot()
+
+    return {
+        "schema":                 "VGS-MASTER-AUDIT-1.0",
+        "build_identity":         build,
+        "core_doctrine":          VCB_CORE_DOCTRINE,
+        "invariant_E01":          VCB_INVARIANT_E01,
+        "execution_boundary":     VCB_EXECUTION_BOUNDARY_REVALIDATION,
+        "maturity_model":         VCB_MATURITY_MODEL,
+        "production_gate":        VCB_PRODUCTION_GATE,
+        "full_red_team_matrix":   VCB_FULL_RED_TEAM_MATRIX,
+        "final_audit_object":     VCB_FINAL_AUDIT_OBJECT,
+        "implementation_order":   VCB_IMPLEMENTATION_ORDER,
+        "current_production_status": {
+            "PROOF_PENDING":            True,
+            "PRODUCTION_DESIGNATED":    False,
+            "PRODUCTION_CLAIM_ALLOWED": False,
+            "p0_blockers_open":         snap["production_gate_summary"].get("open_p0_blockers", 11),
+            "tests_implemented":        snap["test_counts"]["test_assertions_in_code"],
+            "tests_on_live_infra":      snap["test_counts"]["CRITICAL_DISTINCTION"]["tests_executed_on_live_infra"],
+        },
+        "final_evidence_rule":    VCB_FINAL_EVIDENCE_RULE,
+        "structural_refusal_doctrine": VCB_STRUCTURAL_REFUSAL_DOCTRINE,
+        "timestamp":              datetime.now(timezone.utc).isoformat(),
+    }
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=int(os.environ.get("PORT", 8000)), reload=False)
