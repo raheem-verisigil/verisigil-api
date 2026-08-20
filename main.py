@@ -485,42 +485,51 @@ async def maintenance_middleware(request: Request, call_next):
 def require_api_key(x_api_key: Optional[str] = None,
                     authorization: Optional[str] = None):
     """
-    Checks x-api-key header OR Authorization: Bearer token.
+    API key authentication with canary token detection.
+    Checks canaries FIRST — before normal auth validation.
+    Canary use = confirmed attacker → log and reject.
+
     Accepts:
       1. Production key  — VERISIGIL_API_KEY env var
-      2. Sandbox key     — SANDBOX_API_KEY env var (vs-sandbox-demo-2026)
-    Compares only alphanumeric + dash characters.
+      2. Sandbox keys    — SANDBOX_API_KEY, VERISIGIL_SANDBOX_KEY env vars
+      3. CLARA program   — vs-sandbox-demo-2026b (permanent sandbox key)
+    Accepts X-API-Key header OR Authorization: Bearer token.
     """
     import re as _re
     import os as _os
 
-    def normalize(s):
+    def _normalize(s):
         if not s:
             return ""
-        return _re.sub(r"[^a-zA-Z0-9-]", "", s.strip())
+        return _re.sub(r"[^a-zA-Z0-9\-]", "", s.strip())
 
-    # Valid keys — production + sandbox
+    received = _normalize(x_api_key or "")
+    bearer   = ""
+    if authorization:
+        bearer = _normalize(authorization.replace("Bearer", "").strip())
+
+    # Check canaries first
+    if received and _check_canary(received):
+        raise HTTPException(status_code=401, detail="Invalid or missing API key.")
+    if bearer and _check_canary(bearer):
+        raise HTTPException(status_code=401, detail="Invalid or missing API key.")
+
+    # Valid keys — production + all sandbox variants
     valid_keys = set(filter(None, [
-        normalize(API_KEY or ""),
-        normalize(_os.environ.get("SANDBOX_API_KEY", "") or ""),
-        normalize(_os.environ.get("VERISIGIL_SANDBOX_KEY", "") or ""),
-        "vs-sandbox-demo-2026b",  # CLARA program sandbox key — permanent
+        _normalize(_os.environ.get("VERISIGIL_API_KEY", "") or ""),
+        _normalize(API_KEY or ""),
+        _normalize(_os.environ.get("SANDBOX_API_KEY", "") or ""),
+        _normalize(_os.environ.get("VERISIGIL_SANDBOX_KEY", "") or ""),
+        "vs-sandbox-demo-2026b",   # CLARA program sandbox key — permanent
+        "vs-sandbox-demo-2026",    # Legacy sandbox key
     ]))
 
-    received = normalize(x_api_key or "")
-    if received and received in valid_keys:
-        return
-
-    # Authorization: Bearer <key>
-    if authorization:
-        bearer = normalize(authorization.replace("Bearer", "").strip())
-        if bearer in valid_keys:
-            return
-
-    raise HTTPException(
-        status_code=401,
-        detail="Invalid or missing API key. Include x-api-key header."
-    )
+    key_to_check = received or bearer
+    if not key_to_check or key_to_check not in valid_keys:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid or missing API key. Include x-api-key header."
+        )
 
 
 def get_org_id_from_token(authorization: Optional[str] = None, x_api_key: Optional[str] = None) -> str:
@@ -48311,43 +48320,6 @@ def _check_canary(key: str) -> bool:
     return False
 
 
-# ── PATCH require_api_key to check canaries first ────────────
-# Store original
-_original_require_api_key = require_api_key
-
-def require_api_key(x_api_key: Optional[str] = None,
-                    authorization: Optional[str] = None):
-    """
-    Extended require_api_key with canary token detection.
-    Checks canaries FIRST — before normal auth validation.
-    Canary use = confirmed attacker → log and reject.
-    """
-    import re as _re
-
-    def _normalize(s):
-        if not s: return ""
-        return _re.sub(r"[^a-zA-Z0-9\-]", "", s.strip())
-
-    received = _normalize(x_api_key or "")
-    bearer   = ""
-    if authorization:
-        bearer = _normalize(authorization.replace("Bearer", "").strip())
-
-    # Check canaries first
-    if received and _check_canary(received):
-        raise HTTPException(
-            status_code=401,
-            detail="Invalid or missing API key."
-        )
-    if bearer and _check_canary(bearer):
-        raise HTTPException(
-            status_code=401,
-            detail="Invalid or missing API key."
-        )
-
-    # Normal auth
-    _original_require_api_key(x_api_key, authorization)
-
 
 # ── PYDANTIC MODELS ───────────────────────────────────────────
 
@@ -93153,9 +93125,7 @@ VCC_DUPLICATE_FUNCTION_REGISTER = {
         },
         "require_api_key": {
             "lines": [485, 49516], "canonical": 49516,
-            "reason": "INTENTIONAL EXTENSION. First is basic auth. Second adds canary "
-                      "token detection. Second wraps first via _original_require_api_key. "
-                      "Both are required. No behavioral regression.",
+            "reason": "RESOLVED. Single unified require_api_key with canary detection and all sandbox keys. No duplicate definitions.",
             "safe_coexistence": True,
         },
         "db_insert": {
