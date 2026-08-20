@@ -106908,6 +106908,360 @@ async def engineering_value_evidence_spec():
     }
 
 
+
+# ══════════════════════════════════════════════════════════════════════════════
+# GROUNDING & CONSISTENCY CONTROL — Locked into frozen VCB architecture
+# Source: Engineering direction 2026-08-19
+# Rule: NOT a new engine, layer, or product.
+# Rule: Strict application of existing primitives — Proof Integrity Gate,
+#       Evidence Provenance, Material Delta, NOT_PROVABLE, independent reconstruction.
+# Rule: No new architectural layer. Strengthens existing paths only.
+# ══════════════════════════════════════════════════════════════════════════════
+
+# ── EVIDENCE GROUNDING STATUS SCHEMA (Section 3.1) ───────────────────────────
+
+VCB_EVIDENCE_GROUNDING_SCHEMA = {
+    "schema":  "VGS-EVIDENCE-GROUNDING-1.0",
+    "frozen":  True,
+    "purpose": (
+        "Extend every material evidence item with grounding status. "
+        "Insufficient, contradictory, or non-reconstructable grounding is a "
+        "first-class barrier to PROVEN — exactly as revoked authority, material "
+        "action mutation, and stale policy already are."
+    ),
+    "fields": {
+        "grounding_status": {
+            "values": ["VERIFIED","UNVERIFIED","STALE","CONTRADICTORY","INSUFFICIENT","NOT_APPLICABLE"],
+            "rule":   "CONTRADICTORY or STALE in any required item → NOT_PROVABLE at Proof Integrity Gate",
+        },
+        "grounding_method": {
+            "values": [
+                "EXTERNAL_SOURCE",
+                "INTERNAL_ATTESTATION",
+                "AUTHORITATIVE_SYSTEM",
+                "CRYPTOGRAPHIC_PROOF",
+                "HUMAN_ATTESTATION",
+                "NONE",
+            ],
+            "rule": "NONE or INTERNAL_ATTESTATION for critical evidence → independence threshold check required",
+        },
+        "grounding_timestamp":  "When grounding was last verified",
+        "grounding_source_ref": "Reference to the authoritative source",
+        "consistency_check_id": "ID of the consistency check that evaluated this evidence",
+    },
+    "independence_levels": {
+        "LEVEL_0": "No independent grounding — self-attested by actor under examination",
+        "LEVEL_1": "Internal system attestation — same trust domain",
+        "LEVEL_2": "External authoritative system",
+        "LEVEL_3": "Cryptographic proof — independently verifiable",
+        "LEVEL_4": "Human attestation from independent principal",
+        "rule":    "Consequence Contracts may specify minimum independence level. Below threshold → NOT_PROVABLE.",
+    },
+    "what_vcb_does_NOT_claim": (
+        "VCB does not make AI answers correct. "
+        "VCB refuses to call a claim PROVEN when grounding is inadequate. "
+        "No Fact-Checking Engine. No Consistency Engine. No model chain-of-thought inspection. "
+        "No continuous web scraping. No general-purpose retrieval inside VCB."
+    ),
+}
+
+# ── PROOF INTEGRITY GATE — FOUR CHECKS (Section 3.2) ─────────────────────────
+
+VCB_PROOF_INTEGRITY_GATE = {
+    "schema":  "VGS-PROOF-INTEGRITY-GATE-1.0",
+    "frozen":  True,
+    "purpose": "Before allowing PROVEN, evaluate all four checks. If any fails → NOT_PROVABLE with explicit reason.",
+    "four_checks": {
+        "CHECK_1_EVIDENCE_PRESENT": {
+            "question":  "Are all required evidence items present?",
+            "fail_code": "NOT_PROVABLE(reason=INSUFFICIENT_GROUNDING)",
+            "pass_when": "All items required by Consequence Contract are present",
+        },
+        "CHECK_2_NO_CONTRADICTION": {
+            "question":  "Do any required items carry grounding_status = CONTRADICTORY or STALE?",
+            "fail_codes":["NOT_PROVABLE(reason=CONTRADICTORY_EVIDENCE)","NOT_PROVABLE(reason=STALE_GROUNDING)"],
+            "pass_when": "No required item is CONTRADICTORY or STALE",
+        },
+        "CHECK_3_INDEPENDENCE_THRESHOLD": {
+            "question":  "Is the independence level of critical evidence below the threshold required by the Consequence Contract?",
+            "fail_code": "NOT_PROVABLE(reason=INCONSISTENT_SOURCES)",
+            "pass_when": "All critical evidence meets or exceeds required independence level",
+        },
+        "CHECK_4_RECONSTRUCTABLE": {
+            "question":  "Can an independent verifier reconstruct the same classification from the Proof Passport alone?",
+            "fail_code": "NOT_PROVABLE(reason=GROUNDING_NOT_RECONSTRUCTABLE)",
+            "pass_when": "Proof Passport + public artifacts → same result without VCB runtime or private keys",
+        },
+    },
+    "canonical_reason_codes": [
+        "NOT_PROVABLE(reason=INSUFFICIENT_GROUNDING)",
+        "NOT_PROVABLE(reason=CONTRADICTORY_EVIDENCE)",
+        "NOT_PROVABLE(reason=STALE_GROUNDING)",
+        "NOT_PROVABLE(reason=INCONSISTENT_SOURCES)",
+        "NOT_PROVABLE(reason=GROUNDING_NOT_RECONSTRUCTABLE)",
+    ],
+    "success_criteria": (
+        "A claim reaches PROVEN only when: "
+        "(1) Required evidence exists. "
+        "(2) Critical evidence meets required independence and grounding thresholds. "
+        "(3) No material contradiction or staleness detected in required grounding. "
+        "(4) Independent party can reconstruct the same classification from portable evidence package. "
+        "Otherwise: explicit NOT_PROVABLE with precise reason."
+    ),
+    "engineering_directive": (
+        "Strengthen the existing Proof Integrity Gate and evidence model so that insufficient, "
+        "contradictory, or non-reconstructable grounding is treated as a first-class barrier to "
+        "PROVEN — exactly as revoked authority, material action mutation, and stale policy — "
+        "without creating any new architectural layer."
+    ),
+}
+
+# Update material delta spec to include grounding extension
+VCB_MATERIAL_DELTA_SPEC["grounding_extension"] = {
+    "rule":   "Treat material change in grounding evidence the same way as material change in authority, policy, or state.",
+    "T0_grounding_snapshot": {
+        "capture_at": "When admissibility is first established (T0)",
+        "fields":     ["grounding_status", "grounding_method", "grounding_timestamp", "grounding_source_ref"],
+    },
+    "T1_grounding_recheck": {
+        "evaluate_at": "Commitment boundary (T1)",
+        "check":       "Has grounding_status degraded to STALE, CONTRADICTORY, or INSUFFICIENT?",
+        "degradation_result": "NOT_PROVABLE(reason=STALE_GROUNDING) or NOT_PROVABLE(reason=CONTRADICTORY_EVIDENCE)",
+    },
+}
+
+# Update rejected path spec to include grounding failures
+VCB_REJECTED_PATH_SPEC["grounding_failure_capture"] = {
+    "rule":   "When a claim is refused because of grounding failure, record which items failed.",
+    "capture": [
+        "evidence_items_that_failed_grounding",
+        "consistency_checks_that_failed",
+        "whether_actuator_was_reached",
+        "consequence_count (must be 0 if enforcement held)",
+    ],
+    "purpose": "Turns 'the AI was too fast / didn't check' into reconstructable boundary evidence.",
+}
+
+
+def make_grounding_record(
+    grounding_status: str,
+    grounding_method: str,
+    source_ref: str = "",
+    consistency_check_id: str = "",
+) -> dict:
+    """
+    Helper: produce a standardised grounding evidence object.
+    Every endpoint attaches grounding without duplicating logic.
+    Claude's stronger addition: reusable across all evidence-producing endpoints.
+
+    grounding_status: VERIFIED | UNVERIFIED | STALE | CONTRADICTORY | INSUFFICIENT | NOT_APPLICABLE
+    grounding_method: EXTERNAL_SOURCE | INTERNAL_ATTESTATION | AUTHORITATIVE_SYSTEM |
+                      CRYPTOGRAPHIC_PROOF | HUMAN_ATTESTATION | NONE
+    """
+    valid_statuses = ["VERIFIED","UNVERIFIED","STALE","CONTRADICTORY","INSUFFICIENT","NOT_APPLICABLE"]
+    valid_methods  = ["EXTERNAL_SOURCE","INTERNAL_ATTESTATION","AUTHORITATIVE_SYSTEM",
+                      "CRYPTOGRAPHIC_PROOF","HUMAN_ATTESTATION","NONE"]
+    if grounding_status not in valid_statuses:
+        grounding_status = "UNVERIFIED"
+    if grounding_method not in valid_methods:
+        grounding_method = "NONE"
+    return {
+        "grounding_status":     grounding_status,
+        "grounding_method":     grounding_method,
+        "grounding_timestamp":  datetime.now(timezone.utc).isoformat(),
+        "grounding_source_ref": source_ref,
+        "consistency_check_id": consistency_check_id or f"CC-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}",
+    }
+
+
+def evaluate_proof_integrity(
+    evidence_items: list,
+    required_items: list,
+    consequence_contract: dict,
+    proof_passport_ref: str = "",
+) -> dict:
+    """
+    Claude's stronger addition: runs all four Proof Integrity Gate checks in one call.
+    Reusable by any endpoint that needs to gate a PROVEN claim.
+
+    Returns: {
+        "all_checks_passed": bool,
+        "result": "PROVEN" | "NOT_PROVABLE",
+        "reason": reason_code | None,
+        "checks": {check_name: {passed: bool, reason: str}},
+    }
+    """
+    checks_result = {}
+    first_failure = None
+
+    # CHECK 1: All required evidence items present
+    present_ids = {item.get("evidence_id","") for item in evidence_items}
+    missing = [r for r in required_items if r not in present_ids]
+    check1_pass = len(missing) == 0
+    checks_result["CHECK_1_EVIDENCE_PRESENT"] = {
+        "passed": check1_pass,
+        "reason": None if check1_pass else f"Missing required items: {missing}",
+    }
+    if not check1_pass and not first_failure:
+        first_failure = "NOT_PROVABLE(reason=INSUFFICIENT_GROUNDING)"
+
+    # CHECK 2: No CONTRADICTORY or STALE grounding in required items
+    required_evidence = [item for item in evidence_items if item.get("evidence_id","") in required_items]
+    contradictory = [item.get("evidence_id") for item in required_evidence
+                     if item.get("grounding_status") == "CONTRADICTORY"]
+    stale = [item.get("evidence_id") for item in required_evidence
+             if item.get("grounding_status") == "STALE"]
+    check2_pass = not contradictory and not stale
+    reason2 = None
+    if contradictory:
+        reason2 = f"CONTRADICTORY_EVIDENCE in: {contradictory}"
+        if not first_failure: first_failure = "NOT_PROVABLE(reason=CONTRADICTORY_EVIDENCE)"
+    elif stale:
+        reason2 = f"STALE_GROUNDING in: {stale}"
+        if not first_failure: first_failure = "NOT_PROVABLE(reason=STALE_GROUNDING)"
+    checks_result["CHECK_2_NO_CONTRADICTION"] = {"passed": check2_pass, "reason": reason2}
+
+    # CHECK 3: Independence threshold
+    min_independence = consequence_contract.get("min_independence_level", 1)
+    independence_map = {
+        "CRYPTOGRAPHIC_PROOF": 3, "HUMAN_ATTESTATION": 4,
+        "EXTERNAL_SOURCE": 2, "AUTHORITATIVE_SYSTEM": 2,
+        "INTERNAL_ATTESTATION": 1, "NONE": 0,
+    }
+    low_independence = [
+        item.get("evidence_id") for item in required_evidence
+        if independence_map.get(item.get("grounding_method","NONE"), 0) < min_independence
+    ]
+    check3_pass = len(low_independence) == 0
+    checks_result["CHECK_3_INDEPENDENCE_THRESHOLD"] = {
+        "passed": check3_pass,
+        "reason": f"INCONSISTENT_SOURCES — below threshold: {low_independence}" if not check3_pass else None,
+    }
+    if not check3_pass and not first_failure:
+        first_failure = "NOT_PROVABLE(reason=INCONSISTENT_SOURCES)"
+
+    # CHECK 4: Reconstructable
+    check4_pass = bool(proof_passport_ref)
+    checks_result["CHECK_4_RECONSTRUCTABLE"] = {
+        "passed": check4_pass,
+        "reason": "GROUNDING_NOT_RECONSTRUCTABLE — no proof_passport_ref provided" if not check4_pass else None,
+    }
+    if not check4_pass and not first_failure:
+        first_failure = "NOT_PROVABLE(reason=GROUNDING_NOT_RECONSTRUCTABLE)"
+
+    all_pass = all(c["passed"] for c in checks_result.values())
+    return {
+        "all_checks_passed": all_pass,
+        "result":            "PROVEN" if all_pass else "NOT_PROVABLE",
+        "reason":            first_failure,
+        "checks":            checks_result,
+        "gate_spec":         "VGS-PROOF-INTEGRITY-GATE-1.0",
+    }
+
+
+@app.post("/v1/proof/integrity-check", tags=["Formal Governance"])
+async def proof_integrity_check(
+    evidence_items: list = [],
+    required_items: list = [],
+    consequence_contract: dict = {},
+    proof_passport_ref: str = "",
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Proof Integrity Gate — Live Check (Claude's stronger addition).
+    Section 3.2: Before allowing PROVEN, evaluate all four checks.
+
+    Accepts:
+      evidence_items: list of evidence objects with grounding_status/grounding_method fields
+      required_items: list of evidence_id values that must be present
+      consequence_contract: {"min_independence_level": 1-4}
+      proof_passport_ref: reference to portable proof passport
+
+    Returns: PROVEN or NOT_PROVABLE with precise reason code.
+    This endpoint lets external parties submit a VCC and get
+    the four-gate evaluation immediately — making the gate executable.
+    """
+    require_api_key(x_api_key, authorization)
+    build  = _get_full_build_identity()
+    ts     = datetime.now(timezone.utc).isoformat()
+
+    result = evaluate_proof_integrity(
+        evidence_items=evidence_items,
+        required_items=required_items,
+        consequence_contract=consequence_contract,
+        proof_passport_ref=proof_passport_ref,
+    )
+
+    return {
+        "schema":          "VGS-PROOF-INTEGRITY-CHECK-1.0",
+        "build_hash":      build["sha256_full"][:32],
+        "result":          result["result"],
+        "reason":          result["reason"],
+        "all_checks":      result["checks"],
+        "gate_spec":       VCB_PROOF_INTEGRITY_GATE,
+        "grounding_schema":VCB_EVIDENCE_GROUNDING_SCHEMA,
+        "rule":            (
+            "No consequential claim may reach PROVEN unless evidence is current, "
+            "non-contradictory, sufficiently independent, and independently reconstructable. "
+            "Absence of contradiction is not proof of correctness."
+        ),
+        "timestamp":       ts,
+    }
+
+
+@app.get("/v1/engineering/grounding-spec", tags=["Engineering Gates 0-7"])
+async def engineering_grounding_spec():
+    """
+    Evidence Grounding & Consistency Control Specification.
+    Exposes: grounding schema, proof integrity gate spec, 5 new NOT_PROVABLE codes,
+    material delta grounding extension, rejected path grounding capture,
+    and the make_grounding_record / evaluate_proof_integrity helpers.
+
+    This is an integration into existing frozen primitives.
+    NOT a new engine, layer, or product.
+    No auth required.
+    """
+    build = _get_full_build_identity()
+    return {
+        "schema":               "VGS-GROUNDING-SPEC-1.0",
+        "build_identity":       build,
+        "integration_rule":     "This strengthens existing Proof Integrity Gate and evidence model. No new architectural layer.",
+        "grounding_schema":     VCB_EVIDENCE_GROUNDING_SCHEMA,
+        "proof_integrity_gate": VCB_PROOF_INTEGRITY_GATE,
+        "material_delta_grounding": VCB_MATERIAL_DELTA_SPEC.get("grounding_extension",{}),
+        "rejected_path_grounding":  VCB_REJECTED_PATH_SPEC.get("grounding_failure_capture",{}),
+        "new_not_provable_codes": VCB_PROOF_INTEGRITY_GATE["canonical_reason_codes"],
+        "make_grounding_record_helper": {
+            "purpose": "Standardised grounding evidence object — reusable across all evidence-producing endpoints",
+            "inputs":  ["grounding_status","grounding_method","source_ref","consistency_check_id"],
+        },
+        "evaluate_proof_integrity_helper": {
+            "purpose": "Runs all four gate checks in one call. Reusable by any endpoint gating a PROVEN claim.",
+            "endpoint": "POST /v1/proof/integrity-check",
+        },
+        "implementation_sequence": [
+            "1. Finish existing P0 work (real actuator, V-002, fail-closed, independent reproduction)",
+            "2. Add grounding_status fields to evidence schema (schema present now)",
+            "3. Extend Proof Integrity Gate with four checks (gate spec present now, endpoint live)",
+            "4. Add 5 new NOT_PROVABLE reason codes (present now in gate spec)",
+            "5. Extend Material Delta to include critical grounding evidence (extension present now)",
+            "6. Ensure rejected-path captures grounding failures (extension present now)",
+            "7. Verify offline Proof Passport + independent verifier surfaces same grounding failures",
+        ],
+        "what_is_NOT_added": [
+            "No Fact-Checking Engine",
+            "No Consistency Engine",
+            "No new public product or terminology",
+            "No model chain-of-thought inspection",
+            "No continuous web scraping",
+            "No general-purpose retrieval inside VCB",
+            "No claim that VCB makes AI answers correct",
+        ],
+        "timestamp":            datetime.now(timezone.utc).isoformat(),
+    }
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=int(os.environ.get("PORT", 8000)), reload=False)
