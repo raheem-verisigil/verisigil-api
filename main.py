@@ -106608,14 +106608,31 @@ VCB_MATERIAL_DELTA_SPEC = {
     "concept": "A decision at T0 must not automatically remain valid at T1. Capture bounded snapshot of relevant material state at admissibility, compare at commitment.",
     "location": "Inside STILL + commit-time revalidation. NOT a separate engine.",
     "T0_snapshot_fields": [
+        # Authority and identity
         "authority", "acs_version", "mandate", "identity", "responsibility_binding",
+        # Action-specific
         "action_parameters", "target", "recipient", "constraints", "risk_state",
+        # State and security
         "security_state", "revocation_status", "expiry", "intervention_rights",
+        # Governing conditions (added per expert direction 2026-08-19)
+        "governing_conditions",   # conditions that made the determination valid
+        "policy_version",         # policy version in force at T0
+        "policy_hash",            # hash of policy document — detects supersession
+        "authority_hash",         # hash of authority artifact
+        "applicable_regulation",  # regulatory frame under which determination was made
+        "determination_basis",    # why the determination was reached
     ],
+    "governing_conditions_rule": (
+        "Treat change in governing conditions, authority, policy version, or critical "
+        "grounding evidence as material. A determination made under one policy version "
+        "is NOT automatically valid under a superseding version. "
+        "Policy supersession → NOT_PROVABLE(reason=STALE_GROUNDING) or RE-ENTRY_REQUIRED."
+    ),
     "comparison_at_T1": "VCB compares relevant conditions only — not monitoring entire organization",
     "possible_results": {
-        "T0_STATE == T1_STATE":    "No material change — original determination applies",
-        "T0_STATE != T1_STATE":    "Material delta detected — must use existing fail-closed paths",
+        "T0_STATE == T1_STATE":             "No material change — original determination applies",
+        "T0_STATE != T1_STATE":             "Material delta detected — must use existing fail-closed paths",
+        "GOVERNING_CONDITIONS_CHANGED":     "Policy superseded, regulation updated, or authority revoked → NOT_PROVABLE(reason=STALE_GROUNDING)",
     },
     "fail_closed_paths": ["ALLOW", "DENY", "RE-ENTRY_REQUIRED", "NOT_PROVABLE"],
     "VALID_UNDER_HISTORICAL_CONDITIONS": {
@@ -106913,6 +106930,78 @@ async def engineering_value_evidence_spec():
 
 # ── EVIDENCE GROUNDING STATUS SCHEMA (Section 3.1) ───────────────────────────
 
+
+# ── PUBLIC CLAIM DISCIPLINE — Frozen (Document Section 2) ────────────────────
+# Source: Engineering direction 2026-08-19
+# "Assume the post will be attacked by lawyers, auditors, and competitors.
+#  Every sentence must survive that attack."
+
+VCB_PUBLIC_CLAIM_DISCIPLINE = {
+    "schema":  "VGS-PUBLIC-CLAIM-DISCIPLINE-1.0",
+    "frozen":  True,
+    "mandatory_pre_post_checks": [
+        "Fact-check every claim against locked architecture and current implementation evidence",
+        "Never claim VCB is a full EU AI Act compliance platform",
+        "Never claim VCB is a System Passport",
+        "Never claim VCB is a replacement for legal advice or conformity assessment",
+        "Never claim 'we make you compliant'",
+        "If a capability is not yet demonstrated on live actuator + independent verifier, mark as direction/research not current product fact",
+        "Assume the post will be attacked by lawyers, auditors, and competitors",
+        "Every sentence must survive that attack",
+    ],
+    "approved_language": {
+        "safe_phrases": [
+            "can help organizations demonstrate...",
+            "is designed to establish...",
+            "produces evidence of...",
+            "is being engineered for...",
+        ],
+        "approved_claims": [
+            "VCB is being engineered for the narrow boundary where a consequential AI action crosses into the real world",
+            "VCB can help organizations demonstrate that the authority and governing conditions supporting a determination are still valid at the point of commitment",
+            "VCB is designed to establish a portable proof package that can be independently examined when the original determination is under pressure from change",
+            "VCB returns an explicit NOT_PROVABLE state when required evidence no longer holds — this is a feature, not a failure",
+            "VCB focuses on making the evidence around high-consequence AI actions clearer, more timely, and more independently examinable",
+            "VCB does not replace legal advice, conformity assessment, or a full AI Act governance platform",
+        ],
+        "never_say": [
+            "VCB makes you EU AI Act compliant",
+            "VCB is a full EU AI Act compliance platform",
+            "VCB is a System Passport",
+            "VCB replaces legal advice or conformity assessment",
+            "VCB is independently verified (requires P0-12 to pass first)",
+            "VCB prevents unauthorized AI actions (requires real actuator + P0-11 proven)",
+            "VCB is production-proven (PRODUCTION_CLAIM_ALLOWED=False until all P0 gates pass)",
+        ],
+    },
+    "approved_eu_ai_act_post_baseline": (
+        "EU AI Act compliance is becoming a living evidence problem — not a one-time checklist problem. "
+        "Organisations are discovering that a determination made six months ago can quietly become unreliable "
+        "when the model, data, deployment context, or guidance changes. "
+        "The question is shifting from 'Are we compliant?' to 'Can we still prove why we believe "
+        "a specific determination remains valid — and what happens when the supporting conditions change?' "
+        "VeriSigilAI's VCB is being engineered for exactly that narrow boundary. "
+        "It does not replace legal advice, conformity assessment, or a full AI Act governance platform. "
+        "It is evidence infrastructure focused on the consequential transition."
+    ),
+    "what_must_NOT_be_built": [
+        "obligation-mapping module",
+        "role classification module",
+        "FRIA tool",
+        "technical-documentation generator",
+        "EU AI Act compliance engine",
+        "System Passport product",
+        "full compliance platform",
+    ],
+    "current_honest_status": {
+        "PRODUCTION_CLAIM_ALLOWED": False,
+        "live_proof_status":        "V-001 D_RESTART_DISTRIBUTED_TESTED. V-002 C_ADVERSARIALLY_TESTED. All others open.",
+        "external_verification":    "P0-12 OPEN — no independent external reproduction yet",
+        "real_actuator":            "OPEN — no live consequential actuator demonstrated yet",
+    },
+}
+
+
 VCB_EVIDENCE_GROUNDING_SCHEMA = {
     "schema":  "VGS-EVIDENCE-GROUNDING-1.0",
     "frozen":  True,
@@ -106985,6 +107074,31 @@ VCB_PROOF_INTEGRITY_GATE = {
             "fail_code": "NOT_PROVABLE(reason=GROUNDING_NOT_RECONSTRUCTABLE)",
             "pass_when": "Proof Passport + public artifacts → same result without VCB runtime or private keys",
         },
+    },
+    "six_month_portability_rule": {
+        "statement": (
+            "A Proof Passport produced today must be independently classifiable "
+            "(PROVEN / NOT_PROVABLE) by an external party six months later "
+            "without requiring the live VCB service, VCB database, private keys, or runtime."
+        ),
+        "required_passport_fields": [
+            "full SHA256 build identity",
+            "policy_hash at time of determination",
+            "authority_hash at time of determination",
+            "governing_conditions snapshot",
+            "all NOT_PROVABLE reason codes (machine-readable)",
+            "grounding_status per evidence item",
+            "timestamps on all evidence",
+            "action_hash binding",
+            "consequence_result",
+        ],
+        "rule": (
+            "Every NOT_PROVABLE reason that relates to staleness or changed conditions "
+            "must be machine-readable and appear in the Proof Passport. "
+            "An examiner six months later must see WHY a claim is PROVEN or NOT_PROVABLE "
+            "from the portable evidence package alone."
+        ),
+        "test": "P0-12 — independent external reproduction without live VCB service",
     },
     "canonical_reason_codes": [
         "NOT_PROVABLE(reason=INSUFFICIENT_GROUNDING)",
