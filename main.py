@@ -95610,15 +95610,24 @@ def issue_sigilmark(
             "MULTI_INSTANCE: distributed atomicity demonstrated single-instance only",
         ],
     }
-    # Compute integrity_hash before signature so verify can recompute it
-    payload["integrity_hash"] = _vcc_hash(payload)
-    # Domain-separated signing: prepend type prefix to prevent cross-type forgery
-    # Perplexity F-08 + Qwen: same key signs many payload types across 1,244 routes
-    domain_prefix = b"SIGILMARK-v1" + b"\x00"  # domain separator — no literal null in source
-    payload_bytes = domain_prefix + _vcb_canonical(payload)
+    # Perplexity R2-02: domain_prefix must be INSIDE integrity hash
+    # All trust-critical metadata (domain_prefix, signing_key_id, canonical_form)
+    # must be integrity-protected — RFC 7515 §6 requirement
+    payload["domain_prefix"] = "SIGILMARK-v1"  # added BEFORE integrity hash
+
+    # Compute integrity hash — excludes only integrity_hash and signature
+    payload["integrity_hash"] = _vcc_hash(
+        {k: v for k, v in payload.items() if k not in ("integrity_hash", "signature")}
+    )
+
+    # Domain-separated signing over full payload (excluding signature only)
+    # Perplexity R2-07: legacy fallback permanently removed
+    # All VGS-SIGILMARK-1.0 passports use domain-separated signing exclusively
+    domain_bytes = b"SIGILMARK-v1" + b"\x00"  # no literal null in source
+    payload_for_sig = {k: v for k, v in payload.items() if k != "signature"}
+    payload_bytes = domain_bytes + _vcb_canonical(payload_for_sig)
     raw_sig = SIGNING_KEY.sign(payload_bytes).signature
     payload["signature"] = base64.b64encode(raw_sig).decode()
-    payload["domain_prefix"] = "SIGILMARK-v1"
     return payload
 
 
@@ -95644,8 +95653,10 @@ def verify_sigilmark(sm: dict, presented_action: dict = None, presented_enforcem
     failures = []
 
     # 1. Integrity hash check — using unified canonical form
+    # Perplexity R2-02 fix: domain_prefix is now INSIDE integrity hash
+    # Only exclude the hash itself and signature from recomputation
     sm_check = {k: v for k, v in sm.items()
-                if k not in ("integrity_hash", "sigilmark_hash", "signature", "domain_prefix")}
+                if k not in ("integrity_hash", "sigilmark_hash", "signature")}
     expected_hash = _vcc_hash(sm_check)
     stored_hash = sm.get("integrity_hash") or sm.get("sigilmark_hash", "")
     if expected_hash != stored_hash:
@@ -96637,7 +96648,8 @@ def _verify_evidence_chain_integrity(package: dict) -> dict:
 
     # 1. SigilMark hash — check primary hash field (integrity_hash) and flag any tampered secondary hash
     sm = package.get("sigilmark", {})
-    sm_check = {k: v for k, v in sm.items() if k not in ("sigilmark_hash","integrity_hash","issuer_signature","signature","vcc_hash","domain_prefix")}
+    # Perplexity R2-02: domain_prefix now in integrity hash — remove from exclusion
+    sm_check = {k: v for k, v in sm.items() if k not in ("sigilmark_hash","integrity_hash","issuer_signature","signature","vcc_hash")}
     expected_sm_hash = _vcc_hash(sm_check)
     # Check integrity_hash (primary field from issue_sigilmark)
     if sm.get("integrity_hash") and expected_sm_hash != sm.get("integrity_hash",""):
@@ -108051,8 +108063,8 @@ VCB_IMPLEMENTATION_STATUS_REPORT = {
             "designed": True, "implemented": False,
             "tested": False, "adversarially_tested": False,
             "independently_verified": False,
-            "production_status": "NOT_IMPLEMENTED — verify_sigilmark_independent function defined; standalone verify.py NOT YET built",
-            "limitation": "CRITICAL GAP — cannot yet claim 'independently verifiable without VeriSigilAI'",
+            "production_status": "IMPLEMENTED+PARTIAL — verify.py built (289 lines); verifies INTEGRITY+SIGNATURE offline; STILL/COULD/WHAT NOT_PROVABLE offline; CONSUMPTION NOT_PROVABLE offline",
+            "limitation": "verify.py verifies integrity+signature offline; STILL/COULD/WHAT/CONSUMPTION remain NOT_PROVABLE without live system",
         },
         "Real_Consequential_Actuator": {
             "designed": True, "implemented": False,
