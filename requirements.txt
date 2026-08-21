@@ -8,3 +8,4 @@ supabase
 dilithium-py
 z3-solver
 hypothesis
+rfc8785
