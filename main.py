@@ -95559,13 +95559,25 @@ def issue_sigilmark(
 
     # Key fingerprint for historical key tracking (Grok/Perplexity/Qwen finding)
     _pub_key_bytes = VERIFY_KEY.encode()
-    _key_id = hashlib.sha256(_pub_key_bytes).hexdigest()[:16]
+    # Gemini R2 NEW-03: expanded from 16 to 32 hex chars (128-bit fingerprint)
+    # Full SHA-256 = 64 hex. 32 hex = 128 bits = adequate collision resistance.
+    # 16 hex = 64 bits = birthday bound at ~4B keys (insufficient for multi-key environments)
+    _key_id = hashlib.sha256(_pub_key_bytes).hexdigest()[:32]
 
     # ASCII key contract: SigilMark keys MUST be ASCII-only for JCS equivalence
     # Python sort_keys=True is identical to RFC 8785/JCS for ASCII keys only
+    # ChatGPT R2 NEW-F17: ValueError must fail-closed, not leak through exception handlers
     _NON_ASCII_KEYS = [k for k in vcb_decision.keys() if not k.isascii()]
     if _NON_ASCII_KEYS:
-        raise ValueError(f"SigilMark keys must be ASCII-only for canonical form guarantee. Non-ASCII: {_NON_ASCII_KEYS}")
+        # Return NOT_PROVABLE dict instead of raising — prevents exception propagation
+        # into unknown exception handlers that might fail open
+        return {
+            "schema": "VGS-SIGILMARK-ERROR-1.0",
+            "error": "NOT_PROVABLE.NON_ASCII_KEYS",
+            "reason": f"SigilMark keys must be ASCII-only for canonical form guarantee",
+            "non_ascii_keys": _NON_ASCII_KEYS,
+            "release": "REFUSED",
+        }
 
     payload = {
         "schema":                 "VGS-SIGILMARK-1.0",
@@ -95760,6 +95772,10 @@ def evaluate_release(
             }
 
         # Gate 2: CONSUMPTION — must be first and only consumption
+        # Grok R2 Case F: consumption_result=None SKIPS this gate.
+        # This is intentional for non-consumption contexts (e.g. verification only).
+        # Any release path that gates a real actuator MUST pass consumption_result.
+        # Callers must never pass None when releasing to a consequence-producing actuator.
         if consumption_result is not None:
             if not consumption_result.get("consumed", False):
                 return {
@@ -95769,6 +95785,10 @@ def evaluate_release(
                     "provable": False,
                     "replay_detected": True,
                 }
+        else:
+            # consumption_result=None: consumption gate explicitly skipped by caller
+            # Safe only for non-actuator contexts. Log the skip.
+            pass  # consumption_skipped=True will appear in output below
 
         # Gate 3: STILL — SPEC_ONLY, logged but not yet blocking
         still_status = "NOT_ENFORCED_SPEC_ONLY"
@@ -95796,16 +95816,23 @@ def evaluate_release(
 
         # All gates passed
         return {
-            "release": "RELEASE_GRANTED",
+            # NOTE: EXAMINATION_PARTIAL_PASS not RELEASE_GRANTED
+            # ChatGPT R2 NEW-F16: "RELEASE_GRANTED implies full INV-01 enforcement"
+            # STILL and COULD are NOT YET ENFORCED — renaming prevents false confidence
+            # When STILL+COULD are live: rename to RELEASE_GRANTED
+            "release": "EXAMINATION_PARTIAL_PASS",
             "why": "PROVABLE",
             "still": still_status,
             "could": could_status,
-            "consumption": "CONSUMED" if consumption_result else "NOT_CHECKED",
+            "consumption": "CONSUMED" if consumption_result else "NOT_CHECKED_BY_CALLER",
+            "consumption_gate_skipped": consumption_result is None,
+            "note": "STILL and COULD not yet enforced — partial examination only",
             "claim_limitations": [
-                "STILL not enforced at gate (R003 SPEC_ONLY)",
-                "COULD not enforced at gate (no real actuator)",
+                "STILL not enforced at gate (R003 SPEC_ONLY) — authority continuity unverified",
+                "COULD not enforced at gate (no real actuator) — boundary leverage unverified",
+                "This is a PARTIAL examination result, not a full INV-01 release authorization",
             ],
-            "provable": True,
+            "provable": "PARTIAL",
         }
 
     except Exception as e:
@@ -95817,6 +95844,7 @@ def evaluate_release(
             "reason": f"NOT_PROVABLE.GATE_EXCEPTION: {str(e)[:100]}",
             "provable": False,
             "fail_closed": True,
+            "note": "Exception in evaluate_release() always produces REFUSED — fail-closed confirmed",
         }
 
 @app.post("/v1/vcb/seal", tags=["VCB — Canonical API"])
@@ -101172,14 +101200,41 @@ async def _supabase_consume_sigilmark(sigilmark_id: str) -> dict:
 
     # Production path: atomic Supabase RPC
     # REQUIRED SQL in Supabase consume_sigilmark function (verify in dashboard):
-    #   UPDATE vcb_sigilmarks
-    #   SET status='CONSUMED', consumed_at=NOW(), consumed_by=p_instance
-    #   WHERE sigilmark_id=p_id AND status='NOT_YET_CONSUMED'
-    #   RETURNING sigilmark_id,
-    #     CASE WHEN xmax::text::int > 0 THEN true ELSE false END as consumed,
-    #     CASE WHEN xmax::text::int > 0 THEN 'CONSUMED' ELSE 'ALREADY_CONSUMED' END as reason;
-    # If this SQL is NOT atomic conditional UPDATE, V-001 multi-instance is NOT safe.
-    # Verify in Supabase SQL editor before claiming distributed atomicity.
+    #   CREATE OR REPLACE FUNCTION consume_sigilmark(p_id text, p_instance text)
+    #   RETURNS TABLE(sigilmark_id text, consumed boolean, reason text) AS $$
+    #   BEGIN
+    #     -- Gemini R2 REG-F01: PostgREST defaults to READ COMMITTED isolation.
+    #     -- Must explicitly set SERIALIZABLE to prevent concurrent dual-consumption.
+    #     SET TRANSACTION ISOLATION LEVEL SERIALIZABLE;
+    #
+    #     UPDATE vcb_sigilmarks
+    #     SET status='CONSUMED', consumed_at=NOW(), consumed_by=p_instance
+    #     WHERE vcb_sigilmarks.sigilmark_id=p_id AND status='NOT_YET_CONSUMED';
+    #
+    #     IF FOUND THEN
+    #       RETURN QUERY SELECT p_id, true, 'CONSUMED';
+    #     ELSE
+    #       RETURN QUERY SELECT p_id, false, 'ALREADY_CONSUMED';
+    #     END IF;
+    #   END;
+    #   $$ LANGUAGE plpgsql;
+    #
+    #   -- Gemini R2 NEW-04: DB-level monotonicity trigger (verify in dashboard):
+    #   -- CREATE OR REPLACE FUNCTION prevent_consumption_reversal()
+    #   -- RETURNS TRIGGER AS $$
+    #   -- BEGIN
+    #   --   IF OLD.status = 'CONSUMED' AND NEW.status != 'CONSUMED' THEN
+    #   --     RAISE EXCEPTION 'Cannot reverse CONSUMED state for %', OLD.sigilmark_id;
+    #   --   END IF;
+    #   --   RETURN NEW;
+    #   -- END;
+    #   -- $$ LANGUAGE plpgsql;
+    #   --
+    #   -- CREATE TRIGGER enforce_consumption_monotonicity
+    #   -- BEFORE UPDATE ON vcb_sigilmarks
+    #   -- FOR EACH ROW EXECUTE FUNCTION prevent_consumption_reversal();
+    #
+    # VERIFY BOTH in Supabase SQL editor before claiming distributed atomicity.
     try:
         import httpx
         instance_id = os.environ.get("RAILWAY_REPLICA_ID", "instance-0")
@@ -108121,6 +108176,12 @@ VCB_SIX_AI_REVIEW_FINDINGS = {
     ],
 
     "second_round_recommendation": "Send updated package v2 to Grok + Perplexity only before human expert review",
+    "gemini_r2_critical_addition": {
+        "PostgREST_isolation": "PostgREST defaults to READ COMMITTED — Supabase RPC must explicitly SET TRANSACTION ISOLATION LEVEL SERIALIZABLE inside function body",
+        "db_trigger_required": "PostgreSQL BEFORE UPDATE trigger required to enforce CONSUMED monotonicity at DB level",
+        "key_id_expansion": "signing_key_id expanded from 16 to 32 hex chars (128-bit collision resistance)",
+        "2PC_gap": "Crash between consume and actuator delivery creates permanent CONSUMED lock-out — requires idempotency key + actuator correlation ID at P4",
+    },
 }
 
 
@@ -108194,7 +108255,8 @@ async def claims_registry():
                 "test_endpoint": "None — no real actuator connected",
                 "test_result": "NOT_DEMONSTRATED",
                 "scope": "SPEC_ONLY — STILL and COULD not enforced at gate",
-                "limitation": "This is the primary remaining gap. Do not make this claim publicly.",
+                "limitation": "evaluate_release() returns EXAMINATION_PARTIAL_PASS not RELEASE_GRANTED — naming reflects partial enforcement only",
+                "chatgpt_r2_finding": "NEW-F16: evaluate_release name implied full INV-01 enforcement — corrected",
             },
             "C-08": {
                 "claim": "Authority remained valid at commitment (STILL/R003)",
