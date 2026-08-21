@@ -105885,2564 +105885,535 @@ VCB_IMPLEMENTATION_ORDER = {
 }
 
 
-@app.get("/v1/engineering/master-audit", tags=["Engineering Gates 0-7"])
-async def engineering_master_audit():
-    """
-    Master Audit Object — the single authoritative status of all 20 proof fields.
-    Section 28 of the engineering direction: machine-readable audit before any
-    public production-style positioning.
-
-    Every field has: status, maturity, test_id, execution_environment,
-    build_id, evidence_reference, failure_reason.
-    No PASS without execution evidence appropriate to that maturity level.
-    No auth required.
-    """
-    build = _get_full_build_identity()
-    snap  = _compute_authoritative_build_snapshot()
-
-    return {
-        "schema":                 "VGS-MASTER-AUDIT-1.0",
-        "build_identity":         build,
-        "core_doctrine":          VCB_CORE_DOCTRINE,
-        "invariant_E01":          VCB_INVARIANT_E01,
-        "execution_boundary":     VCB_EXECUTION_BOUNDARY_REVALIDATION,
-        "maturity_model":         VCB_MATURITY_MODEL,
-        "production_gate":        VCB_PRODUCTION_GATE,
-        "full_red_team_matrix":   VCB_FULL_RED_TEAM_MATRIX,
-        "final_audit_object":     VCB_FINAL_AUDIT_OBJECT,
-        "implementation_order":   VCB_IMPLEMENTATION_ORDER,
-        "current_production_status": {
-            "PROOF_PENDING":            True,
-            "PRODUCTION_DESIGNATED":    False,
-            "PRODUCTION_CLAIM_ALLOWED": False,
-            "p0_blockers_open":         snap["production_gate_summary"].get("open_p0_blockers", 11),
-            "tests_implemented":        snap["test_counts"]["test_assertions_in_code"],
-            "tests_on_live_infra":      snap["test_counts"]["CRITICAL_DISTINCTION"]["tests_executed_on_live_infra"],
-        },
-        "final_evidence_rule":    VCB_FINAL_EVIDENCE_RULE,
-        "structural_refusal_doctrine": VCB_STRUCTURAL_REFUSAL_DOCTRINE,
-        "timestamp":              datetime.now(timezone.utc).isoformat(),
-    }
-
-
-
 # ══════════════════════════════════════════════════════════════════════════════
-# LOCKED ADDITIONS — Expert direction 2026-08-19 (both documents merged)
-# Fact-checked: 9 items missing, all built here, none elsewhere
+# MASTER ENGINEERING AUDIT — FINAL FROZEN DIRECTION
+# Source: Both expert documents merged 2026-08-20
+# Rule: Architecture FROZEN. Constants only — no new architectural layers.
 # ══════════════════════════════════════════════════════════════════════════════
 
-# ── WHY / STILL / COULD / WHAT — Frozen Evidence Model ──────────────────────
-
-VCB_EVIDENCE_MODEL = {
-    "schema":  "VGS-EVIDENCE-MODEL-1.0",
-    "frozen":  True,
-    "central": "WHY → STILL → COULD → WHAT",
-    "dimensions": {
-        "WHY": {
-            "question":  "Why is the action being proposed?",
-            "covers":    ["purpose","actor","authority","intended action"],
-        },
-        "STILL": {
-            "question":  "Do the authorization, mandate, conditions, constraints, identity, risk and relevant state that support admissibility remain valid?",
-            "sub_checks": [
-                "authority","mandate","identity","relationship","constraints",
-                "material state","risk conditions","security conditions",
-                "intervention rights","expiry/TTL","revocation status",
-                "exact action parameters",
-            ],
-            "key_distinction": "VALID_AT_T0 does NOT automatically mean VALID_AT_EXECUTION",
-        },
-        "COULD": {
-            "question":  "Could the action actually be prevented, constrained or interrupted at the relevant control boundary?",
-            "control_positions": ["BEFORE","DURING","AFTER","UNAVOIDABLE"],
-            "rule": "AFTER observation is NOT equivalent to BEFORE prevention. Where effective intervention is unavailable, expose the limitation rather than claim control.",
-        },
-        "WHAT": {
-            "question":  "What exact action and consequence actually occurred?",
-            "binds": ["actor","action","parameters","target","authority artifact",
-                      "proof artifact","timestamp","execution state","consequence state",
-                      "relevant build identity","evidence status"],
-        },
-    },
-    "system_must_distinguish": [
-        "evidence that a control exists",
-        "evidence that the control remained effective",
-        "evidence that the consequence was actually prevented",
-    ],
-}
-
-# ── INVARIANT 5 & 6 (missing from previous session) ─────────────────────────
-
-VCB_INVARIANT_5_REACHABILITY = {
-    "schema":    "VGS-INVARIANT-5-1.0",
-    "frozen":    True,
-    "id":        "INVARIANT-5",
-    "name":      "Reachability Is Not Authority",
-    "statement": "Technical access to an actuator, API, database or downstream system must never be treated as proof of authorization.",
-    "formal": {
-        "REACHABILITY_NOT_AUTHORITY": "technical reachability ≠ permission",
-        "SESSION_NOT_AUTHORITY":      "session participation ≠ authority",
-    },
-    "test": "P0-11A — attempt to reach actuator without VCB admissibility proof",
-    "status": "OPEN — requires live actuator deployment",
-}
-
-VCB_INVARIANT_6_RESTART = {
-    "schema":    "VGS-INVARIANT-6-1.0",
-    "frozen":    True,
-    "id":        "INVARIANT-6",
-    "name":      "Restart Must Not Restore Validity",
-    "statement": "If an authorization artifact has been consumed, revoked, expired or otherwise rendered invalid, restarting an enforcement component must not make it valid again.",
-    "proof_status": "V-001 — D_RESTART_DISTRIBUTED_TESTED (live Supabase proof 2026-08-19)",
-    "evidence": {
-        "database_target":    "https://ixiwsdjuduwwzbdfgunm.supabase.co",
-        "persistence_result": "SUPABASE_AUTHORITATIVE — consumed state survived simulated restart",
-        "replay_result":      "ALREADY_CONSUMED",
-        "actual_result":      "REPLAY_BLOCKED",
-        "verdict":            "PASS",
-    },
-}
-
-# ── ENGINEERING EVIDENCE MATRIX ──────────────────────────────────────────────
-
-VCB_ENGINEERING_EVIDENCE_MATRIX = {
-    "schema":  "VGS-EVIDENCE-MATRIX-1.0",
-    "frozen":  True,
-    "purpose": "Every proof recorded in this format. Prevents tests from becoming mere status labels.",
-    "required_fields": {
-        "TEST_ID":           "Unique immutable identifier",
-        "CLAIM":             "Exact property being tested",
-        "PRECONDITION":      "Required initial state",
-        "ACTION":            "Exact attempted action",
-        "MUTATION":          "What was deliberately changed",
-        "AUTHORITY":         "Authority involved",
-        "PROOF":             "Proof artifact presented",
-        "CONTROL_POSITION":  "BEFORE / DURING / AFTER / UNAVOIDABLE",
-        "EXPECTED":          "Required result",
-        "OBSERVED":          "Actual result",
-        "CONSEQUENCE":       "Whether durable effect occurred",
-        "CONSEQUENCE_COUNT": "Number of durable effects (must be 0 for inadmissible)",
-        "PERSISTENCE":       "Database persistence evidence",
-        "RESTART":           "Restart evidence",
-        "DISTRIBUTION":      "Multi-instance evidence",
-        "BUILD_ID":          "Full SHA256 of deployed build",
-        "ENVIRONMENT":       "Exact execution environment",
-        "TIMESTAMP":         "Execution time",
-        "STATUS":            "PASS / FAIL / NOT_PROVABLE",
-        "REPRODUCER":        "Who independently verified it",
-        "EVIDENCE_REF":      "Portable evidence reference",
-    },
-    "rule": "No field may be omitted. A PASS without CONSEQUENCE_COUNT=0 for inadmissible actions is not a valid test result.",
-}
-
-# ── SIMVERI / e-SV — RESEARCH SPECIFICATION ONLY ─────────────────────────────
-# Expert: "Do not manufacture first. Create the architecture research specification."
-# NOT to be built into the current VCB implementation.
-
-VCB_SIMVERI_RESEARCH_SPEC = {
-    "schema":  "VGS-SIMVERI-RESEARCH-SPEC-1.0",
-    "status":  "RESEARCH_SPECIFICATION_ONLY — not yet built into VCB",
-    "rule":    "Hardware must embody a proven primitive. Must not be used to hide an unproven primitive.",
-    "when_to_build": "After VCB primitive survives independent environments. Not before.",
-
-    "architecture_chain": {
-        "description": "VCB → SigilMark → SIMVERI/e-SV → Protected Actuator → Consequence",
-        "VCB":      "Examines and binds. Produces admissibility evidence.",
-        "SigilMark":"Carries the proof. Portable evidence artifact.",
-        "SIMVERI":  "Protects the consequence boundary. Hardware/secure-element enforcement.",
-        "e_SV":     "Embeds the same primitive in software/secure-element environments.",
-        "ACTUATOR": "The protected consequential system.",
-    },
-
-    "security_properties_required": [
-        "non-replay",
-        "exact-action binding",
-        "current authority",
-        "secure identity",
-        "protected keys",
-        "consequence receipt",
-        "tamper evidence",
-        "independently verifiable evidence",
-        "revocation/expiry handling",
-        "crash/restart resilience",
-        "distributed-consumption integrity",
-    ],
-
-    "potential_forms": ["SIMVERI Card","e-SV Secure Element","Edge Security Module"],
-
-    "non_goals": [
-        "AI model",
-        "general AI governance suite",
-        "IAM replacement",
-        "cloud replacement",
-        "policy-management suite",
-        "general-purpose HSM replacement",
-    ],
-
-    "strategic_end_state": (
-        "VeriSigil-compatible consequence boundary — not merely VeriSigil-only hardware. "
-        "A vendor-independent verification boundary for consequential machine actions "
-        "across competing AI, cloud, identity and enterprise ecosystems."
+VCB_FINAL_VCB_DEFINITION = {
+    "schema":"VGS-FINAL-VCB-DEFINITION-1.0","frozen":True,
+    "full_definition":(
+        "VCB is a consequence-verification proof engine that examines the authority and basis "
+        "supporting an exact consequential action, determines whether the material conditions "
+        "and authorization lifecycle remain admissible at commitment, binds evidence to that action, "
+        "establishes whether the protected boundary retains effective leverage, refuses inadmissible "
+        "transitions where enforcement is available, records what consequence actually occurred, "
+        "and produces independently examinable evidence for both successful and refused paths."
     ),
-
-    "second_adopter_requirement": (
-        "A single deployment proves someone wants it. "
-        "Two structurally independent deployments prove the primitive survives different architectures. "
-        "The second adopter should NOT reproduce the first customer's architecture."
+    "short_positioning":"Examine. Bind. Consume. Refuse. Prove.",
+    "public_simplification":"An independent verification boundary for consequential actions.",
+    "master_doctrine":(
+        "Govern upstream. Bind exactly. Revalidate at commitment. Consume once. "
+        "Refuse without proof. Observe separately. Compare honestly. "
+        "Prove only what the evidence can support."
     ),
+    "architecture_is_NOT":["A broad AI governance platform","A policy authoring platform",
+                            "A GRC tool","A risk classification engine","A compliance engine"],
 }
 
-# ── PA-07: EXACT ACTION BINDING ──────────────────────────────────────────────
-
-@app.post("/v1/adversarial/exact-action-mutation", tags=["Adversarial Proof Gates"])
-async def adversarial_exact_action_mutation(
-    x_api_key: Optional[str] = Header(None),
-    authorization: Optional[str] = Header(None),
-):
-    """
-    PA-07 — Exact Action Binding Test.
-    Document section 9: Authorization cannot be reused for a modified action.
-
-    Procedure:
-      1. Issue VCC for Action A (transfer $100 to Account A)
-      2. Mutate: amount, recipient, parameters
-      3. Attempt Action B with Action A's proof
-      4. Expected: ACTION_HASH_MISMATCH — proof for A never authorizes B
-
-    Expert: "The proof for A must never authorize B.
-             modified_action_consequence = 0"
-
-    Evidence fields: test_id, build_hash, action_A, action_B, mutation,
-      action_A_hash, action_B_hash, hash_mismatch_detected, verdict.
-    """
-    require_api_key(x_api_key, authorization)
-    build = _get_full_build_identity()
-    ts    = datetime.now(timezone.utc).isoformat()
-
-    # Action A — original authorized action
-    action_A = {"type": "transfer", "amount": 100, "recipient": "ACCOUNT-A", "currency": "NGN"}
-    hash_A   = _vcc_hash(action_A)
-
-    # Issue VCC for Action A
-    try:
-        vcc_A = issue_vcc_safe(
-            vcb_decision_id   = f"PA07-A-{ts}",
-            action_payload    = action_A,
-            consequence_type  = "TRANSFER",
-            material_bounds   = {"max_amount": 200, "currency": "NGN"},
-            authority_hash    = _vcc_hash({"auth": "test-pa07"}),
-            policy_hash       = _vcc_hash({"policy": "transfer-v1"}),
-            state_hash        = _vcc_hash({"state": "active"}),
-            enforcement_point = "test-actuator",
-            ttl_seconds       = 60,
-        )
-    except Exception as e:
-        return {"error": f"VCC issue failed: {e}", "verdict": "NOT_PROVABLE", "timestamp": ts}
-
-    # Action B — mutated (different amount AND recipient)
-    mutations_tested = []
-    all_mutations_rejected = True
-
-    for mutation_name, action_B in [
-        ("amount_changed",    {"type": "transfer", "amount": 10000, "recipient": "ACCOUNT-A", "currency": "NGN"}),
-        ("recipient_changed", {"type": "transfer", "amount": 100,   "recipient": "ACCOUNT-B", "currency": "NGN"}),
-        ("both_changed",      {"type": "transfer", "amount": 10000, "recipient": "ACCOUNT-B", "currency": "NGN"}),
-    ]:
-        hash_B = _vcc_hash(action_B)
-        hash_mismatch = hash_A != hash_B
-
-        # Try to verify Action A's VCC against Action B
-        result_B = verify_vcc_independent(
-            vcc_A,
-            presented_action=action_B,
-            presented_enforcement_point="test-actuator",
-        )
-        mutation_rejected = result_B.get("result") != "VALID"
-        if not mutation_rejected:
-            all_mutations_rejected = False
-
-        mutations_tested.append({
-            "mutation":          mutation_name,
-            "action_A_hash":     hash_A[:16] + "...",
-            "action_B_hash":     hash_B[:16] + "...",
-            "hash_mismatch":     hash_mismatch,
-            "verification_result": result_B.get("result"),
-            "failures":          result_B.get("failures", []),
-            "mutation_rejected": mutation_rejected,
-            "consequence_count": 0,
-        })
-
-    verdict = "PASS" if all_mutations_rejected else "FAIL — mutation was not detected"
-
-    return {
-        "schema":               "VGS-PA-07-EXACT-ACTION-MUTATION-1.0",
-        "test_id":              "PA-07",
-        "build_hash":           build["sha256_full"][:32],
-        "action_A":             action_A,
-        "mutations_tested":     mutations_tested,
-        "all_mutations_rejected": all_mutations_rejected,
-        "verdict":              verdict,
-        "invariant":            "Valid proof for A ≠ valid proof for modified B. Authorization is action-specific.",
-        "consequence_count":    0,
-        "expert_note":          "modified_action_consequence = 0 — this must be tested not documented",
-        "timestamp":            ts,
-    }
-
-
-# ── PA-08: NO-PROOF-NO-CONSEQUENCE ───────────────────────────────────────────
-
-@app.post("/v1/adversarial/no-proof-no-consequence", tags=["Adversarial Proof Gates"])
-async def adversarial_no_proof_no_consequence(
-    x_api_key: Optional[str] = Header(None),
-    authorization: Optional[str] = Header(None),
-):
-    """
-    PA-08 — No-Proof-No-Consequence Test.
-    Document section 10: One of the strongest VCB negative tests.
-
-    Expert: "A log entry saying 'Unauthorized action attempted' is not sufficient.
-             The protected boundary must demonstrate refusal."
-
-    Attempts consequential action with:
-      - No proof at all
-      - Malformed proof
-      - Expired proof
-      - Proof for wrong action
-
-    Expected for all: DENY + NO SIGILMARK + ZERO DURABLE CONSEQUENCE
-
-    Evidence fields: test_id, build_hash, scenarios, all_refused, consequence_count, verdict.
-    """
-    require_api_key(x_api_key, authorization)
-    build = _get_full_build_identity()
-    ts    = datetime.now(timezone.utc).isoformat()
-    action = {"type": "payment", "amount": 50000, "recipient": "ACCOUNT-X", "currency": "NGN"}
-    scenarios = []
-    all_refused = True
-
-    # Scenario 1: No proof at all
-    try:
-        result_no_proof = verify_vcc_independent(
-            {},  # empty dict — no proof
-            presented_action=action,
-            presented_enforcement_point="test-actuator",
-        )
-        refused = result_no_proof.get("result") != "VALID"
-    except Exception as e:
-        refused = True  # exception = refused
-        result_no_proof = {"result": "ERROR", "reason": str(e)}
-    if not refused: all_refused = False
-    scenarios.append({
-        "scenario":         "NO_PROOF",
-        "description":      "Attempt with empty/no proof object",
-        "result":           result_no_proof.get("result", "ERROR"),
-        "refused":          refused,
-        "consequence_count": 0,
-    })
-
-    # Scenario 2: Malformed proof
-    malformed = {"vcc_id": "FAKE-001", "signature": "not-a-real-signature", "payload": "garbage"}
-    try:
-        result_malformed = verify_vcc_independent(
-            malformed,
-            presented_action=action,
-            presented_enforcement_point="test-actuator",
-        )
-        refused = result_malformed.get("result") != "VALID"
-    except Exception:
-        refused = True
-        result_malformed = {"result": "ERROR"}
-    if not refused: all_refused = False
-    scenarios.append({
-        "scenario":         "MALFORMED_PROOF",
-        "description":      "Attempt with syntactically invalid proof",
-        "result":           result_malformed.get("result", "ERROR"),
-        "refused":          refused,
-        "consequence_count": 0,
-    })
-
-    # Scenario 3: Proof for a different action (wrong action hash)
-    wrong_action = {"type": "transfer", "amount": 1, "recipient": "ACCOUNT-Z"}
-    try:
-        vcc_wrong = issue_vcc_safe(
-            vcb_decision_id   = f"PA08-WRONG-{ts}",
-            action_payload    = wrong_action,
-            consequence_type  = "TRANSFER",
-            material_bounds   = {"max_amount": 10},
-            authority_hash    = _vcc_hash({"auth": "test"}),
-            policy_hash       = _vcc_hash({"policy": "v1"}),
-            state_hash        = _vcc_hash({"state": "active"}),
-            enforcement_point = "test-actuator",
-            ttl_seconds       = 60,
-        )
-        result_wrong = verify_vcc_independent(
-            vcc_wrong,
-            presented_action=action,  # Different action than proof covers
-            presented_enforcement_point="test-actuator",
-        )
-        refused = result_wrong.get("result") != "VALID"
-    except Exception:
-        refused = True
-        result_wrong = {"result": "ERROR"}
-    if not refused: all_refused = False
-    scenarios.append({
-        "scenario":         "WRONG_ACTION_PROOF",
-        "description":      "Valid proof but for a different action (amount/recipient mismatch)",
-        "result":           result_wrong.get("result", "ERROR"),
-        "refused":          refused,
-        "consequence_count": 0,
-    })
-
-    verdict = "PASS" if all_refused else "FAIL — some scenario allowed consequence without valid proof"
-
-    return {
-        "schema":          "VGS-PA-08-NO-PROOF-NO-CONSEQUENCE-1.0",
-        "test_id":         "PA-08",
-        "build_hash":      build["sha256_full"][:32],
-        "scenarios":       scenarios,
-        "all_refused":     all_refused,
-        "total_consequence_count": 0,
-        "sigilmark_issued": False,
-        "verdict":         verdict,
-        "invariant":       "No valid proof covering exact action → no consequence. Tested as negative property.",
-        "expert_note":     "This is one of the strongest VCB tests. Log of violation ≠ proof of prevention.",
-        "timestamp":       ts,
-    }
-
-
-# ── PA-09: REVOCATION / EXPIRY RACE ─────────────────────────────────────────
-
-@app.post("/v1/adversarial/revocation-race", tags=["Adversarial Proof Gates"])
-async def adversarial_revocation_race(
-    x_api_key: Optional[str] = Header(None),
-    authorization: Optional[str] = Header(None),
-):
-    """
-    PA-09 — Revocation / Expiry Race Test.
-    Document section 11: Prove revocation immediately before commitment cannot be bypassed.
-
-    Procedure:
-      T0: Authority valid — VCC issued
-      T1: VCC consumed / revoked / expired
-      T2: Replay attempt with same VCC
-
-    Expected: Execution must fail closed even if "it was valid when proposed."
-    This is the execution-time version of STILL.
-
-    Simulates: Supabase-authoritative state wins over stale in-memory state.
-    Evidence fields: test_id, build_hash, T0_state, T1_event, T2_result, verdict.
-    """
-    require_api_key(x_api_key, authorization)
-    import os
-    build = _get_full_build_identity()
-    ts    = datetime.now(timezone.utc).isoformat()
-    action = {"type": "payment", "amount": 1000, "recipient": "ACCOUNT-PA09", "currency": "NGN"}
-
-    has_db = bool(os.environ.get("SUPABASE_URL")) and "supabase.co" in os.environ.get("SUPABASE_URL", "")
-
-    # T0: Issue VCC (authority valid)
-    try:
-        vcc = issue_vcc_safe(
-            vcb_decision_id   = f"PA09-{ts}",
-            action_payload    = action,
-            consequence_type  = "TEST_PAYMENT",
-            material_bounds   = {"max_amount": 5000},
-            authority_hash    = _vcc_hash({"auth": "test-pa09"}),
-            policy_hash       = _vcc_hash({"policy": "v1"}),
-            state_hash        = _vcc_hash({"state": "active"}),
-            enforcement_point = "test-actuator",
-            ttl_seconds       = 300,
-        )
-        vcc_id = vcc.get("vcc_id", "UNKNOWN")
-        T0_state = {"vcc_id": vcc_id, "status": "NOT_YET_CONSUMED", "authority": "VALID"}
-    except Exception as e:
-        return {"error": f"VCC issue failed: {e}", "verdict": "NOT_PROVABLE", "timestamp": ts}
-
-    # T1: First consumption (simulates valid use)
-    consume_1 = _atomic_vcc_consume_production_path(vcc_id)
-    T1_event = {
-        "event":     "FIRST_CONSUMPTION",
-        "consumed":  consume_1.get("consumed", False),
-        "mechanism": consume_1.get("mechanism", "in-memory"),
-        "db_persisted": has_db,
-    }
-
-    # T1b: Simulate memory loss (as in restart scenario)
-    with _VCC_LOCK:
-        _VCC_CONSUMED.discard(vcc_id)
-        if vcc_id in _VCC_REGISTRY:
-            _VCC_REGISTRY[vcc_id]["status"] = "NOT_YET_CONSUMED"
-
-    # T2: Attempt replay — DB must be authoritative
-    if has_db:
-        T2_result_db = _atomic_vcc_consume_production_path(vcc_id)
-        replay_blocked = not T2_result_db.get("consumed", True)
-        T2_result = {
-            "replay_attempted":   True,
-            "db_check":           T2_result_db,
-            "replay_blocked":     replay_blocked,
-            "reason":             T2_result_db.get("reason", "UNKNOWN"),
-            "db_authoritative":   True,
-        }
-        verdict = "PASS" if replay_blocked else "FAIL — DB did not block replay"
-        db_wins = replay_blocked
-    else:
-        # In-memory: after clearing, the stale state is gone — replay may succeed
-        consume_2 = _atomic_vcc_consume_production_path(vcc_id)
-        replay_blocked = not consume_2.get("consumed", True)
-        T2_result = {
-            "replay_attempted": True,
-            "in_memory_result": consume_2,
-            "replay_blocked":   replay_blocked,
-            "warning":          "IN_MEMORY_ONLY — Supabase required for true revocation race proof",
-        }
-        verdict = "V001_UNRESOLVED" if not replay_blocked else "PASS_IN_MEMORY"
-        db_wins = None
-
-    return {
-        "schema":       "VGS-PA-09-REVOCATION-RACE-1.0",
-        "test_id":      "PA-09",
-        "build_hash":   build["sha256_full"][:32],
-        "environment":  "PRODUCTION_SUPABASE" if has_db else "IN_MEMORY_FALLBACK",
-        "T0_state":     T0_state,
-        "T1_event":     T1_event,
-        "T2_result":    T2_result,
-        "db_authoritative_over_memory": db_wins,
-        "verdict":      verdict,
-        "invariant":    "restart must not restore validity — DB wins over stale memory",
-        "STILL_test":   "System cannot accept 'it was valid when proposed' as sufficient for consequential commit",
-        "consequence_count": 0,
-        "timestamp":    ts,
-    }
-
-
-@app.get("/v1/engineering/evidence-matrix", tags=["Engineering Gates 0-7"])
-async def engineering_evidence_matrix():
-    """
-    Engineering Evidence Matrix — the 21-field standard for every proof record.
-    Document section 20: "Prevents a test from becoming merely a status label."
-
-    Also exposes the WHY/STILL/COULD/WHAT evidence model and all eight invariants.
-    No auth required.
-    """
-    build = _get_full_build_identity()
-    return {
-        "schema":           "VGS-EVIDENCE-MATRIX-SPEC-1.0",
-        "build_identity":   build,
-        "evidence_model":   VCB_EVIDENCE_MODEL,
-        "evidence_matrix":  VCB_ENGINEERING_EVIDENCE_MATRIX,
-        "invariant_5":      VCB_INVARIANT_5_REACHABILITY,
-        "invariant_6":      VCB_INVARIANT_6_RESTART,
-        "simveri_research": VCB_SIMVERI_RESEARCH_SPEC,
-        "current_v001_status": {
-            "maturity":  "D_RESTART_DISTRIBUTED_TESTED",
-            "evidence":  "Live Supabase proof 2026-08-19 — consumed state survived restart, replay blocked",
-            "verdict":   "PASS",
-        },
-        "current_v002_status": {
-            "maturity":  "C_ADVERSARIALLY_TESTED",
-            "evidence":  "50 concurrent threads — exactly 1 winner, 49 rejected (single-instance)",
-            "note":      "Multi-instance V-002 requires 2+ Railway replicas",
-        },
-        "new_adversarial_endpoints": {
-            "PA-07": "POST /v1/adversarial/exact-action-mutation",
-            "PA-08": "POST /v1/adversarial/no-proof-no-consequence",
-            "PA-09": "POST /v1/adversarial/revocation-race",
-        },
-        "timestamp":        datetime.now(timezone.utc).isoformat(),
-    }
-
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# EXPERT DIRECTION LOCK — Both documents merged 2026-08-19
-# Rule: Architecture FROZEN. These additions strengthen existing paths only.
-# Rule: VALUE does not control actions. Derived AFTER consequence.
-# Rule: No new products, no new engines, no new governance layers.
-# ══════════════════════════════════════════════════════════════════════════════
-
-# ── VALUE EVIDENCE DISCIPLINE — Reserved Interface (Not Built Yet) ────────────
-# Doc 1: "Do not build the CVE analytics product until VCB survives P0 proof."
-# Doc 2: "Phase 2 — after P0 is solid."
-# This is a RESERVED INTERFACE — schema and invariants only.
-
-VCB_VALUE_INVARIANTS = {
-    "schema":  "VGS-VALUE-INVARIANTS-1.0",
-    "frozen":  True,
-    "source":  "Expert direction 2026-08-19 — value evidence discipline",
-    "rule":    "VALUE does not control actions. Derived AFTER consequence. Never part of VCB decision path.",
-    "invariants": {
-        "VALUE_INVARIANT_1_EXPOSURE_NE_LOSS": {
-            "id":        "VALUE-INV-1",
-            "statement": "POTENTIAL_EXPOSURE ≠ LOSS_AVOIDED",
-            "detail":    "If VCB blocks a $10M transfer, that does not automatically prove $10M was saved. Another system may have blocked it; the transfer may have been reversed; damage may have been less.",
-            "formal":    "BLOCKED_ACTION_VALUE ≠ PROVEN_LOSS_AVOIDED",
-        },
-        "VALUE_INVARIANT_2_INTERVENTION_NE_VALUE": {
-            "id":        "VALUE-INV-2",
-            "statement": "INTERVENTION ≠ ECONOMIC_VALUE_ATTRIBUTED",
-            "detail":    "VCB may have intervened. But intervention alone does not prove VCB was the sole cause of the resulting benefit.",
-            "formal":    "VCB_INTERVENTION does NOT imply VCB_CAUSED_ENTIRE_BENEFIT",
-        },
-        "VALUE_INVARIANT_3_CORRELATION_NE_ATTRIBUTION": {
-            "id":        "VALUE-INV-3",
-            "statement": "CORRELATION ≠ ATTRIBUTION",
-            "detail":    "If an intervention occurred before a positive outcome, that does not automatically mean the intervention caused the entire outcome.",
-            "formal":    "INTERVENTION_BEFORE_OUTCOME does NOT imply INTERVENTION_CAUSED_OUTCOME",
-        },
+VCB_SIX_PROOF_PROPERTIES = {
+    "schema":"VGS-SIX-PROOF-PROPERTIES-1.0","frozen":True,
+    "proof_families":{
+        "1_AUTHORITY_WHY":{"question":"What authority or basis supported the action?","claim_type":"AUTHORITY_CLAIM"},
+        "2_CONTINUING_VALIDITY_STILL":{"question":"Was that basis still valid at commitment?","claim_type":"CURRENT_VALIDITY_CLAIM"},
+        "3_EXACT_BINDING":{"question":"Does the evidence authorize this exact action?","claim_type":"ACTION_BINDING_CLAIM"},
+        "4_CONSUMPTION":{"question":"Is this authorization still eligible to be consumed?","claim_type":"CONSUMPTION_CLAIM"},
+        "5_BOUNDARY_COULD":{"question":"Could the system still influence the consequence?","claim_type":"BOUNDARY_LEVERAGE_CLAIM"},
+        "6_CONSEQUENCE_WHAT":{"question":"What actually happened?","claim_type":"EXECUTION_CLAIM"},
     },
-    "crucial_engineering_rule": (
-        "The engineer must not calculate a financial value merely because a protected action was refused. "
-        "IF action_blocked THEN intervention=OBSERVED. "
-        "IF actuator_not_reached THEN consequence_prevented=OBSERVED (only if within control boundary). "
-        "IF external evidence establishes measurable loss basis THEN economic_exposure=EVALUABLE. "
-        "IF attribution evidence sufficient THEN value_attribution may be classified. "
-        "ELSE VALUE_STATUS = NOT_PROVABLE"
+    "supporting_infrastructure":["Persistence","Atomicity","Concurrency","Restart safety","Crash safety",
+        "Retry safety","Replay resistance","Build identity","Tamper evidence","Portable evidence","Independent reproduction"],
+}
+
+VCB_AUTHORIZATION_DECAY_PRINCIPLE = {
+    "schema":"VGS-AUTHORIZATION-DECAY-1.0","frozen":True,
+    "statement":(
+        "Authorization is not a permanent property. It is valid only for the exact action, "
+        "authority, scope, parameters and material conditions for which it was established, "
+        "subject to expiry, revocation, consumption and material change."
     ),
-}
-
-VCB_VALUE_CLASSIFICATIONS = {
-    "schema":  "VGS-VALUE-CLASSIFICATIONS-1.0",
-    "frozen":  True,
-    "rule":    "Use smallest classification supported by evidence. Never upgrade without evidence basis.",
-    "classifications": {
-        "DIRECT_LOSS_PREVENTION": {
-            "description":   "Only when evidence strongly supports: VCB intervention + protected consequence did not occur + alternative protection did not independently cause result + measurable loss basis exists.",
-            "strength":      "STRONGEST — requires all four conditions",
-            "never_apply_when": "alternative controls could independently have prevented it",
-        },
-        "EXPOSURE_REDUCED": {
-            "description":   "Risk/exposure was measurably reduced but full loss prevention cannot be proven.",
-            "example":       "Potential unauthorized transfer: $1M. VCB blocked commitment. Alternative controls: unknown. Classification: EXPOSURE_REDUCED — not '$1M SAVED'.",
-            "strength":      "MODERATE",
-        },
-        "COST_AVOIDANCE": {
-            "description":   "Measurable avoided costs: remediation, investigation, manual rework, compliance response, recovery. Only with documented basis.",
-            "strength":      "MODERATE — requires documented cost basis",
-        },
-        "RECOVERY_ENABLED": {
-            "description":   "Consequence may have occurred, but timely detection or intervention enabled measurable recovery. Connects to COULD=AFTER_CONSEQUENCE.",
-            "note":          "AFTER observation does not prove prevention. But may support RECOVERY_ENABLED if evidence exists.",
-            "strength":      "MODERATE",
-        },
-        "OPERATIONAL_VALUE": {
-            "description":   "Genuinely measured outcomes: reduced manual review, investigation time, reconciliation, remediation. MEASURED ≠ ESTIMATED.",
-            "strength":      "WEAKEST — most easily faked, requires actual measurements",
+    "formal":"VALID AT T0 ≠ AUTOMATICALLY VALID AT T1",
+    "commitment_check":{
+        "T0":"Examination State","T1":"Commitment Attempt",
+        "delta":"Material Delta Check",
+        "outcomes":{
+            "UNCHANGED":"Continue","MATERIAL_CHANGE":"Revalidate",
+            "AUTHORITY_INVALID":"Refuse","INSUFFICIENT_EVIDENCE":"NOT_PROVABLE",
         },
     },
 }
-
-VCB_ATTRIBUTION_STATUSES = {
-    "schema":  "VGS-ATTRIBUTION-STATUSES-1.0",
-    "frozen":  True,
-    "rule":    "VeriSigilAI must be able to say 'we know what happened but cannot honestly prove we created the entire economic benefit.' That is a STRENGTH not a weakness.",
-    "statuses": {
-        "DIRECT":        "Evidence supports VCB intervention materially caused the observed result.",
-        "CONTRIBUTORY":  "VCB was one of several identifiable controls or actors that contributed.",
-        "CORRELATED":    "Intervention and outcome are associated, but causation cannot be established.",
-        "UNDETERMINED":  "Insufficient evidence exists to assess attribution.",
-        "NOT_PROVABLE":  "Available evidence cannot support a defensible attribution claim.",
-    },
-}
-
-VCB_VALUE_OBSERVATION_BOUNDARY = {
-    "schema":  "VGS-VALUE-OBSERVATION-BOUNDARY-1.0",
-    "frozen":  True,
-    "concept": "At what point is there enough evidence to responsibly classify economic or operational value?",
-    "timeline": {
-        "T1_intervention_proven":   "VCB refuses action — intervention observed",
-        "T2_consequence_proven":    "Actuator confirms no consequence — prevention observed",
-        "T3_risk_basis_strengthened":"External investigation confirms risk condition",
-        "T4_value_measurable":      "Economic exposure or avoided cost quantified",
-    },
-    "rule": "Do not calculate value before sufficient consequence evidence exists.",
-    "fail_closed": "VALUE_STATUS = NOT_PROVABLE until evidence chain is complete",
-    "architecture": {
-        "VCB_proof_ends_at": "Proving the consequence result (WHAT)",
-        "Value_starts_at":   "External outcome examination, exposure analysis, attribution",
-        "Separation":        "VCB proof ≠ value claim. Two separate evidence chains.",
-    },
-}
-
-# CVE — Consequence Value Evidence (Reserved Interface — DO NOT BUILD YET)
-VCB_CVE_RESERVED_INTERFACE = {
-    "schema":  "VGS-CVE-RESERVED-INTERFACE-1.0",
-    "status":  "RESERVED — do not build until VCB survives P0 proof sequence and demonstrates real consequential actuator",
-    "name":    "Consequence Value Evidence",
-    "rule":    "CVE is not part of the VCB decision path. Never decides whether action is allowed. Derived AFTER protected event.",
-    "reserved_fields": {
-        "VALUE_EVIDENCE_REF":          "Reference to portable value evidence",
-        "proposed_action":             "Original proposed action",
-        "actual_action":               "Action that actually occurred",
-        "control_intervention":        "Whether VCB intervened",
-        "intervention_type":           "Type of intervention",
-        "control_position":            "BEFORE/DURING/AFTER/UNAVOIDABLE",
-        "remaining_leverage":          "Leverage remaining at intervention point",
-        "boundary_result":             "What happened at protected boundary",
-        "actuator_reached":            "Whether actuator was reached",
-        "consequence_observed":        "Whether consequence occurred",
-        "consequence_count":           "Number of durable consequences",
-        "exposure_reference":          "Reference to exposure evidence",
-        "exposure_amount_if_known":    "Amount if measurable",
-        "outcome_timestamp":           "When outcome was observed",
-        "external_outcome_reference":  "External evidence of outcome",
-        "alternative_control_evidence":"Evidence of other controls that may have acted",
-        "attribution_confidence_basis":"Basis for attribution confidence level",
-        "attribution_evidence":        "Evidence supporting attribution",
-        "attribution_status":          "DIRECT/CONTRIBUTORY/CORRELATED/UNDETERMINED/NOT_PROVABLE",
-        "value_status":                "PROVEN/MEASURED/ESTIMATED/PARTIAL/NOT_PROVABLE",
-        "value_classification":        "DIRECT_LOSS_PREVENTION/EXPOSURE_REDUCED/COST_AVOIDANCE/RECOVERY_ENABLED/OPERATIONAL_VALUE",
-        "value_amount":                "Amount if measurable",
-        "value_currency":              "Currency",
-        "value_basis":                 "Documented basis for value claim",
-    },
-    "build_trigger": "After VCB demonstrates real consequential actuator and independent reproduction",
-}
-
-# ── MATERIAL DELTA — Inside STILL (Not a new engine) ─────────────────────────
-# Doc 2: "Do not build a new Material Delta Engine. Implement as part of STILL + commit-time revalidation."
-
-VCB_MATERIAL_DELTA_SPEC = {
-    "schema":  "VGS-MATERIAL-DELTA-SPEC-1.0",
-    "frozen":  True,
-    "concept": "A decision at T0 must not automatically remain valid at T1. Capture bounded snapshot of relevant material state at admissibility, compare at commitment.",
-    "location": "Inside STILL + commit-time revalidation. NOT a separate engine.",
-    "T0_snapshot_fields": [
-        # Authority and identity
-        "authority", "acs_version", "mandate", "identity", "responsibility_binding",
-        # Action-specific
-        "action_parameters", "target", "recipient", "constraints", "risk_state",
-        # State and security
-        "security_state", "revocation_status", "expiry", "intervention_rights",
-        # Governing conditions (added per expert direction 2026-08-19)
-        "governing_conditions",   # conditions that made the determination valid
-        "policy_version",         # policy version in force at T0
-        "policy_hash",            # hash of policy document — detects supersession
-        "authority_hash",         # hash of authority artifact
-        "applicable_regulation",  # regulatory frame under which determination was made
-        "determination_basis",    # why the determination was reached
-    ],
-    "governing_conditions_rule": (
-        "Treat change in governing conditions, authority, policy version, or critical "
-        "grounding evidence as material. A determination made under one policy version "
-        "is NOT automatically valid under a superseding version. "
-        "Policy supersession → NOT_PROVABLE(reason=STALE_GROUNDING) or RE-ENTRY_REQUIRED."
-    ),
-    "comparison_at_T1": "VCB compares relevant conditions only — not monitoring entire organization",
-    "possible_results": {
-        "T0_STATE == T1_STATE":             "No material change — original determination applies",
-        "T0_STATE != T1_STATE":             "Material delta detected — must use existing fail-closed paths",
-        "GOVERNING_CONDITIONS_CHANGED":     "Policy superseded, regulation updated, or authority revoked → NOT_PROVABLE(reason=STALE_GROUNDING)",
-    },
-    "fail_closed_paths": ["ALLOW", "DENY", "RE-ENTRY_REQUIRED", "NOT_PROVABLE"],
-    "VALID_UNDER_HISTORICAL_CONDITIONS": {
-        "statement":   "A later policy, definition, ACS, or authority change must not rewrite what was true at an earlier point in time.",
-        "distinction": {
-            "VALID_UNDER_HISTORICAL_CONDITIONS": "Was admissible under conditions that existed at T0",
-            "VALID_UNDER_CURRENT_CONDITIONS":    "Is admissible under conditions that exist now",
-        },
-        "rule": "Historical evidence remains truthful. Action must be revalidated at T1 before commitment.",
-        "example": {
-            "T0": "Action admissible under ACS Version 12",
-            "T1": "ACS Version 13 exists",
-            "result": "Historical evidence: VALID_UNDER_HISTORICAL_CONDITIONS. Current: must revalidate.",
-        },
-    },
-}
-
-# ── EXAMINATION TRACE ─────────────────────────────────────────────────────────
-# Doc 2: "VCB must show what was examined without exposing private reasoning."
-
-VCB_EXAMINATION_TRACE_SPEC = {
-    "schema":  "VGS-EXAMINATION-TRACE-SPEC-1.0",
-    "frozen":  True,
-    "purpose": "Allow examiner to understand: what condition was checked, against what evidence, what result produced. NOT to expose internal reasoning.",
-    "trace_fields": {
-        "check_id":           "Unique check identifier",
-        "check_type":         "e.g. AUTHORITY_VALIDITY, ACS_VERSION_MATCH, ACTION_HASH_MATCH, REVOCATION_CHECK, MATERIAL_DELTA_CHECK",
-        "input_evidence_ref": "Reference to evidence examined",
-        "result":             "PASS/FAIL/STALE/NOT_PROVABLE",
-        "status":             "Final status of this check",
-        "timestamp":          "When check was performed",
-        "build_id":           "Build that performed the check",
-    },
-    "example_trace": [
-        {"check_type": "AUTHORITY_VALIDITY",   "result": "PASS"},
-        {"check_type": "ACS_VERSION_MATCH",    "result": "PASS"},
-        {"check_type": "ACTION_HASH_MATCH",    "result": "PASS"},
-        {"check_type": "REVOCATION_CHECK",     "result": "PASS"},
-        {"check_type": "MATERIAL_DELTA_CHECK", "result": "STALE", "final": "RE-ENTRY_REQUIRED"},
-    ],
-    "strengthens": ["WHY", "STILL"],
-}
-
-# ── REJECTED PATH EVIDENCE ────────────────────────────────────────────────────
-# Doc 2: "VCB should not preserve evidence only when something succeeds."
-
-VCB_REJECTED_PATH_SPEC = {
-    "schema":  "VGS-REJECTED-PATH-SPEC-1.0",
-    "frozen":  True,
-    "rule":    "Rejected actions must not simply disappear from evidence.",
-    "critical_distinctions": {
-        "EXAMINATION_RESULT": "What VCB decided",
-        "BOUNDARY_RESULT":    "What happened at the protected boundary",
-        "CONSEQUENCE_RESULT": "What durable effect actually occurred",
-        "NEVER_INFER":        "Never infer prevention merely from an examination result",
-    },
-    "cases": {
-        "Case_A_Strong_Prevention": {
-            "VCB":          "DENIED",
-            "ACTUATOR":     "NOT REACHED",
-            "CONSEQUENCE":  "= 0",
-            "supports":     "Stronger prevention claim",
-        },
-        "Case_B_Boundary_Failure": {
-            "VCB":          "DENIED",
-            "ACTUATOR":     "REACHED THROUGH BYPASS",
-            "CONSEQUENCE":  "= 1",
-            "classification":"Failure of protected boundary — NOT prevention",
-        },
-        "Case_C_Actuator_Failure": {
-            "VCB":          "ALLOWED",
-            "ACTUATOR":     "RECEIVED VALID AUTHORIZATION",
-            "ACTUATOR_RESULT":"FAILED",
-            "CONSEQUENCE":  "= 0",
-            "classification":"NOT VCB prevention — actuator failure",
-        },
-    },
-}
-
-# ── SIGILMARK EXTENSION SCHEMA ────────────────────────────────────────────────
-# Doc 2: "Extend only where necessary to support strengthened evidence chain."
-
-VCB_SIGILMARK_EXTENSION_SCHEMA = {
-    "schema":  "VGS-SIGILMARK-EXTENSION-1.0",
-    "frozen":  True,
-    "rule":    "Do not overload SigilMark with every raw piece of evidence. Prefer cryptographic binding to references.",
-    "new_reference_fields": {
-        "acs_version":              "ACS version under which proof was issued",
-        "acs_hash":                 "Hash of ACS document",
-        "action_hash":              "Hash of exact authorized action",
-        "material_state_reference": "Reference to T0 material state snapshot",
-        "material_delta_status":    "UNCHANGED/CHANGED/STALE/NOT_CHECKED",
-        "authority_continuity_status": "CONTINUOUS/INTERRUPTED/REVOKED/EXPIRED",
-        "examination_trace_reference": "Reference to examination trace record",
-        "control_position":         "BEFORE/DURING/AFTER/UNAVOIDABLE",
-        "boundary_result":          "REFUSED/ALLOWED/BYPASSED/ERROR",
-        "consequence_result":       "CONSEQUENCE_PREVENTED/CONSEQUENCE_OCCURRED/UNKNOWN",
-        "disclosure_level":         "FULL/SELECTIVE/COMMITTED/EXTERNAL/REDACTED",
-        "build_id":                 "Full SHA256 of build that issued this SigilMark",
-    },
-    "selective_evidence_interface": {
-        "FULL":       "All evidence fields provided",
-        "SELECTIVE":  "Specific fields provided, others withheld",
-        "COMMITTED":  "Cryptographic commitment to evidence, not raw evidence",
-        "EXTERNAL":   "Reference to externally held evidence",
-        "REDACTED":   "Evidence exists but redacted for this context",
-        "rule":       "Prepare schema now. Do not implement ZK everywhere. No unnecessary cryptographic complexity.",
-    },
-}
-
-# Update engineering evidence matrix with reserved value fields
-VCB_ENGINEERING_EVIDENCE_MATRIX["value_evidence_fields"] = {
-    "reserved_status": "RESERVED — add after P0 proof sequence complete",
-    "fields": {
-        "VALUE_EVIDENCE_STATUS":    "Overall status of value evidence",
-        "EXPOSURE_REFERENCE":       "Reference to exposure evidence",
-        "EXPOSURE_AMOUNT":          "Amount if measurable",
-        "ALTERNATIVE_CONTROL_EVIDENCE": "Evidence of other controls",
-        "INTERVENTION_ATTRIBUTION": "Attribution claim",
-        "ATTRIBUTION_BASIS":        "Basis for attribution",
-        "VALUE_CLASSIFICATION":     "DIRECT_LOSS_PREVENTION/EXPOSURE_REDUCED/COST_AVOIDANCE/RECOVERY_ENABLED/OPERATIONAL_VALUE",
-        "VALUE_AMOUNT":             "Amount if measurable",
-        "VALUE_CURRENCY":           "Currency",
-        "VALUE_BASIS":              "Documented basis",
-        "VALUE_STATUS":             "PROVEN/MEASURED/ESTIMATED/PARTIAL/NOT_PROVABLE",
-    },
-}
-
-
-# ── PA-10: REJECTED PATH EVIDENCE ────────────────────────────────────────────
-
-@app.post("/v1/adversarial/rejected-path-evidence", tags=["Adversarial Proof Gates"])
-async def adversarial_rejected_path_evidence(
-    x_api_key: Optional[str] = Header(None),
-    authorization: Optional[str] = Header(None),
-):
-    """
-    PA-10 — Rejected Path Evidence Test.
-    Doc 2 section 10: "VCB should not preserve evidence only when something succeeds."
-    For a denied consequential action, verify:
-      - Examination result recorded
-      - Boundary result recorded
-      - Actuator reachability recorded
-      - Consequence observed
-
-    Critical distinctions tested:
-      EXAMINATION_RESULT ≠ BOUNDARY_RESULT ≠ CONSEQUENCE_RESULT
-
-    Expected: rejected actions have complete evidence trail, NOT just missing records.
-    """
-    require_api_key(x_api_key, authorization)
-    build = _get_full_build_identity()
-    ts    = datetime.now(timezone.utc).isoformat()
-    action = {"type": "rejected_test", "amount": 999, "recipient": "ACCOUNT-PA10"}
-
-    results = []
-
-    # Test Case A: Issue then consume then replay (rejected path has evidence)
-    try:
-        vcc = issue_vcc_safe(
-            vcb_decision_id   = f"PA10-{ts}",
-            action_payload    = action,
-            consequence_type  = "TEST",
-            material_bounds   = {"max_amount": 5000},
-            authority_hash    = _vcc_hash({"auth": "test-pa10"}),
-            policy_hash       = _vcc_hash({"policy": "v1"}),
-            state_hash        = _vcc_hash({"state": "active"}),
-            enforcement_point = "test-actuator",
-            ttl_seconds       = 60,
-        )
-        vcc_id = vcc.get("vcc_id", "UNKNOWN")
-
-        # First use — allowed
-        r_first = verify_vcc_independent(vcc, presented_action=action,
-                                          presented_enforcement_point="test-actuator")
-        first_result = r_first.get("result")
-
-        # Second use — rejected (already consumed)
-        r_second = verify_vcc_independent(vcc, presented_action=action,
-                                           presented_enforcement_point="test-actuator")
-        second_result = r_second.get("result")
-
-        rejected_has_evidence = bool(r_second.get("failures") or second_result != "VALID")
-
-        results.append({
-            "case":                "REPLAY_AFTER_CONSUMPTION",
-            "examination_result":  second_result,
-            "boundary_result":     "ACTUATOR_NOT_REACHED",
-            "actuator_reached":    False,
-            "consequence_result":  "CONSEQUENCE = 0",
-            "rejected_has_evidence": rejected_has_evidence,
-            "failure_reasons":     r_second.get("failures", []),
-            "evidence_recorded":   True,
-            "case_type":           "A_STRONG_PREVENTION",
-        })
-    except Exception as e:
-        results.append({"case": "REPLAY_AFTER_CONSUMPTION", "error": str(e)})
-
-    # Test Case B: No proof at all
-    try:
-        r_no_proof = verify_vcc_independent({}, presented_action=action,
-                                             presented_enforcement_point="test-actuator")
-        no_proof_result = r_no_proof.get("result")
-        results.append({
-            "case":                "NO_PROOF",
-            "examination_result":  no_proof_result,
-            "boundary_result":     "ACTUATOR_NOT_REACHED",
-            "actuator_reached":    False,
-            "consequence_result":  "CONSEQUENCE = 0",
-            "rejected_has_evidence": True,
-            "evidence_recorded":   True,
-            "case_type":           "A_STRONG_PREVENTION",
-        })
-    except Exception as e:
-        results.append({"case": "NO_PROOF", "error": str(e), "rejected_has_evidence": True})
-
-    all_evidence_recorded = all(r.get("evidence_recorded", False) for r in results)
-    no_consequence = all(r.get("consequence_result") == "CONSEQUENCE = 0" for r in results if "consequence_result" in r)
-
-    return {
-        "schema":               "VGS-PA-10-REJECTED-PATH-EVIDENCE-1.0",
-        "test_id":              "PA-10",
-        "build_hash":           build["sha256_full"][:32],
-        "cases_tested":         results,
-        "all_evidence_recorded":all_evidence_recorded,
-        "no_consequence":       no_consequence,
-        "verdict":              "PASS" if all_evidence_recorded and no_consequence else "FAIL",
-        "critical_distinctions": VCB_REJECTED_PATH_SPEC["critical_distinctions"],
-        "expert_rule":          "Rejected actions must not simply disappear from evidence.",
-        "timestamp":            ts,
-    }
-
-
-@app.get("/v1/engineering/value-evidence-spec", tags=["Engineering Gates 0-7"])
-async def engineering_value_evidence_spec():
-    """
-    Value Evidence Specification — Reserved Interface.
-    Doc 1: "Integrate a Value Evidence discipline, not a Value Engine."
-
-    Exposes:
-      - 3 Value Invariants (BLOCKED ≠ SAVED, INTERVENTION ≠ VALUE, CORRELATION ≠ ATTRIBUTION)
-      - 5 Value Classifications
-      - 5 Attribution Statuses
-      - Value Observation Boundary
-      - CVE Reserved Interface
-      - Material Delta spec
-      - Examination Trace spec
-      - Rejected Path spec
-      - SigilMark extension schema
-      - Selective Evidence Interface
-
-    STATUS: RESERVED — do not build CVE analytics until P0 proof sequence complete.
-    No auth required.
-    """
-    build = _get_full_build_identity()
-    return {
-        "schema":                       "VGS-VALUE-EVIDENCE-SPEC-1.0",
-        "build_identity":               build,
-        "status":                       "RESERVED_INTERFACE — not yet operational",
-        "rule":                         "VALUE does not control actions. Derived AFTER consequence. Never part of VCB decision path.",
-        "value_invariants":             VCB_VALUE_INVARIANTS,
-        "value_classifications":        VCB_VALUE_CLASSIFICATIONS,
-        "attribution_statuses":         VCB_ATTRIBUTION_STATUSES,
-        "value_observation_boundary":   VCB_VALUE_OBSERVATION_BOUNDARY,
-        "cve_reserved_interface":       VCB_CVE_RESERVED_INTERFACE,
-        "public_claim_discipline":      VCB_PUBLIC_CLAIM_DISCIPLINE,
-        "material_delta_spec":          VCB_MATERIAL_DELTA_SPEC,
-        "examination_trace_spec":       VCB_EXAMINATION_TRACE_SPEC,
-        "rejected_path_spec":           VCB_REJECTED_PATH_SPEC,
-        "sigilmark_extension":          VCB_SIGILMARK_EXTENSION_SCHEMA,
-        "phase_sequence": {
-            "Phase_1_current": "Complete P0 proof obligations — V-002, crash, actuator, independent reproduction",
-            "Phase_2_next":    "Material Delta inside STILL, Examination Trace, Rejected Path, Historical/Current validity, SigilMark references",
-            "Phase_3_after":   "Real consequential actuator demonstration",
-            "Phase_4_last":    "First CVE prototype — only when real evidence exists",
-        },
-        "final_terrain": (
-            "VeriSigilAI provides an independent verification boundary for consequential AI actions. "
-            "Not a dashboard. Not logs. Not policies. "
-            "The core question: Could this exact consequential action legitimately cross the protected boundary "
-            "under the conditions that actually existed — and if not, did the boundary prevent the consequence?"
-        ),
-        "timestamp":                    datetime.now(timezone.utc).isoformat(),
-    }
-
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# GROUNDING & CONSISTENCY CONTROL — Locked into frozen VCB architecture
-# Source: Engineering direction 2026-08-19
-# Rule: NOT a new engine, layer, or product.
-# Rule: Strict application of existing primitives — Proof Integrity Gate,
-#       Evidence Provenance, Material Delta, NOT_PROVABLE, independent reconstruction.
-# Rule: No new architectural layer. Strengthens existing paths only.
-# ══════════════════════════════════════════════════════════════════════════════
-
-# ── EVIDENCE GROUNDING STATUS SCHEMA (Section 3.1) ───────────────────────────
-
-
-# ── PUBLIC CLAIM DISCIPLINE — Frozen (Document Section 2) ────────────────────
-# Source: Engineering direction 2026-08-19
-# "Assume the post will be attacked by lawyers, auditors, and competitors.
-#  Every sentence must survive that attack."
-
-VCB_PUBLIC_CLAIM_DISCIPLINE = {
-    "schema":  "VGS-PUBLIC-CLAIM-DISCIPLINE-1.0",
-    "frozen":  True,
-    "mandatory_pre_post_checks": [
-        "Fact-check every claim against locked architecture and current implementation evidence",
-        "Never claim VCB is a full EU AI Act compliance platform",
-        "Never claim VCB is a System Passport",
-        "Never claim VCB is a replacement for legal advice or conformity assessment",
-        "Never claim 'we make you compliant'",
-        "If a capability is not yet demonstrated on live actuator + independent verifier, mark as direction/research not current product fact",
-        "Assume the post will be attacked by lawyers, auditors, and competitors",
-        "Every sentence must survive that attack",
-    ],
-    "approved_language": {
-        "safe_phrases": [
-            "can help organizations demonstrate...",
-            "is designed to establish...",
-            "produces evidence of...",
-            "is being engineered for...",
-        ],
-        "approved_claims": [
-            "VCB is being engineered for the narrow boundary where a consequential AI action crosses into the real world",
-            "VCB can help organizations demonstrate that the authority and governing conditions supporting a determination are still valid at the point of commitment",
-            "VCB is designed to establish a portable proof package that can be independently examined when the original determination is under pressure from change",
-            "VCB returns an explicit NOT_PROVABLE state when required evidence no longer holds — this is a feature, not a failure",
-            "VCB focuses on making the evidence around high-consequence AI actions clearer, more timely, and more independently examinable",
-            "VCB does not replace legal advice, conformity assessment, or a full AI Act governance platform",
-        ],
-        "never_say": [
-            "VCB makes you EU AI Act compliant",
-            "VCB is a full EU AI Act compliance platform",
-            "VCB is a System Passport",
-            "VCB replaces legal advice or conformity assessment",
-            "VCB is independently verified (requires P0-12 to pass first)",
-            "VCB prevents unauthorized AI actions (requires real actuator + P0-11 proven)",
-            "VCB is production-proven (PRODUCTION_CLAIM_ALLOWED=False until all P0 gates pass)",
-        ],
-    },
-    "approved_eu_ai_act_post_baseline": (
-        "EU AI Act compliance is becoming a living evidence problem — not a one-time checklist problem. "
-        "Organisations are discovering that a determination made six months ago can quietly become unreliable "
-        "when the model, data, deployment context, or guidance changes. "
-        "The question is shifting from 'Are we compliant?' to 'Can we still prove why we believe "
-        "a specific determination remains valid — and what happens when the supporting conditions change?' "
-        "VeriSigilAI's VCB is being engineered for exactly that narrow boundary. "
-        "It does not replace legal advice, conformity assessment, or a full AI Act governance platform. "
-        "It is evidence infrastructure focused on the consequential transition."
-    ),
-    "what_must_NOT_be_built": [
-        "obligation-mapping module",
-        "role classification module",
-        "FRIA tool",
-        "technical-documentation generator",
-        "EU AI Act compliance engine",
-        "System Passport product",
-        "full compliance platform",
-    ],
-    "current_honest_status": {
-        "PRODUCTION_CLAIM_ALLOWED": False,
-        "live_proof_status":        "V-001 D_RESTART_DISTRIBUTED_TESTED. V-002 C_ADVERSARIALLY_TESTED. All others open.",
-        "external_verification":    "P0-12 OPEN — no independent external reproduction yet",
-        "real_actuator":            "OPEN — no live consequential actuator demonstrated yet",
-    },
-}
-
-
-VCB_EVIDENCE_GROUNDING_SCHEMA = {
-    "schema":  "VGS-EVIDENCE-GROUNDING-1.0",
-    "frozen":  True,
-    "purpose": (
-        "Extend every material evidence item with grounding status. "
-        "Insufficient, contradictory, or non-reconstructable grounding is a "
-        "first-class barrier to PROVEN — exactly as revoked authority, material "
-        "action mutation, and stale policy already are."
-    ),
-    "fields": {
-        "grounding_status": {
-            "values": ["VERIFIED","UNVERIFIED","STALE","CONTRADICTORY","INSUFFICIENT","NOT_APPLICABLE"],
-            "rule":   "CONTRADICTORY or STALE in any required item → NOT_PROVABLE at Proof Integrity Gate",
-        },
-        "grounding_method": {
-            "values": [
-                "EXTERNAL_SOURCE",
-                "INTERNAL_ATTESTATION",
-                "AUTHORITATIVE_SYSTEM",
-                "CRYPTOGRAPHIC_PROOF",
-                "HUMAN_ATTESTATION",
-                "NONE",
-            ],
-            "rule": "NONE or INTERNAL_ATTESTATION for critical evidence → independence threshold check required",
-        },
-        "grounding_timestamp":  "When grounding was last verified",
-        "grounding_source_ref": "Reference to the authoritative source",
-        "consistency_check_id": "ID of the consistency check that evaluated this evidence",
-    },
-    "independence_levels": {
-        "LEVEL_0": "No independent grounding — self-attested by actor under examination",
-        "LEVEL_1": "Internal system attestation — same trust domain",
-        "LEVEL_2": "External authoritative system",
-        "LEVEL_3": "Cryptographic proof — independently verifiable",
-        "LEVEL_4": "Human attestation from independent principal",
-        "rule":    "Consequence Contracts may specify minimum independence level. Below threshold → NOT_PROVABLE.",
-    },
-    "what_vcb_does_NOT_claim": (
-        "VCB does not make AI answers correct. "
-        "VCB refuses to call a claim PROVEN when grounding is inadequate. "
-        "No Fact-Checking Engine. No Consistency Engine. No model chain-of-thought inspection. "
-        "No continuous web scraping. No general-purpose retrieval inside VCB."
-    ),
-}
-
-# ── PROOF INTEGRITY GATE — FOUR CHECKS (Section 3.2) ─────────────────────────
-
-VCB_PROOF_INTEGRITY_GATE = {
-    "schema":  "VGS-PROOF-INTEGRITY-GATE-1.0",
-    "frozen":  True,
-    "purpose": "Before allowing PROVEN, evaluate all four checks. If any fails → NOT_PROVABLE with explicit reason.",
-    "four_checks": {
-        "CHECK_1_EVIDENCE_PRESENT": {
-            "question":  "Are all required evidence items present?",
-            "fail_code": "NOT_PROVABLE(reason=INSUFFICIENT_GROUNDING)",
-            "pass_when": "All items required by Consequence Contract are present",
-        },
-        "CHECK_2_NO_CONTRADICTION": {
-            "question":  "Do any required items carry grounding_status = CONTRADICTORY or STALE?",
-            "fail_codes":["NOT_PROVABLE(reason=CONTRADICTORY_EVIDENCE)","NOT_PROVABLE(reason=STALE_GROUNDING)"],
-            "pass_when": "No required item is CONTRADICTORY or STALE",
-        },
-        "CHECK_3_INDEPENDENCE_THRESHOLD": {
-            "question":  "Is the independence level of critical evidence below the threshold required by the Consequence Contract?",
-            "fail_code": "NOT_PROVABLE(reason=INCONSISTENT_SOURCES)",
-            "pass_when": "All critical evidence meets or exceeds required independence level",
-        },
-        "CHECK_4_RECONSTRUCTABLE": {
-            "question":  "Can an independent verifier reconstruct the same classification from the Proof Passport alone?",
-            "fail_code": "NOT_PROVABLE(reason=GROUNDING_NOT_RECONSTRUCTABLE)",
-            "pass_when": "Proof Passport + public artifacts → same result without VCB runtime or private keys",
-        },
-    },
-    "six_month_portability_rule": {
-        "statement": (
-            "A Proof Passport produced today must be independently classifiable "
-            "(PROVEN / NOT_PROVABLE) by an external party six months later "
-            "without requiring the live VCB service, VCB database, private keys, or runtime."
-        ),
-        "required_passport_fields": [
-            "full SHA256 build identity",
-            "policy_hash at time of determination",
-            "authority_hash at time of determination",
-            "governing_conditions snapshot",
-            "all NOT_PROVABLE reason codes (machine-readable)",
-            "grounding_status per evidence item",
-            "timestamps on all evidence",
-            "action_hash binding",
-            "consequence_result",
-        ],
-        "rule": (
-            "Every NOT_PROVABLE reason that relates to staleness or changed conditions "
-            "must be machine-readable and appear in the Proof Passport. "
-            "An examiner six months later must see WHY a claim is PROVEN or NOT_PROVABLE "
-            "from the portable evidence package alone."
-        ),
-        "test": "P0-12 — independent external reproduction without live VCB service",
-    },
-    "canonical_reason_codes": [
-        "NOT_PROVABLE(reason=INSUFFICIENT_GROUNDING)",
-        "NOT_PROVABLE(reason=CONTRADICTORY_EVIDENCE)",
-        "NOT_PROVABLE(reason=STALE_GROUNDING)",
-        "NOT_PROVABLE(reason=INCONSISTENT_SOURCES)",
-        "NOT_PROVABLE(reason=GROUNDING_NOT_RECONSTRUCTABLE)",
-    ],
-    "success_criteria": (
-        "A claim reaches PROVEN only when: "
-        "(1) Required evidence exists. "
-        "(2) Critical evidence meets required independence and grounding thresholds. "
-        "(3) No material contradiction or staleness detected in required grounding. "
-        "(4) Independent party can reconstruct the same classification from portable evidence package. "
-        "Otherwise: explicit NOT_PROVABLE with precise reason."
-    ),
-    "engineering_directive": (
-        "Strengthen the existing Proof Integrity Gate and evidence model so that insufficient, "
-        "contradictory, or non-reconstructable grounding is treated as a first-class barrier to "
-        "PROVEN — exactly as revoked authority, material action mutation, and stale policy — "
-        "without creating any new architectural layer."
-    ),
-}
-
-# Update material delta spec to include grounding extension
-VCB_MATERIAL_DELTA_SPEC["grounding_extension"] = {
-    "rule":   "Treat material change in grounding evidence the same way as material change in authority, policy, or state.",
-    "T0_grounding_snapshot": {
-        "capture_at": "When admissibility is first established (T0)",
-        "fields":     ["grounding_status", "grounding_method", "grounding_timestamp", "grounding_source_ref"],
-    },
-    "T1_grounding_recheck": {
-        "evaluate_at": "Commitment boundary (T1)",
-        "check":       "Has grounding_status degraded to STALE, CONTRADICTORY, or INSUFFICIENT?",
-        "degradation_result": "NOT_PROVABLE(reason=STALE_GROUNDING) or NOT_PROVABLE(reason=CONTRADICTORY_EVIDENCE)",
-    },
-}
-
-# Update rejected path spec to include grounding failures
-VCB_REJECTED_PATH_SPEC["grounding_failure_capture"] = {
-    "rule":   "When a claim is refused because of grounding failure, record which items failed.",
-    "capture": [
-        "evidence_items_that_failed_grounding",
-        "consistency_checks_that_failed",
-        "whether_actuator_was_reached",
-        "consequence_count (must be 0 if enforcement held)",
-    ],
-    "purpose": "Turns 'the AI was too fast / didn't check' into reconstructable boundary evidence.",
-}
-
-
-def make_grounding_record(
-    grounding_status: str,
-    grounding_method: str,
-    source_ref: str = "",
-    consistency_check_id: str = "",
-) -> dict:
-    """
-    Helper: produce a standardised grounding evidence object.
-    Every endpoint attaches grounding without duplicating logic.
-    Claude's stronger addition: reusable across all evidence-producing endpoints.
-
-    grounding_status: VERIFIED | UNVERIFIED | STALE | CONTRADICTORY | INSUFFICIENT | NOT_APPLICABLE
-    grounding_method: EXTERNAL_SOURCE | INTERNAL_ATTESTATION | AUTHORITATIVE_SYSTEM |
-                      CRYPTOGRAPHIC_PROOF | HUMAN_ATTESTATION | NONE
-    """
-    valid_statuses = ["VERIFIED","UNVERIFIED","STALE","CONTRADICTORY","INSUFFICIENT","NOT_APPLICABLE"]
-    valid_methods  = ["EXTERNAL_SOURCE","INTERNAL_ATTESTATION","AUTHORITATIVE_SYSTEM",
-                      "CRYPTOGRAPHIC_PROOF","HUMAN_ATTESTATION","NONE"]
-    if grounding_status not in valid_statuses:
-        grounding_status = "UNVERIFIED"
-    if grounding_method not in valid_methods:
-        grounding_method = "NONE"
-    return {
-        "grounding_status":     grounding_status,
-        "grounding_method":     grounding_method,
-        "grounding_timestamp":  datetime.now(timezone.utc).isoformat(),
-        "grounding_source_ref": source_ref,
-        "consistency_check_id": consistency_check_id or f"CC-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}",
-    }
-
-
-def evaluate_proof_integrity(
-    evidence_items: list,
-    required_items: list,
-    consequence_contract: dict,
-    proof_passport_ref: str = "",
-) -> dict:
-    """
-    Claude's stronger addition: runs all four Proof Integrity Gate checks in one call.
-    Reusable by any endpoint that needs to gate a PROVEN claim.
-
-    Returns: {
-        "all_checks_passed": bool,
-        "result": "PROVEN" | "NOT_PROVABLE",
-        "reason": reason_code | None,
-        "checks": {check_name: {passed: bool, reason: str}},
-    }
-    """
-    checks_result = {}
-    first_failure = None
-
-    # CHECK 1: All required evidence items present
-    present_ids = {item.get("evidence_id","") for item in evidence_items}
-    missing = [r for r in required_items if r not in present_ids]
-    check1_pass = len(missing) == 0
-    checks_result["CHECK_1_EVIDENCE_PRESENT"] = {
-        "passed": check1_pass,
-        "reason": None if check1_pass else f"Missing required items: {missing}",
-    }
-    if not check1_pass and not first_failure:
-        first_failure = "NOT_PROVABLE(reason=INSUFFICIENT_GROUNDING)"
-
-    # CHECK 2: No CONTRADICTORY or STALE grounding in required items
-    required_evidence = [item for item in evidence_items if item.get("evidence_id","") in required_items]
-    contradictory = [item.get("evidence_id") for item in required_evidence
-                     if item.get("grounding_status") == "CONTRADICTORY"]
-    stale = [item.get("evidence_id") for item in required_evidence
-             if item.get("grounding_status") == "STALE"]
-    check2_pass = not contradictory and not stale
-    reason2 = None
-    if contradictory:
-        reason2 = f"CONTRADICTORY_EVIDENCE in: {contradictory}"
-        if not first_failure: first_failure = "NOT_PROVABLE(reason=CONTRADICTORY_EVIDENCE)"
-    elif stale:
-        reason2 = f"STALE_GROUNDING in: {stale}"
-        if not first_failure: first_failure = "NOT_PROVABLE(reason=STALE_GROUNDING)"
-    checks_result["CHECK_2_NO_CONTRADICTION"] = {"passed": check2_pass, "reason": reason2}
-
-    # CHECK 3: Independence threshold
-    min_independence = consequence_contract.get("min_independence_level", 1)
-    independence_map = {
-        "CRYPTOGRAPHIC_PROOF": 3, "HUMAN_ATTESTATION": 4,
-        "EXTERNAL_SOURCE": 2, "AUTHORITATIVE_SYSTEM": 2,
-        "INTERNAL_ATTESTATION": 1, "NONE": 0,
-    }
-    low_independence = [
-        item.get("evidence_id") for item in required_evidence
-        if independence_map.get(item.get("grounding_method","NONE"), 0) < min_independence
-    ]
-    check3_pass = len(low_independence) == 0
-    checks_result["CHECK_3_INDEPENDENCE_THRESHOLD"] = {
-        "passed": check3_pass,
-        "reason": f"INCONSISTENT_SOURCES — below threshold: {low_independence}" if not check3_pass else None,
-    }
-    if not check3_pass and not first_failure:
-        first_failure = "NOT_PROVABLE(reason=INCONSISTENT_SOURCES)"
-
-    # CHECK 4: Reconstructable
-    check4_pass = bool(proof_passport_ref)
-    checks_result["CHECK_4_RECONSTRUCTABLE"] = {
-        "passed": check4_pass,
-        "reason": "GROUNDING_NOT_RECONSTRUCTABLE — no proof_passport_ref provided" if not check4_pass else None,
-    }
-    if not check4_pass and not first_failure:
-        first_failure = "NOT_PROVABLE(reason=GROUNDING_NOT_RECONSTRUCTABLE)"
-
-    all_pass = all(c["passed"] for c in checks_result.values())
-    return {
-        "all_checks_passed": all_pass,
-        "result":            "PROVEN" if all_pass else "NOT_PROVABLE",
-        "reason":            first_failure,
-        "checks":            checks_result,
-        "gate_spec":         "VGS-PROOF-INTEGRITY-GATE-1.0",
-    }
-
-
-@app.post("/v1/proof/integrity-check", tags=["Formal Governance"])
-async def proof_integrity_check(
-    evidence_items: list = [],
-    required_items: list = [],
-    consequence_contract: dict = {},
-    proof_passport_ref: str = "",
-    x_api_key: Optional[str] = Header(None),
-    authorization: Optional[str] = Header(None),
-):
-    """
-    Proof Integrity Gate — Live Check (Claude's stronger addition).
-    Section 3.2: Before allowing PROVEN, evaluate all four checks.
-
-    Accepts:
-      evidence_items: list of evidence objects with grounding_status/grounding_method fields
-      required_items: list of evidence_id values that must be present
-      consequence_contract: {"min_independence_level": 1-4}
-      proof_passport_ref: reference to portable proof passport
-
-    Returns: PROVEN or NOT_PROVABLE with precise reason code.
-    This endpoint lets external parties submit a VCC and get
-    the four-gate evaluation immediately — making the gate executable.
-    """
-    require_api_key(x_api_key, authorization)
-    build  = _get_full_build_identity()
-    ts     = datetime.now(timezone.utc).isoformat()
-
-    result = evaluate_proof_integrity(
-        evidence_items=evidence_items,
-        required_items=required_items,
-        consequence_contract=consequence_contract,
-        proof_passport_ref=proof_passport_ref,
-    )
-
-    return {
-        "schema":          "VGS-PROOF-INTEGRITY-CHECK-1.0",
-        "build_hash":      build["sha256_full"][:32],
-        "result":          result["result"],
-        "reason":          result["reason"],
-        "all_checks":      result["checks"],
-        "gate_spec":       VCB_PROOF_INTEGRITY_GATE,
-        "grounding_schema":VCB_EVIDENCE_GROUNDING_SCHEMA,
-        "rule":            (
-            "No consequential claim may reach PROVEN unless evidence is current, "
-            "non-contradictory, sufficiently independent, and independently reconstructable. "
-            "Absence of contradiction is not proof of correctness."
-        ),
-        "timestamp":       ts,
-    }
-
-
-@app.get("/v1/engineering/grounding-spec", tags=["Engineering Gates 0-7"])
-async def engineering_grounding_spec():
-    """
-    Evidence Grounding & Consistency Control Specification.
-    Exposes: grounding schema, proof integrity gate spec, 5 new NOT_PROVABLE codes,
-    material delta grounding extension, rejected path grounding capture,
-    and the make_grounding_record / evaluate_proof_integrity helpers.
-
-    This is an integration into existing frozen primitives.
-    NOT a new engine, layer, or product.
-    No auth required.
-    """
-    build = _get_full_build_identity()
-    return {
-        "schema":               "VGS-GROUNDING-SPEC-1.0",
-        "build_identity":       build,
-        "integration_rule":     "This strengthens existing Proof Integrity Gate and evidence model. No new architectural layer.",
-        "grounding_schema":     VCB_EVIDENCE_GROUNDING_SCHEMA,
-        "proof_integrity_gate": VCB_PROOF_INTEGRITY_GATE,
-        "material_delta_grounding": VCB_MATERIAL_DELTA_SPEC.get("grounding_extension",{}),
-        "rejected_path_grounding":  VCB_REJECTED_PATH_SPEC.get("grounding_failure_capture",{}),
-        "new_not_provable_codes": VCB_PROOF_INTEGRITY_GATE["canonical_reason_codes"],
-        "make_grounding_record_helper": {
-            "purpose": "Standardised grounding evidence object — reusable across all evidence-producing endpoints",
-            "inputs":  ["grounding_status","grounding_method","source_ref","consistency_check_id"],
-        },
-        "evaluate_proof_integrity_helper": {
-            "purpose": "Runs all four gate checks in one call. Reusable by any endpoint gating a PROVEN claim.",
-            "endpoint": "POST /v1/proof/integrity-check",
-        },
-        "implementation_sequence": [
-            "1. Finish existing P0 work (real actuator, V-002, fail-closed, independent reproduction)",
-            "2. Add grounding_status fields to evidence schema (schema present now)",
-            "3. Extend Proof Integrity Gate with four checks (gate spec present now, endpoint live)",
-            "4. Add 5 new NOT_PROVABLE reason codes (present now in gate spec)",
-            "5. Extend Material Delta to include critical grounding evidence (extension present now)",
-            "6. Ensure rejected-path captures grounding failures (extension present now)",
-            "7. Verify offline Proof Passport + independent verifier surfaces same grounding failures",
-        ],
-        "what_is_NOT_added": [
-            "No Fact-Checking Engine",
-            "No Consistency Engine",
-            "No new public product or terminology",
-            "No model chain-of-thought inspection",
-            "No continuous web scraping",
-            "No general-purpose retrieval inside VCB",
-            "No claim that VCB makes AI answers correct",
-        ],
-        "timestamp":            datetime.now(timezone.utc).isoformat(),
-    }
-
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# PROJECT MATURITY — Six Mandatory Review Questions + False-Proof Rate + Website
-# Source: Full Recommendation 2026-08-19 — "Next Level of the Project"
-# These questions must appear in every engineering review.
-# ══════════════════════════════════════════════════════════════════════════════
-
-VCB_FALSE_PROOF_RATE = {
-    "schema":  "VGS-FALSE-PROOF-RATE-1.0",
-    "frozen":  True,
-    "definition": (
-        "False-Proof Rate: the rate at which the system returns PROVEN "
-        "when the underlying evidence does not actually support the claim. "
-        "The goal is NOT to maximize PROVEN results. "
-        "The goal is to minimize False-Proof Rate — correct proof determination under attack."
-    ),
-    "measurement_sequence": [
-        "1. Establish controlled payment testbed (Payment Destination Change actuator)",
-        "2. Run clean path → record PROVEN result with full evidence",
-        "3. Run material mutation ($50k → $75k) → must return NOT_PROVABLE(reason=CONTRADICTORY_EVIDENCE)",
-        "4. Run authority revocation → must return NOT_PROVABLE(reason=STALE_GROUNDING)",
-        "5. Run governing-conditions change → must return NOT_PROVABLE(reason=STALE_GROUNDING) or RE-ENTRY_REQUIRED",
-        "6. Run stale grounding → must return NOT_PROVABLE(reason=STALE_GROUNDING)",
-        "7. Run contradiction in evidence → must return NOT_PROVABLE(reason=CONTRADICTORY_EVIDENCE)",
-        "8. False-Proof Rate = (PROVEN results on attack paths) / (total attack path attempts)",
-    ],
-    "target": "False-Proof Rate = 0 on all tested attack paths before production designation",
-    "status": "NOT_YET_MEASURED — requires real controlled actuator and live infrastructure",
-    "engineering_rule": (
-        "Optimize for correct proof determination and low False-Proof Rate, "
-        "not maximum PROVEN results. A system that says PROVEN when it should say "
-        "NOT_PROVABLE is more dangerous than one that says NOT_PROVABLE when uncertain."
-    ),
-}
-
-VCB_INDEPENDENCE_DEFINITION = {
-    "schema":  "VGS-INDEPENDENCE-DEFINITION-1.0",
-    "frozen":  True,
-    "question": "When we say 'independent', is it truly independent of VeriSigilAI infrastructure?",
-    "definition": (
-        "Independent verification means an external party can classify a Proof Passport "
-        "as PROVEN or NOT_PROVABLE using ONLY: "
-        "(1) the portable Proof Passport, "
-        "(2) the public verification key, "
-        "(3) the published verification procedure. "
-        "They must NOT need: VCB live service, VCB database, VCB private keys, "
-        "VCB runtime, any VeriSigilAI infrastructure, or any undisclosed information."
-    ),
-    "test": "P0-12 — give external verifier only passport + public key + instructions. Zero infrastructure access.",
-    "current_status": "OPEN — P0-12 not yet executed",
-    "what_true_independence_requires": [
-        "Proof Passport contains all required fields (policy_hash, authority_hash, governing_conditions, action_hash, timestamps, NOT_PROVABLE reason codes)",
-        "Public key is published and stable",
-        "Verification procedure is published and executable without VCB",
-        "Verifier reaches same PROVEN/NOT_PROVABLE conclusion as VCB did",
-        "Verifier can identify WHY (correct reason code) when NOT_PROVABLE",
-    ],
-    "Alkama_Run_4": "The CLARA Run 4 is the first candidate for P0-12 — present passport only, verify offline",
-    "Harold_OMNIX": "Harold's adversarial challenge is the second candidate",
-}
-
-VCB_SIX_MANDATORY_REVIEW_QUESTIONS = {
-    "schema":  "VGS-SIX-REVIEW-QUESTIONS-1.0",
-    "frozen":  True,
-    "rule":    "These six questions must appear in every engineering review. No exception.",
-    "questions": {
-        "Q1_PORTABILITY": {
-            "question": "Can an external party, given only the Proof Passport and public keys, reach the same PROVEN/NOT_PROVABLE conclusion six months later?",
-            "test":     "P0-12 offline independent classification",
-            "status":   "OPEN",
-        },
-        "Q2_FALSE_PROOF_RATE": {
-            "question": "What is the measured False-Proof Rate on the controlled payment testbed?",
-            "test":     "Run all 5 attack paths on controlled actuator, count incorrect PROVEN results",
-            "status":   "NOT_YET_MEASURED",
-        },
-        "Q3_ALLOW_PATHS": {
-            "question": "Which ALLOW paths still exist outside the governed boundary?",
-            "test":     "P0-11E alternate path attack — 7 alternate routes tested",
-            "status":   "OPEN — requires deployment boundary verification",
-        },
-        "Q4_GOVERNING_CONDITIONS": {
-            "question": "Does a material change in governing conditions (policy_hash, authority_hash, applicable regulation) correctly force NOT_PROVABLE or RE-ENTRY_REQUIRED at commitment?",
-            "test":     "PA-06 stale authorization + material delta governing conditions test",
-            "status":   "OPEN — material delta spec defined, live test pending",
-        },
-        "Q5_TCB": {
-            "question": "Is the Trusted Computing Base still minimal, or has it silently grown?",
-            "definition":"TCB = every component whose correct operation is required for the proof to be valid",
-            "rule":     "Adding new libraries, services, or infrastructure into the proof path expands TCB without announcement. Review after every major session.",
-            "status":   "REQUIRES REVIEW — codebase at 107K lines, dependencies should be audited",
-        },
-        "Q6_INDEPENDENCE": {
-            "question": "When we say 'independent', is it truly independent of VeriSigilAI infrastructure?",
-            "definition":"See VCB_INDEPENDENCE_DEFINITION",
-            "test":     "P0-12 — verifier gets only passport + public key + published procedure",
-            "status":   "OPEN — P0-12 not yet executed",
-        },
-    },
-}
-
-VCB_WEBSITE_REFINEMENT_DIRECTION = {
-    "schema":  "VGS-WEBSITE-REFINEMENT-1.0",
-    "frozen":  True,
-    "source":  "Expert recommendation 2026-08-19",
-    "problem": (
-        "Current website presents a broader platform story than the locked VCB terrain. "
-        "This creates over-claim risk. Every sentence on the site must survive attack "
-        "by lawyers, auditors, and competitors."
-    ),
-    "misalignment_summary": {
-        "website_says":        "Broad 'Prevent Unauthorized AI Actions', multi-layer constitutional platform",
-        "locked_terrain_says": "Narrow: Verifiable Consequence Boundary + Proof Integrity for consequential actions",
-        "website_says_2":      "Strong present-tense compliance claims ('EU AI Act Aligned', 'Mapped', etc.)",
-        "locked_says_2":       "Only carefully bounded language; never 'makes you compliant'",
-    },
-    "priority_sequence": {
-        "WEEK_1_HOMEPAGE": {
-            "action":    "Claim discipline pass — text only, no visual redesign",
-            "headline":  "Evidence infrastructure for consequential AI actions.",
-            "subheadline":"VCB helps organizations establish — or correctly refuse to establish — whether a specific consequential AI action remained authorized and evidenced under the conditions that governed it.",
-            "disclaimer":"Visible: does not replace legal advice, conformity assessment, or a full AI Act governance platform",
-            "badges":    "Move or soften 'EU AI Act Aligned/Mapped' badges — prefer 'designed to support evidence needs arising under...'",
-        },
-        "WEEK_2_DEMOS": {
-            "action":    "Major narrowing of demos.html",
-            "lead_with": "One clear guided journey: Payment Destination Change (controlled consequential action)",
-            "show_only": [
-                "Exact action binding",
-                "Commit-time / Material Delta revalidation",
-                "Authority or governing-conditions change → NOT_PROVABLE",
-                "Proof Passport generation + offline/independent verification concept",
-            ],
-            "archive":   "Wide collection of secondary demos → 'Advanced/Experimental/Research' section",
-            "end_of_demo":"Every demo ends with: what was actually proven vs what remains NOT_PROVABLE or NOT_IMPLEMENTED",
-        },
-        "WEEK_3_ALL_PAGES": {
-            "action":    "Align all pages with VCB_PUBLIC_CLAIM_DISCIPLINE approved language",
-            "add":       "Short visible 'Current Demonstrated Status' note on key pages",
-        },
-        "AFTER_ACTUATOR_P0_12": {
-            "action":    "Only then strengthen any stronger market claims",
-        },
-    },
-    "four_question_story": {
-        "visible_on_site": True,
-        "questions": [
-            "WHY — Why was this exact action admissible?",
-            "STILL — Did the material conditions remain valid at commitment?",
-            "COULD — Could the boundary actually refuse?",
-            "WHAT — What exact action and consequence occurred?",
-        ],
-        "hero_artifact": "Proof Passport — portable, independently classifiable without live service",
-        "key_message":   "NOT_PROVABLE is a first-class, honest outcome — not a failure",
-    },
-    "what_NOT_to_do": [
-        "Do not redesign entire visual identity",
-        "Do not add new EU AI Act compliance tooling, FRIA generators, or obligation-mapping",
-        "Do not remove working technical demos — just re-frame and de-emphasize those outside terrain",
-        "Do not add new product pages until actuator + P0-12 evidence exists",
-    ],
-    "bottom_line": (
-        "The website is currently marketing a broader platform than the architecture we have locked "
-        "and the evidence we can defend. Refining it toward the narrow, honest VCB terrain "
-        "(consequential boundary, Material Delta, portable independent proof, explicit NOT_PROVABLE) "
-        "will make the site more credible, more attack-resistant, and more aligned with the real value. "
-        "Treat the website as a public expression of the same discipline we applied to engineering "
-        "and posting rules: narrow, evidence-based, and ready to be challenged."
-    ),
-}
-
-
-@app.get("/v1/engineering/project-maturity", tags=["Engineering Gates 0-7"])
-async def engineering_project_maturity():
-    """
-    Project Maturity Status — complete picture of where VCB stands.
-    Exposes: False-Proof Rate definition, independence definition,
-    six mandatory review questions, website refinement direction,
-    next concrete sequence, and standing rules.
-
-    Source: Full Recommendation 2026-08-19 — "Next Level of the Project"
-    No auth required.
-    """
-    build = _get_full_build_identity()
-    snap  = _compute_authoritative_build_snapshot()
-    return {
-        "schema":                   "VGS-PROJECT-MATURITY-1.0",
-        "build_identity":           build,
-        "current_honest_status": {
-            "lines":                    build["lines"],
-            "duplicate_functions":      0,
-            "orphaned_variables":       0,
-            "duplicate_routes":         snap["route_counts"]["duplicate_routes"],
-            "V001_maturity":            "D_RESTART_DISTRIBUTED_TESTED",
-            "V002_maturity":            "C_ADVERSARIALLY_TESTED",
-            "P0_12_status":             "OPEN — no independent external reproduction yet",
-            "real_actuator":            "OPEN — Payment Destination Change not yet wired",
-            "PRODUCTION_CLAIM_ALLOWED": False,
-            "assessment":               "Solid architectural progress. Not yet production-proof or externally validated.",
-        },
-        "false_proof_rate":         VCB_FALSE_PROOF_RATE,
-        "independence_definition":  VCB_INDEPENDENCE_DEFINITION,
-        "six_review_questions":     VCB_SIX_MANDATORY_REVIEW_QUESTIONS,
-        "website_refinement":       VCB_WEBSITE_REFINEMENT_DIRECTION,
-        "next_concrete_sequence": [
-            "1. Wire Payment Destination Change actuator — no consequence without valid unconsumed decision token",
-            "2. Export fully self-contained Proof Passport — all six-month portability fields present",
-            "3. Execute P0-12 — offline classification by party with zero VCB infrastructure access",
-            "4. Re-run core adversarial suite (mutation, revocation, governing-conditions, stale grounding)",
-            "5. Convert every failure into permanent regression test",
-            "6. Produce evidence pack: clean path → PROVEN, attack paths → NOT_PROVABLE with reason codes",
-            "7. Only then: prepare 'Current Demonstrated Capability' note for stronger public claims",
-        ],
-        "standing_rules": [
-            "Architecture remains frozen — no new layers or products",
-            "Public posts must pass VCB_PUBLIC_CLAIM_DISCIPLINE filter before publishing",
-            "Optimize for correct proof determination and low False-Proof Rate, not maximum PROVEN",
-            "Never describe a capability as demonstrated until raw evidence + independent reproduction exist",
-            "Website must reflect locked terrain — not broader platform story",
-        ],
-        "strongest_long_term_advantage": (
-            "Being able to say, with evidence: "
-            "'Here is a Proof Passport. Examine it yourself. "
-            "The classification does not depend on our live service.'"
-        ),
-        "timestamp":                datetime.now(timezone.utc).isoformat(),
-    }
-
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# MASTER ENGINEERING AUDIT — Final Architecture Lock
-# Source: Expert master audit document 2026-08-19
-# Fact-checked: 10 genuinely new items. Built all 10 + 3 Claude additions.
-# Rule: Architecture frozen. These strengthen existing paths only.
-# ══════════════════════════════════════════════════════════════════════════════
-
-# ── VCB FINAL DEFINITION — Frozen ────────────────────────────────────────────
-
-VCB_FINAL_DEFINITION = {
-    "schema":  "VGS-FINAL-DEFINITION-1.0",
-    "frozen":  True,
-    "definition": "Examine. Bind. Consume. Refuse. Prove.",
-    "expanded": {
-        "EXAMINE":  "Evaluate whether the exact proposed action is admissible under current authority, conditions, and evidence.",
-        "BIND":     "Cryptographically bind the exact action, principal, authority, conditions, and policy to the proof artifact.",
-        "CONSUME":  "Allow consumption of the authorization exactly once — atomically, durably, with replay prevention.",
-        "REFUSE":   "Structurally refuse the consequence when any required element is absent, stale, expired, revoked, or mismatched.",
-        "PROVE":    "Produce a portable proof package independently classifiable without the live VCB service, database, or private keys.",
-    },
-    "what_this_means_commercially": (
-        "When we say VCB governs a consequential AI action, we mean exactly five things: "
-        "the action was examined against current conditions; "
-        "the exact action was bound to the proof; "
-        "the authorization was consumed atomically (exactly once, replay-proof); "
-        "inadmissible actions were structurally refused; "
-        "and the proof survives without VeriSigilAI infrastructure."
-    ),
-}
-
-# ── AUTHORIZATION LIFECYCLE — Formal States ───────────────────────────────────
 
 VCB_AUTHORIZATION_LIFECYCLE = {
-    "schema":  "VGS-AUTHORIZATION-LIFECYCLE-1.0",
-    "frozen":  True,
-    "states": {
-        "ISSUED":                   "VCC created, conditions frozen at T0",
-        "VALID":                    "VCC has not expired, not revoked, not consumed",
-        "ELIGIBLE_FOR_CONSUMPTION": "VCC has been presented to a governed actuator with matching conditions",
-        "CONSUMED":                 "Atomic database transition completed — durable, irreversible",
-        "REPLAYED":                 "Presentation of already-consumed VCC — must be rejected",
-        "EXPIRED":                  "TTL exceeded — cannot be consumed",
-        "REVOKED":                  "Authority revoked before consumption — cannot be consumed",
+    "schema":"VGS-AUTHORIZATION-LIFECYCLE-1.0","frozen":True,
+    "lifecycle_states":{
+        "ISSUED":"Authorization artifact created",
+        "VALID":"Currently within scope, not revoked, not expired",
+        "ELIGIBLE_FOR_CONSUMPTION":"Valid AND not yet consumed — may be used",
+        "CONSUMED":"Single-use authorization has been atomically consumed",
+        "NO_LONGER_CONSUMABLE":"Consumed, revoked, or expired — cannot be reused",
     },
-    "valid_transitions": [
-        "ISSUED → VALID (on issuance)",
-        "VALID → ELIGIBLE_FOR_CONSUMPTION (on valid presentation to actuator)",
-        "ELIGIBLE_FOR_CONSUMPTION → CONSUMED (atomic DB write)",
-        "VALID → EXPIRED (TTL exceeded)",
-        "VALID → REVOKED (authority revoked)",
-        "ELIGIBLE_FOR_CONSUMPTION → REVOKED (authority revoked before DB write)",
-    ],
-    "invalid_transitions": [
-        "CONSUMED → any state (consumption is monotonic — Invariant 9)",
-        "EXPIRED → VALID (expiry cannot be reversed)",
-        "REVOKED → VALID (revocation cannot be reversed)",
-        "REPLAYED → CONSUMED (replay must be rejected)",
-    ],
-    "rule": "Any presentation of a VCC that is CONSUMED, EXPIRED, or REVOKED must return NOT_PROVABLE or FAILED. Never VALID.",
+    "terminal_states":["REVOKED","EXPIRED","INVALID","CONSUMED"],
+    "critical_distinction":"VALID ≠ ELIGIBLE_FOR_CONSUMPTION — an authorization may be valid but already consumed.",
+    "not_provable_codes":["NOT_PROVABLE.CONSUMPTION_STATE_UNKNOWN","NOT_PROVABLE.AUTHORITY_SCOPE_UNKNOWN"],
+    "deny_codes":["FAILED.REPLAY_DETECTED","DENY.AUTHORITY_SCOPE_EXCEEDED"],
 }
 
-# ── R007: REPLAY GUARD — Formal Rule ─────────────────────────────────────────
-
-VCB_R007_REPLAY_GUARD = {
-    "schema":  "VGS-R007-REPLAY-GUARD-1.0",
-    "frozen":  True,
-    "id":      "R007",
-    "name":    "Replay Guard",
-    "statement": (
-        "Any VCC that has been consumed MUST NOT be presented, accepted, or "
-        "treated as valid authorization for any subsequent action, regardless of: "
-        "process restart, memory state, instance identity, or time elapsed."
-    ),
-    "formal": {
-        "CONSUMED(vcc_id) AT T1": "=> REJECTED(vcc_id) AT ALL T > T1",
-        "mechanism":              "Atomic Supabase UPDATE WHERE status='NOT_YET_CONSUMED'",
-        "authoritative_state":    "DATABASE — never in-memory",
+R007_REPLAY_GUARD = {
+    "schema":"VGS-R007-REPLAY-GUARD-1.0","frozen":True,
+    "id":"R007_AUTHORIZATION_CONSUMPTION_REPLAY_GUARD",
+    "question":"Is this exact authorization instance still eligible to be consumed for this exact bound action?",
+    "inputs":["authorization_id","action_binding","nonce","consumption_state","consumption_timestamp","issuer","revocation_state","expiry_state"],
+    "outcomes":{
+        "ELIGIBLE_FOR_CONSUMPTION":{"conditions":["NO_PRIOR_CONSUMPTION","AUTHORITY_VALID","ACTION_MATCHES","NOT_REVOKED","NOT_EXPIRED"],"result":"ELIGIBLE_FOR_CONSUMPTION"},
+        "REPLAY_DETECTED":{"conditions":["PRIOR_CONSUMPTION_EXISTS"],"result":"FAILED.REPLAY_DETECTED"},
+        "UNKNOWN_STATE":{"conditions":["CONSUMPTION_STATE_CANNOT_BE_ESTABLISHED"],"result":"NOT_PROVABLE.CONSUMPTION_STATE_UNKNOWN"},
     },
-    "proof_status": "V-001 = D_RESTART_DISTRIBUTED_TESTED (live Supabase proof 2026-08-19)",
-    "attacks_it_defeats": [
-        "PA-17: Replay after consumption",
-        "PA-19: Restart resurrection",
-        "PA-20: Concurrent replay",
-        "Process memory loss",
-        "Multiple Railway instances",
-    ],
-    "test": "POST /v1/adversarial/restart-replay → verdict must be PASS on Railway",
+    "fail_safe_rule":"UNKNOWN ≠ ALLOW. Unknown consumption state must never produce ALLOW.",
+    "unifies":["R007","V-001","V-002"],
 }
 
-# ── INVARIANT 9 & 10 ──────────────────────────────────────────────────────────
-
-VCB_INVARIANT_9_CONSUMPTION_MONOTONIC = {
-    "schema":    "VGS-INVARIANT-9-1.0",
-    "frozen":    True,
-    "id":        "INVARIANT-9",
-    "name":      "Consumption Is Monotonic",
-    "statement": "Once consumed, always consumed. Consumption cannot be reversed, overridden, or reset — even by a restart, redeployment, or administrative action.",
-    "formal":    "CONSUMED(vcc_id) => FOR ALL T: CONSUMED(vcc_id)",
-    "proof":     "R007 + Supabase atomic UPDATE + V-001 live test",
-    "enforced_by": "Database state as sole authority (P6)",
+VCB_INVARIANT_9_MONOTONIC_CONSUMPTION = {
+    "schema":"VGS-INVARIANT-9-1.0","frozen":True,"id":"INVARIANT-9",
+    "name":"Monotonic Consumption",
+    "statement":"CONSUMED is a one-way terminal state. A consumed authorization can never become ELIGIBLE_FOR_CONSUMPTION again.",
+    "formal":"ELIGIBLE → CONSUMED is irreversible",
+    "must_survive":["restart","replay","retry","cache loss","process replacement","concurrent execution","deployment","rollback"],
+    "core_property":{"formula":"ONE_AUTHORIZATION + N_EXECUTION_ATTEMPTS = MAX_ONE_SUCCESSFUL_CONSUMPTION",
+                     "note":"Exactly-once consumption ≠ exactly-once business consequence. Both must be proven separately."},
+    "test_ids":["V-001","V-002","PA-17","PA-19","PA-20","AL-06","AL-07","AL-08"],
 }
 
 VCB_INVARIANT_10_ECOSYSTEM_INDEPENDENCE = {
-    "schema":    "VGS-INVARIANT-10-1.0",
-    "frozen":    True,
-    "id":        "INVARIANT-10",
-    "name":      "Ecosystem Independence",
-    "statement": (
-        "A VCB Proof Passport must be independently classifiable (PROVEN / NOT_PROVABLE) "
-        "by any party equipped with the public key and published verification procedure, "
-        "without access to VeriSigilAI's live service, database, runtime, or private keys."
-    ),
-    "formal":    "PROVEN(passport, public_key, procedure) = same result regardless of who computes it",
-    "test":      "P0-12 — external verifier with zero VeriSigilAI infrastructure access",
-    "status":    "OPEN — P0-12 not yet executed",
-    "claude_addition": (
-        "This invariant is the strongest long-term competitive advantage. "
-        "Competitors produce logs that require their platform to interpret. "
-        "VCB produces passports that any auditor can classify independently. "
-        "Once P0-12 passes, this becomes the public proof story."
-    ),
+    "schema":"VGS-INVARIANT-10-1.0","frozen":True,"id":"INVARIANT-10",
+    "name":"Ecosystem Independence",
+    "statement":"The proof primitive must not fundamentally depend on any single AI provider, cloud vendor, IAM vendor, agent framework, actuator manufacturer, or hardware vendor.",
+    "rule":"Core proof format must avoid unnecessary vendor lock-in.",
 }
 
-# ── FIVE PROOF QUESTIONS — WHY/STILL/COULD/CONSUME/WHAT ──────────────────────
-# Document adds Consumption as explicit 4th dimension
-
-VCB_EVIDENCE_MODEL["dimensions"]["CONSUME"] = {
-    "question": "Was the authorization consumed exactly once, atomically, with permanent replay prevention?",
-    "sub_checks": [
-        "VCC state = ELIGIBLE_FOR_CONSUMPTION before atomic write",
-        "Atomic Supabase UPDATE confirmed exactly one successful transition",
-        "consumption_id recorded durably",
-        "All concurrent attempts returned ALREADY_CONSUMED",
-        "Post-restart: state remains CONSUMED (R007 holds)",
-    ],
-    "evidence_required": [
-        "database_target (Supabase URL)",
-        "consumption_timestamp",
-        "consumption_result (CONSUMED/ALREADY_CONSUMED/FAILED)",
-        "durable_count (must be exactly 1)",
-        "post_restart_state (CONSUMED — R007 verified)",
-    ],
+VCB_INVARIANT_11_EVIDENCE_LIMITATION = {
+    "schema":"VGS-INVARIANT-11-1.0","frozen":True,"id":"INVARIANT-11",
+    "name":"Evidence Limitation",
+    "statement":"Every evidence package must explicitly preserve what it cannot establish, not just what it can.",
+    "rule":"NOT_PROVABLE is a legitimate output. Absence of evidence must not become authorization.",
+    "mandatory_fields":["WHAT_IS_PROVABLE","WHAT_FAILED","WHAT_IS_NOT_PROVABLE","CLAIM_LIMITATIONS"],
 }
-VCB_EVIDENCE_MODEL["five_questions_summary"] = (
-    "WHY was this action admissible? "
-    "STILL — did conditions remain valid at commitment? "
-    "COULD — could the boundary actually refuse? "
-    "CONSUME — was the authorization consumed exactly once with replay prevention? "
-    "WHAT — what exact action and consequence occurred?"
-)
 
-# ── DUAL-PATH EVIDENCE REQUIREMENT ───────────────────────────────────────────
-
-VCB_DUAL_PATH_EVIDENCE = {
-    "schema":  "VGS-DUAL-PATH-EVIDENCE-1.0",
-    "frozen":  True,
-    "statement": (
-        "Strong proof requires both paths: the positive path (PROVEN with evidence) "
-        "AND the negative path (attack attempts correctly returning NOT_PROVABLE). "
-        "A system that only demonstrates the positive path has not proven structural enforcement."
-    ),
-    "required_evidence_pack": {
-        "positive_path": {
-            "test":     "Clean action with valid authority, conditions, and evidence",
-            "expected": "PROVEN with full examination trace",
-        },
-        "negative_paths": {
-            "material_mutation":         "Amount changed → NOT_PROVABLE(reason=CONTRADICTORY_EVIDENCE)",
-            "authority_revocation":      "Authority revoked → NOT_PROVABLE(reason=STALE_GROUNDING)",
-            "governing_conditions_change":"Policy superseded → NOT_PROVABLE(reason=STALE_GROUNDING)",
-            "stale_grounding":           "Evidence expired → NOT_PROVABLE(reason=STALE_GROUNDING)",
-            "replay_attempt":            "CONSUMED VCC replayed → REJECTED (R007)",
-            "no_proof":                  "No proof presented → NOT_PROVABLE(reason=INSUFFICIENT_GROUNDING)",
-        },
+VCB_AUTHORITY_CEILING_INVARIANT = {
+    "schema":"VGS-AUTHORITY-CEILING-1.0","frozen":True,
+    "name":"Authority Ceiling Invariant",
+    "source":"GovernanceOps lesson — integrated without adopting GovernanceOps architecture",
+    "formal":{
+        "ceiling":"EFFECTIVE_ACTION_SCOPE ⊆ APPROVED_AUTHORITY_SCOPE",
+        "autonomy":"REQUESTED_AUTONOMY_LEVEL ≤ APPROVED_AUTONOMY_CEILING",
     },
-    "false_proof_rate_connection": (
-        "False-Proof Rate is measured specifically on the negative paths. "
-        "Any attack path that returns PROVEN is a false proof — a failure of the system."
-    ),
-}
-
-# ── PA ADVERSARIAL TEST MAPPING TABLE ────────────────────────────────────────
-# Document PA-11 through PA-20 — mapped to existing endpoints + 2 new ones
-
-VCB_PA_TEST_MAPPING = {
-    "schema":  "VGS-PA-TEST-MAPPING-1.0",
-    "frozen":  True,
-    "mapping": {
-        "PA-11": {"name":"Distributed Race",          "endpoint":"/v1/adversarial/distributed-atomicity",    "status":"PASS_SINGLE_INSTANCE"},
-        "PA-12": {"name":"Structural Refusal/Bypass", "endpoint":"/v1/adversarial/bypass-test",              "status":"OPEN"},
-        "PA-13": {"name":"Examination Trace Integrity","endpoint":"/v1/adversarial/examination-trace-check", "status":"OPEN — endpoint added"},
-        "PA-14": {"name":"Negative Path Reconstruction","endpoint":"/v1/adversarial/rejected-path-evidence", "status":"PASS"},
-        "PA-15": {"name":"Historical Truth",           "endpoint":"/v1/adversarial/toctou",                  "status":"IMPLEMENTED"},
-        "PA-16": {"name":"Selective Evidence Interface","endpoint":"/v1/adversarial/selective-evidence-check","status":"OPEN — endpoint added"},
-        "PA-17": {"name":"Replay After Consumption",   "endpoint":"/v1/adversarial/restart-replay",          "status":"PASS"},
-        "PA-18": {"name":"Mutation + Replay",          "endpoint":"/v1/adversarial/exact-action-mutation",   "status":"PASS"},
-        "PA-19": {"name":"Restart Resurrection",       "endpoint":"/v1/adversarial/restart-replay",          "status":"PASS (R007 verified)"},
-        "PA-20": {"name":"Concurrent Replay",          "endpoint":"/v1/adversarial/distributed-atomicity",   "status":"PASS_SINGLE_INSTANCE"},
+    "deny_code":"DENY.AUTHORITY_SCOPE_EXCEEDED",
+    "not_provable_code":"NOT_PROVABLE.AUTHORITY_SCOPE_UNKNOWN",
+    "rule":"No downstream component may manufacture authority not present in the authoritative governing state.",
+    "fits_inside":"WHY/ACS — not a new GovernanceOps-like policy engine",
+    "governanceops_position":{
+        "what_they_prove":"Was the running application operating within its approved policy envelope?",
+        "what_vcb_proves":"For this exact consequential action, can we independently reconstruct why it was admissible?",
+        "relationship":"GovernanceOps-style systems may be upstream authority sources. VCB is the independent consequence-boundary proof mechanism.",
+        "do_NOT_do":"Do not merge GovernanceOps architecture into VCB.",
     },
 }
 
-# ── FEATURE ADMISSION RULE ────────────────────────────────────────────────────
-
-VCB_FEATURE_ADMISSION_RULE = {
-    "schema":  "VGS-FEATURE-ADMISSION-RULE-1.0",
-    "frozen":  True,
-    "rule":    "No new feature, layer, endpoint, or architectural addition enters the codebase unless all six criteria are met.",
-    "six_criteria": {
-        "1_EXAMINES_CORRECT_CONDITION": "Does this strengthen examination of a real condition that could make an action inadmissible?",
-        "2_STRENGTHENS_EXISTING_PATH":  "Does this strengthen an existing proof path rather than creating a new product or layer?",
-        "3_PRODUCES_PORTABLE_EVIDENCE": "Does this produce or consume evidence that can be independently verified without VCB runtime?",
-        "4_NOT_PROVABLE_SUPPORTED":     "Does this correctly route failures to NOT_PROVABLE with explicit reason codes?",
-        "5_NEGATIVE_PATH_TESTED":       "Is there a corresponding negative-path test that verifies this gate correctly refuses?",
-        "6_FALSE_PROOF_RATE_PRESERVED": "Does this maintain or improve the False-Proof Rate on known attack paths?",
+VCB_CANONICAL_CLAIM_MODEL = {
+    "schema":"VGS-CANONICAL-CLAIM-MODEL-1.0","frozen":True,
+    "purpose":"Every major assertion becomes an explicit typed claim with status. Prevents vague claims.",
+    "claim_types":{
+        "AUTHORITY_CLAIM":"What authority or basis was presented?",
+        "ADMISSIBILITY_CLAIM":"Was the action admissible under available evidence?",
+        "CURRENT_VALIDITY_CLAIM":"Was the basis still valid at commitment?",
+        "ACTION_BINDING_CLAIM":"Does the evidence authorize this exact action?",
+        "CONSUMPTION_CLAIM":"Was authorization still eligible for consumption?",
+        "BOUNDARY_LEVERAGE_CLAIM":"Did VCB retain actual leverage?",
+        "EXECUTION_CLAIM":"What execution was attempted?",
+        "OBSERVATION_CLAIM":"What was observed after execution?",
+        "OUTCOME_VARIANCE_CLAIM":"Did actual outcome differ materially from expected?",
+        "PREVENTION_CLAIM":"Was the protected consequence actually prevented?",
     },
-    "fail_closed": "If any criterion is not met → DO NOT ADD. Wait until it can be answered YES.",
-    "claude_addition": (
-        "This rule prevents the codebase from growing by 107K lines again without discipline. "
-        "Every session that adds architecture without checking these six criteria "
-        "risks expanding TCB, adding orphaned constants, and creating Internal Server Errors "
-        "on Railway. This rule is the gate that stops that pattern permanently."
-    ),
+    "claim_fields":{"claim_id":"Unique identifier","claim_type":"One of the above types",
+                    "status":"PROVABLE | FAILED | NOT_PROVABLE","reason_code":"Machine-readable reason",
+                    "evidence_refs":"Supporting evidence","time_basis":"When evaluated",
+                    "integrity_binding":"Hash binding","limitations":"What this cannot establish"},
+    "status_values":["PROVABLE","FAILED","NOT_PROVABLE"],
+    "example":{"AUTHORIZATION":"PROVABLE","EXECUTION":"PROVABLE","OUTCOME":"NOT_PROVABLE",
+               "note":"Far more defensible than 'the action was safe'"},
 }
 
-# ── DECISION #31415 — DEMONSTRATION CONCEPT ──────────────────────────────────
-# Document: "a concrete demonstration to external auditors"
-
-VCB_DECISION_31415_CONCEPT = {
-    "schema":  "VGS-DECISION-31415-CONCEPT-1.0",
-    "frozen":  True,
-    "purpose": "A specific labeled demonstration designed to show external auditors the complete proof chain in one coherent sequence.",
-    "concept": (
-        "Decision #31415 is a symbolic label for 'a specific consequential decision that an auditor "
-        "can examine end-to-end.' The number is arbitrary — what matters is that one specific decision "
-        "is documented with full provenance: "
-        "WHY it was examined, STILL conditions at commitment, COULD intervention has been tested, "
-        "CONSUME record in Supabase, WHAT actually occurred, and the portable Proof Passport "
-        "that an external party can classify independently."
-    ),
-    "required_components": [
-        "Specific VCC ID (not generic)",
-        "Full examination trace (WHY)",
-        "Material conditions snapshot at T0 and T1 (STILL)",
-        "Structural refusal evidence or COULD proof (COULD)",
-        "Supabase consumption record (CONSUME)",
-        "Consequence result (WHAT)",
-        "Full Proof Passport exportable",
-        "Independent classification result (P0-12)",
-    ],
-    "trigger": "Build this immediately after real controlled actuator + P0-12 pass",
-    "external_use": "This is what you present to Alkama, Harold, and any auditor who asks for proof",
-}
-
-# ── CLAUDE'S ADDITIONS — Regression Lock and TCB Manifest ────────────────────
-
-VCB_REGRESSION_LOCK = {
-    "schema":  "VGS-REGRESSION-LOCK-1.0",
-    "frozen":  True,
-    "source":  "Claude recommendation — prevents the Internal Server Error cycle",
-    "problem": (
-        "Every session that adds architecture without local testing produces Internal Server Errors "
-        "on Railway. The pattern: add code → push → deploy → test on live → discover error → fix → repeat. "
-        "This wastes tokens, wastes Railway deploys, and damages the credibility of the system."
-    ),
-    "rule":    "Before any code is pushed, ALL critical endpoints must pass local asyncio.run() test.",
-    "mandatory_test_list": [
-        "adversarial_restart_replay",
-        "adversarial_distributed_atomicity",
-        "adversarial_exact_action_mutation",
-        "adversarial_no_proof_no_consequence",
-        "adversarial_revocation_race",
-        "adversarial_rejected_path_evidence",
-        "engineering_p0_02a_consistency",
-        "engineering_p0_02c_contradiction_test",
-        "engineering_master_audit",
-        "proof_integrity_check",
-    ],
-    "gate":    "If ANY test fails locally → DO NOT PUSH. Fix first. Test again. Then push.",
-    "benefit": "Zero Internal Server Errors on Railway. Every push is verified before it deploys.",
-}
-
-VCB_TCB_MANIFEST = {
-    "schema":  "VGS-TCB-MANIFEST-1.0",
-    "frozen":  True,
-    "source":  "Claude recommendation — answer Q5 from six mandatory review questions",
-    "definition": "Trusted Computing Base: every component whose correct operation is required for a VCB proof to be valid.",
-    "current_tcb_components": {
-        "FastAPI":          "HTTP routing and endpoint dispatch",
-        "PyNaCl":           "Ed25519 signing and verification",
-        "Supabase":         "Authoritative persistence (consumption records, proof records)",
-        "Python stdlib":    "hashlib (SHA256), datetime, json",
-        "VCB codebase":     "Issue/verify/consume/refuse logic (107K lines)",
+VCB_OUTCOME_VARIANCE_SPEC = {
+    "schema":"VGS-OUTCOME-VARIANCE-1.0","frozen":True,
+    "rule":"VCB does not predict outcomes. It records and compares when evidence exists.",
+    "outcome_status_values":{
+        "OUTCOME_MATCHED":"Observed outcome matches expected",
+        "OUTCOME_VARIANCE_NON_MATERIAL":"Variance within acceptable bounds",
+        "OUTCOME_VARIANCE_MATERIAL":"Significant unexplained variance",
+        "OUTCOME_UNKNOWN":"Outcome evidence not available",
     },
-    "NOT_in_tcb": [
-        "httpx (only used for P0-02B, not in proof path)",
-        "EU AI Act endpoints (informational, not in proof path)",
-        "Dashboard/analytics endpoints",
-        "EU compliance endpoints",
-    ],
-    "tcb_growth_risk": (
-        "Every new library added to the proof path expands TCB without announcement. "
-        "At 107K lines, the codebase has grown significantly. The core proof path "
-        "(issue_vcc_safe → verify_vcc_independent → _atomic_vcc_consume_production_path) "
-        "must remain minimal and independently auditable."
+    "not_provable_codes":{
+        "NOT_PROVABLE.EXPECTATION_UNDEFINED":"No expected outcome defined",
+        "NOT_PROVABLE.OUTCOME_OBSERVATION_MISSING":"Outcome occurred but not observed",
+        "NOT_PROVABLE.OUTCOME_EVIDENCE_CONTRADICTORY":"Two sources disagree on outcome",
+    },
+    "rule_2":"Never invent an expected outcome to create a comparison.",
+    "rule_3":"OUTCOME_VARIANCE does not retroactively mean authorization failed. It is a separate claim.",
+}
+
+VCB_PROOF_PASSPORT_14_QUESTIONS = {
+    "schema":"VGS-PROOF-PASSPORT-14-1.0","frozen":True,
+    "purpose":"An independent verifier given only Proof Passport and public keys must answer all 14 questions.",
+    "questions":{
+        "Q01":"What authority supported this action?","Q02":"Why was the action considered admissible?",
+        "Q03":"What exact action was bound?","Q04":"Were material conditions still valid at commitment?",
+        "Q05":"Was authorization still eligible for consumption?","Q06":"Had it already been consumed?",
+        "Q07":"Did VCB retain leverage at the consequence boundary?","Q08":"Did execution occur?",
+        "Q09":"What consequence was observed?","Q10":"Did actual outcome materially differ from expected?",
+        "Q11":"What intervention occurred?","Q12":"What exactly is PROVABLE?",
+        "Q13":"What FAILED?","Q14":"What remains NOT_PROVABLE?",
+    },
+    "verifier_receives":["VCC","GCP","public key","verification instructions","policy hash reference","governing conditions snapshot"],
+    "verifier_NOT_given":["VCB database","private keys","VCB runtime","internal caches","hidden state"],
+    "test_id":"P0-12 — six-month offline independent classification",
+}
+
+VCB_NINE_PHASE_BUILD_ORDER = {
+    "schema":"VGS-NINE-PHASE-BUILD-ORDER-1.0","frozen":True,
+    "rule":"Do not skip phases. Each phase gate must pass before the next begins.",
+    "phases":{
+        "Phase_0_Truth":{"name":"Truth of the Build","gates":["P0-02A","P0-02B","P0-02C","P0-02D"],"status":"RESOLVED(A/C done; B open)"},
+        "Phase_1_Primitive_Durability":{"name":"Primitive Durability","gates":["V-001","R007","PA-17","PA-19"],"status":"IN_PROGRESS"},
+        "Phase_2_Distributed_Integrity":{"name":"Distributed Integrity","gates":["V-002","PA-20","Crash/Retry"],"status":"OPEN"},
+        "Phase_3_Temporal_Admissibility":{"name":"Temporal Admissibility","gates":["Material Delta","Revocation","Expiry","AL-03/04/10"],"status":"OPEN"},
+        "Phase_4_Evidence_Rigor":{"name":"Evidence Rigor","gates":["Examination Trace","Canonical Claim Model","PROVABLE/FAILED/NOT_PROVABLE"],"status":"SPEC_PRESENT"},
+        "Phase_5_Consequence_Proof":{"name":"Consequence Proof","gates":["Structural Refusal","One Real Actuator","Negative Path Evidence"],"status":"OPEN — highest priority"},
+        "Phase_6_Outcome_Comparison":{"name":"Outcome Comparison","gates":["Expected Outcome Ref","Observed Outcome Ref","Variance Status"],"status":"OPEN"},
+        "Phase_7_Independent_Reproduction":{"name":"Independent Reproduction","gates":["Reproduction procedure","P0-12"],"status":"OPEN"},
+        "Phase_8_SIMVERI_Research":{"name":"SIMVERI / e-SV Research","gates":["Software limit identified","Trust boundary defined"],"status":"FUTURE"},
+    },
+}
+
+VCB_FEATURE_ADMISSION_TEST = {
+    "schema":"VGS-FEATURE-ADMISSION-TEST-1.0","frozen":True,
+    "rule":"No feature enters the core VCB build unless it strengthens at least one of these.",
+    "six_questions":{
+        "1_EXACTNESS":"Does it prevent proof for one action being misused for another?",
+        "2_FRESHNESS":"Does it prevent stale authority from creating consequence?",
+        "3_EXCLUSIVITY":"Does it prevent multiple consumption of the same authorization?",
+        "4_REFUSAL":"Does it make inadmissible consequence structurally harder or impossible?",
+        "5_LEVERAGE":"Does it establish whether the boundary could actually intervene?",
+        "6_RECONSTRUCTABILITY":"Does it allow an independent party to establish what happened?",
+        "7_CLAIM_HONESTY":"Does it better distinguish PROVABLE / FAILED / NOT_PROVABLE?",
+    },
+    "if_no_to_all":"It belongs in RESEARCH, FUTURE ROADMAP, or POSITIONING — not the current proof core.",
+}
+
+VCB_DEFINITION_OF_DONE = {
+    "schema":"VGS-DEFINITION-OF-DONE-1.0","frozen":True,
+    "NOT_proven_because":["APIs exist","endpoints return PASS","dashboards exist","policies exist",
+                           "logs exist","cryptography exists","database connected","demo works once"],
+    "proven_when":(
+        "For a defined consequential workflow, VCB can demonstrate: "
+        "(1) Exact action bound to specific authority. "
+        "(2) Material conditions revalidated at commitment. "
+        "(3) Stale/revoked/expired/mutated/consumed authorization cannot silently remain eligible. "
+        "(4) Single-use consumption survives restart, concurrency, crash, retry. "
+        "(5) Protected boundary refuses inadmissible transitions where it retains leverage. "
+        "(6) Execution and consequence separately evidenced. "
+        "(7) Both successful and rejected paths reconstructable. "
+        "(8) Expected and actual outcomes not falsely conflated. "
+        "(9) Every material claim classified as PROVABLE, FAILED or NOT_PROVABLE. "
+        "(10) Evidence limitations preserved. "
+        "(11) Independent party can reproduce or examine the resulting claim."
     ),
-    "review_cadence": "Check TCB in every engineering review (Q5 from six mandatory questions)",
+    "final_philosophy":"Do not build more governance. Build stronger falsifiable evidence at the consequential boundary.",
+}
+
+VCB_FULL_RED_TEAM_MATRIX["extended_pa_tests"] = {
+    "PA-17":{"name":"Replay After Consumption","attack":"Valid→Consumed→Consequence→Resubmit","expected":"FAILED.REPLAY_DETECTED, consequence=0","status":"OPEN"},
+    "PA-18":{"name":"Mutation + Replay","attack":"Action A consumed; attacker modifies parameters","expected":"ACTION_BINDING_MISMATCH or REPLAY_DETECTED","status":"OPEN"},
+    "PA-19":{"name":"Restart Resurrection","attack":"Consumed→DB restart→replay","expected":"STILL_CONSUMED, REFUSED","status":"OPEN"},
+    "PA-20":{"name":"Concurrent Replay","attack":"Same authorization to multiple instances","expected":"ONE_WINNER, all others REFUSED","status":"OPEN"},
+    "PA-21":{"name":"Material Delta","attack":"Authorize at T0; condition changes; commit at T1","expected":"REVALIDATE or DENY or RE-ENTRY_REQUIRED","status":"OPEN"},
+    "PA-22":{"name":"Exact Action Mutation","attack":"Modify amount/target after authorization","expected":"ACTION_BINDING_MISMATCH, consequence=0","status":"OPEN"},
+    "PA-23":{"name":"No Proof No Consequence","attack":"Remove required proof; attempt consequence","expected":"BOUNDARY_REFUSE, actuator not reached, consequence=0","status":"OPEN"},
+    "PA-24":{"name":"Revocation/Expiry Race","attack":"Valid→proposed→revoke→commit attempt","expected":"FAIL_CLOSED","status":"OPEN"},
+    "PA-25":{"name":"Crash/Retry","attack":"Authorize→partial execution→crash→restart→retry","expected":"No duplicate authorization/consumption/consequence","status":"OPEN"},
+    "PA-26":{"name":"Structural Bypass","attack":"Reach actuator without VCB-controlled transition","expected":"REFUSE or CONTROL_LIMITATION","status":"OPEN"},
+    "PA-27":{"name":"Examination Trace Integrity","attack":"Create revoked/missing/contradictory state","expected":"Trace records failure with reason codes","status":"OPEN"},
+    "PA-28":{"name":"Negative Path Reconstruction","attack":"Independent examiner reconstructs failed path","expected":"WHAT_PROPOSED, WHY_FAILED, ACTUATOR_REACHED, CONSEQUENCE all answerable","status":"OPEN"},
+    "PA-29":{"name":"Authorized Unexpected Outcome","attack":"Authorized+executed but outcome ≠ expected","expected":"OUTCOME_VARIANCE_MATERIAL, no rewriting history","status":"OPEN"},
+    "PA-30":{"name":"Outcome Observation Missing","attack":"Authorized+executed but no outcome evidence","expected":"NOT_PROVABLE.OUTCOME_OBSERVATION_MISSING","status":"OPEN"},
+    "PA-31":{"name":"Contradictory Outcome Evidence","attack":"Source A says X, Source B says Y","expected":"NOT_PROVABLE.OUTCOME_EVIDENCE_CONTRADICTORY","status":"OPEN"},
+}
+
+VCB_FULL_RED_TEAM_MATRIX["authorization_lifecycle_tests"] = {
+    "AL-01":{"name":"Authority Scope Escalation","attack":"Action scope exceeds approved ceiling","expected":"DENY.AUTHORITY_SCOPE_EXCEEDED","status":"OPEN"},
+    "AL-02":{"name":"Unknown Authority State","attack":"Authority state cannot be established","expected":"NOT_PROVABLE.AUTHORITY_SCOPE_UNKNOWN","status":"OPEN"},
+    "AL-03":{"name":"Revocation Before Commit","attack":"Revoke after examination, before commit","expected":"Stale authorization blocked","status":"OPEN"},
+    "AL-04":{"name":"Concurrent Authority Update","attack":"Authority version changes during execution","expected":"Stale version blocked","status":"OPEN"},
+    "AL-05":{"name":"Duplicate Action Submission","attack":"Submit identical action twice","expected":"At most one consumption","status":"OPEN"},
+    "AL-06":{"name":"Replay After Consumption","attack":"Replay after successful consumption","expected":"DENY.REPLAY_DETECTED","status":"OPEN"},
+    "AL-07":{"name":"Crash During Consumption","attack":"Crash during atomic consumption","expected":"No double consequence after recovery","status":"OPEN"},
+    "AL-08":{"name":"Multi-Instance Race","attack":"Same authorization to multiple Railway instances","expected":"Global at-most-once from DB","status":"OPEN"},
+    "AL-09":{"name":"Evidence Write Race","attack":"Concurrent evidence writes for same event","expected":"No false tamper claim","status":"OPEN"},
+    "AL-10":{"name":"Commit-Time Material Delta","attack":"Material condition changes exactly at commit","expected":"RE_ENTRY_REQUIRED or DENY with evidence","status":"OPEN"},
+}
+
+VCB_SIGILMARK_EXTENSION_SCHEMA["reference_fields_v2"] = {
+    "ACTION_BINDING":"Binding of exact action, parameters, target, scope",
+    "AUTHORITY_REFERENCE":"Reference to authority artifact",
+    "AUTHORITY_VERSION":"Version of authority at time of examination",
+    "T0_STATE_REFERENCE":"Reference to material state at examination",
+    "T1_STATE_REFERENCE":"Reference to material state at commitment",
+    "MATERIAL_DELTA_RESULT":"Result of T0→T1 material delta check",
+    "CONSUMPTION_RESULT":"Result of single-use consumption attempt",
+    "EXAMINATION_TRACE_REFERENCE":"Reference to examination trace record",
+    "BOUNDARY_RESULT":"What happened at the protected consequence boundary",
+    "ACTUATOR_RESULT":"What the actuator received and did",
+    "EXECUTION_RESULT":"What execution occurred",
+    "OBSERVED_OUTCOME_REFERENCE":"Reference to observed outcome evidence",
+    "OUTCOME_VARIANCE_RESULT":"OUTCOME_MATCHED | OUTCOME_VARIANCE_NON_MATERIAL | OUTCOME_VARIANCE_MATERIAL | OUTCOME_UNKNOWN",
+    "BUILD_ID":"Full SHA256 of build that produced this SigilMark",
+    "DISCLOSURE_LEVEL":"FULL | SELECTIVE | COMMITTED | EXTERNAL | REDACTED",
+    "EVIDENCE_STATUS":"Overall status of evidence package",
+    "CLAIM_LIMITATIONS":"Explicit statement of what this proof cannot establish",
 }
 
 
-@app.post("/v1/adversarial/examination-trace-check", tags=["Adversarial Proof Gates"])
-async def adversarial_examination_trace_check(
-    x_api_key: Optional[str] = Header(None),
-    authorization: Optional[str] = Header(None),
-):
-    """
-    PA-13 — Examination Trace Integrity Test.
-    Verifies that the examination trace correctly records:
-      - what was checked (check_type)
-      - against what evidence (input_evidence_ref)
-      - what result was produced (PASS/FAIL/STALE/NOT_PROVABLE)
-      - timestamp and build identity
+# ─────────────────────────────────────────────────────────────────────────────
+# NEW FROZEN CONSTANTS — MASTER EXPERT DIRECTION INTEGRATION v2.0
+# Fact-checked against: CapLease (arXiv 2608.01710, Aug 2026),
+#   x402 attacks (arXiv 2605.11781), OWASP LLM06, EU AI Act Art 14/15,
+#   NIST AI Agent Standards Initiative (Feb 2026).
+# ─────────────────────────────────────────────────────────────────────────────
 
-    A tampered or incomplete trace must be detectable.
-    Expected: trace is complete, each check has result, build_id present.
-    """
-    require_api_key(x_api_key, authorization)
-    build = _get_full_build_identity()
-    ts    = datetime.now(timezone.utc).isoformat()
-    action = {"type":"trace_test","amount":100,"recipient":"ACCOUNT-PA13"}
-
-    # Build a sample examination trace
-    vcc = issue_vcc_safe(
-        vcb_decision_id=f"PA13-{ts}",
-        action_payload=action,
-        consequence_type="TEST",
-        material_bounds={"max_amount":5000},
-        authority_hash=_vcc_hash({"auth":"test-pa13"}),
-        policy_hash=_vcc_hash({"policy":"pa13-v1"}),
-        state_hash=_vcc_hash({"state":"active"}),
-        enforcement_point="test-actuator",
-        ttl_seconds=60,
-    )
-
-    trace = [
-        {"check_id":"CHK-001","check_type":"AUTHORITY_VALIDITY",   "result":"PASS","evidence_ref":"authority-pa13","timestamp":ts,"build_id":build['sha256_full'][:16]},
-        {"check_id":"CHK-002","check_type":"ACS_VERSION_MATCH",    "result":"PASS","evidence_ref":"acs-v1","timestamp":ts,"build_id":build['sha256_full'][:16]},
-        {"check_id":"CHK-003","check_type":"ACTION_HASH_MATCH",    "result":"PASS","evidence_ref":_vcc_hash(action)[:16],"timestamp":ts,"build_id":build['sha256_full'][:16]},
-        {"check_id":"CHK-004","check_type":"REVOCATION_CHECK",     "result":"PASS","evidence_ref":"revocation-registry","timestamp":ts,"build_id":build['sha256_full'][:16]},
-        {"check_id":"CHK-005","check_type":"MATERIAL_DELTA_CHECK", "result":"PASS","evidence_ref":"state-snapshot","timestamp":ts,"build_id":build['sha256_full'][:16]},
-    ]
-
-    # Verify trace integrity: all required fields present
-    required_fields = {"check_id","check_type","result","evidence_ref","timestamp","build_id"}
-    trace_complete = all(required_fields.issubset(set(chk.keys())) for chk in trace)
-    all_have_build_id = all(chk.get("build_id") for chk in trace)
-    all_have_result = all(chk.get("result") in ["PASS","FAIL","STALE","NOT_PROVABLE"] for chk in trace)
-
-    # Tamper detection: simulate what a tampered trace looks like
-    tampered_trace = [{"check_type":"AUTHORITY_VALIDITY","result":"PASS"}]  # missing fields
-    tampered_detectable = not required_fields.issubset(set(tampered_trace[0].keys()))
-
-    verdict = "PASS" if trace_complete and all_have_build_id and all_have_result and tampered_detectable else "FAIL"
-
-    return {
-        "schema":                   "VGS-PA-13-EXAMINATION-TRACE-1.0",
-        "test_id":                  "PA-13",
-        "build_hash":               build["sha256_full"][:32],
-        "examination_trace":        trace,
-        "trace_complete":           trace_complete,
-        "all_have_build_id":        all_have_build_id,
-        "all_have_valid_result":    all_have_result,
-        "tamper_detectable":        tampered_detectable,
-        "verdict":                  verdict,
-        "spec":                     VCB_EXAMINATION_TRACE_SPEC,
-        "timestamp":                ts,
-    }
-
-
-@app.post("/v1/adversarial/selective-evidence-check", tags=["Adversarial Proof Gates"])
-async def adversarial_selective_evidence_check(
-    x_api_key: Optional[str] = Header(None),
-    authorization: Optional[str] = Header(None),
-):
-    """
-    PA-16 — Selective Evidence Interface Test.
-    Verifies that different disclosure levels are correctly handled:
-      FULL / SELECTIVE / COMMITTED / EXTERNAL / REDACTED
-
-    A SELECTIVE disclosure must not accidentally expose REDACTED fields.
-    A COMMITTED disclosure must be verifiable without raw evidence.
-    Expected: disclosure levels enforced, no accidental leakage.
-    """
-    require_api_key(x_api_key, authorization)
-    build = _get_full_build_identity()
-    ts    = datetime.now(timezone.utc).isoformat()
-
-    # Sample evidence object
-    full_evidence = {
-        "authority_ref":    "AUTH-001",
-        "principal_id":     "AGENT-PA16",
-        "action_hash":      _vcc_hash({"type":"test","amount":100}),
-        "policy_hash":      _vcc_hash({"policy":"v1"}),
-        "sensitive_field":  "REDACTED-IN-SELECTIVE",
-        "grounding_status": "VERIFIED",
-    }
-
-    # Apply selective disclosure — remove sensitive field
-    selective_evidence = {k:v for k,v in full_evidence.items() if k != "sensitive_field"}
-
-    # Apply committed disclosure — replace raw values with hashes
-    import hashlib
-    committed_evidence = {
-        k: hashlib.sha256(str(v).encode()).hexdigest()[:16] + "..."
-        for k,v in full_evidence.items()
-        if k not in ["sensitive_field"]
-    }
-
-    # Verify selective didn't leak sensitive field
-    no_leakage = "sensitive_field" not in selective_evidence
-    # Verify committed is verifiable (hash is deterministic)
-    hash_verifiable = len(committed_evidence) == len(selective_evidence)
-
-    results = {
-        "FULL":       {"fields_exposed": len(full_evidence),       "sensitive_exposed": True,  "correct": True},
-        "SELECTIVE":  {"fields_exposed": len(selective_evidence),  "sensitive_exposed": False, "correct": no_leakage},
-        "COMMITTED":  {"fields_exposed": len(committed_evidence),  "sensitive_exposed": False, "correct": hash_verifiable},
-        "EXTERNAL":   {"fields_exposed": 0, "pointer_only": True,  "correct": True},
-        "REDACTED":   {"fields_exposed": 0,                        "sensitive_exposed": False, "correct": True},
-    }
-
-    all_correct = all(r["correct"] for r in results.values())
-
-    return {
-        "schema":          "VGS-PA-16-SELECTIVE-EVIDENCE-1.0",
-        "test_id":         "PA-16",
-        "build_hash":      build["sha256_full"][:32],
-        "disclosure_tests":results,
-        "no_leakage":      no_leakage,
-        "committed_verifiable": hash_verifiable,
-        "all_levels_correct": all_correct,
-        "verdict":         "PASS" if all_correct else "FAIL",
-        "spec":            VCB_SIGILMARK_EXTENSION_SCHEMA.get("selective_evidence_interface",{}),
-        "timestamp":       ts,
-    }
-
-
-@app.get("/v1/engineering/full-audit-spec", tags=["Engineering Gates 0-7"])
-async def engineering_full_audit_spec():
-    """
-    Full Audit Specification — complete frozen architecture reference.
-    Exposes: VCB final definition, authorization lifecycle, R007, Invariants 9+10,
-    five proof questions, dual-path evidence, PA mapping table, feature admission rule,
-    regression lock, TCB manifest, and Decision #31415 concept.
-    No auth required. This is the single document an auditor needs.
-    """
-    build = _get_full_build_identity()
-    return {
-        "schema":                   "VGS-FULL-AUDIT-SPEC-1.0",
-        "build_identity":           build,
-        "vcb_final_definition":     VCB_FINAL_DEFINITION,
-        "authorization_lifecycle":  VCB_AUTHORIZATION_LIFECYCLE,
-        "R007_replay_guard":        VCB_R007_REPLAY_GUARD,
-        "invariant_9":              VCB_INVARIANT_9_CONSUMPTION_MONOTONIC,
-        "invariant_10":             VCB_INVARIANT_10_ECOSYSTEM_INDEPENDENCE,
-        "five_proof_questions":     VCB_EVIDENCE_MODEL.get("five_questions_summary",""),
-        "dual_path_evidence":       VCB_DUAL_PATH_EVIDENCE,
-        "pa_test_mapping":          VCB_PA_TEST_MAPPING,
-        "feature_admission_rule":   VCB_FEATURE_ADMISSION_RULE,
-        "decision_31415_concept":   VCB_DECISION_31415_CONCEPT,
-        "regression_lock":          VCB_REGRESSION_LOCK,
-        "tcb_manifest":             VCB_TCB_MANIFEST,
-        "current_status": {
-            "PRODUCTION_CLAIM_ALLOWED": False,
-            "V001":                     "D_RESTART_DISTRIBUTED_TESTED",
-            "V002":                     "C_ADVERSARIALLY_TESTED",
-            "P0_12":                    "OPEN",
-            "real_actuator":            "OPEN",
-            "false_proof_rate":         "NOT_YET_MEASURED",
-        },
-        "strongest_public_statement": (
-            "Here is a Proof Passport. Examine it yourself. "
-            "The classification does not depend on our live service."
+VCB_SEMANTIC_REPLAY_DISTINCTION = {
+    "schema": "VGS-SEMANTIC-REPLAY-1.0", "frozen": True,
+    "source": "CapLease arXiv:2608.01710 (Aug 2026) — independently confirms VCB R007 design",
+    "token_replay": {
+        "definition": "Re-submission of an already-seen token identifier",
+        "defeated_by": "Identifier-local token consumption (nonce tracking)",
+        "limitation": "Does NOT prevent fresh reissuance of a NEW token for the SAME authorization",
+    },
+    "semantic_replay": {
+        "definition": (
+            "Exceeding the execution budget of a token-INDEPENDENT authorization instance. "
+            "Occurs when LLM agents replan, retry, crash, or delegate — each time receiving "
+            "a fresh single-use token for the same underlying authorization."
         ),
-        "timestamp":                datetime.now(timezone.utc).isoformat(),
-    }
-
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# RECOMMENDATION IMPLEMENTATION — Expert direction 2026-08-20
-# Fact-checked: 35/36 present. 1 missing + 3 genuine VCC gaps + website spec.
-# ══════════════════════════════════════════════════════════════════════════════
-
-# ── SIX ENGINEERING REVIEW QUESTIONS (Frozen) ────────────────────────────────
-# Every engineering review must answer these before claiming progress.
-
-VCB_SIX_ENGINEERING_REVIEW_QUESTIONS = {
-    "schema":  "VGS-SIX-REVIEW-QUESTIONS-1.0",
-    "frozen":  True,
-    "source":  "Expert recommendation 2026-08-20 — mandatory in every review",
-    "questions": {
-        "Q1": "Can an external party, given only the Proof Passport and public keys, reach the same PROVEN/NOT_PROVABLE conclusion six months later?",
-        "Q2": "What is the measured False-Proof Rate on the controlled payment testbed?",
-        "Q3": "Which ALLOW paths still exist outside the governed boundary?",
-        "Q4": "Does a material change in governing conditions (policy_hash, authority_hash, applicable_regulation) correctly force NOT_PROVABLE or RE-ENTRY_REQUIRED at commitment?",
-        "Q5": "Is the Trusted Computing Base still minimal, or has it silently grown?",
-        "Q6": "When we say 'independent,' is it truly independent of VeriSigilAI infrastructure?",
+        "why_identifier_local_insufficient": (
+            "If the issuer does not retain monotonic durable state over the authorized action, "
+            "confirmation event, and remaining execution budget, a fresh token can be issued "
+            "for an already-consumed authorization — defeating single-use guarantees."
+        ),
+        "defeated_by": (
+            "Durable authorization state at the issuer level: "
+            "monotonic state over (action, confirmation, budget) — "
+            "not merely token identifier tracking."
+        ),
     },
-    "rule": "These questions appear in every engineering review. No review is complete without attempting to answer all six.",
-    "current_honest_answers": {
-        "Q1": "NOT_YET — P0-12 OPEN. Portability schema defined. Full export not yet tested with external party.",
-        "Q2": "NOT_MEASURED — no controlled payment testbed with recorded false-proof events yet.",
-        "Q3": "OPEN — real actuator integration not yet demonstrated. Bypass paths not fully mapped.",
-        "Q4": "SPEC_PRESENT — governing_conditions_rule defined. Live test not yet executed.",
-        "Q5": "MINIMAL_FOR_NOW — FastAPI + Supabase + PyNaCl + httpx. No hardware enclaves yet.",
-        "Q6": "NOT_YET_PROVEN — P0-12 requires external reproduction. Alkama Run 4 not yet complete.",
-    },
-}
-
-# ── MATERIAL MUTATION REGRESSION TEST (Section 1.4 of recommendation) ─────────
-# "Convert every failure into a permanent regression test"
-
-VCB_MATERIAL_MUTATION_REGRESSION_TEST = {
-    "schema":  "VGS-MATERIAL-MUTATION-REGRESSION-1.0",
-    "frozen":  True,
-    "purpose": "Permanent regression test for exact action binding. Verifies that material mutations are always caught.",
-    "test_cases": {
-        "AMOUNT_MUTATION_50K_TO_75K": {
-            "authorized_action": {"amount": 50000, "recipient": "ACCOUNT-A"},
-            "mutated_action":    {"amount": 75000, "recipient": "ACCOUNT-A"},
-            "expected_result":   "REFUSED — action_hash mismatch",
-            "expected_verdict":  "NOT_PROVABLE",
-            "consequence_count": 0,
-            "test_id":           "REG-MM-001",
-        },
-        "RECIPIENT_MUTATION": {
-            "authorized_action": {"amount": 50000, "recipient": "ACCOUNT-A"},
-            "mutated_action":    {"amount": 50000, "recipient": "ACCOUNT-B"},
-            "expected_result":   "REFUSED — action_hash mismatch",
-            "expected_verdict":  "NOT_PROVABLE",
-            "consequence_count": 0,
-            "test_id":           "REG-MM-002",
-        },
-        "AUTHORITY_REVOCATION": {
-            "setup":             "Issue VCC with valid authority",
-            "mutation":          "Revoke authority between T0 and T2",
-            "attempt":           "Execute consequential action at T2",
-            "expected_result":   "NOT_PROVABLE(reason=STALE_GROUNDING)",
-            "consequence_count": 0,
-            "test_id":           "REG-AR-001",
-        },
-        "GOVERNING_CONDITIONS_CHANGE": {
-            "setup":             "Issue VCC under policy_version=v1",
-            "mutation":          "Policy superseded to v2 — policy_hash changes",
-            "attempt":           "Execute at T1 with old VCC",
-            "expected_result":   "NOT_PROVABLE(reason=STALE_GROUNDING) or RE-ENTRY_REQUIRED",
-            "consequence_count": 0,
-            "test_id":           "REG-GC-001",
-        },
-        "STALE_GROUNDING": {
-            "setup":             "VCC issued with VERIFIED grounding",
-            "mutation":          "Grounding degrades to STALE before commitment",
-            "attempt":           "Execute consequential action",
-            "expected_result":   "NOT_PROVABLE(reason=STALE_GROUNDING)",
-            "consequence_count": 0,
-            "test_id":           "REG-SG-001",
-        },
-        "EVIDENCE_CONTRADICTION": {
-            "setup":             "Two evidence items present",
-            "mutation":          "One item becomes CONTRADICTORY",
-            "attempt":           "Gate evaluation",
-            "expected_result":   "NOT_PROVABLE(reason=CONTRADICTORY_EVIDENCE)",
-            "consequence_count": 0,
-            "test_id":           "REG-EC-001",
-        },
-    },
-    "regression_rule": "Any test that was previously FAIL must be re-run after every code change. A regression = previously-passing test now failing.",
-    "measurement": {
-        "FALSE_PROOF_RATE":   "Count of PROVEN results on adversarial/invalid inputs / total adversarial attempts",
-        "target":             "FALSE_PROOF_RATE = 0 on all registered regression test cases",
-        "current_measured":   "NOT_YET_MEASURED — no automated regression runner on live infrastructure",
-    },
-}
-
-# ── PORTABLE PROOF PASSPORT SPEC — VCC + GCP COMBINED ────────────────────────
-# Genuine gaps found: governing_conditions, grounding_status, NOT_PROVABLE codes
-# These belong in the GCP (Governance Closure Proof) which is the full evidence trail
-
-VCB_PORTABLE_PASSPORT_SPEC = {
-    "schema":  "VGS-PORTABLE-PASSPORT-SPEC-1.0",
-    "frozen":  True,
-    "purpose": "Define exactly what a fully self-contained Proof Passport must contain for six-month independent classification.",
-    "architecture": {
-        "VCC": "Pre-execution commitment — what was authorized and under what conditions",
-        "GCP": "Post-execution closure proof — what happened, what evidence, what result",
-        "Proof Passport": "VCC + GCP + verification instructions = portable, self-contained",
-    },
-    "VCC_required_fields": {
-        "already_present": ["vcc_id","action_hash","policy_hash","authority_hash","state_hash",
-                            "material_bounds","issued_at","expires_at","nonce","issuer_key_id","issuer_signature"],
-        "genuine_gaps_to_add": {
-            "governing_conditions_hash": "Hash of the governing conditions snapshot at T0 — detects supersession",
-            "build_identity_hash":       "Full SHA256 of build that issued this VCC — ties proof to specific build",
-            "grounding_status_at_issuance": "Overall grounding_status when VCC was issued",
-            "determination_basis":       "Brief structured note on why the action was admissible",
-        },
-    },
-    "GCP_required_fields": {
-        "post_execution": ["vcb_adjudication","sigilmark_status","actuator_response",
-                           "commit_result","consequence_occurred","consequence_count",
-                           "pre_state","post_state","timestamp"],
-        "portability_fields": ["all NOT_PROVABLE reason codes (machine-readable)",
-                               "grounding_status per required evidence item",
-                               "examination_trace_reference",
-                               "build_identity at time of adjudication"],
-    },
-    "independent_verifier_receives": [
-        "VCC (all fields)",
-        "GCP (all fields)",
-        "public key (issuer_key_id)",
-        "verification instructions",
-        "policy document hash reference",
-        "governing conditions snapshot",
-    ],
-    "independent_verifier_does_NOT_receive": [
-        "VCB database",
-        "VCB private keys",
-        "VCB runtime",
-        "internal caches",
-        "hidden application state",
-    ],
-    "six_month_test": "P0-12 — Alkama or Harold receives only the above. Must reproduce PROVEN/NOT_PROVABLE independently.",
-    "current_status": "VCC has 11/15 required fields. GCP spec defined. Missing: governing_conditions_hash, build_identity_hash, grounding_status_at_issuance, determination_basis.",
-}
-
-# ── WEBSITE ALIGNMENT SPECIFICATION ──────────────────────────────────────────
-# Expert: "The website is currently marketing a broader platform than the architecture we have locked."
-
-VCB_WEBSITE_ALIGNMENT_SPEC = {
-    "schema":  "VGS-WEBSITE-ALIGNMENT-SPEC-1.0",
-    "frozen":  True,
-    "source":  "Expert recommendation 2026-08-20",
-    "current_misalignment": {
-        "broad_claims_on_site":       "Prevent Unauthorized AI Actions, multi-layer constitutional platform",
-        "locked_vcb_terrain":         "Verifiable Consequence Boundary + Proof Integrity for consequential actions",
-        "compliance_badges":          "EU AI Act Aligned/Mapped without corresponding live evidence",
-        "multiple_products":          "DAME, CRG, HSA, GEI, RRL layers — frozen architecture has no new layers",
-        "demos_too_wide":             "Wide feature surface dilutes core terrain",
-    },
-    "recommended_homepage_headline": "Evidence infrastructure for consequential AI actions.",
-    "recommended_subheadline": (
-        "VCB helps organizations establish — or correctly refuse to establish — whether a specific "
-        "consequential AI action remained authorized and evidenced under the conditions that governed it."
+    "vcb_r007_extension": (
+        "R007 must guard against BOTH token replay AND semantic replay. "
+        "Consumption state must be durable, authoritative, and monotonic "
+        "across replan, retry, crash-recovery, delegation, and concurrency."
     ),
-    "must_add_to_homepage": [
-        "Prominent disclaimer: does not replace legal advice, conformity assessment, or full AI Act governance platform",
-        "Current Demonstrated Status note (V-001=D, V-002=C, actuator OPEN, P0-12 OPEN)",
-        "Four-question value block: WHY / STILL / COULD / WHAT",
-        "NOT_PROVABLE as first-class honest outcome — feature not failure",
-    ],
-    "must_soften_or_remove": [
-        "EU AI Act Aligned / Mapped badges (until corresponding evidence exists)",
-        "Broad constitutional platform language",
-        "Multi-product layer story",
-        "Present-tense absolute compliance claims",
-    ],
-    "demos_page_priority": {
-        "lead_with":    "Payment Destination Change (one clear consequential journey)",
-        "show_only": [
-            "Exact action binding",
-            "Commit-time / Material Delta revalidation",
-            "Authority or governing-conditions change → NOT_PROVABLE",
-            "Proof Passport generation + offline/independent verification concept",
-        ],
-        "move_to_research_section": [
-            "Standing, appeals, org intelligence, delegation architect",
-            "Secondary demos outside the core terrain",
-        ],
-        "each_demo_must_end_with": "Clear statement of what was proven vs what remains NOT_PROVABLE or NOT_IMPLEMENTED",
+    "issue_prepare_commit_model": {
+        "ISSUE": "Authorization artifact created with durable budget state",
+        "PREPARE": "Atomic preparation bounds concurrent admission",
+        "COMMIT": "Stable idempotency key supports recovery without duplication",
+        "invariant": "Durable uniqueness blocks reissuance; atomic prepare prevents concurrent double-admission",
     },
-    "implementation_sequence": {
-        "this_week":    "Homepage headline + disclaimer + claim-discipline pass (text only)",
-        "next":         "Restructure demos page around one primary consequential journey + Proof Passport",
-        "then":         "Align all remaining public pages with approved safe phrases and never-say list",
-        "only_after":   "Real actuator + P0-12 evidence exists → strengthen any stronger market claims",
-    },
-    "approved_site_language": "Same as VCB_PUBLIC_CLAIM_DISCIPLINE.approved_language",
-    "never_say_on_site":      "Same as VCB_PUBLIC_CLAIM_DISCIPLINE.approved_language.never_say",
+    "vcb_position": (
+        "VCB V-001/V-002/R007 were already designed to address this. "
+        "CapLease 2026 independently confirms that durable authorization state "
+        "— not token representation alone — is the systems requirement. "
+        "VCB's Supabase-authoritative consumption is architecturally correct."
+    ),
 }
 
-# ── EXTEND issue_vcc_safe WITH PORTABILITY FIELDS ─────────────────────────────
-# Add governing_conditions_hash and build_identity_hash to VCC output
-# This fixes the genuine VCC portability gaps without changing the function signature
+VCB_GOVERNANCE_OPS_BOUNDARY = {
+    "schema": "VGS-GOVERNANCE-OPS-BOUNDARY-1.0", "frozen": True,
+    "principle": (
+        "GovernanceOps-style systems (runtime policy enforcement, versioned agent policy, "
+        "autonomy definition, risk classification, tool permissions) operate UPSTREAM of VCB. "
+        "VCB is not a policy authoring platform."
+    ),
+    "upstream_governance_provides": [
+        "authority", "autonomy_limits", "permitted_actions",
+        "prohibited_actions", "constraints", "transaction_limits",
+        "risk_conditions", "policy_version_references",
+    ],
+    "vcb_accepts": "An authoritative governing input from upstream systems",
+    "vcb_answers": (
+        "For this exact consequential action: was the authority still within its approved scope, "
+        "still materially valid at commitment, not replayed or consumed, and did the boundary "
+        "retain leverage? VCB produces independently examinable evidence of that determination."
+    ),
+    "govranceops_lesson": {
+        "authority_ceiling_invariant": "EFFECTIVE_ACTION_SCOPE ⊆ APPROVED_AUTHORITY_SCOPE",
+        "application_cannot_self_escalate": True,
+        "version_plus_hash_not_sufficient": (
+            "Policy version + hash prove the policy existed. "
+            "VCB additionally proves the policy authorized THIS EXACT ACTION "
+            "under conditions that remained valid AT COMMITMENT."
+        ),
+    },
+    "integration_opportunity": (
+        "GovernanceOps-style systems could be upstream authority sources. "
+        "VCB could be the independent consequence-boundary proof mechanism. "
+        "This is a future integration position, not a current build objective."
+    ),
+    "what_vcb_must_not_become": [
+        "inventory system", "runtime agent library", "policy authoring platform",
+        "risk taxonomy", "tool permission registry", "autonomy definition platform",
+    ],
+}
 
-_VCC_PORTABILITY_NOTE = (
-    "VCC currently has 11/15 portability fields. "
-    "governing_conditions_hash and grounding_status_at_issuance are caller-provided fields "
-    "that must be added when the caller has governing conditions context. "
-    "The GCP (Governance Closure Proof) carries the post-execution portability fields."
-)
+VCB_MARKET_TERRAIN_ADJACENCY = {
+    "schema": "VGS-MARKET-TERRAIN-1.0", "frozen": True,
+    "terrain_map": {
+        "GovernanceOps":    "Runtime policy enforcement — upstream authority source",
+        "QuantaViable":     "Governed intelligence + accountability",
+        "Aseryx":           "Cryptographically verifiable data claims",
+        "Provable_autonomy":"Examination and hidden/rejected paths",
+        "VeriSigilAI_VCB":  "Consequence-boundary examination + authority continuity + exact binding + commit-time revalidation + intervention leverage + consequence evidence + independent proof",
+    },
+    "correct_response_to_adjacency": (
+        "Identify the failure modes adjacent work exposes and harden the VCB proof path. "
+        "Do not absorb adjacent products. Do not expand terrain to match theirs."
+    ),
+    "eu_ai_act_position": {
+        "article_15": "High-risk AI must be resilient against adversarial attacks across the entire action layer, not just model output level",
+        "article_14": "Human oversight duty falls on the relying party, not the protocol",
+        "vcb_relevance": "VCB's action-layer boundary evidence directly supports Article 15 compliance demonstration",
+        "high_risk_enforcement_date": "August 2, 2026",
+    },
+    "owasp_llm06_alignment": {
+        "definition": "Excessive Agency: over-functionality, over-permissions, over-autonomy",
+        "vcb_relevance": "VCB's authority ceiling invariant and exact action binding are architectural responses to LLM06",
+    },
+    "nist_caisi_2026": "AI Agent Standards Initiative (Feb 2026) frames the gap: agents treated as generic service accounts without dedicated authorization or accountability controls — VCB addresses the accountability control gap",
+}
+
+VCB_CLAIM_SEPARATION_DOCTRINE = {
+    "schema": "VGS-CLAIM-SEPARATION-1.0", "frozen": True,
+    "core_principle": (
+        "Authorization is not execution. Execution is not outcome. "
+        "Observation is not explanation. Evidence is not automatically proof."
+    ),
+    "forbidden_collapses": {
+        "AUTHORIZED_equals_SAFE": "FORBIDDEN — authorization does not establish outcome safety",
+        "EXECUTED_equals_SUCCESSFUL_OUTCOME": "FORBIDDEN — execution does not establish outcome",
+        "LOGGED_equals_PREVENTED": "FORBIDDEN — logging is not intervention",
+        "CONTROL_EXISTS_equals_CONTROL_EFFECTIVE": "FORBIDDEN — architecture is not enforcement",
+        "CONSISTENT_equals_INDEPENDENT": "FORBIDDEN — internal consistency is not external verification",
+        "VALID_AT_T0_equals_VALID_AT_T1": "FORBIDDEN — authorization decay applies",
+    },
+    "separate_claims": [
+        "AUTHORIZATION_CLAIM — Was authority present and admissible?",
+        "ADMISSIBILITY_CLAIM — Did examination conclude the action was admissible?",
+        "CURRENT_VALIDITY_CLAIM — Was the basis still valid at commitment?",
+        "ACTION_BINDING_CLAIM — Was this the exact action authorized?",
+        "CONSUMPTION_CLAIM — Was the authorization still eligible?",
+        "BOUNDARY_LEVERAGE_CLAIM — Did VCB retain actual leverage at consequence point?",
+        "EXECUTION_CLAIM — Did execution occur?",
+        "OBSERVATION_CLAIM — Was consequence observed?",
+        "OUTCOME_VARIANCE_CLAIM — Did actual outcome match expectation?",
+        "PREVENTION_CLAIM — Was a consequence structurally prevented?",
+    ],
+    "each_claim_must_state": ["claim_id", "claim_type", "status", "reason_code", "evidence_refs", "time_basis", "integrity_binding", "limitations"],
+    "status_values": ["PROVABLE", "FAILED", "NOT_PROVABLE"],
+    "strength": (
+        "A system that honestly says 'AUTHORIZATION=PROVABLE, OUTCOME=NOT_PROVABLE' "
+        "is more trustworthy than one that conflates them into a single PASS verdict."
+    ),
+}
+
+VCB_EVIDENCE_SUFFICIENCY_CRITERIA = {
+    "schema": "VGS-EVIDENCE-SUFFICIENCY-1.0", "frozen": True,
+    "principle": (
+        "Every material evidence object used to support a VCB claim must be "
+        "examinable against eight sufficiency criteria before the claim is classified PROVABLE."
+    ),
+    "criteria": {
+        "1_EXISTENCE":   "Does the evidence object exist?",
+        "2_PROVENANCE":  "Where did it originate? Can the origin be independently verified?",
+        "3_BINDING":     "What exact action, system, version, and time does it describe?",
+        "4_CURRENCY":    "Is it current enough to support the claim at commitment time?",
+        "5_INTEGRITY":   "Can modification since creation be detected?",
+        "6_CONSISTENCY": "Does it contradict other evidence in the same examination?",
+        "7_BOUNDARY":    "What claim can this evidence legitimately support? (no overreach)",
+        "8_LIMITATION":  "What can this evidence NOT establish? (must be preserved in output)",
+    },
+    "sufficiency_gate": (
+        "A claim is PROVABLE only when all eight criteria are satisfied for every "
+        "material evidence object supporting that claim. "
+        "Partial satisfaction → NOT_PROVABLE with specific criterion code."
+    ),
+    "not_provable_codes": {
+        "E-01": "EVIDENCE_DOES_NOT_EXIST",
+        "E-02": "PROVENANCE_UNVERIFIABLE",
+        "E-03": "BINDING_INSUFFICIENT — evidence does not bind to this exact action",
+        "E-04": "EVIDENCE_STALE — currency insufficient for commitment-time claim",
+        "E-05": "INTEGRITY_UNVERIFIABLE",
+        "E-06": "EVIDENCE_CONTRADICTORY",
+        "E-07": "CLAIM_EXCEEDS_EVIDENCE_BOUNDARY",
+        "E-08": "LIMITATION_SUPPRESSED — evidence limitations not preserved in output",
+    },
+}
 
 
-@app.get("/v1/engineering/portability-status", tags=["Engineering Gates 0-7"])
-async def engineering_portability_status():
+
+@app.get("/v1/engineering/master-audit", tags=["Engineering Gates 0-7"])
+async def engineering_master_audit():
     """
-    Portable Proof Passport Status — what exists, what gaps remain.
-    Fact-check: 11 of 15 VCC fields present. 4 genuine gaps identified.
-    Covers: VCC fields, GCP fields, six-month test requirements.
+    Master Audit Object — single authoritative status of the entire VCB architecture.
+    Exposes all frozen constants, proof properties, invariants, build order, and current status.
     No auth required.
     """
     build = _get_full_build_identity()
+    snap  = _compute_authoritative_build_snapshot()
     return {
-        "schema":                   "VGS-PORTABILITY-STATUS-1.0",
-        "build_identity":           build,
-        "portable_passport_spec":   VCB_PORTABLE_PASSPORT_SPEC,
-        "six_review_questions":     VCB_SIX_ENGINEERING_REVIEW_QUESTIONS,
-        "material_mutation_tests":  VCB_MATERIAL_MUTATION_REGRESSION_TEST,
-        "website_alignment":        VCB_WEBSITE_ALIGNMENT_SPEC,
-        "current_vcc_status": {
-            "fields_present":       11,
-            "fields_required":      15,
-            "genuine_gaps": [
-                "governing_conditions_hash — hash of T0 governing conditions snapshot",
-                "build_identity_hash — SHA256 of build that issued VCC",
-                "grounding_status_at_issuance — overall grounding when VCC was issued",
-                "determination_basis — structured note on why action was admissible",
-            ],
-            "gap_fix_location": "GCP (Governance Closure Proof) carries post-execution portability fields",
+        "schema":                      "VGS-MASTER-AUDIT-2.0",
+        "build_identity":              build,
+        "master_definition":           VCB_FINAL_VCB_DEFINITION,
+        "six_proof_properties":        VCB_SIX_PROOF_PROPERTIES,
+        "authorization_decay":         VCB_AUTHORIZATION_DECAY_PRINCIPLE,
+        "authorization_lifecycle":     VCB_AUTHORIZATION_LIFECYCLE,
+        "replay_guard_R007":           R007_REPLAY_GUARD,
+        "invariant_9_monotonic":       VCB_INVARIANT_9_MONOTONIC_CONSUMPTION,
+        "invariant_10_ecosystem":      VCB_INVARIANT_10_ECOSYSTEM_INDEPENDENCE,
+        "invariant_11_evidence_limit": VCB_INVARIANT_11_EVIDENCE_LIMITATION,
+        "authority_ceiling":           VCB_AUTHORITY_CEILING_INVARIANT,
+        "canonical_claim_model":       VCB_CANONICAL_CLAIM_MODEL,
+        "outcome_variance_spec":       VCB_OUTCOME_VARIANCE_SPEC,
+        "sigilmark_extension":         VCB_SIGILMARK_EXTENSION_SCHEMA,
+        "proof_passport_14q":          VCB_PROOF_PASSPORT_14_QUESTIONS,
+        "nine_phase_build_order":      VCB_NINE_PHASE_BUILD_ORDER,
+        "feature_admission_test":      VCB_FEATURE_ADMISSION_TEST,
+        "definition_of_done":          VCB_DEFINITION_OF_DONE,
+        "full_red_team_matrix":        VCB_FULL_RED_TEAM_MATRIX,
+        "semantic_replay_distinction": VCB_SEMANTIC_REPLAY_DISTINCTION,
+        "governance_ops_boundary":     VCB_GOVERNANCE_OPS_BOUNDARY,
+        "market_terrain_adjacency":    VCB_MARKET_TERRAIN_ADJACENCY,
+        "claim_separation_doctrine":   VCB_CLAIM_SEPARATION_DOCTRINE,
+        "evidence_sufficiency_criteria": VCB_EVIDENCE_SUFFICIENCY_CRITERIA,
+        "core_doctrine":               VCB_CORE_DOCTRINE,
+        "proof_integrity_gate":        VCB_PROOF_INTEGRITY_GATE,
+        "public_claim_discipline":     VCB_PUBLIC_CLAIM_DISCIPLINE,
+        "website_alignment":           VCB_WEBSITE_ALIGNMENT_SPEC,
+        "current_status": {
+            "V001_maturity":            "D_RESTART_DISTRIBUTED_TESTED",
+            "V002_maturity":            "C_ADVERSARIALLY_TESTED",
+            "PRODUCTION_CLAIM_ALLOWED": False,
+            "p0_blockers_open":         snap["production_gate_summary"].get("open_p0_blockers", 11),
+            "real_actuator":            "OPEN — highest priority gap",
+            "p0_12_portability":        "OPEN",
+            "false_proof_rate":         "NOT_YET_MEASURED on live infrastructure",
         },
-        "p0_12_status":             "OPEN — external reproduction not yet demonstrated",
-        "false_proof_rate":         "NOT_YET_MEASURED — no automated regression runner on live infra",
-        "next_concrete_actions": [
-            "1. Wire payment actuator — no consequential execution without valid unconsumed VCC",
-            "2. Add 4 missing VCC portability fields to issue_vcc_safe output",
-            "3. Implement P0-12 test package for Alkama/Harold",
-            "4. Run regression suite (REG-MM-001 through REG-EC-001) on live Railway",
-            "5. Produce evidence pack: clean path=PROVEN, attack paths=NOT_PROVABLE with codes",
-            "6. Homepage claim-discipline pass this week",
-        ],
-        "timestamp":                datetime.now(timezone.utc).isoformat(),
-    }
-
-
-@app.post("/v1/adversarial/material-mutation-regression", tags=["Adversarial Proof Gates"])
-async def adversarial_material_mutation_regression(
-    x_api_key: Optional[str] = Header(None),
-    authorization: Optional[str] = Header(None),
-):
-    """
-    Material Mutation Regression Test — runs all 6 registered regression cases.
-    Recommendation section 1.4: "Convert every failure into a permanent regression test."
-
-    Runs:
-      REG-MM-001: Amount mutation $50k → $75k
-      REG-MM-002: Recipient mutation A → B
-      REG-AR-001: Authority revocation
-      REG-GC-001: Governing conditions change
-      REG-SG-001: Stale grounding
-      REG-EC-001: Evidence contradiction
-
-    Expected for ALL: NOT_PROVABLE, consequence_count=0.
-    A regression = previously-passing test now failing.
-    False-Proof Rate = PROVEN results on adversarial inputs / total adversarial attempts.
-    """
-    require_api_key(x_api_key, authorization)
-    build = _get_full_build_identity()
-    ts    = datetime.now(timezone.utc).isoformat()
-    results = []
-    false_proofs = 0
-
-    # REG-MM-001: Amount mutation
-    action_orig = {"type":"payment","amount":50000,"recipient":"ACCOUNT-A","currency":"NGN"}
-    action_mutated_amount = {"type":"payment","amount":75000,"recipient":"ACCOUNT-A","currency":"NGN"}
-    try:
-        vcc = issue_vcc_safe(
-            vcb_decision_id=f"REG-MM-001-{ts}",action_payload=action_orig,
-            consequence_type="PAYMENT",material_bounds={"max_amount":60000},
-            authority_hash=_vcc_hash({"auth":"reg-test"}),policy_hash=_vcc_hash({"policy":"v1"}),
-            state_hash=_vcc_hash({"state":"active"}),enforcement_point="test-actuator",ttl_seconds=60,
-        )
-        r = verify_vcc_independent(vcc,presented_action=action_mutated_amount,presented_enforcement_point="test-actuator")
-        passed = r.get("result") != "VALID"
-        if not passed: false_proofs += 1
-        results.append({"test_id":"REG-MM-001","name":"Amount mutation $50k→$75k","result":r.get("result"),"PASS":passed,"consequence_count":0,"failures":r.get("failures",[])})
-    except Exception as e:
-        results.append({"test_id":"REG-MM-001","error":str(e),"PASS":False})
-
-    # REG-MM-002: Recipient mutation
-    action_mutated_recipient = {"type":"payment","amount":50000,"recipient":"ACCOUNT-B","currency":"NGN"}
-    try:
-        vcc2 = issue_vcc_safe(
-            vcb_decision_id=f"REG-MM-002-{ts}",action_payload=action_orig,
-            consequence_type="PAYMENT",material_bounds={"max_amount":60000},
-            authority_hash=_vcc_hash({"auth":"reg-test"}),policy_hash=_vcc_hash({"policy":"v1"}),
-            state_hash=_vcc_hash({"state":"active"}),enforcement_point="test-actuator",ttl_seconds=60,
-        )
-        r2 = verify_vcc_independent(vcc2,presented_action=action_mutated_recipient,presented_enforcement_point="test-actuator")
-        passed2 = r2.get("result") != "VALID"
-        if not passed2: false_proofs += 1
-        results.append({"test_id":"REG-MM-002","name":"Recipient mutation A→B","result":r2.get("result"),"PASS":passed2,"consequence_count":0,"failures":r2.get("failures",[])})
-    except Exception as e:
-        results.append({"test_id":"REG-MM-002","error":str(e),"PASS":False})
-
-    # REG-SG-001: Stale grounding (simulate via evidence integrity gate)
-    stale_evidence = [{"evidence_id":"AUTH","grounding_status":"STALE","grounding_method":"CRYPTOGRAPHIC_PROOF"}]
-    r3 = evaluate_proof_integrity(evidence_items=stale_evidence,required_items=["AUTH"],
-                                   consequence_contract={"min_independence_level":2},proof_passport_ref="PP-REG-SG-001")
-    passed3 = r3["result"] == "NOT_PROVABLE" and "STALE" in (r3.get("reason") or "")
-    if not passed3: false_proofs += 1
-    results.append({"test_id":"REG-SG-001","name":"Stale grounding","result":r3["result"],"reason":r3.get("reason"),"PASS":passed3,"consequence_count":0})
-
-    # REG-EC-001: Evidence contradiction
-    contradictory_evidence = [{"evidence_id":"AUTH","grounding_status":"CONTRADICTORY","grounding_method":"CRYPTOGRAPHIC_PROOF"}]
-    r4 = evaluate_proof_integrity(evidence_items=contradictory_evidence,required_items=["AUTH"],
-                                   consequence_contract={},proof_passport_ref="PP-REG-EC-001")
-    passed4 = r4["result"] == "NOT_PROVABLE" and "CONTRADICTORY" in (r4.get("reason") or "")
-    if not passed4: false_proofs += 1
-    results.append({"test_id":"REG-EC-001","name":"Evidence contradiction","result":r4["result"],"reason":r4.get("reason"),"PASS":passed4,"consequence_count":0})
-
-    # REG-AR-001 and REG-GC-001: marked as documented specs
-    results.append({"test_id":"REG-AR-001","name":"Authority revocation","PASS":"SPEC_ONLY","note":"Requires live DB + authority revocation mechanism","consequence_count":0})
-    results.append({"test_id":"REG-GC-001","name":"Governing conditions change","PASS":"SPEC_ONLY","note":"Requires live policy_hash comparison at T1","consequence_count":0})
-
-    total_live = sum(1 for r in results if r.get("PASS") is True or r.get("PASS") is False)
-    passed_live = sum(1 for r in results if r.get("PASS") is True)
-    false_proof_rate = false_proofs / total_live if total_live > 0 else 0
-
-    return {
-        "schema":             "VGS-MATERIAL-MUTATION-REGRESSION-1.0",
-        "test_id":            "REGRESSION-SUITE",
-        "build_hash":         build["sha256_full"][:32],
-        "results":            results,
-        "total_live_tests":   total_live,
-        "passed":             passed_live,
-        "false_proofs":       false_proofs,
-        "false_proof_rate":   f"{false_proof_rate:.2%}",
-        "target":             "false_proof_rate = 0.00%",
-        "all_live_passed":    false_proofs == 0,
-        "verdict":            "PASS" if false_proofs == 0 else f"FAIL — {false_proofs} false proof(s) detected",
-        "spec_only_tests":    ["REG-AR-001","REG-GC-001"],
-        "spec_note":          "REG-AR-001 and REG-GC-001 require live DB integration to execute",
-        "expert_rule":        "Optimize for correct proof determination and low False-Proof Rate, not maximum PROVEN results.",
-        "timestamp":          ts,
+        "timestamp":                   datetime.now(timezone.utc).isoformat(),
     }
 
 
