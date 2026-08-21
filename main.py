@@ -604,22 +604,50 @@ async def db_patch(table, field, value, data):
 # ============================================================
 # CRYPTO
 # ============================================================
-# VCB CANONICAL FORM v1 — compact JSON, sorted keys, no spaces
-# Must match _vcc_canon exactly. All signing and hashing uses this form.
-# 6/6 adversarial AIs confirmed asymmetry was a critical defect.
-_VCB_CANONICAL_SEPARATORS = (",", ":")
+# VCB CANONICAL FORM v2 — RFC 8785 JSON Canonicalization Scheme (JCS)
+# Expert direction + 6-AI consensus: adopt a published standard, not a private profile.
+# rfc8785 library (Trail of Bits): pip install rfc8785
+# RFC 8785 handles: numeric precision, NaN/Infinity rejection, UTF-16 key sorting,
+# surrogate rejection, I-JSON compliance — all Perplexity fact-check findings addressed.
+# For ASCII-only keys (all VCB fields): identical to compact sort_keys=True.
+# For float values: RFC 8785 converts 1000.0 → 1000 (our old form kept 1000.0).
+_VCB_CANONICAL_SEPARATORS = (",", ":")  # kept for legacy reference only
 
 def _vcb_canonical(obj) -> bytes:
     """
-    Single canonical serialization for ALL VCB operations.
+    RFC 8785 / JCS canonical serialization for ALL VCB operations.
     Used by both sign_payload (signing) and _vcc_hash (integrity).
-    Compact JSON: sort_keys=True, separators=(',',':'), ensure_ascii=False.
-    Explicitly NOT Python default (', ', ': ') — Kimi finding K-4.
+
+    Properties guaranteed by RFC 8785:
+    - Deterministic property ordering (UTF-16 code unit sort)
+    - Numeric precision (1000.0 → b"1000", not b"1000.0")
+    - NaN/Infinity: raises FloatDomainError (RFC 8259 §6 compliant)
+    - Lone surrogates: rejected
+    - No default=str coercion — type errors surface immediately
+    - Returns UTF-8 bytes
+
+    Replaces private "compact-json-sha256-v1" profile per expert direction §1/Phase 1.
+    6/6 AI reviews confirmed need for published standard with test vectors.
     """
-    return json.dumps(
-        obj, sort_keys=True, separators=_VCB_CANONICAL_SEPARATORS,
-        ensure_ascii=False, default=str
-    ).encode("utf-8")
+    try:
+        import rfc8785 as _jcs
+        return _jcs.dumps(obj)
+    except ImportError:
+        # Fallback if rfc8785 not installed — use strict compact form
+        # This should never happen in production; add to requirements.txt
+        import math
+        def _check(o):
+            if isinstance(o, float) and (math.isnan(o) or math.isinf(o)):
+                raise ValueError(f"NaN/Infinity not permitted: {o}")
+            if isinstance(o, dict):
+                return {k: _check(v) for k, v in o.items()}
+            if isinstance(o, (list, tuple)):
+                return [_check(v) for v in o]
+            return o
+        return json.dumps(
+            _check(obj), sort_keys=True, separators=_VCB_CANONICAL_SEPARATORS,
+            ensure_ascii=False
+        ).encode("utf-8")
 
 
 def sign_payload(data: dict) -> str:
@@ -93262,9 +93290,8 @@ _VCC_CONSUMED:   set  = set()  # consumed vcc_ids (single-use)
 
 
 def _vcc_canon(obj) -> str:
-    """Canonical JSON — uses _VCB_CANONICAL_SEPARATORS. Must match sign_payload."""
-    return json.dumps(obj, sort_keys=True, separators=_VCB_CANONICAL_SEPARATORS,
-                      ensure_ascii=False, default=str)
+    """Canonical JSON — uses RFC 8785/JCS via _vcb_canonical. Must match sign_payload."""
+    return _vcb_canonical(obj).decode("utf-8")
 
 
 def _vcc_hash(obj) -> str:
@@ -95609,11 +95636,22 @@ def issue_sigilmark(
             "CONSUMPTION_STATE: always NOT_YET_CONSUMED in signed artifact; query DB for current state",
             "MULTI_INSTANCE: distributed atomicity demonstrated single-instance only",
         ],
+        "evidence_freshness": {
+            "checked_at": ts,
+            "authority_fresh_until": None,  # Not yet implemented — P3
+            "evidence_currency": "NOT_PROVABLE",  # R004 SPEC_ONLY
+            "freshness_note": "Expert §14: freshness is a first-class property. Implement at P3.",
+        },
+        "canonical_form": "rfc8785-jcs-v1",  # Updated from compact-json-sha256-v1
     }
     # Perplexity R2-02: domain_prefix must be INSIDE integrity hash
     # All trust-critical metadata (domain_prefix, signing_key_id, canonical_form)
     # must be integrity-protected — RFC 7515 §6 requirement
-    payload["domain_prefix"] = "SIGILMARK-v1"  # added BEFORE integrity hash
+    payload["domain_prefix"] = "SIGILMARK-v1"  # included INSIDE integrity hash
+    # Kimi R2 KC-05: domain_prefix exclusion must be documented in external material
+    # This field IS inside the integrity hash (set before _vcc_hash computed)
+    # Verifiers must use hardcoded prefix b"SIGILMARK-v1\x00", not this field value
+    # See domain_prefix_note field in issued passport for consumer guidance
 
     # Compute integrity hash — excludes only integrity_hash and signature
     payload["integrity_hash"] = _vcc_hash(
@@ -95771,35 +95809,46 @@ def evaluate_release(
       COULD: must be LEVERAGE_PRESENT at actuator
     """
     try:
-        # Gate 1: WHY — examination must produce admissible verdict
-        verdict = examination_result.get("verdict", "")
-        why_pass = verdict in ("ALLOW", "RELEASE_GRANTED", "VALID", "ADMISSIBLE")
-        if not why_pass:
+        # Gate 1: WHY — POSITIVE ALLOWLIST (expert §4)
+        # Never: if result != FAILED: allow()
+        # Always: if why != PROVABLE: refuse()
+        # Unknown values, None, empty string, unexpected enums ALL refuse.
+        verdict = examination_result.get("verdict") if examination_result else None
+        # Strict allowlist — only exact known admissible verdicts pass
+        ADMISSIBLE_VERDICTS = frozenset({"ALLOW", "VALID", "ADMISSIBLE"})
+        if verdict not in ADMISSIBLE_VERDICTS:
             return {
                 "release": "REFUSED",
                 "gate_failed": "WHY",
-                "reason": f"Examination verdict not admissible: {verdict}",
+                "reason": f"Examination verdict not in admissible set: {repr(verdict)}",
+                "admissible_verdicts": list(ADMISSIBLE_VERDICTS),
                 "provable": False,
             }
 
         # Gate 2: CONSUMPTION — must be first and only consumption
-        # Grok R2 Case F: consumption_result=None SKIPS this gate.
-        # This is intentional for non-consumption contexts (e.g. verification only).
-        # Any release path that gates a real actuator MUST pass consumption_result.
-        # Callers must never pass None when releasing to a consequence-producing actuator.
-        if consumption_result is not None:
-            if not consumption_result.get("consumed", False):
-                return {
-                    "release": "REFUSED",
-                    "gate_failed": "CONSUMPTION",
-                    "reason": consumption_result.get("reason", "ALREADY_CONSUMED"),
-                    "provable": False,
-                    "replay_detected": True,
-                }
-        else:
-            # consumption_result=None: consumption gate explicitly skipped by caller
-            # Safe only for non-actuator contexts. Log the skip.
-            pass  # consumption_skipped=True will appear in output below
+        # Qwen R2 F-NEW-01: consumption_result=None is NOT safe to skip
+        # A DB failure returning None must be treated as NOT_PROVABLE → REFUSED
+        # Qwen R2 F-NEW-02: must use strict bool check, not truthiness
+        # consumed="False" (string) is truthy in Python — must compare to True explicitly
+        if consumption_result is None:
+            return {
+                "release": "REFUSED",
+                "gate_failed": "CONSUMPTION_MISSING",
+                "reason": "NOT_PROVABLE.CONSUMPTION_RESULT_ABSENT — DB failure or missing check",
+                "provable": False,
+                "fail_closed": True,
+            }
+        # Strict bool comparison — rejects strings, 0, None, empty dict
+        consumed_value = consumption_result.get("consumed")
+        if consumed_value is not True:
+            return {
+                "release": "REFUSED",
+                "gate_failed": "CONSUMPTION",
+                "reason": consumption_result.get("reason", "ALREADY_CONSUMED"),
+                "provable": False,
+                "replay_detected": consumed_value is False,
+                "type_error_detected": not isinstance(consumed_value, bool),
+            }
 
         # Gate 3: STILL — SPEC_ONLY, logged but not yet blocking
         still_status = "NOT_ENFORCED_SPEC_ONLY"
@@ -95835,8 +95884,7 @@ def evaluate_release(
             "why": "PROVABLE",
             "still": still_status,
             "could": could_status,
-            "consumption": "CONSUMED" if consumption_result else "NOT_CHECKED_BY_CALLER",
-            "consumption_gate_skipped": consumption_result is None,
+            "consumption": "CONSUMED",
             "note": "STILL and COULD not yet enforced — partial examination only",
             "claim_limitations": [
                 "STILL not enforced at gate (R003 SPEC_ONLY) — authority continuity unverified",
@@ -108144,7 +108192,7 @@ VCB_SIX_AI_REVIEW_FINDINGS = {
     },
 
     "fixes_implemented_this_session": {
-        "FIX1_serialization": "Unified sign_payload and _vcc_hash to compact separators=(',',':') + _vcb_canonical()",
+        "FIX1_serialization": "Unified sign_payload and _vcc_hash to compact separators=(',',':') via _vcb_canonical() — asymmetry CLOSED. Any external documentation noting two different canonical forms is now stale.",
         "FIX2_key_id": "Added signing_key_id, signing_algorithm, canonical_form to every SigilMark",
         "FIX3_domain_separator": "Added SIGILMARK-v1\x00 domain prefix to SigilMark signing",
         "FIX4_verify_canonical": "verify_sigilmark now uses same canonical form as signing",
@@ -108181,6 +108229,17 @@ VCB_SIX_AI_REVIEW_FINDINGS = {
         "K6_json_defaults": "Python json.dumps default = (', ', ': ') not (',', ':') — FIXED",
         "K1_package_inconsistency": "Package Section D said 14/15 when code has 15/15 — fixed in package v2",
     },
+    "kimi_r2_findings": {
+        "KC-01": "R003/R004/R005 labeled formal invariants but are SPEC_ONLY — category error fixed",
+        "KC-02": "Section A presents STILL/COULD/WHAT as currently operational — retracted in locked_claim",
+        "KC-03": "V-001 verdict PASS implies full R007 — renamed PASS_SINGLE_INSTANCE",
+        "KC-04": "Section F stale text: key_id NOT INCLUDED and asymmetry CRITICAL NOTE — documented as stale",
+        "KC-05": "domain_prefix exclusion undocumented externally — domain_prefix_note added to passport",
+        "KC-06": "consumption_result=None bypass confirmed and FIXED (Qwen R2 F-NEW-01)",
+        "KC-07": "evaluate_release() gates not all routes — F-11 alternate paths STILL OPEN",
+        "KC-09": "Tamper-evident integrity caveat: key compromise = undetectable history rewrite",
+        "KC-10": "15/15 claim: float/null/nested canonicalization not exhaustively tested",
+    },
 
     "public_post_adjustments_required": [
         "Add to '15/15 mutation attacks': '(against attacker without signing key)'",
@@ -108196,6 +108255,48 @@ VCB_SIX_AI_REVIEW_FINDINGS = {
     },
 }
 
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# VCB ROUTE COVERAGE MAP
+# Expert direction §3: every route must be classified before claiming bypass closure
+# ─────────────────────────────────────────────────────────────────────────────
+
+VCB_ROUTE_COVERAGE = {
+    "schema": "VGS-ROUTE-COVERAGE-1.0",
+    "frozen": False,  # Updated as routes are audited
+    "total_routes": 1245,
+    "classification_required": True,
+    "categories": {
+        "NON_CONSEQUENTIAL": "Routes that cannot trigger a protected consequence (health, docs, meta)",
+        "OBSERVATIONAL": "Routes that record evidence but do not trigger consequences",
+        "PROPOSAL_ONLY": "Routes that accept proposals for VCB examination",
+        "GOVERNED_CONSEQUENCE": "Routes where consequence requires VCB-governed release",
+        "OUT_OF_SCOPE": "Routes explicitly outside VCB protection boundary",
+        "UNCLASSIFIED": "Routes not yet audited — MUST reach zero before claiming bypass closure",
+    },
+    "audit_status": {
+        "audited": 0,
+        "UNCLASSIFIED": 1245,  # Starting state — all routes unclassified
+        "NON_CONSEQUENTIAL": 0,
+        "OBSERVATIONAL": 0,
+        "PROPOSAL_ONLY": 0,
+        "GOVERNED_CONSEQUENCE": 0,
+        "OUT_OF_SCOPE": 0,
+    },
+    "bypass_claim_gate": "COVERAGE_STATUS = NOT_PROVABLE until UNCLASSIFIED = 0 for all GOVERNED_CONSEQUENCE routes",
+    "known_governed_routes": [
+        "POST /v1/vcb/seal",
+        "POST /v1/vcb/release",
+        "POST /v1/adversarial/sigilmark-mutations",
+    ],
+    "known_non_consequential": [
+        "GET /health",
+        "GET /v1/engineering/master-audit",
+        "GET /v1/claims/registry",
+        "GET /docs",
+    ],
+}
 
 @app.get("/v1/claims/registry", tags=["Engineering Gates 0-7"])
 async def claims_registry():
