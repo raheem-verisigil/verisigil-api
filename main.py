@@ -107285,9 +107285,6 @@ async def engineering_master_audit():
         "adversarial_tests_extended":  VCB_ADVERSARIAL_TEST_MATRIX_EXTENDED,
         "no_recursive_governor":       VCB_NO_RECURSIVE_GOVERNOR,
         "core_doctrine":               VCB_CORE_DOCTRINE,
-        "proof_integrity_gate":        VCB_PROOF_INTEGRITY_GATE,
-        "public_claim_discipline":     VCB_PUBLIC_CLAIM_DISCIPLINE,
-        "website_alignment":           VCB_WEBSITE_ALIGNMENT_SPEC,
         "current_status": {
             "V001_maturity":            "D_RESTART_DISTRIBUTED_TESTED",
             "V002_maturity":            "C_ADVERSARIALLY_TESTED",
