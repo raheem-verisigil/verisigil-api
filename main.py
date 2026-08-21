@@ -107311,6 +107311,280 @@ VCB_NO_RECURSIVE_GOVERNOR = {
 
 
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# FROZEN CONSTANTS — TBN ANALYSIS + FOUR NEW INVARIANTS + STRATEGIC DIFFERENTIATION
+#
+# Fact-checked against:
+#   TBN Protocol (PyPI tbn-agent-network): confirmed v0.1.0 published May 25 2026.
+#     v0.1.6 claimed on LinkedIn is NOT YET verified on PyPI (latest confirmed: 0.1.0).
+#     TBN is an agent communication/identity protocol — NOT a consequence-boundary
+#     proof system. Its question: "Who is this agent and can they communicate?"
+#     VCB's question: "Was this exact action still admissible at commitment?"
+#
+#   IETF Delegation Receipt Protocol (draft-nelson-agent-delegation-receipts-10,
+#     Jun 2026): explicitly states "A valid Delegation Receipt proves that a User
+#     authorized an Agent to act within defined scope. It does NOT prove that the
+#     model executing the receipt is the model the User authorized." — confirms
+#     VCB's receipt-vs-proof distinction is architecturally correct.
+#
+#   Notarized Agents / Sello (arXiv 2606.04193): surveys 6 receipt systems
+#     (Agent Receipts, Signet, Pipelock, APS, Attested Intelligence, Sello).
+#     None address: commit-time revalidation, material delta, consumption lifecycle,
+#     boundary leverage determination, or explicit NOT_PROVABLE classification.
+#     VCB uniquely combines all of these.
+#
+#   Microsoft AI Agents for Beginners (2026): "A common mistake is to assume that
+#     'we have receipts' means 'we are governed.' It does not. Receipts are a
+#     foundation. Governance is the system you build on top."
+#
+#   Authproof Cloud (cloud.authproof.dev, 2026): "The difference is not the log.
+#     The difference is when the proof was created." — pre-execution authorization
+#     proof, not post-hoc log reconstruction. Adjacent to VCB but does not address
+#     commit-time revalidation or consumption lifecycle.
+# ─────────────────────────────────────────────────────────────────────────────
+
+VCB_TBN_COMPETITIVE_ANALYSIS = {
+    "schema": "VGS-TBN-ANALYSIS-1.0", "frozen": True,
+    "fact_check_date": "2026-08-21",
+    "tbn_protocol": {
+        "pypi_package":      "tbn-agent-network",
+        "confirmed_version": "0.1.0 (May 25 2026)",
+        "claimed_version":   "0.1.6 (LinkedIn — NOT YET verified on PyPI)",
+        "license":           "AGPL-3.0",
+        "author":            "Burhan Yanbolu",
+        "description":       "Trust-verified communication network for AI agents — mTLS for AI agents",
+        "their_question":    "Who is this agent, under what mandate, and can its governed action record be verified?",
+        "their_terrain":     "Agent identity, certification, communication trust, governed action record",
+    },
+    "vcb_question":    "For this exact consequential action, was the authority still admissible at commitment, was intervention effective, and what can be proven?",
+    "overlap_map": {
+        "Agent identity":           "Actor/authority identity — evidence input to WHY",
+        "Mandate":                  "ACS + Responsibility Binding",
+        "Wrong action refused":     "Exact Action Binding (R001)",
+        "Expired authority refused":"Authority validity + R003 Authority Continuity",
+        "Governance decision":      "Admissibility examination",
+        "Cryptographic receipt":    "SigilMark / Proof Passport",
+        "Outcome record":           "WHAT evidence",
+        "Signature":                "Cryptographic integrity",
+        "Tamper-evident chain":     "Examination trace / event integrity",
+        "Independent verification": "Offline Proof Passport verifier",
+    },
+    "what_tbn_does_NOT_address": [
+        "Commit-time revalidation (STILL — T0→T1 material delta)",
+        "Evidence currency (R004)",
+        "Authorization consumption lifecycle (ELIGIBLE→CONSUMED monotonic)",
+        "Semantic replay guard",
+        "Distributed single-winner (V-002)",
+        "Boundary leverage determination (COULD)",
+        "Execution vs outcome distinction (R006)",
+        "Explicit NOT_PROVABLE classification",
+        "Six-gate pre-execution proof chain",
+    ],
+    "receipt_ecosystem_2026": {
+        "Agent_Receipts":         "Ed25519 signed receipts — operator-side signing key",
+        "Signet":                 "MCP bilateral co-signing — no transparency log",
+        "Pipelock":               "Out-of-process mediator signer — no independent witness yet",
+        "Attested_Intelligence":  "AGA — Ed25519+ML-DSA-65 receipts — operator trust boundary",
+        "Authproof":              "Pre-execution signed authorization — no commit-time revalidation",
+        "Aevesa":                 "Gateway permit/deny attestation — no consumption lifecycle",
+        "VCB":                    "Six-gate proof chain: WHY+STILL+CONSUME+COULD+WHAT+PROVE with explicit NOT_PROVABLE",
+    },
+    "strategic_sentence": (
+        "A signed receipt can prove that a governed action record exists. "
+        "VeriSigilAI goes further: it produces independently verifiable evidence of whether "
+        "the exact authority and conditions supporting a consequential action were still sufficient "
+        "when that action crossed the consequence boundary — and explicitly shows what cannot be proven."
+    ),
+    "correct_response": "Strengthen Proof Passport verifier + enforce no-valid-examination-no-effect. Do NOT copy TBN's nine-layer record model.",
+}
+
+VCB_FOUR_NEW_INVARIANTS = {
+    "schema": "VGS-FOUR-INVARIANTS-1.0", "frozen": True,
+    "source": "TBN competitive analysis + IETF DRP + receipt ecosystem review 2026-08-21",
+    "INV_01_NO_VALID_PROOF_NO_PROTECTED_EFFECT": {
+        "id":        "INV-01",
+        "name":      "No Valid Proof, No Protected Effect",
+        "statement": (
+            "A protected actuator cannot be released unless the required examination "
+            "state is fully satisfied: WHY=PROVABLE, STILL=PROVABLE, CONSUMPTION=VALID, COULD=LEVERAGE_PRESENT."
+        ),
+        "precise_vcb_form": (
+            "No valid examination and consumable authorization proof → no protected consequence. "
+            "Not: 'No receipt, no effect' (too weak — a receipt can be signed but stale). "
+            "VCB form: no valid examination under current conditions, no protected release."
+        ),
+        "pre_release_gate": {
+            "WHY":         "PROVABLE",
+            "STILL":       "PROVABLE",
+            "CONSUMPTION": "VALID / ATOMICALLY_CONSUMABLE",
+            "COULD":       "LEVERAGE_PRESENT",
+        },
+        "if_any_fails": "REFUSE — actuator not reached — consequence = 0",
+        "engineering_phase": "P3 — enforce as hard gate in release path",
+    },
+    "INV_02_CRYPTO_INTEGRITY_SEPARATE_FROM_CLAIM_VALIDITY": {
+        "id":        "INV-02",
+        "name":      "Cryptographic Integrity Is Separate from Claim Validity",
+        "statement": (
+            "A perfectly signed, unmodified record can still be insufficient to support "
+            "the claim it purports to prove. The verifier MUST report these separately."
+        ),
+        "example": {
+            "SIGNATURE":        "VALID",
+            "RECORD":           "UNMODIFIED",
+            "authority_evidence": "STALE",
+            "correct_vcb_result": {
+                "INTEGRITY": "PROVABLE",
+                "STILL":     "NOT_PROVABLE.EVIDENCE_STALE",
+                "RELEASE":   "REFUSE",
+            },
+        },
+        "forbidden": "Treating SIGNATURE=VALID as equivalent to CLAIM=PROVABLE",
+        "ietf_drp_confirmation": (
+            "IETF draft-nelson-agent-delegation-receipts-10 (Jun 2026): "
+            "'A valid Delegation Receipt proves that a User authorized an Agent to act within defined scope. "
+            "It does not prove that the model executing the receipt is the model the User authorized.' "
+            "VCB goes further: it also proves whether authority remained valid AT COMMITMENT."
+        ),
+        "microsoft_confirmation": (
+            "'A common mistake is to assume that we have receipts means we are governed. "
+            "It does not. Receipts are a foundation. Governance is the system you build on top.'"
+        ),
+        "verifier_must_report_separately": [
+            "INTEGRITY_STATUS — was the record tampered?",
+            "WHY_STATUS — was authority present and sufficient?",
+            "STILL_STATUS — was it still valid at commitment?",
+            "COULD_STATUS — did boundary retain leverage?",
+            "WHAT_STATUS — what can be proven about execution and outcome?",
+        ],
+        "engineering_phase": "P4 — implement in offline verifier output schema",
+    },
+    "INV_03_OFFLINE_VERIFICATION_MUST_BE_SIMPLE": {
+        "id":        "INV-03",
+        "name":      "Offline Verification Must Be Simple",
+        "statement": (
+            "Cryptographic verification is commercially useless if only a cryptographer can perform it. "
+            "The Proof Passport verifier must be operable by a compliance officer or regulator."
+        ),
+        "target_experience": {
+            "command":  "verisigil verify proof_passport.json",
+            "output": {
+                "INTEGRITY":    "VERIFIED",
+                "WHY":          "PROVABLE",
+                "STILL":        "PROVABLE",
+                "COULD":        "PROVABLE",
+                "WHAT": {
+                    "execution": "PROVABLE",
+                    "outcome":   "NOT_PROVABLE",
+                },
+                "LIMITATIONS":  "Outcome observation unavailable.",
+            },
+        },
+        "verifier_must_NOT_require": [
+            "live VCB API", "VCB database", "private keys",
+            "VCB runtime", "internal caches", "hidden state",
+        ],
+        "engineering_phase": "P4/P8 — standalone verifier CLI or SDK function",
+    },
+    "INV_04_IDENTITY_DOES_NOT_EQUAL_AUTHORITY": {
+        "id":        "INV-04",
+        "name":      "Identity Does Not Equal Authority",
+        "statement": (
+            "An authenticated agent identity cannot by itself authorize a consequential action. "
+            "Identity is evidence about who acted — not evidence that the action should have been allowed."
+        ),
+        "identity_supports_not_replaces": [
+            "Identity → supports → Authority",
+            "Authority → supports → Specific Action",
+            "Specific Action → Commit-Time Validity → Consumption → Consequence → Proof",
+        ],
+        "a_perfectly_identified_agent_can_still": [
+            "execute the wrong action",
+            "act under expired authority",
+            "act after a material state change",
+            "use stale evidence",
+            "replay a consumed authorization",
+        ],
+        "vcb_model": "Identity is an evidence input to WHY — it is not a substitute for the full examination chain",
+        "do_not": "Expand VCB into an agent identity network. Keep identity as supporting evidence.",
+        "engineering_phase": "Existing — already captured in ACS binding and responsibility binding",
+    },
+}
+
+VCB_RECEIPT_VS_PROOF_DISTINCTION = {
+    "schema": "VGS-RECEIPT-VS-PROOF-1.0", "frozen": True,
+    "what_a_signed_receipt_proves": [
+        "This record existed",
+        "This signer signed it",
+        "The payload has not changed since signing",
+    ],
+    "what_a_signed_receipt_does_NOT_automatically_prove": [
+        "The authority was still valid at commitment",
+        "The evidence supporting the decision was current",
+        "The original conditions had not materially changed",
+        "The authorization had not already been consumed",
+        "Intervention still had leverage",
+        "The recorded execution actually produced the claimed outcome",
+    ],
+    "vcb_goes_further": (
+        "VCB examines whether the authority and evidence supporting the action "
+        "were still sufficient at the moment consequence was released — "
+        "and makes the limits of that proof explicit."
+    ),
+    "forbidden_equivalence": "SIGNATURE=VALID → ACTION=AUTHORIZED (missing STILL, CURRENCY, CONSUMPTION, LEVERAGE)",
+    "competitive_position": (
+        "Do not compete by saying 'we also have a cryptographic receipt.' "
+        "That reduces VCB to another action-recording system. "
+        "Compete by proving what the receipt's evidence is actually capable of supporting."
+    ),
+    "identity_as_evidence_model": {
+        "diagram": "WHY ← [Identity, Authority, Evidence] → STILL ← [Revalidation at T1, Consumption state] → COULD ← [Boundary leverage] → WHAT ← [Execution/Outcome]",
+        "principle": "Identity, Mandate, Responsibility, Memory/Context, Governance State are evidence inputs — not competing product layers",
+    },
+}
+
+VCB_STRATEGIC_DIFFERENTIATION_LOCKED = {
+    "schema": "VGS-STRATEGIC-DIFF-LOCKED-1.0", "frozen": True,
+    "locked_sentence": (
+        "A signed receipt can prove that a governed action record exists. "
+        "VeriSigilAI goes further: it produces independently verifiable evidence of whether "
+        "the exact authority and conditions supporting a consequential action were still sufficient "
+        "when that action crossed the consequence boundary — and explicitly shows what cannot be proven."
+    ),
+    "vcb_unique_combination_no_receipt_system_addresses": [
+        "Commit-time revalidation (T0→T1 material delta)",
+        "Evidence currency enforcement (R004)",
+        "Authorization consumption lifecycle (ELIGIBLE→CONSUMED monotonic, semantic + token replay)",
+        "Distributed single-winner (V-001/V-002)",
+        "Boundary leverage determination (COULD)",
+        "Execution vs outcome separation (R006)",
+        "Explicit NOT_PROVABLE classification with reason codes",
+        "Dual-path proof (successful AND refused paths)",
+        "Six-gate pre-execution chain (WHY→BIND→STILL→CONSUME→COULD→WHAT)",
+        "Live adversarial proof suite (V-001 PASS, V-002 PASS, EI 5/5 PASS on production)",
+    ],
+    "adopt": [
+        "INV-01: No valid examination, no protected effect — as hard gate in release path",
+        "INV-02: Cryptographic integrity reported separately from claim validity",
+        "INV-03: Offline verifier must be simple enough for compliance officer",
+        "Strengthen Proof Passport independent verification interface",
+    ],
+    "reject": [
+        "Do NOT copy TBN's nine-layer record model",
+        "Do NOT expand into agent identity network",
+        "Do NOT compete on signed receipts alone",
+    ],
+    "unchanged": [
+        "WHY → STILL → COULD → WHAT as the four proof domains",
+        "P0 → P5 build sequence",
+        "Frozen architecture — no new product layers",
+    ],
+    "next_build_priority": "P5 — one real consequential actuator demonstrating INV-01 in production",
+}
+
+
+
 @app.get("/v1/engineering/master-audit", tags=["Engineering Gates 0-7"])
 async def engineering_master_audit():
     """
@@ -107368,6 +107642,10 @@ async def engineering_master_audit():
         "proof_passport_schema":       VCB_PROOF_PASSPORT_SCHEMA,
         "adversarial_tests_extended":  VCB_ADVERSARIAL_TEST_MATRIX_EXTENDED,
         "no_recursive_governor":       VCB_NO_RECURSIVE_GOVERNOR,
+        "tbn_competitive_analysis":    VCB_TBN_COMPETITIVE_ANALYSIS,
+        "four_new_invariants":         VCB_FOUR_NEW_INVARIANTS,
+        "receipt_vs_proof_distinction": VCB_RECEIPT_VS_PROOF_DISTINCTION,
+        "strategic_differentiation":   VCB_STRATEGIC_DIFFERENTIATION_LOCKED,
         "core_doctrine":               VCB_CORE_DOCTRINE,
         "current_status": {
             "V001_maturity":            "D_RESTART_DISTRIBUTED_TESTED",
