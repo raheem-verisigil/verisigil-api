@@ -95560,6 +95560,11 @@ def verify_sigilmark(sm: dict, presented_action: dict = None, presented_enforcem
     stored_hash = sm.get("integrity_hash") or sm.get("sigilmark_hash", "")
     if expected_hash != stored_hash:
         failures.append("INTEGRITY_HASH_INVALID")
+    # 1b. Detect hash field injection/substitution attack (SM-13 class)
+    # If both fields present, the secondary must also match — prevents hash substitution
+    if sm.get("sigilmark_hash") and sm.get("integrity_hash"):
+        if sm["sigilmark_hash"] != expected_hash:
+            failures.append("SIGILMARK_HASH_SUBSTITUTION_DETECTED")
 
     # 2. Action binding check
     if presented_action is not None:
@@ -96413,13 +96418,19 @@ def _verify_evidence_chain_integrity(package: dict) -> dict:
     ts       = datetime.now(timezone.utc).isoformat()
     failures = []
 
-    # 1. SigilMark hash — supports both "sigilmark_hash" and "integrity_hash" field names
+    # 1. SigilMark hash — check primary hash field (integrity_hash) and flag any tampered secondary hash
     sm = package.get("sigilmark", {})
-    sm_hash_field = "sigilmark_hash" if "sigilmark_hash" in sm else "integrity_hash"
     sm_check = {k: v for k, v in sm.items() if k not in ("sigilmark_hash","integrity_hash","issuer_signature","signature","vcc_hash")}
     expected_sm_hash = _vcc_hash(sm_check)
-    if expected_sm_hash != sm.get(sm_hash_field,""):
+    # Check integrity_hash (primary field from issue_sigilmark)
+    if sm.get("integrity_hash") and expected_sm_hash != sm.get("integrity_hash",""):
         failures.append("SIGILMARK_HASH_INVALID")
+    # Check sigilmark_hash (legacy/secondary field) — if present, must also match
+    if sm.get("sigilmark_hash") and expected_sm_hash != sm.get("sigilmark_hash",""):
+        failures.append("SIGILMARK_HASH_INVALID")
+    # If neither field is present, we cannot verify integrity
+    if not sm.get("integrity_hash") and not sm.get("sigilmark_hash"):
+        failures.append("SIGILMARK_HASH_MISSING")
 
     # 2. Decision hash — only check if decision_hash field is explicitly present
     dec = package.get("decision", {})
