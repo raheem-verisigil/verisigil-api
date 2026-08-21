@@ -74,12 +74,24 @@ def _verify_signature_vcb(payload: dict, signature: str, public_key_b64: str) ->
                     "form": "domain-separated-compact", "key_id": public_key_b64[:16] + "..."}
         except Exception:
             pass
-        # Fallback: try legacy non-domain-separated form (passports before Fix-3)
+        # ChatGPT R2 NEW-F18: Legacy fallback MUST be schema-bound
+        # Only allow legacy path if passport does NOT have domain_prefix field
+        # A current-format passport (with domain_prefix) MUST use domain-separated path only
+        has_domain_prefix = "domain_prefix" in payload
+        if has_domain_prefix:
+            return {
+                "result": "INVALID",
+                "error": "Domain-separated signature required for current-format passport (domain_prefix present) — legacy fallback refused",
+                "form": "domain-separated-required",
+            }
+        # Legacy path: only for passports without domain_prefix (pre-Fix-3 format)
         msg_legacy = json.dumps(payload_for_sig, sort_keys=True,
                                 ensure_ascii=False).encode()
         vk.verify(msg_legacy, sig_bytes)
         return {"result": "VERIFIED", "algorithm": "Ed25519",
-                "form": "legacy-non-domain-separated", "key_id": public_key_b64[:16] + "..."}
+                "form": "legacy-non-domain-separated",
+                "warning": "Legacy signature format — passport predates domain separation",
+                "key_id": public_key_b64[:16] + "..."}
     except ImportError:
         return {"result": "LIBRARY_UNAVAILABLE", "note": "Install PyNaCl: pip install pynacl"}
     except Exception as e:
