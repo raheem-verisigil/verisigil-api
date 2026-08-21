@@ -95456,6 +95456,87 @@ async def vcb_evaluate_canonical(
     return {"schema": "VGS-VCB-EVALUATE-2.0", **result}
 
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# HELPER: build_vcb_decision_object + issue_sigilmark
+# Referenced by ~20 endpoints. Defined once here as canonical helpers.
+# ─────────────────────────────────────────────────────────────────────────────
+
+def build_vcb_decision_object(
+    decision: str,
+    action_hash: str,
+    consequence_type: str,
+    authority_hash: str,
+    policy_hash: str,
+    state_hash: str,
+    enforcement_point: str,
+    reason_code: str = "",
+    material_bounds: dict = None,
+) -> dict:
+    """Build a canonical VCB decision object for use with issue_sigilmark."""
+    ts = datetime.now(timezone.utc).isoformat()
+    return {
+        "decision":           decision,
+        "decision_id":        f"DEC-{_vcc_hash({'d': decision, 'a': action_hash, 't': ts})[:16].upper()}",
+        "action_hash":        action_hash,
+        "consequence_type":   consequence_type,
+        "authority_hash":     authority_hash,
+        "policy_hash":        policy_hash,
+        "state_hash":         state_hash,
+        "material_bounds":    material_bounds or {},
+        "enforcement_point":  enforcement_point,
+        "reason_code":        reason_code,
+        "timestamp":          ts,
+    }
+
+
+def issue_sigilmark(
+    vcb_decision: dict,
+    action_payload: dict,
+    enforcement_point: str = "",
+    ttl_seconds: int = 300,
+    material_commitment: dict = None,
+    consequence_envelope: dict = None,
+    transition_record: dict = None,
+) -> dict:
+    """Issue a SigilMark portable proof package from a VCB decision object."""
+    ts      = datetime.now(timezone.utc).isoformat()
+    expires = (datetime.now(timezone.utc) + __import__('datetime').timedelta(seconds=ttl_seconds)).isoformat()
+    decision = vcb_decision.get("decision", "UNKNOWN")
+    action_hash = vcb_decision.get("action_hash") or _vcc_hash(action_payload)
+    nonce   = hashlib.sha256(f"{action_hash}{ts}{enforcement_point}".encode()).hexdigest()[:32]
+    sm_id   = f"SM-{_vcc_hash({'a': action_hash, 'n': nonce, 't': ts})[:20].upper()}"
+
+    payload = {
+        "schema":                 "VGS-SIGILMARK-1.0",
+        "sigilmark_id":           sm_id,
+        "vcb_id":                 sm_id,
+        "decision":               decision,
+        "action_hash":            action_hash,
+        "authority_hash":         vcb_decision.get("authority_hash", ""),
+        "policy_hash":            vcb_decision.get("policy_hash", ""),
+        "state_hash":             vcb_decision.get("state_hash", ""),
+        "consequence_type":       vcb_decision.get("consequence_type", ""),
+        "enforcement_point":      enforcement_point,
+        "nonce":                  nonce,
+        "issued_at":              ts,
+        "expires_at":             expires,
+        "material_commitment":    material_commitment or {},
+        "consequence_envelope":   consequence_envelope or {},
+        "transition_record":      transition_record or {},
+        "consumption_state":      "NOT_YET_CONSUMED",
+        "build_hash":             _get_full_build_identity().get("sha256_prefix", ""),
+    }
+    sig = sign_payload(payload)
+    payload["signature"] = sig
+    payload["integrity_hash"] = _vcc_hash(payload)
+    return payload
+
+
+def _record_gate_result(gate_id: str, endpoint: str, passed: bool, result: dict) -> None:
+    """Record adversarial gate result — stub for production logging."""
+    pass  # Future: persist to Supabase gate_results table
+
 @app.post("/v1/vcb/seal", tags=["VCB — Canonical API"])
 async def vcb_seal(
     req: dict,
