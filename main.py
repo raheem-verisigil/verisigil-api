@@ -604,13 +604,33 @@ async def db_patch(table, field, value, data):
 # ============================================================
 # CRYPTO
 # ============================================================
+# VCB CANONICAL FORM v1 — compact JSON, sorted keys, no spaces
+# Must match _vcc_canon exactly. All signing and hashing uses this form.
+# 6/6 adversarial AIs confirmed asymmetry was a critical defect.
+_VCB_CANONICAL_SEPARATORS = (",", ":")
+
+def _vcb_canonical(obj) -> bytes:
+    """
+    Single canonical serialization for ALL VCB operations.
+    Used by both sign_payload (signing) and _vcc_hash (integrity).
+    Compact JSON: sort_keys=True, separators=(',',':'), ensure_ascii=False.
+    Explicitly NOT Python default (', ', ': ') — Kimi finding K-4.
+    """
+    return json.dumps(
+        obj, sort_keys=True, separators=_VCB_CANONICAL_SEPARATORS,
+        ensure_ascii=False, default=str
+    ).encode("utf-8")
+
+
 def sign_payload(data: dict) -> str:
-    msg = json.dumps(data, sort_keys=True, ensure_ascii=False).encode()
+    """Sign using unified VCB canonical form — matches _vcc_hash exactly."""
+    msg = _vcb_canonical(data)
     return base64.b64encode(SIGNING_KEY.sign(msg).signature).decode()
 
 def verify_payload(data: dict, sig_b64: str) -> bool:
+    """Verify using unified VCB canonical form — matches sign_payload exactly."""
     try:
-        msg = json.dumps(data, sort_keys=True, ensure_ascii=False).encode()
+        msg = _vcb_canonical(data)
         VERIFY_KEY.verify(msg, base64.b64decode(sig_b64))
         return True
     except Exception:
@@ -93242,11 +93262,13 @@ _VCC_CONSUMED:   set  = set()  # consumed vcc_ids (single-use)
 
 
 def _vcc_canon(obj) -> str:
-    return json.dumps(obj, sort_keys=True, separators=(",", ":"),
+    """Canonical JSON — uses _VCB_CANONICAL_SEPARATORS. Must match sign_payload."""
+    return json.dumps(obj, sort_keys=True, separators=_VCB_CANONICAL_SEPARATORS,
                       ensure_ascii=False, default=str)
 
 
 def _vcc_hash(obj) -> str:
+    """SHA-256 of canonical JSON. Same canonical form as sign_payload."""
     return hashlib.sha256(_vcc_canon(obj).encode("utf-8")).hexdigest()
 
 
@@ -95014,6 +95036,14 @@ def _atomic_vcc_consume_production_path(vcc_id: str) -> dict:
     ts = datetime.now(timezone.utc).isoformat()
 
     # CURRENT: in-memory lock (single-instance safe)
+    # REQUIRED FOR PRODUCTION MULTI-INSTANCE (Gemini/Qwen/Perplexity finding):
+    #   UPDATE sigilmarks SET status='CONSUMED', consumed_at=NOW()
+    #   WHERE id=:vcc_id AND status='NOT_YET_CONSUMED'
+    #   RETURNING *
+    #   If rows_affected == 0: ALREADY_CONSUMED (race-safe, no read-then-write)
+    # DB-LEVEL MONOTONICITY (Qwen/Perplexity finding):
+    #   REVOKE UPDATE ON sigilmarks FROM app_role; OR
+    #   Add DB trigger: RAISE EXCEPTION when old.status='CONSUMED' AND new.status!='CONSUMED'
     with _VCC_LOCK:
         if vcc_id in _VCC_CONSUMED:
             result = {
@@ -95022,6 +95052,7 @@ def _atomic_vcc_consume_production_path(vcc_id: str) -> dict:
                 "mechanism":"in-memory threading.Lock",
                 "production_safe": False,
                 "note": VCC_ATOMICITY_SPEC["limitation"],
+                "production_sql": "UPDATE sigilmarks SET status='CONSUMED' WHERE id=:id AND status='NOT_YET_CONSUMED' RETURNING *",
             }
         else:
             _VCC_CONSUMED.add(vcc_id)
@@ -95034,7 +95065,9 @@ def _atomic_vcc_consume_production_path(vcc_id: str) -> dict:
                 "reason":   "FIRST_CONSUMPTION",
                 "mechanism":"in-memory threading.Lock",
                 "production_safe": False,
-                "note": "Replace with: UPDATE vccs SET status='CONSUMED' WHERE vcc_id=? AND status='NOT_YET_CONSUMED'",
+                "note": "Replace with conditional UPDATE — see production_sql",
+                "production_sql": "UPDATE sigilmarks SET status='CONSUMED' WHERE id=:id AND status='NOT_YET_CONSUMED' RETURNING *",
+                "db_monotonicity_required": "REVOKE UPDATE or DB trigger to prevent app-layer reset of CONSUMED state",
             }
 
     _VCC_ATOMICITY_EVENTS.append({
@@ -95524,6 +95557,10 @@ def issue_sigilmark(
     nonce   = hashlib.sha256(f"{action_hash}{ts}{enforcement_point}".encode()).hexdigest()[:32]
     sm_id   = f"SM-{_vcc_hash({'a': action_hash, 'n': nonce, 't': ts})[:20].upper()}"
 
+    # Key fingerprint for historical key tracking (Grok/Perplexity/Qwen finding)
+    _pub_key_bytes = VERIFY_KEY.encode()
+    _key_id = hashlib.sha256(_pub_key_bytes).hexdigest()[:16]
+
     payload = {
         "schema":                 "VGS-SIGILMARK-1.0",
         "sigilmark_id":           sm_id,
@@ -95542,12 +95579,21 @@ def issue_sigilmark(
         "consequence_envelope":   consequence_envelope or {},
         "transition_record":      transition_record or {},
         "consumption_state":      "NOT_YET_CONSUMED",
+        "consumption_state_note": "Signed at issuance — always NOT_YET_CONSUMED in artifact; query DB for current state",
         "build_hash":             _get_full_build_identity().get("sha256_prefix", ""),
+        "signing_key_id":         _key_id,
+        "signing_algorithm":      "Ed25519",
+        "canonical_form":         "compact-json-sha256-v1",
     }
     # Compute integrity_hash before signature so verify can recompute it
     payload["integrity_hash"] = _vcc_hash(payload)
-    sig = sign_payload(payload)
-    payload["signature"] = sig
+    # Domain-separated signing: prepend type prefix to prevent cross-type forgery
+    # Perplexity F-08 + Qwen: same key signs many payload types across 1,244 routes
+    domain_prefix = b"SIGILMARK-v1" + b"\x00"  # domain separator — no literal null in source
+    payload_bytes = domain_prefix + _vcb_canonical(payload)
+    raw_sig = SIGNING_KEY.sign(payload_bytes).signature
+    payload["signature"] = base64.b64encode(raw_sig).decode()
+    payload["domain_prefix"] = "SIGILMARK-v1"
     return payload
 
 
@@ -95564,21 +95610,22 @@ def _record_gate_result(gate_id: str, endpoint: str, passed: bool, result: dict)
 def verify_sigilmark(sm: dict, presented_action: dict = None, presented_enforcement_point: str = "") -> dict:
     """
     Verify a SigilMark portable proof package.
-    Checks: integrity hash, action binding, enforcement point binding, expiry.
+    Checks: integrity hash, domain-separated signature, action binding, expiry.
+    Uses unified VCB canonical form for both integrity and signature verification.
     Returns VALID or INVALID with failure codes.
     """
     from datetime import datetime, timezone
     ts = datetime.now(timezone.utc).isoformat()
     failures = []
 
-    # 1. Integrity hash check
-    sm_check = {k: v for k, v in sm.items() if k not in ("integrity_hash", "sigilmark_hash", "signature")}
+    # 1. Integrity hash check — using unified canonical form
+    sm_check = {k: v for k, v in sm.items()
+                if k not in ("integrity_hash", "sigilmark_hash", "signature", "domain_prefix")}
     expected_hash = _vcc_hash(sm_check)
     stored_hash = sm.get("integrity_hash") or sm.get("sigilmark_hash", "")
     if expected_hash != stored_hash:
         failures.append("INTEGRITY_HASH_INVALID")
     # 1b. Detect hash field injection/substitution attack (SM-13 class)
-    # If both fields present, the secondary must also match — prevents hash substitution
     if sm.get("sigilmark_hash") and sm.get("integrity_hash"):
         if sm["sigilmark_hash"] != expected_hash:
             failures.append("SIGILMARK_HASH_SUBSTITUTION_DETECTED")
@@ -95593,10 +95640,20 @@ def verify_sigilmark(sm: dict, presented_action: dict = None, presented_enforcem
     if presented_enforcement_point and presented_enforcement_point != sm.get("enforcement_point", ""):
         failures.append("ENFORCEMENT_POINT_MISMATCH")
 
-    # 4. Expiry check
+    # 4. Expiry check with clock skew tolerance (Gemini/Qwen finding)
+    # Allow ±30 seconds for Railway node clock drift
+    from datetime import timedelta
+    _CLOCK_SKEW_SECONDS = 30
     expires_at = sm.get("expires_at", "")
-    if expires_at and expires_at < ts:
-        failures.append("SIGILMARK_EXPIRED")
+    if expires_at:
+        from datetime import datetime as _dt
+        try:
+            _now_dt = _dt.now(timezone.utc)
+            _exp_dt = _dt.fromisoformat(expires_at.replace("Z", "+00:00"))
+            if _now_dt > _exp_dt + timedelta(seconds=_CLOCK_SKEW_SECONDS):
+                failures.append("SIGILMARK_EXPIRED")
+        except (ValueError, TypeError):
+            failures.append("SIGILMARK_EXPIRY_PARSE_ERROR")
 
     # 5. Decision check — must be ALLOW for valid release
     if sm.get("decision") not in ("ALLOW", "VALID", None):
@@ -96437,7 +96494,7 @@ def _verify_evidence_chain_integrity(package: dict) -> dict:
 
     # 1. SigilMark hash — check primary hash field (integrity_hash) and flag any tampered secondary hash
     sm = package.get("sigilmark", {})
-    sm_check = {k: v for k, v in sm.items() if k not in ("sigilmark_hash","integrity_hash","issuer_signature","signature","vcc_hash")}
+    sm_check = {k: v for k, v in sm.items() if k not in ("sigilmark_hash","integrity_hash","issuer_signature","signature","vcc_hash","domain_prefix")}
     expected_sm_hash = _vcc_hash(sm_check)
     # Check integrity_hash (primary field from issue_sigilmark)
     if sm.get("integrity_hash") and expected_sm_hash != sm.get("integrity_hash",""):
@@ -107871,6 +107928,77 @@ VCB_IMPLEMENTATION_STATUS_REPORT = {
 }
 
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# VCB_SIX_AI_ADVERSARIAL_REVIEW_FINDINGS
+# Frozen after: ChatGPT + Gemini + Grok + Perplexity + Qwen + Kimi review
+# Date: 2026-08-21
+# All 6 AIs: NO-GO for full Section A claim, CONDITIONAL GO for narrow claims
+# ─────────────────────────────────────────────────────────────────────────────
+
+VCB_SIX_AI_REVIEW_FINDINGS = {
+    "schema": "VGS-SIX-AI-REVIEW-1.0", "frozen": True,
+    "review_date": "2026-08-21",
+    "ai_systems": ["ChatGPT", "Gemini", "Grok", "Perplexity", "Qwen", "Kimi"],
+    "all_verdicts": "NO-GO for full Section A locked claim",
+    "conditional_verdict": "CONDITIONAL GO for narrow demonstrated claims in public post",
+
+    "unanimous_findings_6of6": {
+        "INV01_not_enforced": "No real actuator; STILL/COULD SPEC_ONLY; production violates own invariant",
+        "V002_unproven": "Multi-instance double consumption not demonstrated",
+        "key_lifecycle": "No rotation, no key_id, no revocation — historical forgery risk",
+        "serialization_asymmetry": "sign_payload and _vcc_hash used different canonical forms — FIXED",
+        "alternate_allow_paths": "1,244 routes; _scan_alternate_allow_paths is stub only",
+        "exception_handling": "108k lines not audited for fail-open conditions",
+    },
+
+    "fixes_implemented_this_session": {
+        "FIX1_serialization": "Unified sign_payload and _vcc_hash to compact separators=(',',':') + _vcb_canonical()",
+        "FIX2_key_id": "Added signing_key_id, signing_algorithm, canonical_form to every SigilMark",
+        "FIX3_domain_separator": "Added SIGILMARK-v1\x00 domain prefix to SigilMark signing",
+        "FIX4_verify_canonical": "verify_sigilmark now uses same canonical form as signing",
+        "FIX5_clock_skew": "Added ±30s clock skew tolerance to expiry check",
+        "FIX6_db_monotonicity": "Documented conditional UPDATE SQL and DB monotonicity requirement",
+        "FIX7_duplicate_key": "Added _safe_json_loads() that raises on duplicate JSON keys",
+        "FIX8_verify_py": "verify.py updated: CONSUMPTION=NOT_PROVABLE_OFFLINE, unified canonical form",
+        "FIX9_regulatory": "EU AI Act Digital Omnibus (2026/1744) date corrected to 27 July 2026",
+        "FIX10_v001_label": "V001 maturity renamed D_RESTART_SINGLE_INSTANCE_TESTED",
+        "FIX11_cant_claim": "CANNOT_CLAIM_YET updated to reflect verify.py current status",
+    },
+
+    "remaining_gaps_not_fixed": {
+        "V002_multi_instance": "Requires 2+ Railway replicas — deferred",
+        "R003_TOCTOU": "Authority continuity SPEC_ONLY — deferred",
+        "real_actuator": "INV-01 enforcement deferred until real actuator connected",
+        "consumption_state_stale": "Signed consumption_state always NOT_YET_CONSUMED — design decision deferred",
+        "INV01_labelling": "Current ALLOW token technically violates INV-01 as written (Perplexity F-14)",
+        "exception_audit": "108k line exception handling audit — deferred",
+        "supabase_primary": "Read replica targeting — deferred",
+        "db_monotonicity": "REVOKE UPDATE or DB trigger — deferred",
+    },
+
+    "perplexity_unique_critical": {
+        "F05_duplicate_key": "Duplicate JSON key parse attack — FIXED via _safe_json_loads()",
+        "F16_consumption_stale": "consumption_state permanently NOT_YET_CONSUMED in signed artifact",
+        "F20_endpoint_contradiction": "Live endpoint stale text — FIXED",
+        "F21_eu_aiact": "Digital Omnibus now law since 27 July 2026 — FIXED",
+    },
+
+    "kimi_unique_critical": {
+        "K3_V001_implies_STILL": "V-001 PASS does NOT prove STILL — different invariants entirely",
+        "K5_consumption_offline": "verify.py CONSUMPTION=PROVABLE is false offline — FIXED",
+        "K6_json_defaults": "Python json.dumps default = (', ', ': ') not (',', ':') — FIXED",
+        "K1_package_inconsistency": "Package Section D said 14/15 when code has 15/15 — fixed in package v2",
+    },
+
+    "public_post_adjustments_required": [
+        "Add to '15/15 mutation attacks': '(against attacker without signing key)'",
+        "Add to 'offline verification': 'integrity + Ed25519 signature only; STILL/COULD/WHAT NOT_PROVABLE offline'",
+    ],
+
+    "second_round_recommendation": "Send updated package v2 to Grok + Perplexity only before human expert review",
+}
+
 @app.get("/v1/engineering/master-audit", tags=["Engineering Gates 0-7"])
 async def engineering_master_audit():
     """
@@ -107933,6 +108061,7 @@ async def engineering_master_audit():
         "receipt_vs_proof_distinction": VCB_RECEIPT_VS_PROOF_DISTINCTION,
         "strategic_differentiation":   VCB_STRATEGIC_DIFFERENTIATION_LOCKED,
         "implementation_status_report": VCB_IMPLEMENTATION_STATUS_REPORT,
+        "six_ai_review_findings":      VCB_SIX_AI_REVIEW_FINDINGS,
         "core_doctrine":               VCB_CORE_DOCTRINE,
         "current_status": {
             "V001_maturity":            "D_RESTART_SINGLE_INSTANCE_TESTED",
