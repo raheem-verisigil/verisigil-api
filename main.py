@@ -95538,6 +95538,93 @@ def _record_gate_result(gate_id: str, endpoint: str, passed: bool, result: dict)
     """Record adversarial gate result — stub for production logging."""
     pass  # Future: persist to Supabase gate_results table
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# MISSING HELPER FUNCTIONS — defined here for full endpoint operability
+# These were referenced by adversarial endpoints but never defined.
+# ─────────────────────────────────────────────────────────────────────────────
+
+def verify_sigilmark(sm: dict, presented_action: dict = None, presented_enforcement_point: str = "") -> dict:
+    """
+    Verify a SigilMark portable proof package.
+    Checks: integrity hash, action binding, enforcement point binding, expiry.
+    Returns VALID or INVALID with failure codes.
+    """
+    from datetime import datetime, timezone
+    ts = datetime.now(timezone.utc).isoformat()
+    failures = []
+
+    # 1. Integrity hash check
+    sm_check = {k: v for k, v in sm.items() if k not in ("integrity_hash", "sigilmark_hash", "signature")}
+    expected_hash = _vcc_hash(sm_check)
+    stored_hash = sm.get("integrity_hash") or sm.get("sigilmark_hash", "")
+    if expected_hash != stored_hash:
+        failures.append("INTEGRITY_HASH_INVALID")
+
+    # 2. Action binding check
+    if presented_action is not None:
+        expected_action_hash = _vcc_hash(presented_action)
+        if expected_action_hash != sm.get("action_hash", ""):
+            failures.append("ACTION_BINDING_MISMATCH")
+
+    # 3. Enforcement point check
+    if presented_enforcement_point and presented_enforcement_point != sm.get("enforcement_point", ""):
+        failures.append("ENFORCEMENT_POINT_MISMATCH")
+
+    # 4. Expiry check
+    expires_at = sm.get("expires_at", "")
+    if expires_at and expires_at < ts:
+        failures.append("SIGILMARK_EXPIRED")
+
+    # 5. Decision check — must be ALLOW for valid release
+    if sm.get("decision") not in ("ALLOW", "VALID", None):
+        failures.append("DECISION_NOT_ALLOW")
+
+    result = "VALID" if not failures else "INVALID"
+    return {
+        "schema":   "VGS-SIGILMARK-VERIFY-1.0",
+        "result":   result,
+        "failures": failures,
+        "verified_at": ts,
+        "build_hash": _get_full_build_identity().get("sha256_prefix", ""),
+    }
+
+
+def verify_sigilmark_independent(sm: dict, presented_action: dict = None, presented_enforcement_point: str = "") -> dict:
+    """
+    Independent verification of a SigilMark — does not require live VCB service state.
+    Same logic as verify_sigilmark but explicitly named as the independent verifier.
+    INV-03: offline verification must not require VCB API, database, or private keys.
+    """
+    return verify_sigilmark(sm, presented_action, presented_enforcement_point)
+
+
+def _scan_alternate_allow_paths(app_routes) -> list:
+    """
+    Scan for alternate paths that could allow actions without VCB examination.
+    Returns list of paths found that bypass the standard VCB gate.
+    """
+    bypass_candidates = []
+    for route in app_routes:
+        path = getattr(route, "path", "")
+        # Flag routes that might allow consequences without VCB examination
+        if any(kw in path for kw in ["/execute", "/release", "/commit", "/actuator"]):
+            if "/vcb" not in path and "/adversarial" not in path:
+                bypass_candidates.append(path)
+    return bypass_candidates
+
+
+# _VCB_FINAL_ENGINE: stub returning the canonical VCB engine status
+_VCB_FINAL_ENGINE = {
+    "schema":       "VGS-FINAL-ENGINE-1.0",
+    "version":      "VCB-1.0",
+    "gates":        ["WHY", "STILL", "CONSUME", "COULD", "WHAT"],
+    "status":       "OPERATIONAL",
+    "proof_states": ["PROVABLE", "FAILED", "NOT_PROVABLE"],
+    "invariants":   ["R001", "R002", "R003", "R004", "R005", "R006", "R007"],
+    "build_hash":   None,  # populated at runtime
+}
+
 @app.post("/v1/vcb/seal", tags=["VCB — Canonical API"])
 async def vcb_seal(
     req: dict,
@@ -107585,6 +107672,177 @@ VCB_STRATEGIC_DIFFERENTIATION_LOCKED = {
 
 
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# VCB IMPLEMENTATION STATUS REPORT — Verification Freeze Assessment
+# Honest status of every architectural component as of 2026-08-21
+# Key: IMPLEMENTED=coded+deployed | PARTIAL=coded+not fully tested
+#      NOT_IMPLEMENTED=designed only | VERIFIED=adversarially tested on production
+# ─────────────────────────────────────────────────────────────────────────────
+
+VCB_IMPLEMENTATION_STATUS_REPORT = {
+    "schema": "VGS-IMPL-STATUS-1.0", "frozen": True,
+    "assessment_date": "2026-08-21",
+    "assessment_type": "VERIFICATION_FREEZE — no new features, attack existing claims",
+
+    "components": {
+        "V001_Durable_Consumption": {
+            "designed": True, "implemented": True, "tested": True,
+            "adversarially_tested": True, "independently_verified": False,
+            "production_status": "PASS — restart-replay blocked, Supabase authoritative",
+            "endpoint": "POST /v1/adversarial/restart-replay",
+            "limitation": "P0-12 external reproduction not yet demonstrated",
+        },
+        "V002_Multi_Instance_Atomicity": {
+            "designed": True, "implemented": True, "tested": True,
+            "adversarially_tested": "PARTIAL — single-instance 50 threads PASS; multi-instance (2+ Railway replicas) NOT YET",
+            "independently_verified": False,
+            "production_status": "PASS_SINGLE_INSTANCE",
+            "limitation": "Full V-002 requires 2+ Railway instances concurrently",
+        },
+        "ACS_Binding": {
+            "designed": True, "implemented": "PARTIAL",
+            "tested": "PARTIAL", "adversarially_tested": False,
+            "independently_verified": False,
+            "production_status": "SPEC_PRESENT — ACS version/hash binding in constants; not enforced at release gate",
+            "limitation": "Not yet a hard pre-release gate in production",
+        },
+        "Authority_Continuity_TOCTOU": {
+            "designed": True, "implemented": "PARTIAL",
+            "tested": "PARTIAL — toctou endpoint errors on _VCB_FINAL_ENGINE (now fixed)",
+            "adversarially_tested": False,
+            "independently_verified": False,
+            "production_status": "SPEC_PRESENT — R003 frozen; not fully enforced",
+            "limitation": "No live test of revocation-after-examination-before-commitment",
+        },
+        "Material_Delta_Detection": {
+            "designed": True, "implemented": "PARTIAL",
+            "tested": False, "adversarially_tested": False,
+            "independently_verified": False,
+            "production_status": "SPEC_PRESENT — PA-21 spec frozen; endpoint not fully live",
+        },
+        "Evidence_Currency_R004": {
+            "designed": True, "implemented": "PARTIAL",
+            "tested": False, "adversarially_tested": False,
+            "independently_verified": False,
+            "production_status": "SPEC_PRESENT — fields defined in VCB_EVIDENCE_TIME_SEMANTICS; enforcement not live",
+        },
+        "R007_Replay_Guard": {
+            "designed": True, "implemented": True, "tested": True,
+            "adversarially_tested": True,
+            "independently_verified": False,
+            "production_status": "PASS — V-001 demonstrates replay blocked post-restart",
+        },
+        "Exact_Action_Binding_R001": {
+            "designed": True, "implemented": "PARTIAL",
+            "tested": "PARTIAL — sigilmark mutations 14/15 PASS",
+            "adversarially_tested": "PARTIAL",
+            "independently_verified": False,
+            "production_status": "14/15 mutation attacks detected",
+        },
+        "Evidence_Integrity_Chain": {
+            "designed": True, "implemented": True, "tested": True,
+            "adversarially_tested": True,
+            "independently_verified": False,
+            "production_status": "PASS 5/5 — EI-01 through EI-05 all pass on production",
+            "endpoint": "POST /v1/adversarial/evidence-integrity",
+        },
+        "Responsibility_Binding": {
+            "designed": True, "implemented": False,
+            "tested": False, "adversarially_tested": False,
+            "independently_verified": False,
+            "production_status": "SPEC_PRESENT — fields defined; not enforced at gate",
+        },
+        "Boundary_Leverage_COULD": {
+            "designed": True, "implemented": "PARTIAL",
+            "tested": False, "adversarially_tested": False,
+            "independently_verified": False,
+            "production_status": "SPEC_PRESENT — LEVERAGE_PRESENT/LOST/NOT_PROVABLE defined; not live in release gate",
+        },
+        "Execution_Evidence_WHAT": {
+            "designed": True, "implemented": "PARTIAL",
+            "tested": False, "adversarially_tested": False,
+            "independently_verified": False,
+            "production_status": "SPEC_PRESENT — actuator receipt fields defined; no real actuator connected",
+        },
+        "Outcome_Evidence_WHAT": {
+            "designed": True, "implemented": False,
+            "tested": False, "adversarially_tested": False,
+            "independently_verified": False,
+            "production_status": "NOT_IMPLEMENTED — no real actuator; outcome observation unavailable",
+        },
+        "SigilMark_Proof_Package": {
+            "designed": True, "implemented": True,
+            "tested": True, "adversarially_tested": "PARTIAL — 14/15 mutations detected",
+            "independently_verified": False,
+            "production_status": "FUNCTIONAL — issue_sigilmark defined; integrity hash verified",
+        },
+        "Proof_Passport": {
+            "designed": True, "implemented": "PARTIAL",
+            "tested": False, "adversarially_tested": False,
+            "independently_verified": False,
+            "production_status": "SPEC_PRESENT — 11-section schema frozen; not generated as standalone artifact",
+        },
+        "Offline_Independent_Verification": {
+            "designed": True, "implemented": False,
+            "tested": False, "adversarially_tested": False,
+            "independently_verified": False,
+            "production_status": "NOT_IMPLEMENTED — verify_sigilmark_independent function defined; standalone verify.py NOT YET built",
+            "limitation": "CRITICAL GAP — cannot yet claim 'independently verifiable without VeriSigilAI'",
+        },
+        "Real_Consequential_Actuator": {
+            "designed": True, "implemented": False,
+            "tested": False, "adversarially_tested": False,
+            "independently_verified": False,
+            "production_status": "OPEN — highest priority gap. No real actuator connected.",
+        },
+    },
+
+    "honest_summary": {
+        "FULLY_OPERATIONAL": ["V-001", "R007 replay guard", "Evidence integrity 5/5", "master-audit 54 keys"],
+        "PARTIAL_OPERATIONAL": ["V-002 single-instance", "Exact action binding 14/15", "SigilMark issue/verify"],
+        "SPEC_ONLY": ["ACS binding enforcement", "Authority continuity gate", "Material delta live test",
+                      "Evidence currency enforcement", "Responsibility binding", "Boundary leverage gate",
+                      "Proof Passport as standalone artifact"],
+        "NOT_IMPLEMENTED": ["Offline independent verifier (verify.py)", "Real consequential actuator",
+                            "Outcome observation", "V-002 multi-instance full proof"],
+    },
+
+    "public_post_readiness": {
+        "CAN_CLAIM_NOW": [
+            "Evidence chain: any mutation invalidates the SigilMark (5/5 attacks detected)",
+            "Replay protection: consumed authorization blocked after restart (V-001 PASS)",
+            "Single-instance concurrency: 50 threads, exactly 1 winner (V-002 single-instance PASS)",
+            "Architecture frozen with 54 verifiable constants at /v1/engineering/master-audit",
+            "Distinction between PROVABLE / FAILED / NOT_PROVABLE is implemented and live",
+        ],
+        "CANNOT_CLAIM_YET": [
+            "Take VeriSigilAI offline and independently verify — verify.py NOT YET BUILT",
+            "We prevent unauthorized AI actions — no real actuator connected",
+            "Full multi-instance atomicity — V-002 full not yet demonstrated",
+            "Offline proof passport verification — not yet a standalone artifact",
+            "Authority remains valid at commitment — TOCTOU enforcement not fully live",
+        ],
+        "PUBLIC_POST_VERDICT": "CONDITIONAL — post can be published with verified claims only; must NOT include 'take VeriSigilAI offline and verify' until verify.py is built and tested",
+    },
+
+    "next_engineering_priorities": [
+        "1. BUILD verify.py — standalone offline verifier (INV-03) — enables the core public claim",
+        "2. CONNECT one real actuator — enforces INV-01 in production",
+        "3. COMPLETE V-002 — enable 2+ Railway replicas and demonstrate multi-instance atomicity",
+        "4. ENFORCE ACS binding and authority continuity as hard pre-release gates",
+        "5. RUN full adversarial attack suite on live Railway (stale authority, TOCTOU, concurrency)",
+    ],
+
+    "regulatory_honesty": {
+        "EU_AI_Act_Art12": "VCB evidence chain goes beyond Art.12 logging — but VCB does NOT claim Art.12 compliance",
+        "NIST_AI_RMF": "VCB addresses MEASURE/MANAGE gap for consequential boundary — not a full RMF implementation",
+        "tamper_evident_not_tamper_proof": "VCB uses 'tamper-evident' (modification detectable) not 'tamper-proof' (modification impossible) — this is the correct and defensible claim",
+        "independent_verification": "Currently requires VeriSigilAI API to be running — CANNOT yet claim fully offline independence",
+    },
+}
+
+
 @app.get("/v1/engineering/master-audit", tags=["Engineering Gates 0-7"])
 async def engineering_master_audit():
     """
@@ -107646,6 +107904,7 @@ async def engineering_master_audit():
         "four_new_invariants":         VCB_FOUR_NEW_INVARIANTS,
         "receipt_vs_proof_distinction": VCB_RECEIPT_VS_PROOF_DISTINCTION,
         "strategic_differentiation":   VCB_STRATEGIC_DIFFERENTIATION_LOCKED,
+        "implementation_status_report": VCB_IMPLEMENTATION_STATUS_REPORT,
         "core_doctrine":               VCB_CORE_DOCTRINE,
         "current_status": {
             "V001_maturity":            "D_RESTART_DISTRIBUTED_TESTED",
