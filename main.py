@@ -106366,6 +106366,326 @@ VCB_EVIDENCE_SUFFICIENCY_CRITERIA = {
 
 
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# FROZEN CONSTANTS — COMMERCIAL PRODUCT DIRECTION & COMPETITIVE DIFFERENTIATION
+# Integrated from: Consolidated Commercial Product & Engineering Build Direction
+# Fact-checked: Aevesa (aevesa.com, Aug 2026), DTF (arXiv 2605.15228),
+#   EU AI Act Art.12/14 (Aug 2 2026 enforcement), AIRQ Q2 2026 agent assessment,
+#   Tigera/Accenture/Wharton 2026 accountability reports.
+# ─────────────────────────────────────────────────────────────────────────────
+
+VCB_PRODUCT_THESIS = {
+    "schema": "VGS-PRODUCT-THESIS-1.0", "frozen": True,
+    "problem_existing_systems_solve": {
+        "POLICY":  "We defined what should happen",
+        "CONTROL": "We have a mechanism",
+        "LOG":     "We recorded what happened",
+    },
+    "what_existing_systems_do_not_prove": (
+        "Whether the exact consequential action was admissible at commitment, "
+        "whether the authorization was still consumable, whether the boundary "
+        "retained leverage, and what the evidence can actually support."
+    ),
+    "vcb_stronger_chain": [
+        "AUTHORITY",
+        "EXACT ACTION",
+        "EVIDENCE SUFFICIENCY",
+        "CURRENT VALIDITY",
+        "CONSUMPTION VALIDITY",
+        "ENFORCEMENT LEVERAGE",
+        "EXECUTION",
+        "OBSERVED CONSEQUENCE",
+        "INDEPENDENTLY VERIFIABLE PROOF",
+    ],
+    "core_discipline": (
+        "The product must never make a stronger claim than its evidence supports."
+    ),
+}
+
+VCB_COMMERCIAL_PRODUCT_DEFINITION = {
+    "schema": "VGS-COMMERCIAL-PRODUCT-1.0", "frozen": True,
+    "name": "VCB Consequence Verification Infrastructure",
+    "positioning": (
+        "Infrastructure/API/SDK for organizations that need to establish evidence "
+        "around consequential AI or automated actions."
+    ),
+    "customer_does_not_replace": [
+        "AI model", "agent", "IAM", "policy engine", "ERP",
+        "payment system", "cloud", "actuator", "governance platform",
+    ],
+    "vcb_sits_at": "The consequential transition boundary",
+    "vcb_operations": ["Examine", "Bind", "Revalidate", "Consume", "Enforce", "Prove"],
+    "commercial_statement": (
+        "VeriSigilAI provides consequence-boundary verification infrastructure for "
+        "consequential AI and automated actions — binding authority to exact actions, "
+        "revalidating conditions at commitment, enforcing permitted consumption, "
+        "establishing intervention leverage, capturing execution and outcome evidence, "
+        "and producing independently verifiable proof of what actually happened "
+        "and what the evidence can support."
+    ),
+    "short_form": "VCB — Examine. Bind. Enforce. Prove.",
+    "commercial_promise": (
+        "Don't just show that a control exists. "
+        "Show what happened at the consequential boundary — "
+        "and prove exactly what the evidence supports."
+    ),
+    "what_it_is_not_sold_as": [
+        "We govern your AI",
+        "We audit your AI",
+        "We collect AI decision data",
+    ],
+}
+
+VCB_FIVE_COMMERCIAL_VALUE_PROPERTIES = {
+    "schema": "VGS-COMMERCIAL-VALUE-1.0", "frozen": True,
+    "properties": {
+        "1_EXACTNESS": {
+            "claim": "VCB establishes whether the authority applies to the exact action being attempted",
+            "example": "Authorized: $100 → Supplier A. Attempted: $10,000 → Supplier B. Result: REFUSED.",
+        },
+        "2_FRESHNESS": {
+            "claim": "VCB establishes whether the basis for authorization remains valid at commitment",
+            "model": "T0 authority/state/constraints → MATERIAL CHANGE → T1 commit attempt",
+            "outcomes": ["RE-ENTRY_REQUIRED", "DENY"],
+        },
+        "3_EXCLUSIVITY": {
+            "claim": "Where authorization is single-use or bounded-use, VCB prevents unauthorized reuse",
+            "prevented_attack_vectors": ["replay", "restart", "retry", "process replacement", "concurrency", "duplicate submission"],
+        },
+        "4_ENFORCEMENT": {
+            "claim": "VCB distinguishes CONTROL EXISTS from CONTROL CAN INTERVENE from CONSEQUENCE ACTUALLY PREVENTED",
+            "possible_states": ["LEVERAGE_PRESENT", "LEVERAGE_LOST", "LEVERAGE_NOT_PROVABLE"],
+        },
+        "5_RECONSTRUCTABILITY": {
+            "claim": "A customer, auditor, regulator, or independent verifier can reconstruct a specific consequential event",
+            "demonstration": "Decision #31,415 — verifier can answer WHY, STILL, COULD, WHAT, CONSUMPTION, WHAT_DOES_EVIDENCE_PROVE",
+            "without": "trusting a dashboard statement alone",
+        },
+    },
+}
+
+VCB_COMPETITIVE_DIFFERENTIATION = {
+    "schema": "VGS-COMPETITIVE-DIFF-1.0", "frozen": True,
+    "fact_checked_date": "2026-08-21",
+    "confirmed_adjacent_competitors": {
+        "Aevesa": {
+            "url": "aevesa.com",
+            "positioning": "The Prove layer — turns gateway permit/deny into offline-verifiable liability-receipt/v1 artifacts",
+            "what_they_do": "Cosign gateway decisions into tamper-proof receipts verifiable at verify.aevesa.com. No login required. EU AI Act Art.12/14 export packs.",
+            "their_scope": "Gateway-level attest: PERMIT or DENY event + portable receipt",
+            "what_they_do_NOT_do": [
+                "Exact action binding (mutation detection)",
+                "Commit-time revalidation (STILL — T0→T1 material delta)",
+                "Authorization lifecycle (ELIGIBLE→CONSUMED→monotonic)",
+                "Replay guard (semantic replay, not just token replay)",
+                "Distributed single-winner (V-002 class)",
+                "Boundary leverage determination (COULD)",
+                "Outcome observation vs authorization separation",
+                "NOT_PROVABLE evidence classification",
+                "Six-gate pre-execution chain",
+            ],
+            "vcb_is_stronger_because": (
+                "Aevesa proves what the gateway decided. "
+                "VCB proves whether that exact action was still admissible, "
+                "the authorization still consumable, the boundary still effective, "
+                "and what the evidence can actually support — "
+                "with independently examinable proof of both successful and refused paths."
+            ),
+        },
+        "GC1_GuardianChain": {
+            "url": "guardianchain.io",
+            "positioning": "Non-custodial cryptographic evidence infrastructure on 6 blockchains",
+            "their_scope": "195 governance rails, blockchain-anchored evidence, EU AI Act structured",
+            "vcb_differentiator": "VCB focuses on consequential boundary proof with exact action binding and consumption lifecycle — not blockchain anchoring",
+        },
+        "H33": {
+            "url": "h33.ai",
+            "positioning": "Post-quantum AI governance infrastructure, replayable cryptographic proof",
+            "their_scope": "PQ crypto (ML-KEM/ML-DSA), verifiable outcomes, FHE/ZK stack",
+            "vcb_differentiator": "VCB's terrain is consequence-boundary verification — not PQ crypto infrastructure. SIMVERI may eventually address PQ needs.",
+        },
+        "DTF_arXiv_2605.15228": {
+            "positioning": "Justification Proof + Evidence Chain for governed mutations",
+            "their_scope": "Proof-derived authority, consensus model, append-only evidence chain",
+            "vcb_differentiator": "Academic architecture. VCB is production-deployed with live Railway API and adversarial test suite.",
+        },
+    },
+    "vcb_unique_terrain": [
+        "Six-gate pre-execution chain (WHY→BIND→STILL→CONSUME→COULD→WHAT)",
+        "Commit-time revalidation with material delta (T0→T1)",
+        "Semantic replay guard — not just token replay",
+        "Distributed single-winner (V-001/V-002 proven)",
+        "Explicit PROVABLE/FAILED/NOT_PROVABLE evidence classification",
+        "Dual-path evidence (positive AND negative path reconstructable)",
+        "Consequence boundary leverage determination",
+        "Live production API with adversarial proof suite",
+    ],
+    "seam_discipline": (
+        "VCB/Aevesa comparison: use with auditors, regulators, and governance professionals "
+        "to explain the boundary. Do not use on homepage or in enterprise sales pitch."
+    ),
+}
+
+VCB_FOUR_PRODUCT_SURFACES = {
+    "schema": "VGS-PRODUCT-SURFACES-1.0", "frozen": True,
+    "surfaces": {
+        "A_VCB_API": {
+            "audience": "Developers",
+            "core_operations": [
+                "/create-action", "/examine", "/revalidate", "/consume",
+                "/commit", "/refuse", "/record-execution", "/record-observation",
+                "/generate-proof", "/verify-proof",
+            ],
+            "note": "Exact endpoints finalized during implementation",
+        },
+        "B_VCB_SDK": {
+            "audience": "Application developers",
+            "workflow": ["proposal", "bind", "examine", "revalidate", "consume", "enforce", "execute", "observe", "prove"],
+            "principle": "SDK should make bypassing mandatory proof steps structurally difficult",
+        },
+        "C_PROOF_PASSPORT": {
+            "audience": "Auditors, regulators, compliance officers",
+            "format": "Decision #N — explicit PROVABLE/FAILED/NOT_PROVABLE per claim type",
+            "example": {
+                "AUTHORITY":      "PROVABLE",
+                "ACTION_BINDING": "PROVABLE",
+                "STILL":          "PROVABLE",
+                "CONSUMPTION":    "PROVABLE",
+                "BOUNDARY":       "PROVABLE",
+                "EXECUTION":      "PROVABLE",
+                "OUTCOME":        "NOT_PROVABLE",
+            },
+            "why_stronger_than": "Governance Score: 92% — which collapses all claims into one number",
+        },
+        "D_INDEPENDENT_VERIFIER": {
+            "audience": "External verifier, auditor, regulator",
+            "input":    "Proof Passport",
+            "output":   ["VALID", "INVALID", "INCOMPLETE", "NOT_PROVABLE"],
+            "principle": "Verifier does not need to trust the customer's VCB dashboard",
+            "status":   "Future build — after proof kernel proven",
+        },
+    },
+}
+
+VCB_COMMERCIAL_PRICING_MODEL = {
+    "schema": "VGS-PRICING-MODEL-1.0", "frozen": True,
+    "principle": "First commercial asset is Verified Evidence Infrastructure, not customer raw data",
+    "customers_pay_for": [
+        "API usage", "SDK", "protected consequential actions",
+        "proof generation", "proof verification",
+        "evidence retention", "enterprise deployment", "compliance evidence",
+    ],
+    "tier_progression": ["FREE/DEVELOPER", "PRO", "BUSINESS", "ENTERPRISE", "PRIVATE/SELF-HOSTED"],
+    "commercial_metrics": [
+        "verified actions", "proof packages",
+        "protected workflows", "verification requests",
+        "retention requirements", "enterprise environments",
+    ],
+    "what_not_to_sell": "Raw customer evidence data",
+    "existing_pricing": {
+        "STARTER":    "$499/mo",
+        "GROWTH":     "$2,499/mo",
+        "ENTERPRISE": "custom",
+        "nigeria": {"STARTER": "₦150k–250k/mo", "GROWTH": "₦3,398,640/mo"},
+    },
+}
+
+VCB_DATA_MOAT_DISCIPLINE = {
+    "schema": "VGS-DATA-MOAT-1.0", "frozen": True,
+    "principle": (
+        "VCB will generate highly structured normalized events. "
+        "This is the seed of a future intelligence moat. "
+        "But customer raw evidence remains customer controlled."
+    ),
+    "structured_event_fields": [
+        "action_class", "authority_class", "validity_state",
+        "material_delta_state", "consumption_state", "boundary_leverage_state",
+        "execution_state", "outcome_state", "evidence_status", "failure_reason",
+    ],
+    "current_rule": "Build the event schema for future aggregation. Do NOT build a customer-data marketplace into VCB now.",
+    "future_products": {
+        "Phase_2_Control_Effectiveness_Intelligence": {
+            "trigger": "Sufficient real deployments",
+            "questions": [
+                "Which control types fail most often?",
+                "Where does intervention arrive too late?",
+                "Which authority changes cause revalidation?",
+                "Which action classes experience the most material variance?",
+                "Where do replay attempts occur?",
+                "Where is evidence repeatedly insufficient?",
+                "Which boundaries lose leverage most frequently?",
+            ],
+        },
+        "Phase_3_Consequence_Failure_Intelligence": {
+            "trigger": "Sufficient permissioned/aggregated data",
+            "outputs": ["failure-pattern reports", "benchmarking", "control effectiveness benchmarks", "risk-control intelligence"],
+            "constraint": "Anonymized and aggregated only",
+        },
+    },
+    "what_makes_it_valuable": (
+        "Data derived from the proof architecture — not generic AI telemetry. "
+        "Failure patterns proven at the consequential boundary, not inferred from logs."
+    ),
+}
+
+VCB_EVIDENCE_OBJECT_MODEL = {
+    "schema": "VGS-EVIDENCE-OBJECT-MODEL-1.0", "frozen": True,
+    "principle": (
+        "Every evidence object supporting a VCB claim must carry sufficient metadata "
+        "for an independent examiner to evaluate its credibility without access to "
+        "the live VCB control plane."
+    ),
+    "required_fields": {
+        "evidence_id":       "Unique identifier for this evidence object",
+        "source":            "Origin system or authority",
+        "source_version":    "Version of origin system at time of capture",
+        "timestamp":         "ISO 8601 timestamp of evidence capture",
+        "integrity":         "Hash or signature enabling tamper detection",
+        "binding":           "What exact action, system, version this evidence describes",
+        "provenance":        "Chain of custody from origin to this record",
+        "claim_scope":       "Which VCB claims this evidence can legitimately support",
+        "limitations":       "What this evidence CANNOT establish — must be preserved",
+    },
+    "evaluation_against_sufficiency_criteria": "Use VCB_EVIDENCE_SUFFICIENCY_CRITERIA eight-property test",
+    "design_rule": "No decorative metadata. Every field contributes to independent reconstruction or explicitly states a limitation.",
+}
+
+VCB_COMMERCIAL_RULES = {
+    "schema": "VGS-COMMERCIAL-RULES-1.0", "frozen": True,
+    "scope_exclusions": [
+        "general GRC platform", "general AI governance suite",
+        "AI model evaluation platform", "AI safety platform",
+        "generic risk engine", "prediction engine",
+        "customer data lake", "surveillance platform",
+        "incident-response platform", "full remediation platform",
+        "SIMVERI hardware (current phase)",
+    ],
+    "feature_admission_gate": "Must strengthen at least one of: AUTHORITY, FRESHNESS, EXACTNESS, EXCLUSIVITY, REFUSAL, RECONSTRUCTABILITY, CLAIM_HONESTY",
+    "commercial_build_order": [
+        "P0 Deployment truth",
+        "P1 Proof kernel (WHY/STILL/COULD/WHAT + PROVABLE/FAILED/NOT_PROVABLE)",
+        "P2 Exact binding",
+        "P3 Persistence and consumption",
+        "P4 Temporal validity",
+        "P5 Boundary leverage",
+        "P6 Real actuator",
+        "P7 Evidence construction",
+        "P8 Proof Passport",
+        "P9 Independent verifier",
+        "P10 Commercial intelligence (after real deployment evidence only)",
+    ],
+    "final_architectural_doctrine": (
+        "No consequential action may receive more authority than was granted, "
+        "remain admissible after its material basis has changed, "
+        "exceed its permitted consumption semantics, "
+        "bypass an effective consequence boundary, "
+        "or produce a stronger assurance claim than the evidence can support."
+    ),
+}
+
+
+
 @app.get("/v1/engineering/master-audit", tags=["Engineering Gates 0-7"])
 async def engineering_master_audit():
     """
@@ -106400,6 +106720,15 @@ async def engineering_master_audit():
         "market_terrain_adjacency":    VCB_MARKET_TERRAIN_ADJACENCY,
         "claim_separation_doctrine":   VCB_CLAIM_SEPARATION_DOCTRINE,
         "evidence_sufficiency_criteria": VCB_EVIDENCE_SUFFICIENCY_CRITERIA,
+        "product_thesis":              VCB_PRODUCT_THESIS,
+        "commercial_product":          VCB_COMMERCIAL_PRODUCT_DEFINITION,
+        "five_commercial_values":      VCB_FIVE_COMMERCIAL_VALUE_PROPERTIES,
+        "competitive_differentiation": VCB_COMPETITIVE_DIFFERENTIATION,
+        "four_product_surfaces":       VCB_FOUR_PRODUCT_SURFACES,
+        "commercial_pricing_model":    VCB_COMMERCIAL_PRICING_MODEL,
+        "data_moat_discipline":        VCB_DATA_MOAT_DISCIPLINE,
+        "evidence_object_model":       VCB_EVIDENCE_OBJECT_MODEL,
+        "commercial_rules":            VCB_COMMERCIAL_RULES,
         "core_doctrine":               VCB_CORE_DOCTRINE,
         "proof_integrity_gate":        VCB_PROOF_INTEGRITY_GATE,
         "public_claim_discipline":     VCB_PUBLIC_CLAIM_DISCIPLINE,
@@ -106420,3 +106749,112 @@ async def engineering_master_audit():
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=int(os.environ.get("PORT", 8000)), reload=False)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
