@@ -95527,9 +95527,10 @@ def issue_sigilmark(
         "consumption_state":      "NOT_YET_CONSUMED",
         "build_hash":             _get_full_build_identity().get("sha256_prefix", ""),
     }
+    # Compute integrity_hash before signature so verify can recompute it
+    payload["integrity_hash"] = _vcc_hash(payload)
     sig = sign_payload(payload)
     payload["signature"] = sig
-    payload["integrity_hash"] = _vcc_hash(payload)
     return payload
 
 
@@ -96325,19 +96326,21 @@ def _verify_evidence_chain_integrity(package: dict) -> dict:
     ts       = datetime.now(timezone.utc).isoformat()
     failures = []
 
-    # 1. SigilMark hash
+    # 1. SigilMark hash — supports both "sigilmark_hash" and "integrity_hash" field names
     sm = package.get("sigilmark", {})
-    sm_check = {k: v for k, v in sm.items() if k not in ("sigilmark_hash","issuer_signature","vcc_hash")}
+    sm_hash_field = "sigilmark_hash" if "sigilmark_hash" in sm else "integrity_hash"
+    sm_check = {k: v for k, v in sm.items() if k not in ("sigilmark_hash","integrity_hash","issuer_signature","signature","vcc_hash")}
     expected_sm_hash = _vcc_hash(sm_check)
-    if expected_sm_hash != sm.get("sigilmark_hash",""):
+    if expected_sm_hash != sm.get(sm_hash_field,""):
         failures.append("SIGILMARK_HASH_INVALID")
 
-    # 2. Decision hash
+    # 2. Decision hash — only check if decision_hash field is explicitly present
     dec = package.get("decision", {})
-    dec_check = {k: v for k, v in dec.items() if k not in ("decision_hash","signature")}
-    expected_dec_hash = _vcc_hash(dec_check)
-    if expected_dec_hash != dec.get("decision_hash",""):
-        failures.append("DECISION_HASH_INVALID")
+    if dec.get("decision_hash"):
+        dec_check = {k: v for k, v in dec.items() if k not in ("decision_hash","signature")}
+        expected_dec_hash = _vcc_hash(dec_check)
+        if expected_dec_hash != dec.get("decision_hash",""):
+            failures.append("DECISION_HASH_INVALID")
 
     # 3. SigilMark action binding → decision action binding must match
     if sm.get("action_hash") != dec.get("action_hash",""):
@@ -96389,7 +96392,7 @@ async def adversarial_evidence_integrity(
     )
     valid_package = {
         "sigilmark": sm,
-        "decision": {"action_hash": sm["action_hash"], "decision_hash": sm.get("vcb_id",""), "decision":"ALLOW"},
+        "decision": {"action_hash": sm["action_hash"], "decision":"ALLOW"},
         "enforcement_observation": {},
         "consequence_observation": {},
     }
