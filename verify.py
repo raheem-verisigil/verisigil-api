@@ -32,10 +32,36 @@ VERISIGIL_PUBLIC_KEY_B64 = "lJWG0Wabt6uATPu5Upo6UEHWGXQqMyi6LMKQC0xwpY8="
 
 # ── Hash function (must match VCB production) ─────────────────────────────────
 def _hash(obj: dict) -> str:
-    canon = json.dumps(obj, sort_keys=True, ensure_ascii=False, default=str)
-    return hashlib.sha256(canon.encode()).hexdigest()
+    """
+    Canonical hash matching VCB production _vcc_hash.
+    Uses compact JSON: no spaces after separators, sorted keys.
+    This MUST match the server-side _vcc_canon function exactly.
+    """
+    canon = json.dumps(obj, sort_keys=True, separators=(",", ":"),
+                       ensure_ascii=False, default=str)
+    return hashlib.sha256(canon.encode("utf-8")).hexdigest()
 
 # ── Signature verification ────────────────────────────────────────────────────
+def _verify_signature_vcb(payload: dict, signature: str, public_key_b64: str) -> dict:
+    """
+    Verify using VCB sign_payload serialization:
+    json.dumps(data, sort_keys=True, ensure_ascii=False) — no compact separators.
+    """
+    try:
+        import nacl.signing
+        pk_bytes = base64.b64decode(public_key_b64)
+        vk = nacl.signing.VerifyKey(pk_bytes)
+        # Match sign_payload exactly
+        msg = json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()
+        sig_bytes = base64.b64decode(signature)
+        vk.verify(msg, sig_bytes)
+        return {"result": "VERIFIED", "algorithm": "Ed25519", "key": public_key_b64[:16] + "..."}
+    except ImportError:
+        return {"result": "LIBRARY_UNAVAILABLE", "note": "Install PyNaCl: pip install pynacl"}
+    except Exception as e:
+        return {"result": "INVALID", "error": str(e)}
+
+
 def _verify_signature(payload: dict, signature: str, public_key_b64: str) -> dict:
     try:
         import nacl.signing
@@ -57,7 +83,7 @@ def _check_integrity(passport: dict) -> dict:
         return {"result": "NOT_PROVABLE", "code": "INTEGRITY_HASH_MISSING"}
 
     check = {k: v for k, v in passport.items()
-             if k not in ("integrity_hash", "sigilmark_hash", "signature")}
+             if k not in ("integrity_hash", "sigilmark_hash", "issuer_signature", "signature")}
     computed = _hash(check)
 
     if computed == stored:
@@ -85,8 +111,10 @@ def verify(passport: dict) -> dict:
     # 2. Signature
     signature = passport.get("signature", "")
     if signature:
+        # sign_payload uses json.dumps WITHOUT compact separators
+        # Must match server-side sign_payload exactly: sort_keys=True, ensure_ascii=False, default separators
         payload_for_sig = {k: v for k, v in passport.items() if k != "signature"}
-        results["SIGNATURE"] = _verify_signature(payload_for_sig, signature, VERISIGIL_PUBLIC_KEY_B64)
+        results["SIGNATURE"] = _verify_signature_vcb(payload_for_sig, signature, VERISIGIL_PUBLIC_KEY_B64)
     else:
         results["SIGNATURE"] = {"result": "NOT_PROVABLE", "code": "SIGNATURE_ABSENT"}
 
