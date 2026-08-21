@@ -93250,6 +93250,23 @@ def _vcc_hash(obj) -> str:
     return hashlib.sha256(_vcc_canon(obj).encode("utf-8")).hexdigest()
 
 
+
+def _safe_json_loads(json_str: str) -> dict:
+    """
+    Parse JSON rejecting duplicate keys (prevents last-wins substitution attack).
+    RFC 8785 I-JSON compliance: duplicate property names are forbidden.
+    Perplexity F-05: {"amount": 10, "amount": 1000000} → raises ValueError
+    """
+    import json as _json
+    def _raise_on_dup(pairs):
+        d = {}
+        for k, v in pairs:
+            if k in d:
+                raise ValueError(f"Duplicate key in JSON: {k!r} — possible action substitution attack")
+            d[k] = v
+        return d
+    return _json.loads(json_str, object_pairs_hook=_raise_on_dup)
+
 def issue_vcc(
     *,
     vcb_decision_id:    str,
@@ -101170,15 +101187,15 @@ async def adversarial_restart_replay(
     if has_db and replay_blocked:
         verdict    = "PASS"
         persistence_result = "SUPABASE_AUTHORITATIVE — consumed state survived simulated restart"
-        v001_state = "D_RESTART_DISTRIBUTED_TESTED"
+        v001_state = "D_RESTART_SINGLE_INSTANCE_TESTED"
     elif has_db and not replay_blocked:
         verdict    = "FAIL — DB configured but replay succeeded. Check Supabase DDL."
         persistence_result = "DB_DID_NOT_PREVENT_REPLAY"
-        v001_state = "D_RESTART_DISTRIBUTED_TESTED"
+        v001_state = "D_RESTART_SINGLE_INSTANCE_TESTED"
     else:
         verdict    = "V-001-UNRESOLVED"
         persistence_result = "IN_MEMORY_FALLBACK — run Supabase DDL and configure env vars"
-        v001_state = "D_RESTART_DISTRIBUTED_TESTED"
+        v001_state = "D_RESTART_SINGLE_INSTANCE_TESTED"
 
     return {
         "schema":             "VGS-TEST-A-RESTART-REPLAY-1.0",
@@ -103108,7 +103125,7 @@ VCB_PROOF_STATE_MODEL = {
         "A_IMPLEMENTED":            "Code exists. Not yet tested.",
         "B_DETERMINISTICALLY_TESTED":"Reproducible test passes. Not yet attacked.",
         "C_ADVERSARIALLY_TESTED":   "Intentional attack/mutation attempted and correctly handled.",
-        "D_RESTART_DISTRIBUTED_TESTED":"Property survived process restart and multi-instance execution.",
+        "D_RESTART_SINGLE_INSTANCE_TESTED":"Property survived process restart and multi-instance execution.",
         "E_REAL_ACTUATOR_TESTED":   "Mechanism exercised against a consequential workflow with real or realistic actuator.",
         "F_INDEPENDENTLY_REPRODUCED":"External party/process reproduced the result without trusting VCB runtime.",
         "G_PRODUCTION_ACCEPTED":    "All mandatory gates passed. Production designation granted.",
@@ -103145,7 +103162,7 @@ VCB_CAPABILITY_STATUS_TABLE = {
         "Historical definition truth":      {"state":"B_DETERMINISTICALLY_TESTED","label":"IMPLEMENTED — VERIFY",                  "note":"VALID_UNDER_V1 preserved; adversarial test pending"},
         "Control-position evidence":        {"state":"B_DETERMINISTICALLY_TESTED","label":"IMPLEMENTED — VERIFY",                  "note":"BEFORE/DURING/AFTER/UNAVOIDABLE; live test pending"},
         "Timing attack framework":          {"state":"B_DETERMINISTICALLY_TESTED","label":"IMPLEMENTED — EXECUTION REQUIRED",      "note":"T-3 to T+2 coded; adversarial execution required"},
-        "V-001 durable persistence":        {"state":"D_RESTART_DISTRIBUTED_TESTED", "label":"LIVE INFRASTRUCTURE TESTED", "note":"Supabase authoritative — consumed state survived restart, replay blocked (2026-08-19)"},
+        "V-001 durable persistence":        {"state":"D_RESTART_SINGLE_INSTANCE_TESTED", "label":"LIVE INFRASTRUCTURE TESTED", "note":"Supabase authoritative — consumed state survived restart, replay blocked (2026-08-19)"},
         "V-002 multi-instance atomicity":   {"state":"C_ADVERSARIALLY_TESTED",    "label":"DESIGNED — LIVE CONCURRENCY PROOF REQUIRED",     "note":"Atomic DB mechanism designed; two-instance race not yet executed"},
         "Crash consistency":                {"state":"A_IMPLEMENTED",            "label":"SPECIFIED — LIVE EXECUTION REQUIRED",    "note":"Four crash scenarios documented; none yet executed on live infra"},
         "ACS binding (acs_version/hash)":   {"state":"A_IMPLEMENTED",            "label":"NEXT REQUIRED CORE HARDENING",           "note":"Fields present; cryptographic binding and adversarial test required"},
@@ -104586,7 +104603,7 @@ TRUTH_ENDPOINTS_MUST_AGREE = {
         "GET /v1/engineering/master-direction",
     ],
     "must_agree_on": {
-        "V001_maturity":         "D_RESTART_DISTRIBUTED_TESTED",
+        "V001_maturity":         "D_RESTART_SINGLE_INSTANCE_TESTED",
         "V002_maturity":         "C_ADVERSARIALLY_TESTED",
         "live_tests_executed":   0,
         "NOT_PRODUCTION_READY":  True,
@@ -104954,7 +104971,7 @@ async def engineering_p0_02a_consistency():
         "AUTHORITATIVE_USER_ROUTES": snap["route_counts"]["AUTHORITATIVE_USER_ROUTE_COUNT"],
         "DECORATED_USER_ROUTES":    snap["route_counts"]["DECORATED_USER_ROUTE_COUNT"],
         "duplicate_routes":         snap["route_counts"]["duplicate_routes"],
-        "V001_maturity":            "D_RESTART_DISTRIBUTED_TESTED",
+        "V001_maturity":            "D_RESTART_SINGLE_INSTANCE_TESTED",
         "V002_maturity":            "C_ADVERSARIALLY_TESTED",
         "live_tests_executed":      snap["test_counts"]["CRITICAL_DISTINCTION"]["tests_executed_on_live_infra"],
         "NOT_PRODUCTION_READY":     True,
@@ -104972,14 +104989,14 @@ async def engineering_p0_02a_consistency():
             "NOT_PROD_READY":   snap["production_gate_summary"]["NOT_PRODUCTION_READY"] == True,
         },
         "GET /v1/engineering/maturity-map": {
-            "V001_state":       VCB_CAPABILITY_STATUS_TABLE["capabilities"]["V-001 durable persistence"]["state"] == "D_RESTART_DISTRIBUTED_TESTED",
+            "V001_state":       VCB_CAPABILITY_STATUS_TABLE["capabilities"]["V-001 durable persistence"]["state"] == "D_RESTART_SINGLE_INSTANCE_TESTED",
             "V002_state":       VCB_CAPABILITY_STATUS_TABLE["capabilities"]["V-002 multi-instance atomicity"]["state"] == "C_ADVERSARIALLY_TESTED",
             "arch_frozen":      VCB_CAPABILITY_STATUS_TABLE.get("schema","").startswith("VGS-"),
         },
         "GET /v1/engineering/behavioral-preflight": {
             "NOT_PROD_READY":   True,  # Hard-coded True in that endpoint
             "PROOF_PENDING":    True,  # Hard-coded True in that endpoint
-            "V001_honest":      True,  # endpoint says "D_RESTART_DISTRIBUTED_TESTED"
+            "V001_honest":      True,  # endpoint says "D_RESTART_SINGLE_INSTANCE_TESTED"
             "V002_honest":      True,
         },
         "GET /v1/engineering/master-direction": {
@@ -105211,7 +105228,7 @@ async def engineering_p0_02c_contradiction_test():
     real_v002 = real_canonical.get("V002_maturity", "")
 
     # Pick injection values that differ from real
-    injected_v001 = "A_IMPLEMENTED" if real_v001 != "A_IMPLEMENTED" else "D_RESTART_DISTRIBUTED_TESTED"
+    injected_v001 = "A_IMPLEMENTED" if real_v001 != "A_IMPLEMENTED" else "D_RESTART_SINGLE_INSTANCE_TESTED"
     injected_v002 = "A_IMPLEMENTED" if real_v002 == "C_ADVERSARIALLY_TESTED" else "C_ADVERSARIALLY_TESTED"
 
     # Create fake canonical with wrong V001
@@ -105298,7 +105315,7 @@ async def engineering_build_baseline():
             "FASTAPI_REGISTERED_ROUTE_COUNT":snap["route_counts"]["FASTAPI_REGISTERED_ROUTE_COUNT"],
         },
         "maturity_state": {
-            "V001": "D_RESTART_DISTRIBUTED_TESTED",
+            "V001": "D_RESTART_SINGLE_INSTANCE_TESTED",
             "V002": "C_ADVERSARIALLY_TESTED",
             "live_tests_executed": 0,
         },
@@ -107184,7 +107201,7 @@ VCB_REGULATORY_POSITIONING = {
             "prevented, and WHAT occurred — verifiable offline without trusting the live system. "
             "This is stronger than logging. VCB does not claim Art.12 compliance itself."
         ),
-        "enforcement_date": "August 2, 2026 (Digital Omnibus deferral to Dec 2027 proposed but not yet law)",
+        "enforcement_date": "August 2, 2026 for original high-risk provisions; Regulation (EU) 2026/1744 (Digital Omnibus) entered into force 27 July 2026, deferring core Annex III high-risk obligations to 2 December 2027",
     },
     "eu_ai_act_article_14": {
         "what_it_requires": "Human oversight mechanisms enabling deployers to monitor, interrupt, override",
@@ -107815,7 +107832,7 @@ VCB_IMPLEMENTATION_STATUS_REPORT = {
         "SPEC_ONLY": ["ACS binding enforcement", "Authority continuity gate", "Material delta live test",
                       "Evidence currency enforcement", "Responsibility binding", "Boundary leverage gate",
                       "Proof Passport as standalone artifact"],
-        "NOT_IMPLEMENTED": ["Offline independent verifier (verify.py)", "Real consequential actuator",
+        "NOT_IMPLEMENTED": ["Offline independent verifier (verify.py) for STILL/COULD/WHAT", "Real consequential actuator", "Consumption receipt (consumption_state in signed artifact is permanently NOT_YET_CONSUMED — stale after consumption)",
                             "Outcome observation", "V-002 multi-instance full proof"],
     },
 
@@ -107828,10 +107845,10 @@ VCB_IMPLEMENTATION_STATUS_REPORT = {
             "Distinction between PROVABLE / FAILED / NOT_PROVABLE is implemented and live",
         ],
         "CANNOT_CLAIM_YET": [
-            "Take VeriSigilAI offline and independently verify — verify.py NOT YET BUILT",
+            "Take VeriSigilAI offline and verify full WHY/STILL/COULD/WHAT — verify.py verifies integrity+signature only; STILL/COULD/WHAT remain NOT_PROVABLE offline",
             "We prevent unauthorized AI actions — no real actuator connected",
             "Full multi-instance atomicity — V-002 full not yet demonstrated",
-            "Offline proof passport verification — not yet a standalone artifact",
+            "Full four-question offline Proof Passport — verify.py exists but verifies integrity+signature only; STILL/COULD/WHAT not verifiable offline",
             "Authority remains valid at commitment — TOCTOU enforcement not fully live",
         ],
         "PUBLIC_POST_VERDICT": "CONDITIONAL — post can be published with verified claims only; must NOT include 'take VeriSigilAI offline and verify' until verify.py is built and tested",
@@ -107918,7 +107935,7 @@ async def engineering_master_audit():
         "implementation_status_report": VCB_IMPLEMENTATION_STATUS_REPORT,
         "core_doctrine":               VCB_CORE_DOCTRINE,
         "current_status": {
-            "V001_maturity":            "D_RESTART_DISTRIBUTED_TESTED",
+            "V001_maturity":            "D_RESTART_SINGLE_INSTANCE_TESTED",
             "V002_maturity":            "C_ADVERSARIALLY_TESTED",
             "PRODUCTION_CLAIM_ALLOWED": False,
             "p0_blockers_open":         snap["production_gate_summary"].get("open_p0_blockers", 11),
