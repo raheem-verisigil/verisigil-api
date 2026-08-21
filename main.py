@@ -95561,6 +95561,12 @@ def issue_sigilmark(
     _pub_key_bytes = VERIFY_KEY.encode()
     _key_id = hashlib.sha256(_pub_key_bytes).hexdigest()[:16]
 
+    # ASCII key contract: SigilMark keys MUST be ASCII-only for JCS equivalence
+    # Python sort_keys=True is identical to RFC 8785/JCS for ASCII keys only
+    _NON_ASCII_KEYS = [k for k in vcb_decision.keys() if not k.isascii()]
+    if _NON_ASCII_KEYS:
+        raise ValueError(f"SigilMark keys must be ASCII-only for canonical form guarantee. Non-ASCII: {_NON_ASCII_KEYS}")
+
     payload = {
         "schema":                 "VGS-SIGILMARK-1.0",
         "sigilmark_id":           sm_id,
@@ -95584,6 +95590,13 @@ def issue_sigilmark(
         "signing_key_id":         _key_id,
         "signing_algorithm":      "Ed25519",
         "canonical_form":         "compact-json-sha256-v1",
+        "claim_limitations": [
+            "STILL: authority continuity at commitment NOT YET ENFORCED (R003 SPEC_ONLY)",
+            "COULD: boundary leverage NOT YET ENFORCED (no real actuator)",
+            "WHAT: execution evidence NOT YET AVAILABLE (no real actuator)",
+            "CONSUMPTION_STATE: always NOT_YET_CONSUMED in signed artifact; query DB for current state",
+            "MULTI_INSTANCE: distributed atomicity demonstrated single-instance only",
+        ],
     }
     # Compute integrity_hash before signature so verify can recompute it
     payload["integrity_hash"] = _vcc_hash(payload)
@@ -95703,6 +95716,108 @@ _VCB_FINAL_ENGINE = {
     "invariants":   ["R001", "R002", "R003", "R004", "R005", "R006", "R007"],
     "build_hash":   None,  # populated at runtime
 }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# EVALUATE_RELEASE — Single Fail-Closed Release Gate
+# Expert direction: every ALLOW must flow through this function.
+# All exceptions → NOT_PROVABLE → refuse.
+# No route, no exception, no timeout, no parser failure may independently
+# manufacture ALLOW. (Expert P5 + NIST chaos engineering guidance)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def evaluate_release(
+    examination_result: dict,
+    consumption_result: dict = None,
+    still_result: str = "NOT_VERIFIED",
+    could_result: str = "NOT_VERIFIED",
+) -> dict:
+    """
+    Single gate for all ALLOW decisions.
+    Returns RELEASE_GRANTED only when all required conditions are met.
+    All exceptions produce NOT_PROVABLE → refuse. Never fail-open.
+
+    Current enforcement:
+      WHY: examination_result["verdict"] must be ALLOW-class
+      CONSUMPTION: consumption_result["consumed"] must be True
+      STILL: currently NOT_ENFORCED (SPEC_ONLY) — logged but not blocking
+      COULD: currently NOT_ENFORCED (SPEC_ONLY) — logged but not blocking
+
+    Future enforcement (after P3/P4):
+      STILL: must be PROVABLE at commitment
+      COULD: must be LEVERAGE_PRESENT at actuator
+    """
+    try:
+        # Gate 1: WHY — examination must produce admissible verdict
+        verdict = examination_result.get("verdict", "")
+        why_pass = verdict in ("ALLOW", "RELEASE_GRANTED", "VALID", "ADMISSIBLE")
+        if not why_pass:
+            return {
+                "release": "REFUSED",
+                "gate_failed": "WHY",
+                "reason": f"Examination verdict not admissible: {verdict}",
+                "provable": False,
+            }
+
+        # Gate 2: CONSUMPTION — must be first and only consumption
+        if consumption_result is not None:
+            if not consumption_result.get("consumed", False):
+                return {
+                    "release": "REFUSED",
+                    "gate_failed": "CONSUMPTION",
+                    "reason": consumption_result.get("reason", "ALREADY_CONSUMED"),
+                    "provable": False,
+                    "replay_detected": True,
+                }
+
+        # Gate 3: STILL — SPEC_ONLY, logged but not yet blocking
+        still_status = "NOT_ENFORCED_SPEC_ONLY"
+        if still_result not in ("NOT_VERIFIED", "NOT_ENFORCED"):
+            if still_result in ("FAILED", "RE_ENTRY_REQUIRED", "NOT_PROVABLE"):
+                return {
+                    "release": "REFUSED",
+                    "gate_failed": "STILL",
+                    "reason": f"Authority continuity: {still_result}",
+                    "provable": False,
+                }
+            still_status = still_result
+
+        # Gate 4: COULD — SPEC_ONLY, logged but not yet blocking
+        could_status = "NOT_ENFORCED_SPEC_ONLY"
+        if could_result not in ("NOT_VERIFIED", "NOT_ENFORCED"):
+            if could_result in ("LEVERAGE_LOST", "NOT_PROVABLE"):
+                return {
+                    "release": "REFUSED",
+                    "gate_failed": "COULD",
+                    "reason": f"Boundary leverage: {could_result}",
+                    "provable": False,
+                }
+            could_status = could_result
+
+        # All gates passed
+        return {
+            "release": "RELEASE_GRANTED",
+            "why": "PROVABLE",
+            "still": still_status,
+            "could": could_status,
+            "consumption": "CONSUMED" if consumption_result else "NOT_CHECKED",
+            "claim_limitations": [
+                "STILL not enforced at gate (R003 SPEC_ONLY)",
+                "COULD not enforced at gate (no real actuator)",
+            ],
+            "provable": True,
+        }
+
+    except Exception as e:
+        # FAIL CLOSED — any exception → NOT_PROVABLE → refuse
+        # Never silently convert an exception to ALLOW
+        return {
+            "release": "REFUSED",
+            "gate_failed": "EVALUATE_RELEASE_EXCEPTION",
+            "reason": f"NOT_PROVABLE.GATE_EXCEPTION: {str(e)[:100]}",
+            "provable": False,
+            "fail_closed": True,
+        }
 
 @app.post("/v1/vcb/seal", tags=["VCB — Canonical API"])
 async def vcb_seal(
@@ -101056,6 +101171,15 @@ async def _supabase_consume_sigilmark(sigilmark_id: str) -> dict:
                     "WARNING": "V-001 not fixed — state lost on restart"}
 
     # Production path: atomic Supabase RPC
+    # REQUIRED SQL in Supabase consume_sigilmark function (verify in dashboard):
+    #   UPDATE vcb_sigilmarks
+    #   SET status='CONSUMED', consumed_at=NOW(), consumed_by=p_instance
+    #   WHERE sigilmark_id=p_id AND status='NOT_YET_CONSUMED'
+    #   RETURNING sigilmark_id,
+    #     CASE WHEN xmax::text::int > 0 THEN true ELSE false END as consumed,
+    #     CASE WHEN xmax::text::int > 0 THEN 'CONSUMED' ELSE 'ALREADY_CONSUMED' END as reason;
+    # If this SQL is NOT atomic conditional UPDATE, V-001 multi-instance is NOT safe.
+    # Verify in Supabase SQL editor before claiming distributed atomicity.
     try:
         import httpx
         instance_id = os.environ.get("RAILWAY_REPLICA_ID", "instance-0")
@@ -107998,6 +108122,98 @@ VCB_SIX_AI_REVIEW_FINDINGS = {
 
     "second_round_recommendation": "Send updated package v2 to Grok + Perplexity only before human expert review",
 }
+
+
+@app.get("/v1/claims/registry", tags=["Engineering Gates 0-7"])
+async def claims_registry():
+    """
+    Live claim registry — every public VCB claim with exact test status.
+    Independent verification: compare claim_status against test_endpoint results.
+    No auth required.
+    Expert P0: no public claim may be stronger than its demonstrated test.
+    """
+    build = _get_full_build_identity()
+    return {
+        "schema": "VGS-CLAIM-REGISTRY-1.0",
+        "build_hash": build.get("sha256_prefix", ""),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "principle": "No public claim may be stronger than the exact property demonstrated by a reproducible test.",
+        "claims": {
+            "C-01": {
+                "claim": "Signed, tamper-evident decision artefact generated for a specific examined action",
+                "status": "PROVABLE",
+                "test_endpoint": "POST /v1/adversarial/sigilmark-mutations",
+                "test_result": "15/15 mutation attacks detected on production",
+                "scope": "Against attacker without signing key; 15 tested mutation classes",
+                "limitation": "Adversary with signing key can recompute hashes — Ed25519 is the only cryptographic control",
+                "build_verified": build.get("sha256_prefix", ""),
+            },
+            "C-02": {
+                "claim": "Tamper-evident integrity (modification of signed content causes verification failure)",
+                "status": "PROVABLE",
+                "test_endpoint": "POST /v1/adversarial/evidence-integrity",
+                "test_result": "EI-01 through EI-05: 5/5 PASS on production",
+                "scope": "Tested mutation classes",
+                "limitation": "Tamper-EVIDENT not tamper-PROOF — modification is detectable, not impossible",
+            },
+            "C-03": {
+                "claim": "Offline signature verification without VeriSigilAI API",
+                "status": "PROVABLE",
+                "test_command": "python verify.py proof_passport.json",
+                "test_result": "INTEGRITY VERIFIED + SIGNATURE VERIFIED on production passport",
+                "scope": "Integrity hash + Ed25519 signature only",
+                "limitation": "STILL/COULD/WHAT not verifiable offline. CONSUMPTION requires DB query.",
+            },
+            "C-04": {
+                "claim": "Replay blocked after restart (V-001)",
+                "status": "PROVABLE",
+                "test_endpoint": "POST /v1/adversarial/restart-replay",
+                "test_result": "PASS — Supabase authoritative, replay blocked post-restart",
+                "scope": "Single-instance restart (cache flush, not process kill)",
+                "limitation": "Restart = HTTP cache flush not kill -9. Multi-instance NOT demonstrated.",
+            },
+            "C-05": {
+                "claim": "Single-instance concurrency: 50 threads, exactly 1 winner",
+                "status": "PROVABLE",
+                "test_endpoint": "POST /v1/adversarial/distributed-atomicity",
+                "test_result": "50 threads, consumption_results: VALID=1, REJECTED=49",
+                "scope": "Single Railway instance only",
+                "limitation": "Multi-instance (2+ Railway replicas) NOT YET DEMONSTRATED",
+            },
+            "C-06": {
+                "claim": "PROVABLE/FAILED/NOT_PROVABLE tri-state live",
+                "status": "PROVABLE",
+                "test_endpoint": "GET /v1/engineering/master-audit",
+                "test_result": "All three states returned by production endpoints",
+                "scope": "All 56 master-audit keys",
+                "limitation": "None — this is an architectural property",
+            },
+            "C-07": {
+                "claim": "No valid proof, no protected consequence (INV-01)",
+                "status": "NOT_PROVABLE",
+                "test_endpoint": "None — no real actuator connected",
+                "test_result": "NOT_DEMONSTRATED",
+                "scope": "SPEC_ONLY — STILL and COULD not enforced at gate",
+                "limitation": "This is the primary remaining gap. Do not make this claim publicly.",
+            },
+            "C-08": {
+                "claim": "Authority remained valid at commitment (STILL/R003)",
+                "status": "NOT_PROVABLE",
+                "test_endpoint": "None — R003 SPEC_ONLY",
+                "test_result": "NOT_IMPLEMENTED",
+                "scope": "TOCTOU gap — not yet a live gate",
+                "limitation": "Do not make this claim publicly.",
+            },
+            "C-09": {
+                "claim": "One authorization, one consumption across distributed instances",
+                "status": "NOT_PROVABLE",
+                "test_endpoint": "POST /v1/adversarial/distributed-atomicity",
+                "test_result": "PASS_SINGLE_INSTANCE — multi-instance not tested",
+                "scope": "Single instance only",
+                "limitation": "Do not claim distributed atomicity until V-002 multi-instance demonstrated.",
+            },
+        }
+    }
 
 @app.get("/v1/engineering/master-audit", tags=["Engineering Gates 0-7"])
 async def engineering_master_audit():
