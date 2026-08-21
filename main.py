@@ -106161,6 +106161,11 @@ VCB_FULL_RED_TEAM_MATRIX["authorization_lifecycle_tests"] = {
     "AL-10":{"name":"Commit-Time Material Delta","attack":"Material condition changes exactly at commit","expected":"RE_ENTRY_REQUIRED or DENY with evidence","status":"OPEN"},
 }
 
+VCB_SIGILMARK_EXTENSION_SCHEMA = {
+    "schema": "VGS-SIGILMARK-EXTENSION-1.0", "frozen": True,
+    "purpose": "Extension fields for the SigilMark portable proof package",
+}
+
 VCB_SIGILMARK_EXTENSION_SCHEMA["reference_fields_v2"] = {
     "ACTION_BINDING":"Binding of exact action, parameters, target, scope",
     "AUTHORITY_REFERENCE":"Reference to authority artifact",
@@ -106686,6 +106691,542 @@ VCB_COMMERCIAL_RULES = {
 
 
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# FROZEN CONSTANTS — FINAL CONSOLIDATED ARCHITECTURE v3.0
+# Control-to-Consequence Continuity + Seven Core Rules + Fifteen Doctrine Points
+#
+# Fact-checked against:
+#   LATTICE (Frontiers AI, Aug 14 2026, doi:10.3389/frai.2026.1800407)
+#     — independently confirms TOCTOU as foundational vulnerability class;
+#       "path not action" as governance object (Kaptein et al. 2026)
+#   CAGE-1 (arXiv 2607.03510) — "Prebind Assurance" + "consequence-boundary proof"
+#     + "consequence custody" directly maps to VCB STILL + COULD + Proof Passport
+#   Proof of Execution (arXiv 2607.05397) — "execution trajectory" not terminal
+#     artifact; FINRA 2026 adds agentic supervision requirements
+#   Runtime Governance on Paths (arXiv 2603.16586) — "path not individual action"
+#     as central governance object; VCB uniquely proves the CONSEQUENTIAL boundary
+#   WEF/Capgemini ACAP (May 2026) — delegation policy + operational oversight
+#     confirms upstream authority model
+#   Cerbos (Jun 2026) — "a risk management process that doesn't enforce decisions
+#     at agent-to-tool boundary is a document" — validates VCB boundary doctrine
+#   CapLease (arXiv 2608.01710) — durable authorization state confirmed (prior session)
+# ─────────────────────────────────────────────────────────────────────────────
+
+VCB_CONTROL_TO_CONSEQUENCE_DOCTRINE = {
+    "schema": "VGS-CONTROL-TO-CONSEQUENCE-1.0", "frozen": True,
+    "central_problem": (
+        "A control, authorization, or approval is not sufficient merely because it exists. "
+        "It must remain connected to the real consequential path, remain valid against "
+        "current conditions, retain actual leverage over the outcome, resist reuse beyond "
+        "its intended scope, and leave independently reconstructable evidence of what it "
+        "allowed, refused, escalated, changed, and what actually occurred."
+    ),
+    "name": "Control-to-Consequence Continuity Problem",
+    "seven_questions_an_independent_party_must_answer": [
+        "Was the exact action authorized?",
+        "Did the authority and its underlying conditions remain valid at commitment?",
+        "Did the action actually pass through the governing boundary?",
+        "Did intervention still have leverage over the consequence?",
+        "Who materially changed the decision when human judgment was required?",
+        "What actually executed?",
+        "What does the available evidence honestly prove?",
+    ],
+    "what_existing_systems_stop_at": {
+        "CONTROL_EXISTS":   "We have a mechanism",
+        "CONTROL_DEPLOYED": "We deployed it",
+        "CONTROL_TESTED":   "It passes tests",
+        "CONTROL_AUDITED":  "We certified it",
+    },
+    "what_vcb_additionally_asks": [
+        "Did real work actually pass through it?",
+        "Did it actually decide something on the real path?",
+        "Did its authority still apply?",
+        "Could it still change the consequence?",
+        "What actually happened?",
+        "Can an independent party prove it?",
+    ],
+    "toctou_confirmation": (
+        "LATTICE (Frontiers AI, Aug 2026) independently confirms TOCTOU — "
+        "time-of-check to time-of-use — as a foundational vulnerability class. "
+        "VCB R003 Authority Continuity and commit-time revalidation are the "
+        "architectural response to TOCTOU in consequential AI governance."
+    ),
+    "cage1_alignment": (
+        "CAGE-1 (arXiv 2607.03510) uses 'Prebind Assurance' for exactly the same terrain: "
+        "proving before an action becomes binding that authority, policy, evidence, and "
+        "control conditions were satisfied. VCB's STILL phase IS prebind assurance. "
+        "VCB adds: consumption lifecycle, exact action binding, leverage determination, "
+        "and dual-path portable proof — not present in CAGE-1."
+    ),
+    "execution_trajectory_finding": (
+        "Proof of Execution (arXiv 2607.05397): the binding question is not whether "
+        "a terminal output looks correct — it is whether each step was authorized, "
+        "whether the system stayed within enforced policy, whether durable mutations "
+        "correspond to permitted actions, and whether the trajectory can be reconstructed. "
+        "VCB's proof kernel governs exactly this: the consequential trajectory, not just the output."
+    ),
+}
+
+VCB_SEVEN_CORE_RULES = {
+    "schema": "VGS-SEVEN-RULES-1.0", "frozen": True,
+    "R001_EXACT_ACTION_BINDING": {
+        "question": "Does the authorization apply to this exact action?",
+        "rule": "Authority must be bound to the exact action, target, parameters, scope, and constraints",
+        "failure": "FAILED.ACTION_BINDING — authorization cannot be treated as a vague permission",
+        "example": "Authorized: Transfer $10,000 to Account A. Proposed: Transfer $10,000 to Account B. Result: FAILED.ACTION_BINDING",
+        "binding_fields": ["action_type", "target", "parameters", "amount", "scope", "authority_id", "authority_version", "nonce", "consumption_policy"],
+    },
+    "R002_AUTHORITY_COVERAGE": {
+        "question": "Does the authority cover this exact actor, action, scope, constraints, and consequence class?",
+        "rule": "Authority must cover: actor, action, scope, constraints, consequence_class",
+        "if_coverage_unknown": "NOT_PROVABLE.AUTHORITY_COVERAGE_UNKNOWN",
+        "if_contradiction": "FAILED.AUTHORITY_SCOPE_VIOLATION",
+    },
+    "R003_AUTHORITY_CONTINUITY": {
+        "question": "Is the authorization still valid at commitment, not just at proposal?",
+        "rule": "Authorization must remain applicable at commitment — TOCTOU is the attack vector",
+        "model": "AUTHORITY AT T0 → GRANT CONDITIONS → CURRENT CONDITIONS AT T1",
+        "outcomes": {
+            "UNCHANGED": "continue",
+            "MATERIAL_CHANGE": "RE-ENTRY_REQUIRED",
+            "UNKNOWN": "NOT_PROVABLE",
+        },
+        "permanent_distinction": "AUTHORITY_VALID ≠ AUTHORITY_STILL_JUSTIFIED",
+        "toctou_note": "Confirmed by LATTICE (Frontiers AI Aug 2026) as foundational vulnerability class",
+    },
+    "R004_EVIDENCE_CURRENCY": {
+        "question": "Is the evidence still current enough to support the claim at commitment?",
+        "rule": "Evidence must carry a time dimension — age is not assumed acceptable",
+        "evidence_fields": ["observed_at", "verified_at", "valid_from", "valid_until", "max_age", "evaluation_time", "currency_state"],
+        "states": {
+            "CURRENT":       "usable",
+            "STALE":         "NOT_PROVABLE.EVIDENCE_STALE",
+            "MISSING":       "NOT_PROVABLE.EVIDENCE_MISSING",
+            "TIME_UNKNOWN":  "NOT_PROVABLE.EVIDENCE_TIME_UNKNOWN",
+            "CONTRADICTORY": "FAILED or bounded NOT_PROVABLE",
+        },
+        "forbidden": "evidence missing → assume okay",
+    },
+    "R005_ACTIVE_PATH_AND_BOUNDARY_LEVERAGE": {
+        "question": "Did the action pass through the real governing boundary, and did that boundary still have power to affect the consequence?",
+        "rule": "Two separate facts must be established: (1) action passed through boundary, (2) boundary had leverage",
+        "states": ["LEVERAGE_PRESENT", "LEVERAGE_LOST", "LEVERAGE_NOT_PROVABLE"],
+        "forbidden": "refusal log alone as proof of prevention",
+        "if_boundary_too_late": "COULD = FAILED — must not falsely claim prevention",
+        "path_on_laws_on_paths_confirmation": (
+            "Runtime Governance on Paths (arXiv 2603.16586): 'the path, not the individual action, "
+            "is the central object for governance.' VCB R005 is the proof that the action was on the "
+            "governed path AND the boundary retained leverage."
+        ),
+    },
+    "R006_EXECUTION_AND_OUTCOME_DISTINCTION": {
+        "question": "What can be separately proven about release, actuator receipt, execution, and observed outcome?",
+        "rule": "Never collapse ALLOWED = ACTUATOR_RECEIVED = EXECUTED = EXPECTED_OUTCOME = OBSERVED_OUTCOME",
+        "explicit_states": ["RELEASED", "ACTUATOR_RECEIVED", "EXECUTION_CONFIRMED", "OUTCOME_OBSERVED", "OUTCOME_UNKNOWN", "MATERIAL_VARIANCE"],
+        "valid_partial_state": "AUTHORIZED=PROVABLE, EXECUTED=PROVABLE, OUTCOME=NOT_PROVABLE",
+        "if_execution_confirmed_but_outcome_unobservable": "NOT_PROVABLE.OUTCOME_UNOBSERVABLE — explicit limit, not hidden",
+    },
+    "R007_DURABLE_CONSUMPTION_AND_REPLAY_GUARD": {
+        "question": "Is this authorization still eligible to be consumed exactly once?",
+        "rule": "A valid authorization must not silently become reusable",
+        "consumption_flow": "UNUSED → atomically CONSUMED → first valid use → continue; second use → FAILED.REPLAY_DETECTED",
+        "if_state_unknown": "NOT_PROVABLE.CONSUMPTION_STATE_UNKNOWN",
+        "must_survive": ["restart", "crash", "recovery", "redeployment", "multi-instance operation"],
+        "semantic_replay_note": "Guards against both token replay AND semantic replay (CapLease arXiv:2608.01710)",
+    },
+}
+
+VCB_CONTROL_EFFECTIVENESS_LADDER = {
+    "schema": "VGS-CONTROL-LADDER-1.0", "frozen": True,
+    "principle": (
+        "Traditional assurance may stop at CONTROL_EXISTS + CONTROL_TESTED. "
+        "VCB asks all nine questions."
+    ),
+    "ladder": {
+        "1_CONTROL_DEFINED":              "Control is documented and specified",
+        "2_CONTROL_DEPLOYED":             "Control is running in the environment",
+        "3_CONTROL_ON_ACTIVE_PATH":       "Real consequential work passes through it",
+        "4_CONTROL_TRIGGERED":            "Control was invoked for this action",
+        "5_CONTROL_DECIDED":              "Control produced a decision",
+        "6_CONTROL_EXERCISED_LEVERAGE":   "Decision had actual power over the consequence",
+        "7_ACTUATOR_RESULT":              "Actuator received and acted on the decision",
+        "8_CONSEQUENCE_OBSERVED":         "Consequence was observed and evidenced",
+        "9_INDEPENDENTLY_RECONSTRUCTABLE": "Independent party can reproduce the claim",
+    },
+    "vcb_claims": "Steps 3 through 9 — the terrain no other system currently proves end-to-end",
+    "what_vcb_does_not_claim_to_replace": "Steps 1 and 2 (governance platforms, IAM, policy engines)",
+}
+
+VCB_HUMAN_AUTHORITY_MODEL = {
+    "schema": "VGS-HUMAN-AUTHORITY-1.0", "frozen": True,
+    "principle": (
+        "Do not build an infinite human oversight tower. "
+        "Human authority is captured narrowly: who had authority, what they decided, "
+        "and whether their decision materially changed the automated recommendation."
+    ),
+    "three_dimensions": {
+        "IDENTITY":   "Who owns this consequence?",
+        "AUTHORITY":  "What can this person approve, stop, modify, override, or escalate?",
+        "EXERCISE":   "What did this person actually decide?",
+    },
+    "forbidden_equivalences": {
+        "NAMED_HUMAN":    "≠ ACCOUNTABLE_HUMAN",
+        "SIGNATURE":      "≠ JUDGMENT",
+        "APPROVAL_LOG":   "≠ MEANINGFUL_OVERSIGHT",
+        "MORE_LAYERS":    "≠ MORE_ACCOUNTABILITY",
+    },
+    "decision_relation_field": {
+        "field": "decision_relation",
+        "values": ["ACCEPTED", "MODIFIED", "OVERRIDDEN", "REFUSED", "ESCALATED"],
+        "purpose": "Make it reconstructable whether human authority merely repeated the machine or materially changed the consequential decision",
+        "not_for": "Measuring whether humans disagree 'enough'",
+    },
+    "re_entry_trigger": "System cannot prove admissibility → RE-ENTRY_REQUIRED → Named authority exercises judgment",
+    "invisible_layer_invariant": (
+        "Any layer capable of materially changing whether a consequential action proceeds "
+        "SHALL be representable as an identifiable decision point with: "
+        "attributable authority, decision basis, resulting state, reconstructable evidence."
+    ),
+}
+
+VCB_EXECUTION_DERIVED_EVIDENCE_DOCTRINE = {
+    "schema": "VGS-EXECUTION-EVIDENCE-1.0", "frozen": True,
+    "principle": (
+        "For consequential boundary claims, the architecture should prefer evidence "
+        "generated as a direct byproduct of the actual decision and execution path "
+        "over evidence maintained separately from the work being governed."
+    ),
+    "maintained_evidence_types": [
+        "manual attestation", "spreadsheet", "control documentation",
+        "quarterly certification", "uploaded approval", "static report",
+    ],
+    "execution_derived_evidence_types": [
+        "action reached boundary",
+        "authority examined",
+        "ACS hash matched",
+        "conditions revalidated",
+        "evidence age evaluated",
+        "material delta detected",
+        "nonce consumed",
+        "action refused",
+        "actuator not reached",
+        "execution confirmed",
+        "outcome observed",
+    ],
+    "hierarchy": (
+        "Where the system can prove WHAT ACTUALLY HAPPENED, "
+        "we must not weaken that proof into SOMEONE LATER SAID IT HAPPENED."
+    ),
+    "proof_of_execution_confirmation": (
+        "arXiv 2607.05397: APIs execute without proving authorization bounds; "
+        "distributed tracing observes for debugging not authorization; "
+        "TEEs attest code integrity but not authorization sequences. "
+        "VCB fills the execution-trajectory proof gap."
+    ),
+}
+
+VCB_FIFTEEN_ENGINEERING_DOCTRINE = {
+    "schema": "VGS-FIFTEEN-DOCTRINE-1.0", "frozen": True,
+    "doctrines": [
+        "1. Authority cannot silently outlive its reason.",
+        "2. Evidence cannot silently become stale.",
+        "3. A valid authorization cannot silently become reusable.",
+        "4. A control cannot claim effectiveness merely because it exists or audits cleanly.",
+        "5. A consequential action must not bypass the governing boundary without that limitation being detectable or explicitly acknowledged.",
+        "6. A human signature is not automatically evidence of meaningful judgment.",
+        "7. More oversight layers do not automatically create more accountability.",
+        "8. Any layer that materially changes whether a consequence proceeds must not be invisible.",
+        "9. Release is not actuator receipt.",
+        "10. Actuator receipt is not execution.",
+        "11. Execution is not outcome.",
+        "12. Unknown must remain unknown.",
+        "13. Every material claim resolves honestly as: PROVABLE, FAILED, or NOT_PROVABLE.",
+        "14. The final product output is independently reconstructable evidence — not a promise that governance exists.",
+        "15. A risk management process that does not enforce decisions at the consequential boundary is a document.",
+    ],
+    "doctrine_15_source": "Cerbos (Jun 2026): 'A risk management process that doesn't enforce decisions at the agent-to-tool boundary is a document.'",
+    "final_positioning": (
+        "VeriSigilAI does not ask only whether a control exists. "
+        "It asks: Did it still apply? Did the real action actually pass through it? "
+        "Could it still change the consequence? If human judgment was required, "
+        "who actually exercised authority? What happened next? "
+        "And can an independent party prove it?"
+    ),
+}
+
+
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# FROZEN CONSTANTS — FINAL CONSOLIDATED BUILD DIRECTION v4.0
+# Proof Kernel Hardening: Lifecycle, ACS Binding, Responsibility, Evidence Time,
+# Proof Passport Schema, Regulatory Positioning, No Recursive Governor
+#
+# Fact-checked against:
+#   EU AI Act Article 12 (text confirmed from ai-act-service-desk.ec.europa.eu):
+#     "automatic recording of events (logs) over the lifetime of the system"
+#     — traceability, not a portable consequence-boundary proof requirement.
+#     VCB's Proof Passport goes BEYOND Art.12 — it proves WHY/STILL/COULD/WHAT
+#     offline, not just that events were logged.
+#   NIST AI RMF (2026 agentic extensions planned Q4 2026 — not yet released):
+#     GOVERN/MAP/MEASURE/MANAGE functions + agentic gaps confirmed.
+#     VCB is NOT a full NIST RMF implementation — it is the consequence-boundary
+#     proof mechanism that NIST's MEASURE/MANAGE functions need but don't specify.
+#   prEN ISO/IEC 24970 (AI system logging standard — draft, not finalized):
+#     No finalized technical standard for Art.12 yet. VCB does not claim conformance.
+#   Digital Omnibus deferral proposal (Nov 2025): trilogues underway but Aug 2026
+#     remains the enforceable date — confirmed correct.
+# ─────────────────────────────────────────────────────────────────────────────
+
+VCB_REGULATORY_POSITIONING = {
+    "schema": "VGS-REGULATORY-POSITION-1.0", "frozen": True,
+    "principle": (
+        "VCB supports traceability and oversight themes in current regulation "
+        "without claiming to satisfy an entire regulatory regime."
+    ),
+    "eu_ai_act_article_12": {
+        "what_it_requires": (
+            "Automatic recording of events over system lifetime. "
+            "Traceability of functioning appropriate to intended purpose. "
+            "Events relevant to: risk identification, post-market monitoring, deployer oversight."
+        ),
+        "what_it_does_not_specify": [
+            "No finalized technical standard (prEN ISO/IEC 24970 draft, not finalized)",
+            "No specific retention period in Article 12 text",
+            "No portable proof requirement — logs sufficient",
+        ],
+        "vcb_beyond_art12": (
+            "Art.12 requires event logging. VCB produces independently verifiable proof "
+            "of WHY the exact action was admissible, STILL at commitment, COULD have been "
+            "prevented, and WHAT occurred — verifiable offline without trusting the live system. "
+            "This is stronger than logging. VCB does not claim Art.12 compliance itself."
+        ),
+        "enforcement_date": "August 2, 2026 (Digital Omnibus deferral to Dec 2027 proposed but not yet law)",
+    },
+    "eu_ai_act_article_14": {
+        "what_it_requires": "Human oversight mechanisms enabling deployers to monitor, interrupt, override",
+        "vcb_contribution": "VCB's COULD determination and RE-ENTRY_REQUIRED mechanism support Art.14 — they are not a full Art.14 implementation",
+    },
+    "nist_ai_rmf": {
+        "status": "Voluntary framework. Agentic AI Agent Interoperability Profile planned Q4 2026 — not yet released",
+        "vcb_contribution": "VCB addresses the MEASURE/MANAGE gap for consequential action evidence — not a full RMF implementation",
+        "honest_position": "NIST frames governance as broader risk-management activity. VCB is the consequence-boundary proof layer within that ecosystem.",
+    },
+    "correct_commercial_claim": (
+        "VCB produces independently verifiable evidence of authority, validity, enforcement leverage, "
+        "and consequence for individual consequential actions — complementing regulatory logging "
+        "requirements without claiming to replace full compliance programs."
+    ),
+    "forbidden_claims": [
+        "VCB makes you EU AI Act compliant",
+        "VCB satisfies Article 12",
+        "VCB replaces your NIST AI RMF program",
+        "VCB provides complete regulatory compliance",
+    ],
+}
+
+VCB_FINAL_PROOF_LIFECYCLE = {
+    "schema": "VGS-PROOF-LIFECYCLE-1.0", "frozen": True,
+    "principle": "Nothing bypasses this lifecycle for a protected consequential action.",
+    "lifecycle": [
+        {"step": 1,  "name": "PROPOSAL",                  "desc": "Consequential action proposed"},
+        {"step": 2,  "name": "AUTHORITY_RESOLUTION",      "desc": "Upstream authority and ACS resolved"},
+        {"step": 3,  "name": "WHY_ADMISSIBILITY",         "desc": "Exact action binding + authority coverage examination"},
+        {"step": 4,  "name": "STILL_REVALIDATION",        "desc": "Commit-time revalidation: T0→T1 material delta"},
+        {"step": 5,  "name": "CONSUMPTION_REPLAY_GUARD",  "desc": "R007: atomic consume or FAILED.REPLAY_DETECTED"},
+        {"step": 6,  "name": "COULD_LEVERAGE_CHECK",      "desc": "Boundary leverage determination"},
+        {"step": 7,  "name": "RELEASE_OR_REFUSE",         "desc": "ALLOW → actuator | REFUSE / NOT_PROVABLE → no actuator"},
+        {"step": 8,  "name": "EXECUTION_EVIDENCE",        "desc": "Actuator receipt + execution confirmation"},
+        {"step": 9,  "name": "WHAT_OBSERVED_CONSEQUENCE", "desc": "Outcome observation — separate from execution"},
+        {"step": 10, "name": "SIGNED_PROOF_PASSPORT",     "desc": "Canonical signed portable evidence artifact"},
+        {"step": 11, "name": "OFFLINE_INDEPENDENT_VERIFY","desc": "Verifiable without live VCB service"},
+    ],
+    "forbidden": "No step may be bypassed for a protected consequential action",
+    "primary_kill_criterion": "Can an inadmissible action reach consequence anyway?",
+}
+
+VCB_ACS_BINDING = {
+    "schema": "VGS-ACS-BINDING-1.0", "frozen": True,
+    "purpose": (
+        "Bind the authorised condition set (ACS) to the exact action being examined. "
+        "Prevents authority for Action A being used to justify Action B. "
+        "Prevents stale authority surviving a changed ACS."
+    ),
+    "required_bindings": {
+        "action_hash":          "Hash of exact action including all consequential parameters",
+        "action_class":         "Classification of consequence type",
+        "parameters_hash":      "Hash of all action parameters",
+        "authority_id":         "Identifier of the upstream authority",
+        "responsibility_binding_id": "Reference to responsibility binding record",
+        "acs_version":          "Version of the authorised condition set",
+        "acs_hash":             "Hash of the full ACS at time of examination",
+        "constraint_set_hash":  "Hash of applicable constraints",
+        "evidence_set_hash":    "Hash of evidence set supporting the WHY claim",
+    },
+    "still_revalidation_checks": [
+        "ACS version unchanged?",
+        "ACS hash unchanged?",
+        "Authority still active?",
+        "Authority scope unchanged?",
+        "Constraints unchanged?",
+        "Risk classification unchanged where applicable?",
+        "Required evidence still current?",
+        "Required state still valid?",
+        "Action parameters unchanged?",
+        "Relevant environmental conditions unchanged?",
+    ],
+    "the_real_question": "Can we still prove this exact action is admissible NOW — not just: was it authorized once?",
+    "if_not_provable_at_commitment": ["RE-ENTRY_REQUIRED", "NOT_PROVABLE.AUTHORITY_CONTINUITY_UNKNOWN"],
+}
+
+VCB_RESPONSIBILITY_BINDING = {
+    "schema": "VGS-RESPONSIBILITY-BINDING-1.0", "frozen": True,
+    "purpose": (
+        "Each consequential authority chain must terminate in a defined accountable authority. "
+        "Unambiguous authority provenance — not more human oversight layers."
+    ),
+    "required_fields": {
+        "responsibility_binding_id": "Unique identifier for this binding",
+        "authority_subject":         "Who or what holds the authority",
+        "authority_role":            "Role within the authority chain",
+        "authority_source":          "Origin of the authority grant",
+        "authority_scope":           "What this authority covers",
+        "authority_limitations":     "What this authority does not cover",
+        "consequence_domain":        "Class of consequence this authority governs",
+        "delegation_chain_hash":     "Hash of full delegation chain",
+        "effective_from":            "ISO 8601 start of authority validity",
+        "effective_until":           "ISO 8601 end of authority validity",
+        "revocation_status":         "ACTIVE | REVOKED | EXPIRED | SUSPENDED",
+    },
+    "human_intervention_fields": {
+        "human_intervention_present":           "bool",
+        "human_decision":                       "ACCEPTED | MODIFIED | OVERRIDDEN | REFUSED | ESCALATED",
+        "human_decision_reason_hash":           "Hash of rationale reference",
+        "divergence_from_machine_recommendation": "bool — was machine recommendation materially changed?",
+    },
+    "important_distinction": {
+        "APPROVED": "A signature proves a signature occurred",
+        "NOT_AUTOMATICALLY": "It does not prove the quality or independence of the judgment",
+        "VCB_records": "Evidence available — does not psychologically certify human judgment",
+        "forbidden_rule": "Do not require that every human must have previously disagreed with the AI",
+    },
+}
+
+VCB_EVIDENCE_TIME_SEMANTICS = {
+    "schema": "VGS-EVIDENCE-TIME-1.0", "frozen": True,
+    "principle": "EVIDENCE_EXISTS ≠ EVIDENCE_IS_CURRENT_ENOUGH",
+    "required_fields_per_evidence_object": {
+        "evidence_id":           "Unique identifier",
+        "evidence_type":         "Classification of evidence type",
+        "source":                "Origin system or authority",
+        "provenance":            "Chain of custody",
+        "issued_at":             "When the evidence was created",
+        "observed_at":           "When the condition was observed",
+        "verified_at":           "When integrity was last verified",
+        "valid_from":            "Effective start of evidential validity",
+        "valid_until":           "Expiry of evidential validity",
+        "freshness_requirement": "Maximum acceptable age for this claim",
+        "integrity_hash":        "Tamper detection hash",
+    },
+    "currency_states": {
+        "CURRENT":       "Evidence is within freshness requirement",
+        "STALE":         "Evidence exists but exceeds freshness requirement → NOT_PROVABLE.EVIDENCE_STALE",
+        "EXPIRED":       "Evidence validity period has ended → NOT_PROVABLE.EVIDENCE_STALE",
+        "MISSING":       "Evidence does not exist → NOT_PROVABLE.EVIDENCE_MISSING",
+        "CONTRADICTORY": "Evidence conflicts with other evidence → NOT_PROVABLE.EVIDENCE_CONFLICT",
+        "TIME_UNKNOWN":  "Temporal basis cannot be established → NOT_PROVABLE.EVIDENCE_TIME_UNKNOWN",
+    },
+    "fundamental_rule": "UNKNOWN ≠ VALID; UNKNOWN ≠ FAILED; UNKNOWN = NOT_PROVABLE",
+    "forbidden": "evidence missing → assume okay; evidence stale → silently pass",
+}
+
+VCB_PROOF_PASSPORT_SCHEMA = {
+    "schema": "VGS-PROOF-PASSPORT-SCHEMA-1.0", "frozen": True,
+    "principle": (
+        "The Proof Passport is the portable representation of the completed proof chain. "
+        "An independent verifier validates it without trusting: live VCB service, "
+        "customer application, agent, dashboard, or database UI."
+    ),
+    "sections": {
+        "IDENTITY": ["proof_id", "schema_version", "issued_at"],
+        "ACTION": ["action_hash", "action_class", "parameter_hash"],
+        "AUTHORITY": ["authority_id", "responsibility_binding_id", "acs_version", "acs_hash"],
+        "WHY": ["admissibility_result", "supporting_evidence_hashes", "constraint_result"],
+        "STILL": ["T0_timestamp", "T1_timestamp", "material_delta_result", "authority_continuity_result", "evidence_currency_result"],
+        "CONSUMPTION": ["nonce", "consumption_state", "replay_result"],
+        "COULD": ["intervention_state", "boundary_leverage_result", "actuator_state"],
+        "WHAT": ["execution_evidence", "outcome_evidence", "outcome_observability"],
+        "CLAIM_STATUS": {
+            "per_domain": ["PROVABLE", "FAILED", "NOT_PROVABLE"],
+            "no_hidden_fourth_state": True,
+            "forbidden": ["probably valid", "default allow when proof absent"],
+        },
+        "LIMITATIONS": ["explicit_unresolved_evidence_gaps", "boundary_limitations", "observation_limits"],
+        "CRYPTOGRAPHIC_INTEGRITY": ["canonical_payload_hash", "signature", "signer_identity", "verification_metadata"],
+    },
+    "differentiation": (
+        "Art.12 logging proves events occurred. "
+        "The Proof Passport proves WHY the action was admissible, STILL at commitment, "
+        "COULD have been prevented, WHAT occurred — reconstructable offline."
+    ),
+    "complement_not_replace": "Logging infrastructure for Art.12; Proof Passport for consequential decision reconstruction",
+}
+
+VCB_ADVERSARIAL_TEST_MATRIX_EXTENDED = {
+    "schema": "VGS-ADVERSARIAL-TESTS-EXTENDED-1.0", "frozen": True,
+    "note": "Extends VCB_ADVERSARIAL_TEST_MATRIX with T07-T15 from final build direction",
+    "new_mandatory_cases": {
+        "T07": {"name": "Valid SigilMark Replay",            "attack": "Resubmit consumed authorization", "expected": "FAILED.REPLAY_DETECTED"},
+        "T08": {"name": "Consumption State Unavailable",     "attack": "Evidence of consumption cannot be retrieved", "expected": "NOT_PROVABLE.CONSUMPTION_STATE_UNKNOWN"},
+        "T09": {"name": "Evidence Stale Between T0 and T1",  "attack": "Evidence valid at T0, expired at T1", "expected": "NOT_PROVABLE.EVIDENCE_STALE"},
+        "T10": {"name": "ACS Changes Between T0 and T1",     "attack": "ACS version/hash changes after examination", "expected": "RE-ENTRY_REQUIRED"},
+        "T11": {"name": "Authority Revoked After Examination","attack": "Revoke between examination and commitment", "expected": "REFUSE or RE-ENTRY_REQUIRED"},
+        "T12": {"name": "Two Instances Simultaneous Consume", "attack": "Concurrent consumption of same authorization", "expected": "Exactly one succeeds; other FAILED.REPLAY_DETECTED"},
+        "T13": {"name": "Restart After Consumption",          "attack": "Consumed → service restart → replay", "expected": "Consumed state persists; FAILED.REPLAY_DETECTED"},
+        "T14": {"name": "Intervention After Irreversible",    "attack": "Stop recorded after consequence already irreversible", "expected": "COULD = NO — never claim prevention"},
+        "T15": {"name": "Execution Proven Outcome Unavailable","attack": "Execution confirmed but observation impossible", "expected": "WHAT.execution=PROVABLE WHAT.outcome=NOT_PROVABLE"},
+    },
+    "primary_kill_criterion": "Can an inadmissible action reach consequence anyway?",
+    "not_just": "Does the code work?",
+}
+
+VCB_NO_RECURSIVE_GOVERNOR = {
+    "schema": "VGS-NO-RECURSIVE-GOVERNOR-1.0", "frozen": True,
+    "principle": (
+        "VCB must not create a recursive governance stack. "
+        "The architecture stops at independently verifiable evidence."
+    ),
+    "forbidden_pattern": {
+        "description": "AI → Governor → Governor-of-Governor → Governor-of-Governor-of-Governor",
+        "problem": "Each layer adds complexity without adding evidence quality",
+    },
+    "correct_pattern": {
+        "description": "PROTECTED ACTION → DETERMINISTIC EXAMINATION → EVIDENCE → INDEPENDENT RECONSTRUCTION",
+        "invariant": "Every consequential transition within VCB's boundary must leave reconstructible evidence of what the layer decided and why",
+    },
+    "vcb_does_not_need": "To recursively govern every observer",
+    "vcb_does_need": (
+        "Every consequential transition it governs to generate evidence as a direct byproduct "
+        "of the actual decision and execution path — not from someone later writing about it."
+    ),
+    "engineering_generation_rule": {
+        "correct": "WORK OCCURS → EVIDENCE IS GENERATED",
+        "forbidden": "WORK OCCURS → Someone later writes evidence about it",
+    },
+    "immutable_trace_events": [
+        "ACTION_PROPOSED", "AUTHORITY_EXAMINED", "STILL_REVALIDATED",
+        "CONSUMED_OR_REFUSED", "RELEASED_OR_REFUSED",
+        "ACTUATOR_RECEIPT", "EXECUTION_CONFIRMED", "OUTCOME_OBSERVED",
+    ],
+    "each_event_must_carry": [
+        "event_id", "timestamp", "previous_event_hash",
+        "event_hash", "actor_or_system_identity", "evidence_references",
+    ],
+}
+
+
+
 @app.get("/v1/engineering/master-audit", tags=["Engineering Gates 0-7"])
 async def engineering_master_audit():
     """
@@ -106729,6 +107270,20 @@ async def engineering_master_audit():
         "data_moat_discipline":        VCB_DATA_MOAT_DISCIPLINE,
         "evidence_object_model":       VCB_EVIDENCE_OBJECT_MODEL,
         "commercial_rules":            VCB_COMMERCIAL_RULES,
+        "control_to_consequence":      VCB_CONTROL_TO_CONSEQUENCE_DOCTRINE,
+        "seven_core_rules":            VCB_SEVEN_CORE_RULES,
+        "control_effectiveness_ladder": VCB_CONTROL_EFFECTIVENESS_LADDER,
+        "human_authority_model":       VCB_HUMAN_AUTHORITY_MODEL,
+        "execution_derived_evidence":  VCB_EXECUTION_DERIVED_EVIDENCE_DOCTRINE,
+        "fifteen_engineering_doctrine": VCB_FIFTEEN_ENGINEERING_DOCTRINE,
+        "regulatory_positioning":      VCB_REGULATORY_POSITIONING,
+        "final_proof_lifecycle":       VCB_FINAL_PROOF_LIFECYCLE,
+        "acs_binding":                 VCB_ACS_BINDING,
+        "responsibility_binding":      VCB_RESPONSIBILITY_BINDING,
+        "evidence_time_semantics":     VCB_EVIDENCE_TIME_SEMANTICS,
+        "proof_passport_schema":       VCB_PROOF_PASSPORT_SCHEMA,
+        "adversarial_tests_extended":  VCB_ADVERSARIAL_TEST_MATRIX_EXTENDED,
+        "no_recursive_governor":       VCB_NO_RECURSIVE_GOVERNOR,
         "core_doctrine":               VCB_CORE_DOCTRINE,
         "proof_integrity_gate":        VCB_PROOF_INTEGRITY_GATE,
         "public_claim_discipline":     VCB_PUBLIC_CLAIM_DISCIPLINE,
