@@ -96284,9 +96284,9 @@ def _verify_evidence_chain_integrity(package: dict) -> dict:
 
 @app.post("/v1/adversarial/evidence-integrity", tags=["Adversarial Proof Gates"])
 async def adversarial_evidence_integrity(
-    req: dict,
     x_api_key: Optional[str] = Header(None),
     authorization: Optional[str] = Header(None),
+    req: Optional[dict] = None,
 ):
     """
     Evidence integrity attacks — every tampered link must invalidate the passport.
@@ -96294,7 +96294,7 @@ async def adversarial_evidence_integrity(
     """
     require_api_key(x_api_key, authorization)
     ts     = datetime.now(timezone.utc).isoformat()
-    action = req.get("action") or {"type":"test","amount":1000,"beneficiary":"A","currency":"USD"}
+    action = (req or {}).get("action") or {"type":"test","amount":1000,"beneficiary":"A","currency":"USD"}
 
     # Build a complete proof chain
     sm = issue_sigilmark(
@@ -97635,7 +97635,7 @@ async def adversarial_passport_mutations(
     """
     require_api_key(x_api_key, authorization)
     ts     = datetime.now(timezone.utc).isoformat()
-    action = req.get("action") or {"type":"test","amount":1000,"beneficiary":"A","currency":"USD"}
+    action = (req or {}).get("action") or {"type":"test","amount":1000,"beneficiary":"A","currency":"USD"}
 
     # Build valid base package
     dec = build_vcb_decision_object(
