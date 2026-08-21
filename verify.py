@@ -31,19 +31,30 @@ from datetime import datetime, timezone
 VERISIGIL_PUBLIC_KEY_B64 = "lJWG0Wabt6uATPu5Upo6UEHWGXQqMyi6LMKQC0xwpY8="
 
 # ── Hash function (must match VCB production) ─────────────────────────────────
-# VCB canonical form — must match _vcb_canonical() on server exactly
-_VCB_CANONICAL_SEPARATORS = (",", ":")
+# VCB Canonical Form v2 — RFC 8785 / JCS
+# Upgraded per expert direction and 6-AI consensus
+# Trail of Bits pure-Python implementation: pip install rfc8785
+try:
+    import rfc8785 as _jcs
+    _HAS_JCS = True
+except ImportError:
+    _HAS_JCS = False
 
 def _hash(obj: dict) -> str:
     """
-    Canonical hash matching VCB production _vcc_hash.
-    Uses compact JSON: separators=(',',':'), sorted keys.
-    MUST match server-side _vcc_canon exactly.
-    Kimi K-6: Python default is (', ', ': ') — must be explicit.
+    RFC 8785/JCS canonical hash matching VCB production _vcb_canonical().
+    Handles float normalization (1000.0 → 1000), NaN/Infinity rejection,
+    UTF-16 key sorting, and I-JSON compliance.
+    Install: pip install rfc8785
     """
-    canon = json.dumps(obj, sort_keys=True, separators=_VCB_CANONICAL_SEPARATORS,
-                       ensure_ascii=False, default=str)
-    return hashlib.sha256(canon.encode("utf-8")).hexdigest()
+    if _HAS_JCS:
+        canon = _jcs.dumps(obj)
+    else:
+        # Fallback — matches for ASCII keys and integer/string/bool/null values
+        canon = json.dumps(obj, sort_keys=True, separators=(",", ":"),
+                           ensure_ascii=False).encode("utf-8")
+        return hashlib.sha256(canon).hexdigest()
+    return hashlib.sha256(canon).hexdigest()
 
 # ── Signature verification ────────────────────────────────────────────────────
 def _verify_signature_vcb(payload: dict, signature: str, public_key_b64: str) -> dict:
@@ -64,10 +75,14 @@ def _verify_signature_vcb(payload: dict, signature: str, public_key_b64: str) ->
                            if k not in ("signature",)}
         domain_prefix = b"SIGILMARK-v1" + b"\x00"  # domain separator
         # Try compact canonical form with domain prefix (current server)
-        msg_compact = domain_prefix + json.dumps(
-            payload_for_sig, sort_keys=True, separators=_VCB_CANONICAL_SEPARATORS,
-            ensure_ascii=False, default=str
-        ).encode("utf-8")
+        # Use RFC 8785/JCS canonical form for signature verification
+        if _HAS_JCS:
+            msg_compact = domain_prefix + _jcs.dumps(payload_for_sig)
+        else:
+            msg_compact = domain_prefix + json.dumps(
+                payload_for_sig, sort_keys=True, separators=(",", ":"),
+                ensure_ascii=False
+            ).encode("utf-8")
         sig_bytes = base64.b64decode(signature)
         try:
             vk.verify(msg_compact, sig_bytes)
