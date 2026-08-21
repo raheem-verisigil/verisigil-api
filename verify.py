@@ -57,10 +57,11 @@ def _verify_signature_vcb(payload: dict, signature: str, public_key_b64: str) ->
         pk_bytes = base64.b64decode(public_key_b64)
         vk = nacl.signing.VerifyKey(pk_bytes)
         # Try domain-separated signing first (new format after Fix-3)
-        # Exclude signature AND domain_prefix field from signed content
-        # Server signs: b"SIGILMARK-v1\x00" + canonical(payload without signature+domain_prefix)
+        # Perplexity R2-02 fix: domain_prefix is NOW inside the signed payload
+        # Server signs: b"SIGILMARK-v1\x00" + canonical(payload without signature only)
+        # domain_prefix is included in the canonical payload for signing
         payload_for_sig = {k: v for k, v in payload.items()
-                           if k not in ("signature", "domain_prefix")}
+                           if k not in ("signature",)}
         domain_prefix = b"SIGILMARK-v1" + b"\x00"  # domain separator
         # Try compact canonical form with domain prefix (current server)
         msg_compact = domain_prefix + json.dumps(
@@ -74,24 +75,14 @@ def _verify_signature_vcb(payload: dict, signature: str, public_key_b64: str) ->
                     "form": "domain-separated-compact", "key_id": public_key_b64[:16] + "..."}
         except Exception:
             pass
-        # ChatGPT R2 NEW-F18: Legacy fallback MUST be schema-bound
-        # Only allow legacy path if passport does NOT have domain_prefix field
-        # A current-format passport (with domain_prefix) MUST use domain-separated path only
-        has_domain_prefix = "domain_prefix" in payload
-        if has_domain_prefix:
-            return {
-                "result": "INVALID",
-                "error": "Domain-separated signature required for current-format passport (domain_prefix present) — legacy fallback refused",
-                "form": "domain-separated-required",
-            }
-        # Legacy path: only for passports without domain_prefix (pre-Fix-3 format)
-        msg_legacy = json.dumps(payload_for_sig, sort_keys=True,
-                                ensure_ascii=False).encode()
-        vk.verify(msg_legacy, sig_bytes)
-        return {"result": "VERIFIED", "algorithm": "Ed25519",
-                "form": "legacy-non-domain-separated",
-                "warning": "Legacy signature format — passport predates domain separation",
-                "key_id": public_key_b64[:16] + "..."}
+        # Perplexity R2-07: Legacy fallback permanently removed
+        # All VGS-SIGILMARK-1.0 passports use domain-separated signing exclusively
+        # No retry-on-failure — domain separation is enforced, not advisory
+        return {
+            "result": "INVALID",
+            "error": "Domain-separated signature verification failed — no legacy fallback",
+            "note": "All current passports use SIGILMARK-v1 domain prefix. Re-issue any pre-fix passports.",
+        }
     except ImportError:
         return {"result": "LIBRARY_UNAVAILABLE", "note": "Install PyNaCl: pip install pynacl"}
     except Exception as e:
@@ -118,8 +109,10 @@ def _check_integrity(passport: dict) -> dict:
     if not stored:
         return {"result": "NOT_PROVABLE", "code": "INTEGRITY_HASH_MISSING"}
 
+    # Perplexity R2-02: domain_prefix now inside integrity hash
+    # Only exclude integrity_hash and signature from recomputation
     check = {k: v for k, v in passport.items()
-             if k not in ("integrity_hash", "sigilmark_hash", "issuer_signature", "signature", "domain_prefix")}
+             if k not in ("integrity_hash", "sigilmark_hash", "issuer_signature", "signature")}
     computed = _hash(check)
 
     if computed == stored:
