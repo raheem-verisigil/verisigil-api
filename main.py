@@ -76122,6 +76122,98 @@ async def claims_list():
     }
 
 
+@app.get("/v1/claims/registry", tags=["Engineering Gates 0-7"])
+async def claims_registry():
+    """
+    Live claim registry — every public VCB claim with exact test status.
+    Independent verification: compare claim_status against test_endpoint results.
+    No auth required.
+    Expert P0: no public claim may be stronger than its demonstrated test.
+    """
+    build = _get_full_build_identity()
+    return {
+        "schema": "VGS-CLAIM-REGISTRY-1.0",
+        "build_hash": build.get("sha256_prefix", ""),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "principle": "No public claim may be stronger than the exact property demonstrated by a reproducible test.",
+        "claims": {
+            "C-01": {
+                "claim": "Signed, tamper-evident decision artefact generated for a specific examined action",
+                "status": "PROVABLE",
+                "test_endpoint": "POST /v1/adversarial/sigilmark-mutations",
+                "test_result": "15/15 mutation attacks detected on production",
+                "scope": "Against attacker without signing key; 15 tested mutation classes",
+                "limitation": "Adversary with signing key can recompute hashes — Ed25519 is the only cryptographic control",
+                "build_verified": build.get("sha256_prefix", ""),
+            },
+            "C-02": {
+                "claim": "Tamper-evident integrity (modification of signed content causes verification failure)",
+                "status": "PROVABLE",
+                "test_endpoint": "POST /v1/adversarial/evidence-integrity",
+                "test_result": "EI-01 through EI-05: 5/5 PASS on production",
+                "scope": "Tested mutation classes",
+                "limitation": "Tamper-EVIDENT not tamper-PROOF — modification is detectable, not impossible",
+            },
+            "C-03": {
+                "claim": "Offline signature verification without VeriSigilAI API",
+                "status": "PROVABLE",
+                "test_command": "python verify.py proof_passport.json",
+                "test_result": "INTEGRITY VERIFIED + SIGNATURE VERIFIED on production passport",
+                "scope": "Integrity hash + Ed25519 signature only",
+                "limitation": "STILL/COULD/WHAT not verifiable offline. CONSUMPTION requires DB query.",
+            },
+            "C-04": {
+                "claim": "Replay blocked after restart (V-001)",
+                "status": "PROVABLE",
+                "test_endpoint": "POST /v1/adversarial/restart-replay",
+                "test_result": "PASS — Supabase authoritative, replay blocked post-restart",
+                "scope": "Single-instance restart (cache flush, not process kill)",
+                "limitation": "Restart = HTTP cache flush not kill -9. Multi-instance NOT demonstrated.",
+            },
+            "C-05": {
+                "claim": "Single-instance concurrency: 50 threads, exactly 1 winner",
+                "status": "PROVABLE",
+                "test_endpoint": "POST /v1/adversarial/distributed-atomicity",
+                "test_result": "50 threads, consumption_results: VALID=1, REJECTED=49",
+                "scope": "Single Railway instance only",
+                "limitation": "Multi-instance (2+ Railway replicas) NOT YET DEMONSTRATED",
+            },
+            "C-06": {
+                "claim": "PROVABLE/FAILED/NOT_PROVABLE tri-state live",
+                "status": "PROVABLE",
+                "test_endpoint": "GET /v1/engineering/master-audit",
+                "test_result": "All three states returned by production endpoints",
+                "scope": "All 56 master-audit keys",
+                "limitation": "None — this is an architectural property",
+            },
+            "C-07": {
+                "claim": "No valid proof, no protected consequence (INV-01)",
+                "status": "NOT_PROVABLE",
+                "test_endpoint": "None — no real actuator connected",
+                "test_result": "NOT_DEMONSTRATED",
+                "scope": "SPEC_ONLY — STILL and COULD not enforced at gate",
+                "limitation": "evaluate_release() returns EXAMINATION_PARTIAL_PASS not RELEASE_GRANTED — naming reflects partial enforcement only",
+                "chatgpt_r2_finding": "NEW-F16: evaluate_release name implied full INV-01 enforcement — corrected",
+            },
+            "C-08": {
+                "claim": "Authority remained valid at commitment (STILL/R003)",
+                "status": "NOT_PROVABLE",
+                "test_endpoint": "None — R003 SPEC_ONLY",
+                "test_result": "NOT_IMPLEMENTED",
+                "scope": "TOCTOU gap — not yet a live gate",
+                "limitation": "Do not make this claim publicly.",
+            },
+            "C-09": {
+                "claim": "One authorization, one consumption across distributed instances",
+                "status": "NOT_PROVABLE",
+                "test_endpoint": "POST /v1/adversarial/distributed-atomicity",
+                "test_result": "PASS_SINGLE_INSTANCE — multi-instance not tested",
+                "scope": "Single instance only",
+                "limitation": "Do not claim distributed atomicity until V-002 multi-instance demonstrated.",
+            },
+        }
+    }
+
 @app.get("/v1/claims/{claim_id}", tags=["Claim Registry"])
 async def claim_detail(claim_id: str):
     """Detail for a specific claim. No auth required."""
@@ -109164,97 +109256,6 @@ VCB_ROUTE_COVERAGE = {
     ],
 }
 
-@app.get("/v1/claims/registry", tags=["Engineering Gates 0-7"])
-async def claims_registry():
-    """
-    Live claim registry — every public VCB claim with exact test status.
-    Independent verification: compare claim_status against test_endpoint results.
-    No auth required.
-    Expert P0: no public claim may be stronger than its demonstrated test.
-    """
-    build = _get_full_build_identity()
-    return {
-        "schema": "VGS-CLAIM-REGISTRY-1.0",
-        "build_hash": build.get("sha256_prefix", ""),
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "principle": "No public claim may be stronger than the exact property demonstrated by a reproducible test.",
-        "claims": {
-            "C-01": {
-                "claim": "Signed, tamper-evident decision artefact generated for a specific examined action",
-                "status": "PROVABLE",
-                "test_endpoint": "POST /v1/adversarial/sigilmark-mutations",
-                "test_result": "15/15 mutation attacks detected on production",
-                "scope": "Against attacker without signing key; 15 tested mutation classes",
-                "limitation": "Adversary with signing key can recompute hashes — Ed25519 is the only cryptographic control",
-                "build_verified": build.get("sha256_prefix", ""),
-            },
-            "C-02": {
-                "claim": "Tamper-evident integrity (modification of signed content causes verification failure)",
-                "status": "PROVABLE",
-                "test_endpoint": "POST /v1/adversarial/evidence-integrity",
-                "test_result": "EI-01 through EI-05: 5/5 PASS on production",
-                "scope": "Tested mutation classes",
-                "limitation": "Tamper-EVIDENT not tamper-PROOF — modification is detectable, not impossible",
-            },
-            "C-03": {
-                "claim": "Offline signature verification without VeriSigilAI API",
-                "status": "PROVABLE",
-                "test_command": "python verify.py proof_passport.json",
-                "test_result": "INTEGRITY VERIFIED + SIGNATURE VERIFIED on production passport",
-                "scope": "Integrity hash + Ed25519 signature only",
-                "limitation": "STILL/COULD/WHAT not verifiable offline. CONSUMPTION requires DB query.",
-            },
-            "C-04": {
-                "claim": "Replay blocked after restart (V-001)",
-                "status": "PROVABLE",
-                "test_endpoint": "POST /v1/adversarial/restart-replay",
-                "test_result": "PASS — Supabase authoritative, replay blocked post-restart",
-                "scope": "Single-instance restart (cache flush, not process kill)",
-                "limitation": "Restart = HTTP cache flush not kill -9. Multi-instance NOT demonstrated.",
-            },
-            "C-05": {
-                "claim": "Single-instance concurrency: 50 threads, exactly 1 winner",
-                "status": "PROVABLE",
-                "test_endpoint": "POST /v1/adversarial/distributed-atomicity",
-                "test_result": "50 threads, consumption_results: VALID=1, REJECTED=49",
-                "scope": "Single Railway instance only",
-                "limitation": "Multi-instance (2+ Railway replicas) NOT YET DEMONSTRATED",
-            },
-            "C-06": {
-                "claim": "PROVABLE/FAILED/NOT_PROVABLE tri-state live",
-                "status": "PROVABLE",
-                "test_endpoint": "GET /v1/engineering/master-audit",
-                "test_result": "All three states returned by production endpoints",
-                "scope": "All 56 master-audit keys",
-                "limitation": "None — this is an architectural property",
-            },
-            "C-07": {
-                "claim": "No valid proof, no protected consequence (INV-01)",
-                "status": "NOT_PROVABLE",
-                "test_endpoint": "None — no real actuator connected",
-                "test_result": "NOT_DEMONSTRATED",
-                "scope": "SPEC_ONLY — STILL and COULD not enforced at gate",
-                "limitation": "evaluate_release() returns EXAMINATION_PARTIAL_PASS not RELEASE_GRANTED — naming reflects partial enforcement only",
-                "chatgpt_r2_finding": "NEW-F16: evaluate_release name implied full INV-01 enforcement — corrected",
-            },
-            "C-08": {
-                "claim": "Authority remained valid at commitment (STILL/R003)",
-                "status": "NOT_PROVABLE",
-                "test_endpoint": "None — R003 SPEC_ONLY",
-                "test_result": "NOT_IMPLEMENTED",
-                "scope": "TOCTOU gap — not yet a live gate",
-                "limitation": "Do not make this claim publicly.",
-            },
-            "C-09": {
-                "claim": "One authorization, one consumption across distributed instances",
-                "status": "NOT_PROVABLE",
-                "test_endpoint": "POST /v1/adversarial/distributed-atomicity",
-                "test_result": "PASS_SINGLE_INSTANCE — multi-instance not tested",
-                "scope": "Single instance only",
-                "limitation": "Do not claim distributed atomicity until V-002 multi-instance demonstrated.",
-            },
-        }
-    }
 
 @app.get("/v1/engineering/master-audit", tags=["Engineering Gates 0-7"])
 async def engineering_master_audit():
@@ -109445,4 +109446,3 @@ if __name__ == "__main__":
 
 
 
-# deployed Sat Aug 22 10:14:09 WCAST 2026
