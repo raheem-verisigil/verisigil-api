@@ -96138,6 +96138,194 @@ _DECLARATION_REGISTRY: dict = {}
 # ─────────────────────────────────────────────────────────────────────────────
 
 # T0 Baseline Schema — recorded at authorization time, cryptographically bound
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PROTECTED CONSEQUENCE DOMAIN — First Real Consequence Integration
+# Expert direction: "Choose the first real consequence domain, then derive
+# everything else from reality."
+# This decision drives WHY, STILL, CONSUMPTION, COULD, BOUNDARY, COMMITMENT,
+# OUTCOME, DECLARATION, and RECONSTRUCTION for the first full chain proof.
+# ─────────────────────────────────────────────────────────────────────────────
+
+VCB_PROTECTED_CONSEQUENCE_DOMAIN_v1 = {
+    "schema": "VGS-PCD-1.0",
+    "frozen": True,
+    "domain": "AI_AGENT_PAYMENT_INSTRUCTION",
+    "description": (
+        "An AI agent proposes a payment instruction. "
+        "VCB must independently establish what was authorized, whether the "
+        "conditions still held at commitment, whether the agent had payment "
+        "capability, what actually happened, and who is accountable if the "
+        "authorization is later questioned."
+    ),
+    "implementation_environment": "Stripe API sandbox (test mode — no real money)",
+    "rationale": (
+        "Payment is the most financially consequential and regulatory-aligned "
+        "first domain: EU AI Act Annex III, U.S. Treasury Financial Services AI "
+        "Risk Management Framework (Feb 2026), FSB 2026 AI governance consultation. "
+        "Stripe sandbox provides real outcome observation (WHAT) via webhooks. "
+        "Irreversibility is clear. Authority structure is well-understood. "
+        "Terry Snyder / Alkama / Harold will immediately understand the stakes."
+    ),
+
+    "complete_evidence_chain": {
+
+        "WHY": {
+            "question": "Why is this payment authorized?",
+            "authority_source": "treasury_mandate table (Supabase)",
+            "authority_fields": [
+                "treasury_mandate_id",
+                "authorized_amount_limit",
+                "authorized_vendors",
+                "authorized_by (role + identity)",
+                "authority_version",
+                "valid_until",
+            ],
+            "implementation_status": "NOT_IMPLEMENTED — P3.2 required",
+        },
+
+        "STILL": {
+            "question": "Does the treasury mandate still authorize this action at commitment time?",
+            "authority_source": "treasury_mandate table — live query at T1",
+            "checks": [
+                "Is treasury_mandate_id still ACTIVE?",
+                "Is authorized_by still in CFO role?",
+                "Is target vendor still on approved vendor list?",
+                "Is payment amount within current authorized limit?",
+                "Is authority_version unchanged from T0 baseline?",
+            ],
+            "freshness_window": 30,  # seconds — payments are HIGH consequence
+            "implementation_status": "NOT_IMPLEMENTED — P3.2 required",
+            "fail_closed": "Source unreachable → STILL=NOT_PROVABLE → REFUSED",
+        },
+
+        "CONSUMPTION_VALID": {
+            "question": "Has this exact payment authorization already been consumed?",
+            "mechanism": "Supabase atomic conditional UPDATE (existing implementation)",
+            "payment_nonce": "Unique per payment attempt — prevents duplicate submission",
+            "idempotency_key": "Bound to specific payment proposal hash",
+            "implementation_status": "IMPLEMENTED (single-instance) — multi-instance P6",
+        },
+
+        "COULD": {
+            "question": "Does the agent actually have payment capability?",
+            "checks": [
+                "Stripe test API key is valid (live check)",
+                "API key has payment_intents:write permission",
+                "Target vendor bank account is verified in Stripe",
+                "Payment account has sufficient balance for test",
+            ],
+            "implementation_status": "NOT_IMPLEMENTED — P4 required",
+        },
+
+        "BOUNDARY": {
+            "question": "Is VCB the only path to the payment API?",
+            "governed_path": "POST /v1/payment/execute → evaluate_release() → Stripe API",
+            "bypass_audit_required": [
+                "No direct Stripe API key held by agent process",
+                "No Stripe key in environment variables accessible to agent",
+                "No webhook path that triggers payment without VCB gate",
+                "No scheduled job that submits payments directly",
+                "No admin path that bypasses the gate",
+            ],
+            "implementation_status": "NOT_IMPLEMENTED — P3.8 required",
+        },
+
+        "COMMITMENT": {
+            "question": "What exact event represents irreversible payment release?",
+            "event": "Stripe payment_intent confirmed (stripe_payment_intent_id bound into passport)",
+            "irreversibility_note": "Once payment_intent confirmed, cannot be cancelled — this is the commitment event",
+            "implementation_status": "NOT_IMPLEMENTED — P4 required",
+        },
+
+        "EXECUTION": {
+            "question": "What was actually sent to the payment provider?",
+            "evidence": [
+                "stripe_payment_intent_id",
+                "amount_submitted",
+                "currency",
+                "recipient_account_id",
+                "stripe_api_request_hash",
+                "timestamp",
+            ],
+            "implementation_status": "NOT_IMPLEMENTED — P4 required",
+        },
+
+        "OUTCOME": {
+            "question": "What consequence actually occurred?",
+            "mechanism": "Stripe webhook → VCB outcome recorder",
+            "evidence": [
+                "stripe_payment_status (succeeded/failed)",
+                "stripe_receipt_url",
+                "amount_actually_charged",
+                "timestamp_of_settlement",
+            ],
+            "distinguishes": "RELEASED ≠ EXECUTED ≠ OUTCOME_CONFIRMED",
+            "implementation_status": "NOT_IMPLEMENTED — P4/P5 required",
+        },
+
+        "DECLARATION": {
+            "question": "Who is accountable if authorization is later questioned?",
+            "trigger": "Treasury mandate modified or revoked after payment committed",
+            "responsible_party": "CFO or treasury officer (identified in WHY examination)",
+            "deadline_hours": 72,
+            "outcome_states": ["RELIANCE_REAFFIRMED", "NON_RELIANCE_DECLARED", "DECLARATION_SILENT"],
+            "implementation_status": "IMPLEMENTED (Declaration Obligation endpoints exist)",
+        },
+
+        "RECONSTRUCTION": {
+            "question": "Can an independent party verify the complete chain?",
+            "package": [
+                "proof_passport.json (all above + signatures)",
+                "T0 baseline hash",
+                "T1 evidence hash",
+                "verify.py",
+                "stripe_webhook_receipt (outcome evidence)",
+            ],
+            "command": "python verify.py proof_passport.json",
+            "implementation_status": "PARTIALLY_IMPLEMENTED — verify.py works for WHY; STILL/COULD/WHAT pending",
+        },
+    },
+
+    "implementation_sequence": {
+        "P3.2": "Treasury mandate STILL adapter — query Supabase at T1",
+        "P3.3": "Freshness enforcement — 30s window for payment domain",
+        "P3.4": "Material delta comparison — version + status + scope",
+        "P3.5": "STILL enforcement in evaluate_release()",
+        "P4.1": "Stripe sandbox COULD adapter — validate payment permissions",
+        "P4.2": "Stripe payment boundary adapter — POST /v1/payment/execute",
+        "P4.3": "Stripe webhook receiver — outcome observation",
+        "P4.4": "Complete proof passport — all 12 evidence chain elements",
+        "P5.1": "Bypass route audit — treasury + Stripe paths only",
+        "P5.2": "Route classification for payment domain",
+        "P6": "Multi-instance V-002 under payment concurrency",
+    },
+
+    "what_this_proves": (
+        "For the payment domain: VCB can independently establish what was authorized, "
+        "whether conditions still held at commitment, whether the agent had payment "
+        "capability, what was submitted to Stripe, what Stripe confirmed, and whether "
+        "an independent party can reconstruct the entire chain — or report what "
+        "cannot be proven — without trusting VeriSigilAI."
+    ),
+
+    "what_this_does_NOT_prove": [
+        "VCB prevents all unauthorized AI actions everywhere",
+        "VCB governs all payment systems",
+        "VCB handles all consequence types",
+        "The pattern generalizes without further work to other domains",
+    ],
+
+    "claim_after_completion": (
+        "For AI agent payment instructions through the governed Stripe integration: "
+        "VCB can independently re-examine defined authorization conditions at "
+        "commitment time and record whether continuity was established, failed, "
+        "or could not be proven. An external party can verify this without "
+        "trusting the live VeriSigilAI system."
+    ),
+}
+
+
 VCB_T0_BASELINE_SCHEMA = {
     "schema": "VGS-T0-BASELINE-1.0",
     "description": "Cryptographic baseline of authority and conditions at authorization time (T0)",
