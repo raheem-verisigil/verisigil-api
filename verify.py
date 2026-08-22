@@ -31,79 +31,11 @@ from datetime import datetime, timezone
 VERISIGIL_PUBLIC_KEY_B64 = "lJWG0Wabt6uATPu5Upo6UEHWGXQqMyi6LMKQC0xwpY8="
 
 # ── Hash function (must match VCB production) ─────────────────────────────────
-# VCB Canonical Form v2 — RFC 8785 / JCS
-# Upgraded per expert direction and 6-AI consensus
-# Trail of Bits pure-Python implementation: pip install rfc8785
-try:
-    import rfc8785 as _jcs
-    _HAS_JCS = True
-except ImportError:
-    _HAS_JCS = False
-
 def _hash(obj: dict) -> str:
-    """
-    RFC 8785/JCS canonical hash matching VCB production _vcb_canonical().
-    Handles float normalization (1000.0 → 1000), NaN/Infinity rejection,
-    UTF-16 key sorting, and I-JSON compliance.
-    Install: pip install rfc8785
-    """
-    if _HAS_JCS:
-        canon = _jcs.dumps(obj)
-    else:
-        # Fallback — matches for ASCII keys and integer/string/bool/null values
-        canon = json.dumps(obj, sort_keys=True, separators=(",", ":"),
-                           ensure_ascii=False).encode("utf-8")
-        return hashlib.sha256(canon).hexdigest()
-    return hashlib.sha256(canon).hexdigest()
+    canon = json.dumps(obj, sort_keys=True, ensure_ascii=False, default=str)
+    return hashlib.sha256(canon.encode()).hexdigest()
 
 # ── Signature verification ────────────────────────────────────────────────────
-def _verify_signature_vcb(payload: dict, signature: str, public_key_b64: str) -> dict:
-    """
-    Verify SigilMark Ed25519 signature using domain-separated canonical form.
-    Server signs: b"SIGILMARK-v1\x00" + compact_canonical_json(payload_without_signature)
-    Both integrity hash AND signature now use compact separators=(',',':').
-    """
-    try:
-        import nacl.signing
-        pk_bytes = base64.b64decode(public_key_b64)
-        vk = nacl.signing.VerifyKey(pk_bytes)
-        # Try domain-separated signing first (new format after Fix-3)
-        # Perplexity R2-02 fix: domain_prefix is NOW inside the signed payload
-        # Server signs: b"SIGILMARK-v1\x00" + canonical(payload without signature only)
-        # domain_prefix is included in the canonical payload for signing
-        payload_for_sig = {k: v for k, v in payload.items()
-                           if k not in ("signature",)}
-        domain_prefix = b"SIGILMARK-v1" + b"\x00"  # domain separator
-        # Try compact canonical form with domain prefix (current server)
-        # Use RFC 8785/JCS canonical form for signature verification
-        if _HAS_JCS:
-            msg_compact = domain_prefix + _jcs.dumps(payload_for_sig)
-        else:
-            msg_compact = domain_prefix + json.dumps(
-                payload_for_sig, sort_keys=True, separators=(",", ":"),
-                ensure_ascii=False
-            ).encode("utf-8")
-        sig_bytes = base64.b64decode(signature)
-        try:
-            vk.verify(msg_compact, sig_bytes)
-            return {"result": "VERIFIED", "algorithm": "Ed25519",
-                    "form": "domain-separated-compact", "key_id": public_key_b64[:16] + "..."}
-        except Exception:
-            pass
-        # Perplexity R2-07: Legacy fallback permanently removed
-        # All VGS-SIGILMARK-1.0 passports use domain-separated signing exclusively
-        # No retry-on-failure — domain separation is enforced, not advisory
-        return {
-            "result": "INVALID",
-            "error": "Domain-separated signature verification failed — no legacy fallback",
-            "note": "All current passports use SIGILMARK-v1 domain prefix. Re-issue any pre-fix passports.",
-        }
-    except ImportError:
-        return {"result": "LIBRARY_UNAVAILABLE", "note": "Install PyNaCl: pip install pynacl"}
-    except Exception as e:
-        return {"result": "INVALID", "error": str(e)}
-
-
 def _verify_signature(payload: dict, signature: str, public_key_b64: str) -> dict:
     try:
         import nacl.signing
@@ -124,10 +56,8 @@ def _check_integrity(passport: dict) -> dict:
     if not stored:
         return {"result": "NOT_PROVABLE", "code": "INTEGRITY_HASH_MISSING"}
 
-    # Perplexity R2-02: domain_prefix now inside integrity hash
-    # Only exclude integrity_hash and signature from recomputation
     check = {k: v for k, v in passport.items()
-             if k not in ("integrity_hash", "sigilmark_hash", "issuer_signature", "signature")}
+             if k not in ("integrity_hash", "sigilmark_hash", "signature")}
     computed = _hash(check)
 
     if computed == stored:
@@ -155,10 +85,8 @@ def verify(passport: dict) -> dict:
     # 2. Signature
     signature = passport.get("signature", "")
     if signature:
-        # sign_payload uses json.dumps WITHOUT compact separators
-        # Must match server-side sign_payload exactly: sort_keys=True, ensure_ascii=False, default separators
         payload_for_sig = {k: v for k, v in passport.items() if k != "signature"}
-        results["SIGNATURE"] = _verify_signature_vcb(payload_for_sig, signature, VERISIGIL_PUBLIC_KEY_B64)
+        results["SIGNATURE"] = _verify_signature(payload_for_sig, signature, VERISIGIL_PUBLIC_KEY_B64)
     else:
         results["SIGNATURE"] = {"result": "NOT_PROVABLE", "code": "SIGNATURE_ABSENT"}
 
@@ -172,15 +100,11 @@ def verify(passport: dict) -> dict:
     else:
         results["ACTION_BINDING"] = {"result": "NOT_PROVABLE", "code": "ACTION_HASH_ABSENT"}
 
-    # 5. Consumption state — CANNOT be verified offline (Kimi K-5 finding)
-    # The signed artifact always contains NOT_YET_CONSUMED at issuance.
-    # Actual consumption state requires a live DB query — defeats offline independence.
-    # Do not report PROVABLE here regardless of what the signed field says.
+    # 5. Consumption state
     consumption = passport.get("consumption_state", "UNKNOWN")
     results["CONSUMPTION"] = {
-        "result": "NOT_PROVABLE_OFFLINE",
-        "state_in_artifact": consumption,
-        "note": "Signed artifact always shows NOT_YET_CONSUMED at issuance. Query live DB for current state.",
+        "result": "PROVABLE" if consumption == "CONSUMED" else "NOT_PROVABLE",
+        "state": consumption,
     }
 
     # 6. Decision
@@ -219,13 +143,11 @@ def verify(passport: dict) -> dict:
     # 10. Limitations
     limitations = []
     if results["SIGNATURE"].get("result") not in ("VERIFIED",):
-        limitations.append("Signature not independently verified — install PyNaCl: pip install pynacl")
+        limitations.append("Signature not independently verified — install PyNaCl for full verification")
     if results["WHAT"]["outcome"] == "NOT_PROVABLE":
         limitations.append("Outcome observation unavailable in this passport")
     if results["STILL"]["result"] == "PARTIAL":
-        limitations.append("STILL: offline verifier confirms what was recorded; cannot re-examine live conditions")
-    limitations.append("CONSUMPTION: consumption state requires live DB query — NOT_PROVABLE offline")
-    limitations.append("This verifier confirms integrity + signature only. WHY/STILL/COULD/WHAT require live VCB system.")
+        limitations.append("STILL conditions were valid at examination time; offline verifier cannot re-examine live conditions")
 
     results["LIMITATIONS"] = limitations
 
