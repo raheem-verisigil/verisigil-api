@@ -95743,6 +95743,18 @@ def issue_sigilmark(
         "signing_key_id":         _key_id,
         "signing_algorithm":      "Ed25519",
         "canonical_form":         "compact-json-sha256-v1",
+        "reconciliation": {
+            # RECONCILIATION: compare authorized transition to observed consequence
+            # Expert: "without reconciliation, you can prove what VCB believed should happen.
+            # With reconciliation, you can investigate what actually happened."
+            "schema": "VGS-RECONCILIATION-1.0",
+            "authorized_action_hash": action_hash,
+            "expected_consequence_type": vcb_decision.get("consequence_type", ""),
+            "observed_consequence": None,  # Populated after actuator execution (P4)
+            "reconciliation_result": "NOT_YET_RECONCILABLE",  # MATCH | MISMATCH | NOT_RECONCILABLE
+            "node_id": f"RECONCILIATION-{action_hash[:16]}",
+            "implementation_status": "NOT_IMPLEMENTED — requires real actuator (P4)",
+        },
         "claim_limitations": [
             "STILL: authority continuity at commitment NOT YET ENFORCED (R003 SPEC_ONLY)",
             "COULD: boundary leverage NOT YET ENFORCED (no real actuator)",
@@ -95757,6 +95769,23 @@ def issue_sigilmark(
             "freshness_note": "Expert §14: freshness is a first-class property. Implement at P3.",
         },
         "canonical_form": "rfc8785-jcs-v1",  # Updated from compact-json-sha256-v1
+        "why_examination": {
+            "examination_schema": "VGS-WHY-EXAMINATION-1.0",
+            "requirement_id":     vcb_decision.get("consequence_type", "UNSPECIFIED"),
+            "authority_reference": vcb_decision.get("authority_hash", ""),
+            "action_examined":    action_hash,
+            "enforcement_point":  enforcement_point,
+            "evaluation_result":  decision,
+            "examined_at":        ts,
+            "evidence_references": {
+                "action_hash":    action_hash,
+                "authority_hash": vcb_decision.get("authority_hash", ""),
+                "policy_hash":    vcb_decision.get("policy_hash", ""),
+                "state_hash":     vcb_decision.get("state_hash", ""),
+            },
+            "reconstruction_possible": True,
+            "node_id": f"WHY-{action_hash[:16]}",
+        },
     }
     # Perplexity R2-02: domain_prefix must be INSIDE integrity hash
     # All trust-critical metadata (domain_prefix, signing_key_id, canonical_form)
@@ -96238,6 +96267,279 @@ _DECLARATION_REGISTRY: dict = {}
 # This decision drives WHY, STILL, CONSUMPTION, COULD, BOUNDARY, COMMITMENT,
 # OUTCOME, DECLARATION, and RECONSTRUCTION for the first full chain proof.
 # ─────────────────────────────────────────────────────────────────────────────
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# VCB UNIFIED EVIDENCE CHAIN — THE COMPLETE ARCHITECTURE
+# Expert direction: stop treating WHY/STILL/CONSUMPTION/COULD as separate modules.
+# They are one evidence chain. Every element feeds the next.
+# NIST AI 800-4 (March 2026): post-deployment monitoring methods remain fragmented.
+# This is the evidence architecture that closes that gap for consequential AI actions.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+VCB_UNIFIED_EVIDENCE_CHAIN = {
+    "schema": "VGS-UNIFIED-CHAIN-1.0",
+    "frozen": True,
+    "version": "1.0",
+    "academic_grounding": (
+        "arXiv 2606.26298 (June 24 2026): 'The model proposed here addresses a DISTINCT "
+        "requirement: establishing whether the substantive, real-world preconditions for "
+        "a consequential action have been independently verified.' — Governing Actions, Not Agents"
+    ),
+    "nist_alignment": (
+        "NIST AI 800-4 (March 2026): Post-deployment monitoring methods remain fragmented. "
+        "NIST AI RMF MEASURE/MANAGE: continuous evidence, documented testing, independent assessment."
+    ),
+    "eu_alignment": (
+        "EU AI Act Article 72: post-market monitoring required for high-risk AI. "
+        "Regulation 2026/1744: full enforcement deferred to Dec 2027 for Annex III systems."
+    ),
+
+    "central_question": (
+        "For a consequential AI action: can VeriSigilAI reconstruct what authority and "
+        "conditions were required, what was actually examined, whether those conditions "
+        "remained valid at the relevant point in time, whether the authorized action was "
+        "uniquely consumed, what actually reached consequence, and what can or cannot be "
+        "proven from the resulting evidence?"
+    ),
+
+    "chain_elements": {
+
+        "ELEMENT_1_ACTION_PROPOSAL": {
+            "question": "What exactly was proposed?",
+            "evidence": ["action_id", "action_parameters", "action_hash (RFC 8785)", "proposer_identity", "proposed_at"],
+            "node_id_scheme": "PROPOSAL-{action_hash[:16]}",
+            "content_addressed": True,
+        },
+
+        "ELEMENT_2_ACTION_CONTRACT": {
+            "question": "What exact parameters and transitions are authorized?",
+            "evidence": ["contract_id", "exact_parameters", "permitted_transitions", "prohibited_transitions", "preconditions", "postconditions", "evidence_requirements"],
+            "node_id_scheme": "CONTRACT-{contract_hash[:16]}",
+            "implementation_status": "SPECIFIED",
+        },
+
+        "ELEMENT_3_WHY_EXAMINATION": {
+            "question": "Can an independent verifier reconstruct what was examined, against which requirement, using which evidence, at what time, under whose authority, and what result was obtained?",
+            "expert_correction": "WHY is not 'explain why the system said ALLOW'. It is: can the examination be reconstructed?",
+            "evidence": ["requirement_id", "evidence_references", "evidence_hashes", "evaluation_method", "evaluation_result", "examined_at", "examiner_identity", "authority_reference"],
+            "not_just": "decision=ALLOW in a signed field",
+            "if_cannot_reconstruct": "WHY = NOT_PROVABLE",
+            "implementation_status": "PARTIAL — currently signs decision; does not capture examination record",
+        },
+
+        "ELEMENT_4_T0_AUTHORITY_SNAPSHOT": {
+            "question": "What was the exact state of authority and conditions at examination time?",
+            "evidence": ["authority_id", "authority_version", "authority_state", "conditions_hash", "evidence_freshness", "snapshot_at", "snapshot_hash"],
+            "node_id_scheme": "T0-{snapshot_hash[:16]}",
+            "implementation_status": "SPECIFIED (VCB_T0_BASELINE_SCHEMA)",
+        },
+
+        "ELEMENT_5_STILL_REVALIDATION": {
+            "question": "Were the conditions underlying the authorization still valid at commitment time?",
+            "ralf_principle": "Enforcement correctness ≠ governance validity. A control can operate perfectly while the condition it enforces has become inappropriate.",
+            "separation_of_authority": "VCB must not manufacture its own authority validity. VCB queries, binds, records and verifies. It does not become the authority it examines.",
+            "adapter_contract": "Different deployments provide different authority sources via a common adapter interface",
+            "outcomes": ["STILL_PROVABLE", "STILL_FAILED", "STILL_NOT_PROVABLE"],
+            "node_id_scheme": "STILL-{t1_evidence_hash[:16]}",
+            "implementation_status": "SPECIFIED (VCB_T1_EVIDENCE_SCHEMA, VCB_STILL_RESULT_SCHEMA)",
+        },
+
+        "ELEMENT_6_CONSUMPTION_VALID": {
+            "question": "Was this authorization uniquely and atomically consumed?",
+            "invariant": "ONE RELEASE → ONE SUCCESSFUL CONSUMPTION → ONE AUTHORIZED CONSEQUENCE ATTEMPT",
+            "distributed_requirement": "Concurrent workers, retries, duplicate requests, network timeouts, process restart, multiple instances, queue duplication, delayed messages — all must produce exactly one valid consumption",
+            "database_level_required": "Application code alone is insufficient. DB trigger or REVOKE required for monotonicity.",
+            "ia5_fix_required": "PITR/service-role UPDATE can reset CONSUMED → NOT_YET_CONSUMED without a DB-level constraint",
+            "implementation_status": "IMPLEMENTED+PARTIAL — single-instance tested, DB-level monotonicity not enforced",
+        },
+
+        "ELEMENT_7_COULD_BOUNDARY": {
+            "question": "Could the governed path actually produce the claimed consequence?",
+            "not_just": "An API returning ALLOW",
+            "requires": ["target verification", "connector capability", "permission evidence", "relevant state checks", "consequence observation", "reconciliation"],
+            "must_prove": "One real reversible observable consequence path exists and is the governed path",
+            "implementation_status": "SPECIFIED — P4 required for payment domain",
+        },
+
+        "ELEMENT_8_CONSEQUENCE": {
+            "question": "What actually reached consequence?",
+            "distinguishes": "AUTHORIZED ≠ RELEASED ≠ EXECUTED ≠ OBSERVED_OUTCOME",
+            "evidence": ["actuator_request_hash", "actuator_response", "consequence_id", "consequence_timestamp"],
+            "implementation_status": "NOT_IMPLEMENTED — requires real actuator",
+        },
+
+        "ELEMENT_9_RECONCILIATION": {
+            "question": "Does the observed consequence match the authorized transition?",
+            "expert_strengthening": "Without reconciliation, you can prove what VCB believed should happen. With reconciliation, you can investigate what actually happened.",
+            "comparison": "hash(expected_postcondition) vs hash(observed_state)",
+            "outcomes": ["MATCH", "MISMATCH", "NOT_RECONCILABLE"],
+            "deterministic_rule": "Not opinion-based. Hash comparison or specific named delta classification.",
+            "implementation_status": "NOT_IMPLEMENTED — requires real actuator + observation mechanism",
+        },
+
+        "ELEMENT_10_DECLARATION_OBLIGATION": {
+            "question": "If conditions later change, who must respond, by when, and what happens if they do not?",
+            "chain_integration": "STILL=NOT_PROVABLE or evidence defect → DECLARATION_REQUIRED → OWNER → DEADLINE → DECLARED or SILENT",
+            "declaration_silent": "Positively evidenced event, not an absence. The system records that silence occurred.",
+            "sec_analogous_to": "Not regulatory equivalence — structural analogy only",
+            "implementation_status": "IMPLEMENTED — endpoints live on production",
+        },
+
+        "ELEMENT_11_SIGNED_RECONSTRUCTION": {
+            "question": "Can an independent party reconstruct the complete chain?",
+            "package_contents": ["All 10 prior elements", "Signed with key_id", "RFC 8785 canonical", "verify.py", "Known limitations"],
+            "independence_requirement": "Verification must not require VCB private keys, database, runtime, or internal state",
+            "historical_verification": "Was this signature valid when produced? (not just: is this key currently active?)",
+            "implementation_status": "PARTIAL — integrity+signature verifiable; STILL/COULD/RECONCILIATION pending",
+        },
+    },
+
+    "authority_adapter_interface": {
+        "description": "Abstract interface — different deployments provide different authority sources",
+        "expert_correction": "Do not choose one global authority source. Freeze an adapter contract.",
+        "examples": {
+            "payment": "payment authorization system (treasury_mandate)",
+            "access": "IAM / authorization authority",
+            "deployment": "change-management authority",
+            "data_access": "data-access authority",
+            "contract": "approval / mandate authority",
+        },
+        "common_response_structure": {
+            "source_id": "str",
+            "authority_reference": "str",
+            "authority_version": "str",
+            "observed_at": "ISO 8601",
+            "valid_from": "ISO 8601",
+            "valid_until": "ISO 8601",
+            "state": "ACTIVE | REVOKED | EXPIRED | SUSPENDED | UNKNOWN",
+            "evidence": "dict",
+            "response_signed": "bool — unsigned responses cannot be independently verified",
+            "freshness": "seconds",
+        },
+        "adapter_requirement": "Authority sources MUST produce signed responses for offline independent verification",
+    },
+
+    "content_addressed_nodes": {
+        "description": "Each chain element's ID is the hash of its content",
+        "benefit": "Makes the chain tamper-evident at data structure level, not just signature level",
+        "id_scheme": {
+            "PROPOSAL": "PROPOSAL-{action_hash[:16]}",
+            "CONTRACT": "CONTRACT-{contract_hash[:16]}",
+            "WHY": "WHY-{examination_hash[:16]}",
+            "T0": "T0-{snapshot_hash[:16]}",
+            "STILL": "STILL-{t1_evidence_hash[:16]}",
+            "CONSUMPTION": "CONSUMPTION-{nonce_hash[:16]}",
+            "COULD": "COULD-{capability_hash[:16]}",
+            "CONSEQUENCE": "CONSEQUENCE-{actuator_response_hash[:16]}",
+            "RECONCILIATION": "RECONCILIATION-{comparison_hash[:16]}",
+        },
+        "verifier_can": "Recompute node IDs without trusting the issuer's node ID claims",
+    },
+
+    "adr_registry": {
+        "description": "Architecture Decision Registry — institutional memory",
+        "expert_correction": "The Faculty is ADR + Evidence Registry + Claims Registry. Not a new subsystem.",
+        "records_per_decision": ["proposal", "assumptions", "challenges", "evidence", "decision", "status", "reopen_conditions", "challenge_score"],
+        "challenge_score": "How many times this decision was challenged and survived vs revised — creates institutional confidence over time",
+        "never_issues": "ALLOW — this is memory, not authority",
+    },
+
+    "route_classification": {
+        "categories": ["OUT_OF_SCOPE", "OBSERVATION_ONLY", "EVIDENCE_ONLY", "CONSEQUENCE_CAPABLE", "GOVERNED", "BLOCKED"],
+        "ci_gate": "CI fails when CONSEQUENCE_CAPABLE + NO_CLASSIFICATION",
+        "scope": "HTTP routes + workers + queues + webhooks + schedulers + connectors + direct integrations + database writes",
+        "current_status": "1,248 routes — all UNCLASSIFIED",
+    },
+
+    "phase_sequence": {
+        "PHASE_0": "Freeze — resolve IA-5, IA-6, legacy contradictions, rfc8785 dependency",
+        "PHASE_1": "Evidence Foundation — canonical action identity, WHY examination record, signatures, historical verification",
+        "PHASE_2": "STILL — authority adapter, T0/T1, freshness, material-change detection",
+        "PHASE_3": "Consumption — atomicity, uniqueness, concurrency, DB-level monotonicity",
+        "PHASE_4": "COULD — one real reversible consequence path, complete chain proof",
+        "PHASE_5": "Boundary Coverage — all consequence-capable paths classified, CI gate enforced",
+        "PHASE_6": "Declaration — obligation, owner, deadline, declaration, silence, evidence",
+        "PHASE_7": "Cryptographic/Historical — key lifecycle, rotation, revocation, legacy migration",
+        "PHASE_8": "Adversarial Campaign — 12 attack classes, every failure becomes ADR",
+        "PHASE_9": "Independent Checkpoints — after WHY+STILL, after COULD+boundary, after full campaign",
+    },
+
+    "claim_cannot_advance_merely_because_code_exists": True,
+    "final_architectural_lock": (
+        "VeriSigilAI is not being built as another policy engine, generic AI monitor, "
+        "authorization system, or runtime enforcement gateway. Its core is an evidence "
+        "architecture for consequential AI actions: binding the proposed action to its "
+        "required authority and conditions, recording what was actually examined, "
+        "independently checking whether relevant conditions remained valid at the required "
+        "point in time, establishing whether the authorization was uniquely consumed, "
+        "reconciling the intended transition with the observed consequence, and preserving "
+        "portable evidence of what can, cannot, or did not become provable."
+    ),
+    "implementation_rule": (
+        "No new subsystem, terminology, or strategic feature should be added merely because "
+        "a new governance question appears. First determine whether that question can be "
+        "represented by the existing evidence chain. Only create something new when the "
+        "existing architecture demonstrably cannot represent it."
+    ),
+}
+
+# ADR Registry — Architecture Decision Records
+VCB_ADR_REGISTRY = {
+    "schema": "VGS-ADR-REGISTRY-1.0",
+    "frozen": False,
+    "description": "Architecture Decision Registry — institutional memory, not authority",
+    "decisions": {
+        "ADR-001": {
+            "title": "VCB terrain: evidence reconstruction, not enforcement gateway",
+            "proposal": "Build independent evidence reconstruction for consequential AI actions",
+            "assumptions": ["Market gap exists between enforcement (AGT) and evidence reconstruction", "NIST AI 800-4 confirms post-deployment monitoring is fragmented"],
+            "challenges": ["6-AI review challenged INV-01 as unproven", "Expert warned against enforcement gateway drift"],
+            "evidence": ["arXiv 2606.26298 confirms distinct requirement", "AgentLock/AGT/Cisco confirm enforcement is crowded"],
+            "decision": "CONFIRMED — evidence reconstruction is the terrain",
+            "status": "ACTIVE",
+            "reopen_conditions": ["If enforcement gateway space becomes less crowded", "If evidence reconstruction becomes commoditized"],
+            "challenge_score": {"challenged": 3, "survived": 3, "revised": 0},
+        },
+        "ADR-002": {
+            "title": "RFC 8785/JCS as canonical serialization",
+            "proposal": "Adopt Trail of Bits rfc8785 library for all canonical operations",
+            "assumptions": ["ASCII-only SigilMark keys means Python sort = JCS sort", "float normalization (1000.0→1000) is required"],
+            "challenges": ["Perplexity: json.dumps default ≠ compact separators", "6 AIs confirmed serialization asymmetry as critical defect"],
+            "evidence": ["rfc8785.dumps(1000.0) == rfc8785.dumps(1000) confirmed", "Trail of Bits implementation verified"],
+            "decision": "CONFIRMED — RFC 8785 is the canonical form",
+            "status": "ACTIVE",
+            "challenge_score": {"challenged": 6, "survived": 6, "revised": 0},
+        },
+        "ADR-003": {
+            "title": "Payment instruction as first Protected Consequence Domain",
+            "proposal": "AI agent payment instruction via Stripe sandbox as first real consequence",
+            "assumptions": ["Stripe provides real outcome observation via webhooks", "Treasury mandate is a realistic authority structure", "Payment domain has highest regulatory pressure"],
+            "challenges": ["Expert: do not choose one global authority source in isolation", "Expert: choose consequence domain, derive authority source from reality"],
+            "evidence": ["EU AI Act Annex III covers financial services", "U.S. Treasury Financial Services AI Risk Management Framework (Feb 2026)"],
+            "decision": "CONFIRMED — payment domain, authority source = treasury_mandate in Supabase",
+            "status": "ACTIVE",
+            "challenge_score": {"challenged": 1, "survived": 1, "revised": 0},
+        },
+        "ADR-004": {
+            "title": "Separation of enforcement, revalidation, and modification authority",
+            "proposal": "VCB must not combine enforcement, revalidation, and modification into one authority",
+            "basis": "Ralf Brentführer: enforcement correctness ≠ governance validity",
+            "decision": "CONFIRMED — authority source → adapter → VCB examination → evidence record → release decision",
+            "status": "ACTIVE",
+            "challenge_score": {"challenged": 1, "survived": 1, "revised": 0},
+        },
+        "ADR-005": {
+            "title": "evaluate_release() returns EXAMINATION_PARTIAL_PASS until STILL+COULD enforced",
+            "proposal": "Rename RELEASE_GRANTED to EXAMINATION_PARTIAL_PASS until full INV-01 enforced",
+            "basis": "ChatGPT R2: naming implied more enforcement than existed",
+            "decision": "CONFIRMED — name reflects reality",
+            "status": "ACTIVE",
+            "challenge_score": {"challenged": 1, "survived": 1, "revised": 0},
+        },
+    },
+}
+
 
 VCB_PROTECTED_CONSEQUENCE_DOMAIN_v1 = {
     "schema": "VGS-PCD-1.0",
