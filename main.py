@@ -605,6 +605,20 @@ async def db_patch(table, field, value, data):
 # CRYPTO
 # ============================================================
 # VCB CANONICAL FORM v2 — RFC 8785 JSON Canonicalization Scheme (JCS)
+# STARTUP CHECK: rfc8785 must be installed or offline verification will fail silently
+try:
+    import rfc8785 as _rfc8785_check
+    _RFC8785_AVAILABLE = True
+except ImportError:
+    _RFC8785_AVAILABLE = False
+    import warnings
+    warnings.warn(
+        "CRITICAL: rfc8785 library not installed. "
+        "VCB canonical form will fall back to compact JSON. "
+        "Offline verification may fail for passports issued on this instance. "
+        "Install: pip install rfc8785>=0.1.0",
+        RuntimeWarning, stacklevel=2
+    )
 # Expert direction + 6-AI consensus: adopt a published standard, not a private profile.
 # rfc8785 library (Trail of Bits): pip install rfc8785
 # RFC 8785 handles: numeric precision, NaN/Infinity rejection, UTF-16 key sorting,
@@ -76083,6 +76097,14 @@ async def claims_list():
 
     return {
         "schema":      "VS-CLAIM-REGISTRY-v1",
+        "note": (
+            "RECONCILIATION NOTE (Perplexity R2-04): This legacy endpoint uses the "
+            "original VS-AO claim schema. The current authoritative claim registry "
+            "is at GET /v1/claims/registry which uses the C-01 through C-09 schema. "
+            "These two registries will be reconciled in the next engineering pass. "
+            "External reviewers should use /v1/claims/registry as the primary source."
+        ),
+        "authoritative_registry": "GET /v1/claims/registry",
         "total_claims":len(CLAIM_REGISTRY),
         "by_status": {
             "VERIFIED":      len(by_status.get("VERIFIED",[])),
@@ -95906,6 +95928,471 @@ def evaluate_release(
             "note": "Exception in evaluate_release() always produces REFUSED — fail-closed confirmed",
         }
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# DECLARATION OBLIGATION — Expert-approved addition
+# Evidenced Silence: when required accountability does not occur,
+# the absence becomes a positively evidenced, cryptographically timestamped event.
+# This is VCB's strongest differentiator vs enforcement gateways (AGT, AgentLock):
+# they gate before execution. VCB evidences what happened at execution —
+# including when required human accountability never responded.
+# ─────────────────────────────────────────────────────────────────────────────
+
+from pydantic import BaseModel
+class DeclarationObligationRequest(BaseModel):
+    """Open a Declaration Obligation when a materiality threshold is crossed."""
+    obligation_id: Optional[str] = None
+    originating_event_hash: str          # hash of the triggering evidence event
+    affected_scope: str                  # what consequential action/decision is affected
+    responsible_identity: str            # cryptographically identified accountable party
+    responsible_role: str                # CFO, DPO, system owner, etc.
+    materiality_rule: str               # which rule triggered this obligation
+    basis_evidence: dict                # the evidence that triggered the threshold
+    deadline_hours: int = 72            # default 72-hour window
+    escalation_identity: Optional[str] = None  # who to escalate to on DECLARATION_SILENT
+
+
+@app.post("/v1/declaration/open", tags=["Declaration Obligation"])
+async def open_declaration_obligation(
+    req: DeclarationObligationRequest,
+    x_api_key: str = Header(None, alias="X-API-Key"),
+    authorization: str = Header(None),
+):
+    """
+    Open a Declaration Obligation when a materiality threshold is crossed.
+
+    Expert direction: VCB does not claim it can force accountability.
+    It proves when accountability was required, who was responsible,
+    what deadline existed, and whether a response occurred.
+
+    This is the DECLARATION OBLIGATION mechanism.
+    If no valid declaration is received before deadline: DECLARATION_SILENT.
+    DECLARATION_SILENT is a positively evidenced event, not an absence.
+    """
+    require_api_key(x_api_key, authorization)
+    ts = datetime.now(timezone.utc).isoformat()
+    obligation_id = req.obligation_id or f"OBL-{_vcc_hash({'ts':ts,'scope':req.affected_scope})[:16].upper()}"
+    deadline_at = (datetime.now(timezone.utc) + __import__('datetime').timedelta(hours=req.deadline_hours)).isoformat()
+
+    # Build obligation record — cryptographically bound
+    obligation = {
+        "schema": "VGS-DECLARATION-OBLIGATION-1.0",
+        "obligation_id": obligation_id,
+        "status": "OPEN",
+        "opened_at": ts,
+        "deadline_at": deadline_at,
+        "deadline_hours": req.deadline_hours,
+        "originating_event_hash": req.originating_event_hash,
+        "affected_scope": req.affected_scope,
+        "responsible_identity": req.responsible_identity,
+        "responsible_role": req.responsible_role,
+        "materiality_rule": req.materiality_rule,
+        "basis_evidence_hash": _vcc_hash(req.basis_evidence),
+        "escalation_identity": req.escalation_identity,
+        "declaration_received": False,
+        "declaration_silent_at": None,
+        "vcb_principle": "VCB does not force accountability. It evidences whether it occurred.",
+    }
+
+    # Sign the obligation
+    obligation["integrity_hash"] = _vcc_hash(obligation)
+    obligation["signature"] = sign_payload(obligation)
+
+    # Store in registry
+    _DECLARATION_REGISTRY[obligation_id] = obligation
+
+    return {
+        "obligation_id": obligation_id,
+        "status": "OPEN",
+        "deadline_at": deadline_at,
+        "responsible_identity": req.responsible_identity,
+        "message": f"Declaration obligation opened. Response required by {deadline_at}.",
+        "declaration_endpoint": f"POST /v1/declaration/{obligation_id}/respond",
+        "silence_endpoint": f"GET /v1/declaration/{obligation_id}/status",
+    }
+
+
+@app.post("/v1/declaration/{obligation_id}/respond", tags=["Declaration Obligation"])
+async def respond_to_declaration(
+    obligation_id: str,
+    x_api_key: str = Header(None, alias="X-API-Key"),
+    authorization: str = Header(None),
+    disposition: str = "RELIANCE_REAFFIRMED",  # or NON_RELIANCE_DECLARED
+    basis: Optional[str] = None,
+    responder_identity: Optional[str] = None,
+):
+    """
+    Record a declaration response — RELIANCE_REAFFIRMED or NON_RELIANCE_DECLARED.
+    The response itself is cryptographically signed and timestamped.
+    """
+    require_api_key(x_api_key, authorization)
+    ts = datetime.now(timezone.utc).isoformat()
+
+    if obligation_id not in _DECLARATION_REGISTRY:
+        return {"error": "OBLIGATION_NOT_FOUND", "obligation_id": obligation_id}
+
+    obl = _DECLARATION_REGISTRY[obligation_id]
+
+    if obl["status"] == "DECLARATION_SILENT":
+        return {"error": "OBLIGATION_CLOSED_SILENT", "closed_at": obl.get("declaration_silent_at")}
+
+    if disposition not in ("RELIANCE_REAFFIRMED", "NON_RELIANCE_DECLARED"):
+        return {"error": "INVALID_DISPOSITION", "valid": ["RELIANCE_REAFFIRMED", "NON_RELIANCE_DECLARED"]}
+
+    response_record = {
+        "schema": "VGS-DECLARATION-RESPONSE-1.0",
+        "obligation_id": obligation_id,
+        "disposition": disposition,
+        "responded_at": ts,
+        "responder_identity": responder_identity or obl.get("responsible_identity"),
+        "basis": basis or "No basis provided",
+        "within_deadline": ts <= obl["deadline_at"],
+    }
+    response_record["integrity_hash"] = _vcc_hash(response_record)
+    response_record["signature"] = sign_payload(response_record)
+
+    obl["status"] = disposition
+    obl["declaration_received"] = True
+    obl["response"] = response_record
+
+    return {
+        "obligation_id": obligation_id,
+        "status": disposition,
+        "responded_at": ts,
+        "within_deadline": response_record["within_deadline"],
+        "cryptographic_record": response_record["integrity_hash"],
+    }
+
+
+@app.get("/v1/declaration/{obligation_id}/status", tags=["Declaration Obligation"])
+async def get_declaration_status(
+    obligation_id: str,
+    x_api_key: str = Header(None, alias="X-API-Key"),
+    authorization: str = Header(None),
+):
+    """
+    Check obligation status. If deadline passed without response: records DECLARATION_SILENT.
+    DECLARATION_SILENT is not a system failure — it is positively evidenced accountability absence.
+    This is VCB's 'Evidenced Silence' mechanism.
+    """
+    require_api_key(x_api_key, authorization)
+    ts = datetime.now(timezone.utc).isoformat()
+
+    if obligation_id not in _DECLARATION_REGISTRY:
+        return {"error": "OBLIGATION_NOT_FOUND"}
+
+    obl = _DECLARATION_REGISTRY[obligation_id]
+
+    # Check if deadline passed without response
+    if (obl["status"] == "OPEN" and
+        ts > obl["deadline_at"] and
+        not obl["declaration_received"]):
+
+        # Record DECLARATION_SILENT — positively evidenced
+        silence_record = {
+            "schema": "VGS-DECLARATION-SILENT-1.0",
+            "obligation_id": obligation_id,
+            "event": "DECLARATION_SILENT",
+            "silent_at": ts,
+            "deadline_was": obl["deadline_at"],
+            "responsible_identity": obl["responsible_identity"],
+            "responsible_role": obl["responsible_role"],
+            "affected_scope": obl["affected_scope"],
+            "vcb_statement": (
+                "The obligation existed. The responsible party was identified. "
+                "The deadline elapsed. No valid declaration was recorded. "
+                "This absence is itself a positively evidenced governance event."
+            ),
+        }
+        silence_record["integrity_hash"] = _vcc_hash(silence_record)
+        silence_record["signature"] = sign_payload(silence_record)
+
+        obl["status"] = "DECLARATION_SILENT"
+        obl["declaration_silent_at"] = ts
+        obl["silence_record"] = silence_record
+
+    return {
+        "obligation_id": obligation_id,
+        "status": obl["status"],
+        "opened_at": obl["opened_at"],
+        "deadline_at": obl["deadline_at"],
+        "responsible_identity": obl["responsible_identity"],
+        "declaration_received": obl["declaration_received"],
+        "declaration_silent_at": obl.get("declaration_silent_at"),
+        "provable": obl["status"] != "OPEN",
+        "evidence_type": "DECLARATION_SILENT" if obl["status"] == "DECLARATION_SILENT" else obl["status"],
+    }
+
+
+# In-memory declaration registry (replace with Supabase in production)
+_DECLARATION_REGISTRY: dict = {}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# P3 — COMMITMENT-TIME CONTINUITY: T0/T1 EVIDENCE CONTRACT
+# Expert direction: implement STILL as a real, independently evidenced
+# examination at commitment time, not a metadata field.
+# Ralf Brentführer's insight: enforcement correctness ≠ governance validity.
+# Build order: P3.1 (this) → P3.2 (authority adapters) → P3.3 (freshness)
+#              → P3.4 (delta comparison) → P3.5 (gate enforcement)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# T0 Baseline Schema — recorded at authorization time, cryptographically bound
+VCB_T0_BASELINE_SCHEMA = {
+    "schema": "VGS-T0-BASELINE-1.0",
+    "description": "Cryptographic baseline of authority and conditions at authorization time (T0)",
+    "required_fields": {
+        "authority_id": "Unique identifier of the authority record",
+        "subject_id": "The agent/actor requesting the action",
+        "authorized_action_hash": "RFC 8785 hash of the exact authorized action",
+        "scope_hash": "RFC 8785 hash of authorized scope (amount, target, constraints)",
+        "authority_version": "Version of authority record at T0 — changes must be detected at T1",
+        "authority_source": "URI/identifier of the authoritative system that issued this authority",
+        "authority_issued_at": "When the authority was issued",
+        "authority_valid_until": "When the authority expires (does NOT prove current validity)",
+        "required_conditions_hash": "Hash of all conditions that must hold at commitment",
+        "baseline_captured_at": "When this T0 baseline was recorded by VCB",
+        "baseline_hash": "RFC 8785 hash of all above fields — must be in signed artifact",
+    },
+    "design_principle": "VCB records the baseline. VCB does not manufacture authority.",
+    "separation_of_authority": "The authority_source holds current state. VCB queries it at T1.",
+}
+
+# T1 Current Evidence Schema — obtained immediately before consequence commitment
+VCB_T1_EVIDENCE_SCHEMA = {
+    "schema": "VGS-T1-EVIDENCE-1.0",
+    "description": "Current authority state obtained at commitment time (T1)",
+    "required_fields": {
+        "authority_id": "Must match T0 baseline authority_id",
+        "checked_at": "Exact timestamp of this T1 query",
+        "current_authority_version": "Current version from authority source — compare to T0",
+        "current_status": "ACTIVE | REVOKED | EXPIRED | SUSPENDED | UNKNOWN",
+        "source": "Which authority source responded",
+        "source_reachable": "Was the source reachable? False → NOT_PROVABLE by design",
+        "source_response_hash": "Hash of raw authority source response",
+        "source_response_signed": "Is the source response independently verifiable?",
+        "evidence_fresh_until": "When this evidence expires — MUST be enforced at gate",
+    },
+    "fail_closed_rule": (
+        "If source_reachable=False: STILL=NOT_PROVABLE → REFUSED for high-consequence actions. "
+        "NOT_PROVABLE must never silently become ALLOW."
+    ),
+    "design_principle": "VCB evaluates evidence. VCB does not invent authority state.",
+}
+
+# STILL Result Schema — the structured outcome of T0/T1 comparison
+VCB_STILL_RESULT_SCHEMA = {
+    "schema": "VGS-STILL-RESULT-1.0",
+    "description": "Structured result of commitment-time continuity examination",
+    "permitted_results": {
+        "PROVABLE": (
+            "Required current evidence was obtained AND supports continuity. "
+            "Authority active, version consistent, scope unchanged, conditions hold, evidence fresh."
+        ),
+        "FAILED": (
+            "Current evidence positively establishes continuity does NOT hold. "
+            "Examples: authority revoked, scope reduced, approval withdrawn, condition violated."
+        ),
+        "NOT_PROVABLE": (
+            "System cannot honestly establish continuity. "
+            "Examples: source unreachable, evidence stale, unknown version, incomplete response."
+            "NOT_PROVABLE must never silently become ALLOW."
+        ),
+    },
+    "required_fields": {
+        "result": "PROVABLE | FAILED | NOT_PROVABLE — strict enum, no other values",
+        "examined_at": "When T1 examination was performed",
+        "t0_baseline_hash": "Hash of T0 baseline — proves what was compared",
+        "t1_evidence_hash": "Hash of T1 evidence — proves what was obtained",
+        "authority_status": "Current status from authority source",
+        "material_delta": "Boolean — was a material change detected?",
+        "delta_classification": "NO_RELEVANT_DELTA | MATERIAL_DELTA | UNKNOWN_DELTA",
+        "continuity_basis": "List of specific conditions that hold (for PROVABLE)",
+        "failure_reasons": "List of specific failures (for FAILED/NOT_PROVABLE)",
+        "fresh_until": "When this STILL result expires — release gate must enforce",
+        "freshness_enforced": "Boolean — was freshness enforced at the gate?",
+    },
+    "critical_rule": (
+        "Do not use: if still.result != 'FAILED': allow(). "
+        "Use: if still.result != 'PROVABLE': refuse(). "
+        "Unknown values, None, empty string, future values all refuse."
+    ),
+}
+
+# MATERIAL DELTA COMPARISON RULES
+# Business rules configure this. VCB evaluates against them. VCB does not invent policy.
+VCB_MATERIAL_DELTA_DEFAULTS = {
+    "schema": "VGS-MATERIAL-DELTA-1.0",
+    "design_principle": (
+        "The business or authority owner defines which fields matter and what constitutes "
+        "a material change. VCB evaluates the configured rule. VCB does not invent governance policy."
+    ),
+    "default_material_fields": [
+        "authority_status",   # REVOKED, SUSPENDED, EXPIRED → always FAILED
+        "authority_version",  # version change → UNKNOWN_DELTA unless configured
+        "subject_id",         # subject change → always MATERIAL_DELTA
+        "scope",              # scope reduction → MATERIAL_DELTA
+    ],
+    "always_failed": [
+        "status=REVOKED",
+        "status=EXPIRED",
+        "status=SUSPENDED",
+        "subject_mismatch",
+    ],
+    "always_not_provable": [
+        "source_unreachable",
+        "evidence_stale",
+        "unknown_version",
+        "incomplete_response",
+        "response_unverifiable",
+    ],
+    "requires_business_configuration": [
+        "version_change",         # version bump — material or routine?
+        "scope_reduction",        # small reduction — material for this consequence class?
+        "dependency_change",      # upstream system changed
+        "approval_reaffirmed",    # approval explicitly reaffirmed
+    ],
+}
+
+# CONSEQUENCE CLASS FRESHNESS POLICY
+# Freshness requirements vary by consequence class.
+# These are defaults. Organizations configure their own.
+VCB_FRESHNESS_DEFAULTS = {
+    "schema": "VGS-FRESHNESS-POLICY-1.0",
+    "design_principle": (
+        "Freshness is a gate, not metadata. "
+        "The release gate MUST enforce: if now > still_result.fresh_until: REFUSED."
+    ),
+    "consequence_classes": {
+        "LOW": {"max_evidence_age_seconds": 300, "description": "5 minutes"},
+        "MEDIUM": {"max_evidence_age_seconds": 60, "description": "1 minute"},
+        "HIGH": {"max_evidence_age_seconds": 30, "description": "30 seconds"},
+        "IRREVERSIBLE": {"max_evidence_age_seconds": 0, "description": "Fresh evidence required immediately before commitment"},
+        "NOT_CLASSIFIED": {"max_evidence_age_seconds": 30, "description": "Default to HIGH until classified"},
+    },
+    "critical_rule": "A 5-minute-old check for an irreversible payment is not STILL evidence. It is historical evidence.",
+}
+
+# AUTHORITY ADAPTER INTERFACE (P3.2 — not yet implemented)
+VCB_AUTHORITY_ADAPTER_SPEC = {
+    "schema": "VGS-AUTHORITY-ADAPTER-SPEC-1.0",
+    "status": "SPEC_ONLY — P3.2 not yet implemented",
+    "design_principle": (
+        "VCB queries authority. It does not manufacture authority state. "
+        "If VCB were also to decide whether that condition still holds, "
+        "enforcement, revalidation, and modification would be combined within the same authority."
+        " — Ralf Brentführer, 2026"
+    ),
+    "required_interface": {
+        "method": "query_current_authority(authority_id: str, subject_id: str) -> T1Evidence",
+        "on_success": "Returns T1Evidence with current_status and evidence_fresh_until",
+        "on_source_unreachable": "Returns T1Evidence with source_reachable=False",
+        "on_unknown": "Returns T1Evidence with current_status=UNKNOWN",
+        "never_raises": "Must catch all exceptions and return NOT_PROVABLE-equivalent T1Evidence",
+    },
+    "example_adapters": [
+        "IAM system adapter (OAuth token introspection)",
+        "Approval workflow adapter (check approval status)",
+        "Signed authorization registry adapter",
+        "Policy engine adapter",
+        "Mock adapter for testing",
+    ],
+    "adapter_requirement": (
+        "Authority sources MUST produce signed responses for VCB to independently "
+        "verify the response afterward. Unsigned responses can be recorded but "
+        "cannot be independently verified offline."
+    ),
+    "p3_2_implementation_requires": [
+        "Decision: which authority source for the first real integration",
+        "Decision: which consequence class to implement first",
+        "Decision: what freshness window for that consequence class",
+        "Implementation: authority adapter base class",
+        "Implementation: mock adapter for testing",
+        "Implementation: real adapter for chosen authority source",
+    ],
+}
+
+# ROUTE COVERAGE CLASSIFICATION REQUIREMENT (P3.8)
+VCB_ROUTE_AUDIT_REQUIREMENT = {
+    "schema": "VGS-ROUTE-AUDIT-1.0",
+    "current_status": "UNCLASSIFIED — 1,248 routes not yet audited",
+    "ci_gate": "CI MUST fail if CONSEQUENCE_CAPABLE routes remain UNCLASSIFIED",
+    "classification_required_for": [
+        "HTTP routes",
+        "Background jobs",
+        "Queue consumers",
+        "Cron jobs",
+        "Internal service calls",
+        "Connectors",
+        "Retry mechanisms",
+        "Administrative paths",
+        "Migration scripts",
+        "Direct SDK access",
+        "Alternate actuator adapters",
+    ],
+    "route_classifications": {
+        "NON_CONSEQUENTIAL": "Cannot trigger a protected consequence",
+        "OBSERVATIONAL": "Records evidence, does not trigger consequences",
+        "PROPOSAL_ONLY": "Accepts proposals for VCB examination",
+        "GOVERNED_CONSEQUENCE": "Consequence requires VCB-governed release — MUST go through evaluate_release()",
+        "OUT_OF_SCOPE": "Explicitly outside VCB protection boundary",
+        "UNCLASSIFIED": "Not yet audited — MUST reach zero for consequence-capable routes",
+    },
+    "bypass_claim": "NOT_PROVABLE until every CONSEQUENCE_CAPABLE route is classified and tested",
+}
+
+# P3 ATTACK TEST SUITE (P3.7 — not yet implemented)
+VCB_P3_ATTACK_SUITE = {
+    "schema": "VGS-P3-ATTACK-SUITE-1.0",
+    "status": "SPECIFIED — not yet implemented",
+    "required_attacks": {
+        "ATTACK_P3_01": {
+            "name": "stale_authority",
+            "scenario": "T0 authority ACTIVE → authority revoked → old authorization presented → T1 query",
+            "expected": "RELEASE REFUSED — STILL=FAILED",
+        },
+        "ATTACK_P3_02": {
+            "name": "authority_source_unavailable",
+            "scenario": "T0 valid → T1 source unreachable",
+            "expected": "STILL=NOT_PROVABLE → high-consequence release REFUSED",
+        },
+        "ATTACK_P3_03": {
+            "name": "stale_evidence",
+            "scenario": "T1 check succeeds → wait until freshness expires → attempt release",
+            "expected": "REFUSED — evidence expired",
+        },
+        "ATTACK_P3_04": {
+            "name": "material_scope_reduction",
+            "scenario": "T0=$5000 scope → T1=$1000 scope → attempt $3000 action",
+            "expected": "STILL=FAILED → REFUSED",
+        },
+        "ATTACK_P3_05": {
+            "name": "unknown_still_result",
+            "scenario": "still_result='FUTURE_VALUE' injected",
+            "expected": "REFUSED — not in allowlist",
+        },
+        "ATTACK_P3_06": {
+            "name": "none_still_result",
+            "scenario": "still_result=None passed to gate",
+            "expected": "REFUSED — fail-closed",
+        },
+        "ATTACK_P3_07": {
+            "name": "route_bypass",
+            "scenario": "Attempt same consequence via HTTP / worker / queue / retry",
+            "expected": "NO GOVERNED CONSEQUENCE WITHOUT BOUNDARY EXAMINATION",
+        },
+        "ATTACK_P3_08": {
+            "name": "multi_instance_consumption",
+            "scenario": "Instance A + B + C simultaneously attempt same release",
+            "expected": "Exactly one successful consumption, all others refused",
+        },
+    },
+    "graduation_criteria": (
+        "P3 is complete only when ALL attacks in this suite PASS on production infrastructure. "
+        "Not when the code exists. When the attacks fail."
+    ),
+}
+
 @app.post("/v1/vcb/seal", tags=["VCB — Canonical API"])
 async def vcb_seal(
     req: dict,
@@ -108261,6 +108748,197 @@ VCB_SIX_AI_REVIEW_FINDINGS = {
 # VCB ROUTE COVERAGE MAP
 # Expert direction §3: every route must be classified before claiming bypass closure
 # ─────────────────────────────────────────────────────────────────────────────
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CAPABILITY LIFECYCLE STATES — The single gating mechanism for public claims
+# Expert direction §15: No capability may skip stages.
+# A capability must not be claimed because code was written.
+# ─────────────────────────────────────────────────────────────────────────────
+
+VCB_CAPABILITY_LIFECYCLE_STATES = {
+    "schema": "VGS-CAPABILITY-LIFECYCLE-1.0",
+    "frozen": True,
+    "states": {
+        "CONCEPT": "Idea described but not formally specified",
+        "SPECIFIED": "Formal spec written; schema frozen; behavior documented",
+        "IMPLEMENTED": "Code written; compiles; basic function demonstrated",
+        "TESTED": "Unit tests pass; integration tests pass",
+        "ADVERSARIALLY_TESTED": "Attack suite run; known attacks fail; failures documented",
+        "INDEPENDENTLY_VERIFIED": "External party can reproduce results without trusting VeriSigilAI",
+        "CLAIMABLE": "Public claim allowed; scope must be explicit; limitations documented",
+    },
+    "transition_rules": {
+        "CONCEPT→SPECIFIED": "Schema frozen, attack surface defined",
+        "SPECIFIED→IMPLEMENTED": "Code passes syntax check and basic smoke tests",
+        "IMPLEMENTED→TESTED": "All unit and integration tests pass in CI",
+        "TESTED→ADVERSARIALLY_TESTED": "Named attack suite run with documented results",
+        "ADVERSARIALLY_TESTED→INDEPENDENTLY_VERIFIED": "External party runs verify.py on real passport",
+        "INDEPENDENTLY_VERIFIED→CLAIMABLE": "Claims registry updated; scope and limitations explicit",
+    },
+    "critical_rule": (
+        "Do not claim because code was written. "
+        "A capability that is IMPLEMENTED but not ADVERSARIALLY_TESTED "
+        "must say IMPLEMENTED, not PROVABLE. "
+        "The architecture already knows this. The engineering team must enforce it."
+    ),
+    "academic_validation": (
+        "arXiv 2606.26298 (June 24, 2026): 'Governing Actions, Not Agents: "
+        "Institutional Attestation as a Governance Model for Autonomous AI Systems' — "
+        "independently confirms that establishing whether real-world preconditions "
+        "for consequential actions have been independently verified is a DISTINCT "
+        "requirement from runtime policy enforcement. This is VCB's terrain."
+    ),
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# VCB ARCHITECTURE PLANES — Three structurally separate functions
+# Expert direction §2: The architecture has three separate planes.
+# These must not be collapsed into one component.
+# ─────────────────────────────────────────────────────────────────────────────
+
+VCB_ARCHITECTURE_PLANES = {
+    "schema": "VGS-ARCHITECTURE-PLANES-1.0",
+    "frozen": True,
+
+    "PLANE_A_DECISION_AND_CONSEQUENCE": {
+        "description": "Where the AI system operates — outside VCB's core",
+        "components": ["AI/Agent", "Action Proposal", "Application/Workflow", "Consequence"],
+        "vcb_role": "VCB examines and records what can be established about the transition",
+        "vcb_does_NOT_do": [
+            "Become the intelligence of this plane",
+            "Pretend to control what the AI proposes",
+            "Claim to prevent consequences without a verified boundary",
+        ],
+    },
+
+    "PLANE_B_INDEPENDENT_EXAMINATION": {
+        "description": "The actual VeriSigilAI core — evidence-first examination",
+        "components": [
+            "Action Identification", "WHY Examination", "STILL Revalidation",
+            "Consumption Validity", "COULD/Consequence Capability",
+            "Path/Boundary Evidence", "Commitment Record",
+            "Observed Consequence", "Reconstruction Package",
+        ],
+        "critical_rule": (
+            "VCB does not convert missing evidence into success. "
+            "NOT_PROVABLE → REFUSED. "
+            "FAILED → REFUSED. "
+            "Only PROVABLE under applicable evidence rules → release."
+        ),
+        "lifecycle_status": {
+            "WHY": "ADVERSARIALLY_TESTED",
+            "STILL": "SPECIFIED (P3 pending)",
+            "CONSUMPTION": "ADVERSARIALLY_TESTED (single-instance)",
+            "COULD": "SPECIFIED (P4 pending)",
+            "RECONSTRUCTION": "INDEPENDENTLY_VERIFIED (verify.py)",
+        },
+    },
+
+    "PLANE_C_RESEARCH_AND_PRECEDENT": {
+        "description": "Architecture institutional memory — never issues ALLOW",
+        "components": [
+            "Claims Registry", "Architecture Decision Records",
+            "Precedent Library", "Challenge History",
+            "Open Questions", "Reopen Conditions",
+        ],
+        "vcb_does_NOT_do": [
+            "Issue ALLOW from this plane",
+            "Become the intelligence of VeriSigilAI",
+            "Replace engineering judgment with documented assumptions",
+        ],
+        "purpose": (
+            "Record what was proposed, what assumptions existed, "
+            "what was rejected, what survived challenge, "
+            "what remains unresolved, "
+            "and what conditions would reopen the decision."
+        ),
+    },
+
+    "STRATEGIC_BOUNDARY": {
+        "not_competing_with": [
+            "Microsoft AGT (runtime enforcement, pre-execution gating)",
+            "AgentLock (pre-action authorization)",
+            "Cisco AI security (Zero Trust, runtime guardrails)",
+            "Proofpoint Secure Agent Gateway (MCP-based enforcement)",
+        ],
+        "complementary_to": [
+            "AGT: AGT enforces before execution; VCB evidences about execution",
+            "Enforcement gateways: they prevent; VCB proves whether prevention occurred",
+        ],
+        "differentiation": (
+            "Runtime governance mechanisms enforce operational constraints. "
+            "VCB addresses a DISTINCT requirement: establishing whether the "
+            "substantive, real-world preconditions for a consequential action "
+            "have been independently verified. (arXiv 2606.26298)"
+        ),
+    },
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# FAILURE MODE REGISTRY — What could make this project flop
+# Engineers must attack the architecture from all angles before building.
+# Identified before building, not after.
+# ─────────────────────────────────────────────────────────────────────────────
+
+VCB_FAILURE_MODES = {
+    "schema": "VGS-FAILURE-MODES-1.0",
+    "frozen": True,
+    "purpose": "Engineers must know what can break this before building it",
+
+    "FM-01": {
+        "title": "Architecture without working demonstration",
+        "scenario": "External reviewers see STILL=SPEC_ONLY, no real actuator, mocks only",
+        "consequence": "Architecture becomes a proposal, not a proof",
+        "mitigation": "Claims registry must be authoritative. Never claim more than demonstrated.",
+    },
+    "FM-02": {
+        "title": "Competing with AGT by accident",
+        "scenario": "Feature drift toward pre-execution interception",
+        "consequence": "Compared to AGT (13,000+ tests, Microsoft-signed) and loses",
+        "mitigation": "Every new feature test: 'Does this make evidence reconstruction better, or us more like AGT?'",
+    },
+    "FM-03": {
+        "title": "Canonicalization library not installed on Railway",
+        "scenario": "rfc8785 not in requirements.txt; Railway falls back to old form",
+        "consequence": "Passports issued on Railway fail offline verification silently",
+        "mitigation": "requirements.txt must include rfc8785; startup check must fail loudly if missing",
+        "status": "NEEDS FIX",
+    },
+    "FM-04": {
+        "title": "Legacy /v1/claims endpoint contradicts architecture",
+        "scenario": "Alkama or Harold fetches /v1/claims and sees contradictory claims",
+        "consequence": "Architecture credibility collapses at first expert review",
+        "mitigation": "Audit and reconcile /v1/claims before any human expert review",
+        "status": "NEEDS FIX",
+    },
+    "FM-05": {
+        "title": "Published passport does not verify",
+        "scenario": "Reviewer runs verify.py on published passport and gets FAIL",
+        "consequence": "Entire demonstration collapses",
+        "mitigation": "Every published passport must be generated by current build and tested",
+    },
+    "FM-06": {
+        "title": "Declaration Obligation opens without STILL verification",
+        "scenario": "Obligation opened for action whose authority was never independently verified",
+        "consequence": "Obligation sounds official but triggering condition is not independently verified",
+        "mitigation": "Document clearly: Declaration Obligation proves accountability failures, not governance continuity failures",
+    },
+    "FM-07": {
+        "title": "Route audit never happens",
+        "scenario": "1,248 routes remain UNCLASSIFIED; bypass route found by reviewer",
+        "consequence": "Architecture fails its own most important invariant publicly",
+        "mitigation": "Route classification is most urgent engineering task after cryptographic foundation",
+        "status": "OPEN — 1248 routes unclassified",
+    },
+    "FM-08": {
+        "title": "Architecture expands faster than it can be tested",
+        "scenario": "Features added, adversarial testing skipped, SPEC_ONLY claims accumulate",
+        "consequence": "Long tail of unproven claims; next AI review finds same problems",
+        "mitigation": "Engineering freeze on new features after this session. Only P3-P6 remain.",
+    },
+}
+
 
 VCB_ROUTE_COVERAGE = {
     "schema": "VGS-ROUTE-COVERAGE-1.0",
