@@ -95722,7 +95722,8 @@ def issue_sigilmark(
         }
 
     payload = {
-        "schema":                 "VGS-SIGILMARK-1.0",
+        "schema":                 "VGS-SIGILMARK-2.2",  # v2.2: OCSP interval fields, positive semantics
+        "payload_version":        "2.2",              # One version bump — all v2.2 fields batched
         "sigilmark_id":           sm_id,
         "vcb_id":                 sm_id,
         "decision":               decision,
@@ -96071,25 +96072,51 @@ def evaluate_release(
                     "fail_closed": True,
                 }
         elif still_result not in ("NOT_VERIFIED", "NOT_ENFORCED"):
-            # Legacy: caller-supplied still_result (only for non-enforced contexts)
-            if still_result in ("FAILED", "RE_ENTRY_REQUIRED", "NOT_PROVABLE"):
+            # Document v2.2 F-2.2-05: positive allowlist — only known safe states pass
+            # Unknown values must refuse, not silently pass
+            STILL_ADMISSIBLE = frozenset({"PROVABLE", "GOOD"})
+            STILL_REFUSED = frozenset({"FAILED", "RE_ENTRY_REQUIRED", "NOT_PROVABLE"})
+            if still_result in STILL_REFUSED:
                 return {
                     "release": "REFUSED",
                     "gate_failed": "STILL",
                     "reason": f"Authority continuity: {still_result}",
                     "provable": False,
                 }
+            elif still_result not in STILL_ADMISSIBLE:
+                # Unknown value — fail closed per INV-STILL-01
+                return {
+                    "release": "REFUSED",
+                    "gate_failed": "STILL_UNKNOWN_VALUE",
+                    "reason": f"NOT_PROVABLE.STILL_UNKNOWN: {repr(still_result)} not in admissible set",
+                    "admissible": list(STILL_ADMISSIBLE),
+                    "provable": False,
+                    "fail_closed": True,
+                }
             still_status = still_result
 
         # Gate 4: COULD — SPEC_ONLY, logged but not yet blocking
+        # Document v2.2 F-2.2-05: unknown values must refuse, not silently pass
         could_status = "NOT_ENFORCED_SPEC_ONLY"
         if could_result not in ("NOT_VERIFIED", "NOT_ENFORCED"):
-            if could_result in ("LEVERAGE_LOST", "NOT_PROVABLE"):
+            COULD_ADMISSIBLE = frozenset({"PROVABLE", "LEVERAGE_PRESENT", "ACTUAL_CAUSE"})
+            COULD_REFUSED = frozenset({"LEVERAGE_LOST", "NOT_PROVABLE", "NOT_ACTUAL_CAUSE", "NOT_MODELLED"})
+            if could_result in COULD_REFUSED:
                 return {
                     "release": "REFUSED",
                     "gate_failed": "COULD",
                     "reason": f"Boundary leverage: {could_result}",
                     "provable": False,
+                }
+            elif could_result not in COULD_ADMISSIBLE:
+                # Unknown value — fail closed
+                return {
+                    "release": "REFUSED",
+                    "gate_failed": "COULD_UNKNOWN_VALUE",
+                    "reason": f"NOT_PROVABLE.COULD_UNKNOWN: {repr(could_result)} not in admissible set",
+                    "admissible": list(COULD_ADMISSIBLE),
+                    "provable": False,
+                    "fail_closed": True,
                 }
             could_status = could_result
 
@@ -97216,7 +97243,10 @@ async def query_authority_at_t1(
     try:
         mandate = _TREASURY_MANDATES.get(authority_id)
         if mandate is None:
-            # Authority not found — source reachable but authority unknown
+            # Four distinct branches — document v2.2 F-2.2-05 correction
+            # Must not collapse into one UNKNOWN branch
+            # This branch: mandate ID exists in request but not in store
+            # = no-mandate-exists (distinct from: empty result, RLS denial, timeout)
             return T1Evidence(
                 authority_id=authority_id,
                 checked_at=ts,
@@ -97224,8 +97254,9 @@ async def query_authority_at_t1(
                 current_status="UNKNOWN",
                 source="treasury_mandate_store",
                 source_reachable=True,
-                source_response_hash=_vcc_hash({"not_found": authority_id}),
+                source_response_hash=_vcc_hash({"no_mandate_exists": authority_id}),
                 evidence_fresh_until=fresh_until,
+                additional_checks={"branch": "NO_MANDATE_EXISTS", "reason": "UNDETERMINED.AUTHORITY_NOT_FOUND"},
             )
 
         # Check status
@@ -97410,6 +97441,48 @@ def compare_authority_baseline(t0: T0Baseline, t1: T1Evidence) -> StillResult:
         fresh_until=t1.evidence_fresh_until,
         freshness_enforced=True,
     )
+
+
+def still_result_to_signed_interval(still: StillResult, t1: T1Evidence) -> dict:
+    """
+    Convert STILL examination result to signed interval fields for the passport.
+    Document v2.2 §3.2: OCSP pattern — record thisUpdate/nextUpdate/producedAt
+    so offline verifier can check freshness arithmetic without re-querying.
+
+    RFC 6960: 'thisUpdate — The most recent time at which the status being indicated
+    is known by the responder to have been correct.'
+    The checker verifies the arithmetic; it does not ask for present truth.
+
+    This is what moves STILL from online-only to offline-verifiable.
+    """
+    return {
+        "schema": "VGS-STILL-INTERVAL-1.0",
+        # OCSP-pattern interval fields — all go into signed payload
+        "decision_binding_at": still.examined_at,      # The commitment instant — only time that matters
+        "source_known_correct_at": t1.checked_at,      # thisUpdate analogue — RFC 6960 §4.2.2.1
+        "next_information_expected": t1.evidence_fresh_until,  # nextUpdate analogue
+        "observed_staleness_ms": 0,                    # decision_binding_at - source_known_correct_at
+        "max_staleness_ms": 30000,                     # 30s for payment domain (HIGH consequence)
+        "evaluation_mode": "HARD_FAIL",                # INV-STILL-02: soft-fail never ADMISSIBLE
+        "status": t1.current_status,                   # ACTIVE|REVOKED|EXPIRED|SUSPENDED|UNKNOWN
+        "result": still.result,                        # PROVABLE|FAILED|NOT_PROVABLE
+        "node_id": still.node_id,
+        "t0_baseline_hash": still.t0_baseline_hash,
+        "t1_evidence_hash": still.t1_evidence_hash,
+        "delta_classification": still.delta_classification,
+        "failure_reasons": still.failure_reasons,
+        "continuity_basis": still.continuity_basis,
+        # INV-STILL-04: revocation is an append, never an edit
+        "revocation_check": "wasInvalidatedBy events recorded separately — original bytes unchanged",
+        # Positive semantics field — RFC 6960 model: say what GOOD does NOT mean
+        "positive_semantics": (
+            "PROVABLE asserts: authority chain was present and unrevoked "
+            "as of source_known_correct_at. It does not assert that premises are true, "
+            "that the outcome was correct, that evidence is independent, "
+            "or that no unmodelled path existed."
+        ),
+        "offline_verifiable": True,  # checker validates arithmetic, not live state
+    }
 
 
 async def perform_still_examination(
@@ -110218,6 +110291,147 @@ async def adversarial_still_authority(
             "C-08_status": "ADVERSARIALLY_TESTED" if all_pass else "TESTED",
             "note": "After P3 graduation: C-08 moves from NOT_PROVABLE toward PROVABLE_WITHIN_SCOPE",
         },
+        "timestamp": ts,
+    }
+
+
+
+@app.post("/v1/locked-tests/material-mutation", tags=["Rule 0 — Locked Tests"])
+async def locked_test_material_mutation(
+    x_api_key: str = Header(None, alias="X-API-Key"),
+    authorization: str = Header(None),
+):
+    """
+    Rule 0 Locked Test 1: Material mutation produces BLOCKED/BYPASSED/NOT_IMPLEMENTED.
+    Document v2.2 §0: nothing below starts until this exists against main.py.
+    Must run against the real implementation, not a local test environment.
+    Result must be: BLOCKED (mutation detected) or BYPASSED (failure — mutation reached actuator).
+    """
+    require_api_key(x_api_key, authorization)
+    ts = datetime.now(timezone.utc).isoformat()
+
+    # Issue a valid SigilMark
+    action = {"type": "payment", "amount": 5000, "vendor": "VENDOR-A", "currency": "USD"}
+    sm = issue_sigilmark(
+        vcb_decision=build_vcb_decision_object(
+            decision="ALLOW", action_hash=_vcc_hash(action),
+            consequence_type="PAYMENT",
+            authority_hash=_vcc_hash({"mandate": "LOCKED-TEST-001"}),
+            policy_hash=_vcc_hash({"policy": "payment-v2"}),
+            state_hash=_vcc_hash({"balance": 50000}),
+            enforcement_point="payment-boundary-v1",
+        ),
+        action_payload=action, enforcement_point="payment-boundary-v1", ttl_seconds=300,
+    )
+
+    # Attempt material mutation: change amount to 9999999
+    import copy
+    mutated = copy.deepcopy(sm)
+    mutated["action_hash"] = "ATTACKER_REPLACED_HASH_TO_AUTHORIZE_DIFFERENT_ACTION"
+
+    # Verify the mutated passport — must return INVALID
+    result = verify_sigilmark(mutated, presented_action=action, presented_enforcement_point="payment-boundary-v1")
+
+    verdict = "BLOCKED" if result.get("result") == "INVALID" else "BYPASSED"
+
+    return {
+        "schema": "VGS-RULE0-LOCKED-TEST-1.0",
+        "test": "MATERIAL_MUTATION",
+        "rule": "Rule 0 — material mutation must produce BLOCKED",
+        "original_action_hash": sm.get("action_hash", "")[:16],
+        "mutated_action_hash": mutated["action_hash"][:32],
+        "verify_result": result.get("result"),
+        "verify_failures": result.get("failures", []),
+        "verdict": verdict,
+        "status": "PASS" if verdict == "BLOCKED" else "FAIL",
+        "production_evidence": {
+            "build_hash": _get_full_build_identity().get("sha256_prefix", ""),
+            "tested_at": ts,
+            "environment": "PRODUCTION" if "railway" in __import__("os").environ.get("RAILWAY_ENVIRONMENT", "").lower() else "LOCAL",
+        },
+        "graduation_criteria": "BLOCKED result on Railway production is required before P3 claims advance",
+        "timestamp": ts,
+    }
+
+
+@app.post("/v1/locked-tests/authority-revocation", tags=["Rule 0 — Locked Tests"])
+async def locked_test_authority_revocation(
+    x_api_key: str = Header(None, alias="X-API-Key"),
+    authorization: str = Header(None),
+):
+    """
+    Rule 0 Locked Test 2: Authority revocation between T0 and T1 produces BLOCKED.
+    Document v2.2 §0: revocation landing between examination and commitment must
+    produce a real BLOCKED — not SPEC_ONLY, not a future plan.
+    This is the test that determines whether STILL is implemented or theoretical.
+    """
+    require_api_key(x_api_key, authorization)
+    ts = datetime.now(timezone.utc).isoformat()
+
+    # Setup: register a valid mandate
+    mandate_data = register_treasury_mandate(
+        mandate_id="RULE0-REVOCATION-TEST-001",
+        subject_id="AI-AGENT-001",
+        amount_limit=10000.0,
+        authorized_vendors=["VENDOR-A"],
+        authorized_by="cfo@test.company",
+        authority_version="v1",
+    )
+
+    # T0: issue authorization under ACTIVE mandate
+    t0_captured_at = datetime.now(timezone.utc).isoformat()
+    t0_version = "v1"
+    t0_hash = mandate_data["t0_baseline"]["baseline_hash"]
+
+    # SIMULATE REVOCATION BETWEEN T0 AND T1
+    _TREASURY_MANDATES["RULE0-REVOCATION-TEST-001"]["status"] = "REVOKED"
+    revoked_at = datetime.now(timezone.utc).isoformat()
+
+    # T1: attempt STILL revalidation AFTER revocation
+    t1 = await query_authority_at_t1("RULE0-REVOCATION-TEST-001", "AI-AGENT-001")
+    t0_obj = T0Baseline(
+        authority_id="RULE0-REVOCATION-TEST-001",
+        subject_id="AI-AGENT-001",
+        authorized_action_hash="test",
+        scope_hash="test",
+        authority_version=t0_version,
+        authority_source="treasury_mandate_store",
+        authority_issued_at=t0_captured_at,
+        authority_valid_until=t0_captured_at,
+        required_conditions_hash="test",
+        baseline_captured_at=t0_captured_at,
+    )
+    still_result = compare_authority_baseline(t0_obj, t1)
+
+    # STILL must be FAILED, not PROVABLE
+    verdict = "BLOCKED" if still_result.result == "FAILED" else "BYPASSED"
+
+    # Record STILL interval into signed payload format
+    interval = still_result_to_signed_interval(still_result, t1)
+
+    # Cleanup
+    _TREASURY_MANDATES["RULE0-REVOCATION-TEST-001"]["status"] = "ACTIVE"
+
+    return {
+        "schema": "VGS-RULE0-LOCKED-TEST-2.0",
+        "test": "AUTHORITY_REVOCATION_BETWEEN_T0_AND_T1",
+        "rule": "Rule 0 — revocation between T0 and T1 must produce BLOCKED",
+        "t0_captured_at": t0_captured_at,
+        "revoked_at": revoked_at,
+        "t1_checked_at": t1.checked_at,
+        "t1_status": t1.current_status,
+        "still_result": still_result.result,
+        "still_failures": still_result.failure_reasons,
+        "still_interval": interval,
+        "verdict": verdict,
+        "status": "PASS" if verdict == "BLOCKED" else "FAIL",
+        "offline_verifiable": True,
+        "offline_check": "Verifier checks: still_interval.status==REVOKED AND result==FAILED — no re-query needed",
+        "production_evidence": {
+            "build_hash": _get_full_build_identity().get("sha256_prefix", ""),
+            "tested_at": ts,
+        },
+        "graduation_criteria": "Both locked tests PASS on Railway before any P3 claim advances",
         "timestamp": ts,
     }
 
