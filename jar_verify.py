@@ -192,7 +192,7 @@ def check_signature(passport: dict, pubkey_b64: str, canonical: bytes, r: CheckR
     """
     Check 2: Ed25519 domain-separated signature.
     Domain prefix: b"SIGILMARK-v1" + b"\x00"
-    Signed content: domain_prefix + canonical(all fields except signature)
+    Tries rfc8785/JCS first, then compact JSON fallback.
     """
     sig_b64 = passport.get("signature", "")
     if not sig_b64:
@@ -201,37 +201,29 @@ def check_signature(passport: dict, pubkey_b64: str, canonical: bytes, r: CheckR
 
     try:
         from nacl.signing import VerifyKey
-        from nacl.exceptions import BadSignatureError
 
         vk = VerifyKey(base64.b64decode(pubkey_b64))
         sig_bytes = base64.b64decode(sig_b64)
-
-        # Domain-separated message: domain_prefix + canonical(all fields except signature)
-        # Must use SAME canonical form as integrity check (rfc8785 or compact JSON)
         domain = b"SIGILMARK-v1" + b"\x00"
         payload_for_sig = {k: v for k, v in passport.items() if k != "signature"}
 
-        # Try rfc8785 first
+        # Try rfc8785/JCS first
         try:
             import rfc8785 as _rfc
             msg_jcs = domain + _rfc.dumps(payload_for_sig)
-            try:
-                vk.verify(msg_jcs, sig_bytes)
-                r.add("signature", True, "SIGNATURE_VERIFIED (rfc8785-jcs-v1)")
-                return
-            except Exception:
-                pass
-        except ImportError:
-            pass
+            vk.verify(msg_jcs, sig_bytes)
+            r.add("signature", True, "SIGNATURE_VERIFIED (rfc8785-jcs-v1)")
+            return
+        except Exception:
+            pass  # Try next form
 
-        # Try compact JSON
+        # Try compact JSON fallback
         msg_compact = domain + json.dumps(
             payload_for_sig, sort_keys=True, separators=(",", ":"),
             ensure_ascii=False
         ).encode("utf-8")
-
-        vk.verify(msg, sig_bytes)
-        r.add("signature", True, "SIGNATURE_VERIFIED")
+        vk.verify(msg_compact, sig_bytes)
+        r.add("signature", True, "SIGNATURE_VERIFIED (compact-json fallback)")
 
     except ImportError:
         r.add_undetermined("signature", "UNDETERMINED.PYNACL_NOT_INSTALLED")
