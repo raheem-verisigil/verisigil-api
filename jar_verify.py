@@ -151,8 +151,8 @@ class CheckResult:
 
 def check_integrity(passport: dict, r: CheckResult) -> bytes:
     """
-    Check 1: RFC 8785/JCS integrity hash.
-    Recompute from all fields except integrity_hash and signature.
+    Check 1: Integrity hash — tries RFC 8785/JCS first, then compact JSON fallback.
+    The passport may have been issued with either form depending on Railway build.
     Returns canonical bytes for signature verification.
     """
     stored = passport.get("integrity_hash", "")
@@ -160,26 +160,32 @@ def check_integrity(passport: dict, r: CheckResult) -> bytes:
         r.add("integrity_hash_present", False, "INTEGRITY_HASH_MISSING")
         return b""
 
+    check_fields = {k: v for k, v in passport.items()
+                    if k not in ("integrity_hash", "signature")}
+
+    # Try RFC 8785/JCS first
     try:
         import rfc8785
-        check_fields = {k: v for k, v in passport.items()
-                        if k not in ("integrity_hash", "signature")}
-        canonical = rfc8785.dumps(check_fields)
-        computed = hashlib.sha256(canonical).hexdigest()
+        canonical_jcs = rfc8785.dumps(check_fields)
+        if hashlib.sha256(canonical_jcs).hexdigest() == stored:
+            r.add("integrity_hash", True, "INTEGRITY_VERIFIED (rfc8785-jcs-v1)")
+            return canonical_jcs
     except ImportError:
-        # Fallback: compact JSON (correct for ASCII-only keys)
-        check_fields = {k: v for k, v in passport.items()
-                        if k not in ("integrity_hash", "signature")}
-        canonical = json.dumps(
-            check_fields, sort_keys=True, separators=(",", ":"),
-            ensure_ascii=False
-        ).encode("utf-8")
-        computed = hashlib.sha256(canonical).hexdigest()
+        pass
 
-    match = computed == stored
-    r.add("integrity_hash", match,
-          "INTEGRITY_VERIFIED" if match else "INTEGRITY_HASH_INVALID")
-    return canonical
+    # Try compact JSON (fallback — Railway may use this if rfc8785 not installed)
+    canonical_compact = json.dumps(
+        check_fields, sort_keys=True, separators=(",", ":"),
+        ensure_ascii=False
+    ).encode("utf-8")
+    if hashlib.sha256(canonical_compact).hexdigest() == stored:
+        r.add("integrity_hash", True,
+              "INTEGRITY_VERIFIED (compact-json — note: rfc8785 preferred for new passports)")
+        return canonical_compact
+
+    # Neither matched
+    r.add("integrity_hash", False, "INTEGRITY_HASH_INVALID")
+    return canonical_compact  # return something for signature attempt
 
 
 def check_signature(passport: dict, pubkey_b64: str, canonical: bytes, r: CheckResult):
@@ -200,19 +206,29 @@ def check_signature(passport: dict, pubkey_b64: str, canonical: bytes, r: CheckR
         vk = VerifyKey(base64.b64decode(pubkey_b64))
         sig_bytes = base64.b64decode(sig_b64)
 
-        # Domain-separated message
+        # Domain-separated message: domain_prefix + canonical(all fields except signature)
+        # Must use SAME canonical form as integrity check (rfc8785 or compact JSON)
         domain = b"SIGILMARK-v1" + b"\x00"
-        # Signed payload = everything except signature
+        payload_for_sig = {k: v for k, v in passport.items() if k != "signature"}
+
+        # Try rfc8785 first
         try:
-            import rfc8785
-            payload_for_sig = {k: v for k, v in passport.items() if k != "signature"}
-            msg = domain + rfc8785.dumps(payload_for_sig)
+            import rfc8785 as _rfc
+            msg_jcs = domain + _rfc.dumps(payload_for_sig)
+            try:
+                vk.verify(msg_jcs, sig_bytes)
+                r.add("signature", True, "SIGNATURE_VERIFIED (rfc8785-jcs-v1)")
+                return
+            except Exception:
+                pass
         except ImportError:
-            payload_for_sig = {k: v for k, v in passport.items() if k != "signature"}
-            msg = domain + json.dumps(
-                payload_for_sig, sort_keys=True, separators=(",", ":"),
-                ensure_ascii=False
-            ).encode("utf-8")
+            pass
+
+        # Try compact JSON
+        msg_compact = domain + json.dumps(
+            payload_for_sig, sort_keys=True, separators=(",", ":"),
+            ensure_ascii=False
+        ).encode("utf-8")
 
         vk.verify(msg, sig_bytes)
         r.add("signature", True, "SIGNATURE_VERIFIED")
