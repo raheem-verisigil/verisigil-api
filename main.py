@@ -95792,13 +95792,22 @@ def issue_sigilmark(
         },
         "canonical_form": "rfc8785-jcs-v1",  # Updated from compact-json-sha256-v1
         "why_examination": {
-            "examination_schema": "VGS-WHY-EXAMINATION-1.0",
+            # P1: PROV-DM vocabulary — W3C Recommendation 30 April 2013
+            # Closed enum — VCB_JAR_GRAMMAR_v1.why_edges_rel_enum
+            "examination_schema": "VGS-WHY-EXAMINATION-2.0",
             "requirement_id":     vcb_decision.get("consequence_type", "UNSPECIFIED"),
             "authority_reference": vcb_decision.get("authority_hash", ""),
             "action_examined":    action_hash,
             "enforcement_point":  enforcement_point,
             "evaluation_result":  decision,
             "examined_at":        ts,
+            "why_edges": [
+                {"rel": "GENERATED_BY",         "entity": action_hash,                                  "note": "governed output produced by this action"},
+                {"rel": "ATTRIBUTED_TO",        "entity": vcb_decision.get("authority_hash", ""),       "note": "responsible agent/authority"},
+                {"rel": "ASSOCIATED_WITH_PLAN", "entity": vcb_decision.get("policy_hash", ""),          "note": "policy executed under"},
+                {"rel": "USED",                 "entity": vcb_decision.get("state_hash", ""),           "note": "state consumed at examination"},
+                {"rel": "ACTED_ON_BEHALF_OF",   "entity": vcb_decision.get("authority_hash", ""),       "note": "upstream principal — delegation edge"},
+            ],
             "evidence_references": {
                 "action_hash":    action_hash,
                 "authority_hash": vcb_decision.get("authority_hash", ""),
@@ -95807,6 +95816,48 @@ def issue_sigilmark(
             },
             "reconstruction_possible": True,
             "node_id": f"WHY-{action_hash[:16]}",
+            "positive_semantics": (
+                "WHY=ADMISSIBLE asserts: an authority chain and policy were present at examined_at. "
+                "It does not assert that the authority remained valid at commitment, that the action "
+                "was prevented from causing harm, or that no unmodelled execution path existed."
+            ),
+        },
+        "closure": {
+            "schema":        "VGS-CLOSURE-1.0",
+            "limit":         3,
+            "depth_reached": 1,
+            "terminated":    "AT_DECLARED_ROOT",
+            "truncation_code": None,
+            "root": {
+                "kind":    "ORGANIZATIONAL_FIAT",
+                "ref":     vcb_decision.get("authority_hash", "UNSPECIFIED"),
+                "provable": False,
+            },
+        },
+        "assurance": {
+            "schema":             "VGS-ASSURANCE-TRIPLE-1.0",
+            "integrity_class":    "SELF_REPORTED",
+            "custody_class":      "GAP_UNKNOWN",
+            "independence_class": "NOT_ESTABLISHED",
+        },
+        "replay": {
+            "schema":                        "VGS-REPLAY-DIGESTS-1.0",
+            "policy_digest":                 vcb_decision.get("policy_hash", ""),
+            "input_digest":                  action_hash,
+            "entity_snapshot_digest":        vcb_decision.get("state_hash", ""),
+            "engine_version":                "VCB-2.2",
+            "evaluation_order_independent":  True,
+            "status":                        "REPLAY_AVAILABLE",
+        },
+        "scope_ledger": {
+            "schema": "VGS-SCOPE-LEDGER-1.0",
+            "required_line": "a scope ledger enumerates known limits and is not an exhaustive list of everything unproven",
+            "limits": [
+                {"code": "UPSTREAM_PRINCIPAL_UNRESOLVED",    "note": "chain stops at treasury mandate root"},
+                {"code": "INDEPENDENCE_NOT_ESTABLISHED",     "note": "dependency sets not declared — P3"},
+                {"code": "INTERVENTION_WINDOW_NOT_MODELLED", "note": "COULD window not measured — P4"},
+                {"code": "ALTERNATIVES_NOT_MODELLED",        "note": "counterfactual model absent — P5"},
+            ],
         },
     }
     # Perplexity R2-02: domain_prefix must be INSIDE integrity hash
@@ -96642,6 +96693,161 @@ VCB_ADR_REGISTRY = {
         },
     },
 }
+
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# VCB JUSTIFIED ACTION RECORD (JAR) — GRAMMAR v1.0
+# Document v2.2 §6.1: "A profile, not a platform"
+# One document, closed enums, no extension points in v1.
+# Extension points are how profiles die.
+# Gate: grammar review, closed enums, no extension points.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+VCB_JAR_GRAMMAR_v1 = {
+    "schema": "VGS-JAR-GRAMMAR-1.0",
+    "frozen": True,
+    "version": "1.0",
+    "description": "Justified Action Record — complete wire format grammar. Closed enums only.",
+    "extension_points": "NONE — extension points are how profiles die",
+
+    # ── WHY vocabulary — PROV-DM W3C Recommendation 30 April 2013 ──────────────
+    "why_edges_rel_enum": {
+        "description": "Closed enum. No other values permitted. Do not invent new vocabulary.",
+        "source": "W3C PROV-DM https://www.w3.org/TR/prov-dm/",
+        "values": {
+            "GENERATED_BY":      "wasGeneratedBy — governed output produced by this action",
+            "USED":              "used — action consumed this input",
+            "DERIVED_FROM":      "wasDerivedFrom — information lineage of a premise",
+            "ATTRIBUTED_TO":     "wasAttributedTo — the responsible agent",
+            "ASSOCIATED_WITH_PLAN": "wasAssociatedWith + Plan — policy/plan executed under",
+            "ACTED_ON_BEHALF_OF": "actedOnBehalfOf — delegation edge, upstream principal",
+            "INVALIDATED_BY":    "wasInvalidatedBy — event that ended an entity's validity",
+        },
+        "invariant": "INV-WHY-04: every governed agent action carries non-empty actor chain or is labelled SELF",
+    },
+
+    # ── Closure fields (RFC 5280 pathLenConstraint pattern) ───────────────────
+    "closure": {
+        "description": "Authority chain closure. Absent limit => reject, do not default to unlimited.",
+        "source": "RFC 5280 §4.2.1.9",
+        "fields": {
+            "limit":         "uint8 — REQUIRED. absent => reject",
+            "depth_reached": "uint8 — REQUIRED",
+            "terminated":    "enum { AT_DECLARED_ROOT, AT_LIMIT, AT_MISSING_EDGE }",
+            "truncation_code": "string — REQUIRED iff terminated != AT_DECLARED_ROOT",
+        },
+        "invariants": {
+            "INV-WHY-01": "terminated != AT_DECLARED_ROOT => UNDETERMINED(AUTHORITY_CLOSURE_TRUNCATED). MUST NOT produce ADMISSIBLE.",
+            "INV-WHY-02": "For every edge e with parent p: scope(e) ⊆ scope(p). Monotonic attenuation.",
+            "INV-WHY-03": "Effective scope = computed intersection, not scope named in any single edge.",
+        },
+    },
+
+    # ── Root declaration ───────────────────────────────────────────────────────
+    "root": {
+        "description": "Recursion terminator. Root is an axiom, not a proof.",
+        "fields": {
+            "kind":    "enum { STATUTORY, CONTRACTUAL, ORGANIZATIONAL_FIAT, SELF_ASSERTED }",
+            "ref":     "string — instrument ID, contract ID, or internal decision record",
+            "provable": "false — CONSTANT. Checker MUST reject any record asserting true.",
+        },
+        "note": "SELF_ASSERTED is legal and common. Must be visible. Checker prints root kind on every output line.",
+    },
+
+    # ── STILL fields (OCSP pattern — RFC 6960) ────────────────────────────────
+    "still": {
+        "description": "Validity interval at commitment. Bounded knowledge, never present-tense truth.",
+        "source": "RFC 6960 §4.2.2.1",
+        "fields": {
+            "decision_binding_at":       "rfc3339 — the commitment instant. The only time that matters.",
+            "source_known_correct_at":   "rfc3339 — thisUpdate analogue",
+            "next_information_expected": "rfc3339? — nextUpdate analogue",
+            "observed_staleness_ms":     "uint32 — decision_binding_at - source_known_correct_at",
+            "max_staleness_ms":          "uint32 — policy input, inside the signature",
+            "evaluation_mode":           "enum { HARD_FAIL, SOFT_FAIL }",
+            "status":                    "enum { GOOD, REVOKED, UNKNOWN }",
+            "positive_semantics":        "string — what GOOD does NOT mean (required field, signed)",
+        },
+        "invariants": {
+            "INV-STILL-01": "observed_staleness_ms > max_staleness_ms => UNDETERMINED(FRESHNESS_BUDGET_EXCEEDED). Never ADMISSIBLE.",
+            "INV-STILL-02": "evaluation_mode == SOFT_FAIL => UNDETERMINED(REVOCATION_STATUS_UNAVAILABLE). Never ADMISSIBLE.",
+            "INV-STILL-03": "status == UNKNOWN is not GOOD. UNKNOWN => UNDETERMINED.",
+            "INV-STILL-04": "Revocation is an append, never an edit. Original bytes unchanged.",
+        },
+    },
+
+    # ── Assurance triple ───────────────────────────────────────────────────────
+    "assurance": {
+        "description": "One per conjunct, inside the signature. Evidence fails in three independent ways.",
+        "fields": {
+            "integrity_class":   "enum { SIGNED_AT_SOURCE, SIGNED_IN_TRANSIT, UNAUTHENTICATED_TELEMETRY, SELF_REPORTED }",
+            "custody_class":     "enum { CONTINUOUS, GAP_DECLARED, GAP_UNKNOWN }",
+            "independence_class": "enum { INDEPENDENT, SHARED_DEPENDENCY, SAME_ORIGIN, NOT_ESTABLISHED }",
+        },
+        "invariants": {
+            "INV-EV-01": "UNAUTHENTICATED_TELEMETRY => CORROBORATED_ONLY. Never satisfies a conjunct.",
+            "INV-EV-02": "custody_class == GAP_UNKNOWN => conjunct UNDETERMINED.",
+            "INV-EV-03": "independence_class MUST be computed, never asserted. Checker compares dependency sets.",
+        },
+    },
+
+    # ── Replay digests (Cedar pattern) ────────────────────────────────────────
+    "replay": {
+        "description": "Pinned inputs for deterministic replay. Without all four: REPLAY_UNAVAILABLE.",
+        "source": "Cedar: How We Built Cedar — A Verification-Guided Approach",
+        "fields": {
+            "policy_digest":               "sha256 of policy at evaluation time",
+            "input_digest":                "sha256 of action input",
+            "entity_snapshot_digest":      "sha256 of entity state",
+            "engine_version":              "string — evaluator version",
+            "evaluation_order_independent": "true — required field",
+        },
+        "invariant": "INV-EV-05: verdict without all four digests => REPLAY_UNAVAILABLE. Not replayable.",
+    },
+
+    # ── Scope ledger ──────────────────────────────────────────────────────────
+    "scope_ledger": {
+        "description": "Declared limits. Not an exhaustive list of everything unproven.",
+        "required_output_line": "a scope ledger enumerates known limits and is not an exhaustive list of everything unproven",
+        "codes": {
+            "AUTHORITY_CLOSURE_TRUNCATED": "chain ran out of budget before reaching declared root",
+            "UPSTREAM_PRINCIPAL_UNRESOLVED": "actedOnBehalfOf chain incomplete",
+            "INDEPENDENCE_NOT_ESTABLISHED": "dependency sets not declared or overlap found",
+            "INTERVENTION_WINDOW_NOT_MODELLED": "COULD window not measured",
+            "ALTERNATIVES_NOT_MODELLED": "COULD counterfactual model absent",
+        },
+        "invariant": "INV-SL-01: verifier MUST print the required_output_line in every run.",
+    },
+
+    # ── Word ban — applies to SIGNED PAYLOAD, not just website ────────────────
+    "word_ban": {
+        "description": "These words in signed payload text are a claim the system cannot support.",
+        "applies_to": "Signed payload fields — word ban in signed content cannot be quietly dropped",
+        "banned_words": [
+            "proves", "proven", "guaranteed", "prevents", "tamper-proof",
+            "market standard", "survives any attack",
+        ],
+        "banned_claims": [
+            "EU AI Act article compliance (without explicit scope, test, and limitation)",
+            "STILL is established (while C-08 is NOT_PROVABLE)",
+            "independently verifiable (for conjuncts not in offline checker)",
+        ],
+        "invariant": "F-2.2-02: word ban applies to API payload, not just website. Signed payload text cannot be quietly dropped from a marketing page.",
+    },
+}
+
+# ── Positive semantics template — required in every STILL result ───────────────
+VCB_POSITIVE_SEMANTICS_TEMPLATE = (
+    "ADMISSIBLE asserts: an authority chain terminating at a declared root was "
+    "present and unrevoked as of source_known_correct_at, under policy_digest, "
+    "evaluated by engine_version. It does not assert that the premises are true, "
+    "that the outcome was correct, that the evidence is independent, "
+    "or that no unmodelled path existed."
+)
+
+# ── WHY examination record with PROV vocabulary ────────────────────────────────
+# Replaces the current bare why_examination dict with structured PROV edges
 
 
 VCB_PROTECTED_CONSEQUENCE_DOMAIN_v1 = {
