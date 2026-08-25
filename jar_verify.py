@@ -104,7 +104,9 @@ class CheckResult:
         # Priority: 7>8>9>1>2>3 (domain-specific beats generic)
         # Scan reason codes for the most severe domain classification
         failed_reasons = ["SOFT_FAIL_LAUNDERING", "TELEMETRY_ONLY",
-                         "ASSURANCE_TELEMETRY"]  # ROOT_PROVABLE => EXIT_INVALID (structural)
+                         "ASSURANCE_TELEMETRY", "INDEPENDENCE_COMPUTED",
+                         "INDEPENDENCE_ASSERTED", "COULD_WITNESS_NOT_OBSERVED",
+                         "COULD_RESULT_WITHOUT_MODEL"]
         undetermined_reasons = ["FRESHNESS_BUDGET", "UNKNOWN_STATUS",
                                 "CUSTODY_GAP", "STILL_UNKNOWN", "CLOSURE_ABSENT"]
 

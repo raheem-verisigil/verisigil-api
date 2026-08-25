@@ -111574,8 +111574,20 @@ async def engineering_master_audit():
     """
     build = _get_full_build_identity()
     snap  = _compute_authoritative_build_snapshot()
+
+    # P6: PRODUCTION_CLAIM_ALLOWED — flips to True after external portability test passes
+    # External engineer must pass §5.5 unaided: jar_verify.py + public key + live passport
+    PRODUCTION_CLAIM_ALLOWED = False  # Flip to True after external test confirmed
+
     return {
         "schema":                      "VGS-MASTER-AUDIT-2.0",
+        "PRODUCTION_CLAIM_ALLOWED":    PRODUCTION_CLAIM_ALLOWED,
+        "p6_gate": {
+            "status":   "PENDING_EXTERNAL_TEST",
+            "requirement": "External engineer passes §5.5 portability test unaided",
+            "test":     "jar_verify.py + pubkey lJWG0Wabt6uATPu5Upo6UEHWGXQqMyi6LMKQC0xwpY8= + POST /v1/vcb/seal",
+            "expected": "INTEGRITY_VERIFIED + SIGNATURE_VERIFIED without assistance",
+        },
         "build_identity":              build,
         "master_definition":           VCB_FINAL_VCB_DEFINITION,
         "six_proof_properties":        VCB_SIX_PROOF_PROPERTIES,
