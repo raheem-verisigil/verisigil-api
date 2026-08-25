@@ -96308,7 +96308,7 @@ def evaluate_release(
     t0_baseline_hash: str = None,
     proposed_amount: float = None,
     proposed_vendor: str = None,
-    enforce_still: bool = False,  # Set True when P3 is fully operational
+    enforce_still: bool = True,   # P0: live STILL enforcement — on when authority context provided
 ) -> dict:
     """
     Single gate for all ALLOW decisions.
@@ -96381,27 +96381,52 @@ def evaluate_release(
         still_examination = None
 
         if authority_id and enforce_still:
-            # STILL queried INTERNALLY — caller cannot bypass by injecting result
-            import asyncio as _asyncio
+            # STILL queried INTERNALLY via sync in-memory check (INV-AUTH-TEMP-01)
+            # Caller cannot bypass by injecting still_result='PROVABLE'
+            # Sync path: directly query _TREASURY_MANDATES without async overhead
+            # Production upgrade: replace with Supabase SELECT FOR UPDATE
             try:
-                loop = _asyncio.get_event_loop()
-                if loop.is_running():
-                    # Running in async context — need to schedule
-                    still_examination = None  # Will be set below via coroutine
+                mandate = _TREASURY_MANDATES.get(authority_id)
+                if mandate is None:
+                    _sync_still_result = "NOT_PROVABLE"
+                    _sync_still_failures = ["NOT_PROVABLE.NO_MANDATE_EXISTS"]
+                elif mandate.get("status") in ("REVOKED", "EXPIRED", "SUSPENDED"):
+                    _sync_still_result = "FAILED"
+                    _sync_still_failures = [f"STILL_FAILED.AUTHORITY_{mandate.get('status')}"]
                 else:
-                    still_examination = loop.run_until_complete(
-                        perform_still_examination(
-                            authority_id=authority_id,
-                            subject_id=subject_id or "",
-                            t0_baseline_hash=t0_baseline_hash or "",
-                            authority_version_at_t0=authority_version_at_t0 or "v1",
-                            proposed_amount=proposed_amount,
-                            proposed_vendor=proposed_vendor,
-                        )
-                    )
-                if still_examination:
-                    still_status = still_examination.result
-                    if still_examination.result != "PROVABLE":
+                    # Scope check
+                    scope_ok = True
+                    scope_failures = []
+                    if proposed_amount is not None:
+                        if proposed_amount > mandate.get("amount_limit", 0):
+                            scope_ok = False
+                            scope_failures.append(
+                                f"SCOPE_EXCEEDED: {proposed_amount} > {mandate.get('amount_limit')}")
+                    if proposed_vendor is not None:
+                        if proposed_vendor not in mandate.get("authorized_vendors", []):
+                            scope_ok = False
+                            scope_failures.append(f"VENDOR_NOT_AUTHORIZED: {proposed_vendor}")
+                    if scope_ok:
+                        _sync_still_result = "PROVABLE"
+                        _sync_still_failures = []
+                    else:
+                        _sync_still_result = "FAILED"
+                        _sync_still_failures = scope_failures
+
+                if _sync_still_result != "PROVABLE":
+                    still_examination = type("_SR", (), {
+                        "result": _sync_still_result,
+                        "node_id": f"STILL-SYNC-{authority_id[:16]}",
+                        "authority_status": mandate.get("status","UNKNOWN") if mandate else "NOT_FOUND",
+                        "delta_classification": "MATERIAL_DELTA" if _sync_still_result=="FAILED" else "UNKNOWN_DELTA",
+                        "failure_reasons": _sync_still_failures,
+                    })()
+                    still_status = _sync_still_result
+                else:
+                    still_examination = None
+                    still_status = "PROVABLE"
+
+                if still_examination and _sync_still_result != "PROVABLE":
                         return {
                             "release": "REFUSED",
                             "gate_failed": "STILL",
@@ -97838,6 +97863,31 @@ class T1Evidence:
             "source": self.source,
             "source_reachable": self.source_reachable,
         })
+
+
+
+async def get_t0_baseline_hash(
+    authority_id: str,
+    subject_id: str,
+    proposed_amount: float = None,
+    proposed_vendor: str = None,
+) -> str:
+    """
+    Compute the correct T0 baseline hash for a STILL examination.
+    Call this at issue time (T0) and store in the passport.
+    At commitment (T1), evaluate_release uses this hash to verify continuity.
+    
+    This is the canonical way to derive t0_baseline_hash —
+    it produces the same hash that T1 query_authority_at_t1 will produce
+    when the authority has not changed.
+    """
+    t1 = await query_authority_at_t1(
+        authority_id=authority_id,
+        subject_id=subject_id,
+        proposed_amount=proposed_amount,
+        proposed_vendor=proposed_vendor,
+    )
+    return t1.source_response_hash
 
 
 @dataclass
