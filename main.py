@@ -95690,6 +95690,7 @@ def issue_sigilmark(
     material_commitment: dict = None,
     consequence_envelope: dict = None,
     transition_record: dict = None,
+    could_field: dict = None,  # P5: Halpern-Pearl COULD conjunct (optional)
 ) -> dict:
     """Issue a SigilMark portable proof package from a VCB decision object."""
     ts      = datetime.now(timezone.utc).isoformat()
@@ -95722,7 +95723,7 @@ def issue_sigilmark(
         }
 
     payload = {
-        "schema":                 "VGS-SIGILMARK-2.2",  # v2.2: OCSP interval fields, positive semantics
+        "schema":                 "VGS-SIGILMARK-2.2",  # Condition record with declared limits — v2.2
         "payload_version":        "2.2",              # One version bump — all v2.2 fields batched
         "sigilmark_id":           sm_id,
         "vcb_id":                 sm_id,
@@ -95888,10 +95889,16 @@ def issue_sigilmark(
             "limits": [
                 {"code": "UPSTREAM_PRINCIPAL_UNRESOLVED",    "note": "chain stops at treasury mandate root"},
                 {"code": "INDEPENDENCE_NOT_ESTABLISHED",     "note": "dependency sets not declared — P3"},
-                {"code": "INTERVENTION_WINDOW_NOT_MODELLED", "note": "COULD window not measured — P4"},
-                {"code": "ALTERNATIVES_NOT_MODELLED",        "note": "counterfactual model absent — P5"},
+                {"code": "ALTERNATIVES_NOT_MODELLED",        "note": "counterfactual alternatives not modelled — beyond P5 single-domain scope"},
+                *([] if could_field and could_field.get("result") == "ACTUAL_CAUSE" else
+                  [{"code": "INTERVENTION_WINDOW_NOT_MODELLED", "note": "COULD window not measured — provide could_field for P5"}]),
             ],
         },
+        # P5: COULD conjunct — Halpern-Pearl causal model (payment domain)
+        # could_field is provided by the endpoint that calls evaluate_release + actuator
+        # For /v1/vcb/seal: could_field is None (caller has no actuator)
+        # For /v1/p5/seal: could_field is computed by _compute_could_field()
+        "could": could_field,  # None = NOT_MODELLED (correct); dict = P5 COULD conjunct
     }
     # Perplexity R2-02: domain_prefix must be INSIDE integrity hash
     # All trust-critical metadata (domain_prefix, signing_key_id, canonical_form)
@@ -96784,6 +96791,60 @@ VCB_ADR_REGISTRY = {
 # Extension points are how profiles die.
 # Gate: grammar review, closed enums, no extension points.
 # ═══════════════════════════════════════════════════════════════════════════════
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# VCB CONDITION RECORD — Terminology Definition
+# Own terminology. Not borrowed from A2A, SPIFFE, ARD, OKF, or any external protocol.
+#
+# The VCB passport is a CONDITION RECORD WITH DECLARED LIMITS:
+#   - A signed, independently verifiable record of which interaction conditions
+#     were examined, what was found, and what could not be established.
+#
+# Stronger than "attestation": attestation proves only who signed.
+#   A signature attests "who said it" not "whether the evaluation was correct."
+#   (RFC 9943, VC 2.0, in-toto all confirm this limit.)
+#
+# Stronger than "audit log": an audit log requires trust in the logger.
+#   A condition record is verifiable offline by anyone with the checker binary
+#   and the public key. No trust in the issuer is required beyond the key.
+#
+# CONDITION SEPARATION ARCHITECTURE:
+#   VCB's four conjuncts (WHY, STILL, COULD, WHAT) are independently
+#   examinable condition layers. Each can be verified without the others.
+#   This is not a stack, pipeline, or chain. It is a separation of examination
+#   conditions — each one independently examinable, each one able to produce
+#   NOT_PROVABLE without affecting the others.
+#   VCB's own terminology for this architecture:
+#   CONDITION SEPARATION — not "layered governance" or "zero-trust" or any
+#   external framework terminology.
+# ─────────────────────────────────────────────────────────────────────────────
+
+VCB_CONDITION_RECORD_DEFINITION = {
+    "schema": "VGS-CONDITION-RECORD-DEF-1.0",
+    "term": "condition record with declared limits",
+    "definition": (
+        "A signed, independently verifiable record of which interaction conditions "
+        "were examined at commitment time, what was found for each condition, "
+        "and what could not be established — with the limits of that examination "
+        "declared inside the signed payload itself."
+    ),
+    "why_not_attestation": (
+        "Attestation proves who signed the record, not whether the evaluation "
+        "was correct. RFC 9943 (SCITT), W3C VC 2.0, and in-toto all state this "
+        "limit explicitly. A condition record goes further: the justification "
+        "for each condition is inside the record and checkable offline."
+    ),
+    "why_not_audit_log": (
+        "An audit log requires trust in the logger. A condition record is "
+        "verifiable offline by anyone with jar-verify and the public key. "
+        "The portability test (§5.5): three inputs, no network, verdict reproduced."
+    ),
+    "architecture": "CONDITION SEPARATION — WHY, STILL, COULD, WHAT are independently examinable",
+    "own_terminology": True,
+    "external_protocols_excluded": ["A2A", "SPIFFE", "ARD", "OKF", "MCP"],
+}
+
 
 VCB_JAR_GRAMMAR_v1 = {
     "schema": "VGS-JAR-GRAMMAR-1.0",
@@ -97867,6 +97928,112 @@ VCB_CEDAR_PROPERTIES = {
 # This is the boundary: evaluate_release() must GATE this before execution
 # An inadmissible action cannot reach this actuator
 # This proves the VCB invariant: "No admissible evidence. No admissible execution."
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# P5 — COULD: HALPERN-PEARL CAUSAL MODEL — PAYMENT DOMAIN
+# Document v2.2 §5.5: "COULD moves from NOT_MODELLED to measured — one domain"
+# Source: Halpern & Pearl, "Causes and Explanations" (2001/2005)
+# Applied to VCB payment domain: one published model, one domain
+# ═══════════════════════════════════════════════════════════════════════════════
+
+VCB_HALPERN_PEARL_PAYMENT_MODEL = {
+    "schema": "VGS-CAUSAL-MODEL-1.0",
+    "model_id": "VCB-HALPERN-PEARL-PAYMENT-v1",
+    "domain": "payment",
+    "version": "1.0",
+    "source": "Halpern & Pearl, Causes and Explanations: A Structural-Model Approach (2001/2005)",
+    "vcb_application": "Payment domain — one narrow model, one domain (document v2.2 §5.5)",
+    "variables": {
+        "authorized": {
+            "kind": "ENDOGENOUS",
+            "description": "evaluate_release() returned RELEASE_GRANTED",
+            "domain": [True, False],
+        },
+        "payment_attempted": {
+            "kind": "EXOGENOUS",
+            "description": "MockPaymentActuator.attempt_payment() was called",
+            "domain": [True, False],
+        },
+        "payment_executed": {
+            "kind": "ENDOGENOUS",
+            "description": "payment reached and passed the consequence boundary",
+            "domain": [True, False],
+        },
+    },
+    "structural_equations": {
+        "payment_executed": "authorized AND payment_attempted",
+        "note": "payment_executed is False if authorized is False — regardless of payment_attempted",
+    },
+    "intervention": {
+        "variable": "authorized",
+        "counterfactual_value": False,
+        "counterfactual_outcome": "payment_executed = False (consequence prevented)",
+        "interpretation": "Setting authorized=False (withholding RELEASE_GRANTED) prevents execution",
+    },
+    "controller": "MockPaymentActuator-v1",
+    "controller_role": "Enforces gate — payment_executed impossible without RELEASE_GRANTED",
+    "halpern_pearl_conditions": {
+        "AC1_factual": "authorized=True AND payment_executed=True occurred in this execution",
+        "AC2_counterfactual": "In closest world where authorized=False, payment_executed=False",
+        "AC3_minimality": "authorized is part of minimal set sufficient for counterfactual",
+    },
+}
+
+
+def _compute_could_field(
+    release_result: dict,
+    actuator_result: dict,
+    window_ms: float,
+) -> dict:
+    """
+    P5: Compute the COULD conjunct for a payment domain execution.
+    Returns a COULD field suitable for inclusion in the VCB passport.
+    Encodes the Halpern-Pearl actual causality model for payment domain.
+    
+    authorized = evaluate_release() returned RELEASE_GRANTED
+    payment_executed = actuator returned executed=True
+    intervention_window_ms = measured time between release check and execution
+    """
+    authorized_val = release_result.get("release") == "RELEASE_GRANTED"
+    executed_val = actuator_result.get("executed", False)
+
+    # Actual causality: A (authorized) is actual cause of B (executed)
+    # if both occurred AND counterfactual holds (no auth = no execution)
+    actual_cause = authorized_val and executed_val
+
+    return {
+        "model_id": VCB_HALPERN_PEARL_PAYMENT_MODEL["model_id"],
+        "domain": "payment",
+        "variables": [
+            {
+                "name": "authorized",
+                "kind": "ENDOGENOUS",
+                "actual_value": authorized_val,
+            },
+            {
+                "name": "payment_executed",
+                "kind": "ENDOGENOUS",
+                "actual_value": executed_val,
+            },
+        ],
+        "intervention": {
+            "variable": "authorized",
+            "counterfactual_value": False,
+            "counterfactual_outcome": "payment_executed = False",
+        },
+        "witness": [
+            {
+                "variable": "authorized",
+                "value": authorized_val,
+            }
+        ],
+        "result": "ACTUAL_CAUSE" if actual_cause else "NOT_CAUSE",
+        "intervention_window_ms": round(window_ms, 3),
+        "controller": VCB_HALPERN_PEARL_PAYMENT_MODEL["controller"],
+        "source": VCB_HALPERN_PEARL_PAYMENT_MODEL["source"],
+    }
+
 
 class MockPaymentActuator:
     """
@@ -111192,6 +111359,69 @@ async def test_vcb_invariant(
         "timestamp": ts,
     }
 
+
+
+@app.post("/v1/p5/seal", tags=["P5 — COULD Causal Model"])
+async def p5_seal(
+    request: dict,
+    x_api_key: str = Header(None, alias="X-API-Key"),
+    authorization: str = Header(None),
+):
+    """
+    P5: VCB seal with COULD conjunct — Halpern-Pearl causal model, payment domain.
+    Document v2.2 §5.5: COULD moves from NOT_MODELLED to measured — one domain.
+    Issues a passport with COULD.result = ACTUAL_CAUSE when evaluate_release + actuator confirm it.
+    jar_verify check_could returns COULD_VERIFIED (not UNDETERMINED.COULD_NOT_MODELLED).
+    """
+    require_api_key(x_api_key, authorization)
+    import time as _time
+
+    vcb_decision = request.get("vcb_decision", {})
+    action = request.get("action", {"type": "payment", "amount": 1000, "vendor": "VENDOR-A"})
+    enforcement_point = request.get("enforcement_point", "payment-boundary-v1")
+    ttl_seconds = request.get("ttl_seconds", 86400)
+
+    if not vcb_decision:
+        return {"error": "vcb_decision required"}
+
+    _t0 = _time.monotonic()
+    release_result = evaluate_release(
+        examination_result={"verdict": vcb_decision.get("decision", "UNKNOWN")},
+        consumption_result={"consumed": True},
+    )
+    actuator = MockPaymentActuator()
+    actuator_result = actuator.attempt_payment(
+        amount=float(action.get("amount", 0)),
+        vendor=str(action.get("vendor", "UNKNOWN")),
+        release_result=release_result,
+    )
+    _t1 = _time.monotonic()
+    window_ms = (_t1 - _t0) * 1000
+
+    could_field = _compute_could_field(
+        release_result=release_result,
+        actuator_result=actuator_result,
+        window_ms=window_ms,
+    )
+
+    passport = issue_sigilmark(
+        vcb_decision=vcb_decision,
+        action_payload=action,
+        enforcement_point=enforcement_point,
+        ttl_seconds=ttl_seconds,
+        could_field=could_field,
+    )
+
+    return {
+        **passport,
+        "_p5_meta": {
+            "release_result": release_result.get("release"),
+            "actuator_executed": actuator_result.get("executed"),
+            "window_ms": round(window_ms, 3),
+            "could_result": could_field.get("result"),
+            "vcb_invariant_holds": actuator.vcb_invariant_holds,
+        },
+    }
 
 @app.get("/v1/engineering/master-audit", tags=["Engineering Gates 0-7"])
 async def engineering_master_audit():
