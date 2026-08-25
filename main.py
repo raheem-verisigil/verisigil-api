@@ -113418,12 +113418,20 @@ async def test_paystack_actuator(
     """
     require_api_key(x_api_key, authorization)
 
-    api_key = os.environ.get("PAYSTACK_SECRET_KEY", "") or os.environ.get("PAYSTACK_TEST_KEY", "")
+    # Check all possible Paystack key variable names
+    api_key = (os.environ.get("PAYSTACK_SECRET_KEY", "") or
+               os.environ.get("PAYSTACK_TEST_KEY", "") or
+               os.environ.get("PAYSTACK_KEY", "") or
+               os.environ.get("PAYSTACK_API_KEY", ""))
+    # Debug: show what Railway env vars are available (key names only, not values)
+    env_keys_with_paystack = [k for k in os.environ if "PAYSTACK" in k.upper()]
     if not api_key:
         return {
             "status": "SKIPPED",
-            "reason": "PAYSTACK_TEST_KEY not set in Railway environment variables",
-            "action": "Confirm PAYSTACK_SECRET_KEY is set in Railway → Variables",
+            "reason": "No Paystack key found in Railway environment variables",
+            "action": "In Railway → your service → Variables, confirm key is set to sk_test_... value",
+            "checked_vars": ["PAYSTACK_SECRET_KEY", "PAYSTACK_TEST_KEY", "PAYSTACK_KEY", "PAYSTACK_API_KEY"],
+            "paystack_vars_found_in_env": env_keys_with_paystack,
         }
 
     act = PaystackTestActuator(api_key=api_key)
