@@ -95839,6 +95839,11 @@ def issue_sigilmark(
             "examination_schema": "VGS-WHY-EXAMINATION-2.0",
             "requirement_id":     vcb_decision.get("consequence_type", "UNSPECIFIED"),
             "authority_reference": vcb_decision.get("authority_hash", ""),
+            "admissible_region_reference": _vcc_hash({
+                "authority": vcb_decision.get("authority_hash",""),
+                "policy": vcb_decision.get("policy_hash",""),
+                "consequence_type": vcb_decision.get("consequence_type",""),
+            }),
             "action_examined":    action_hash,
             "enforcement_point":  enforcement_point,
             "evaluation_result":  decision,
@@ -98216,6 +98221,144 @@ VCB_EXECUTION_CONTINUITY_PRINCIPLE = {
 }
 
 
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# VCB ADMISSIBLE REGION — Named structure for the boundary within which an action
+# remains admissible under declared authority and conditions.
+# Expert audit (August 2026): "An authority grant alone is insufficient.
+# Model the authority as a bounded Admissible Region."
+# ═══════════════════════════════════════════════════════════════════════════════
+
+VCB_ADMISSIBLE_REGION_SCHEMA = {
+    "schema": "VGS-ADMISSIBLE-REGION-1.0",
+    "definition": (
+        "The bounded space within which the exact proposed action remains admissible "
+        "under declared authority at the relevant commitment point. "
+        "VCB examines whether sufficient admissible evidence establishes that the action "
+        "remained inside the declared admissible region. "
+        "VCB does not determine whether the authority source is institutionally legitimate."
+    ),
+    "fields": {
+        "subject_identity":          "Who or what is acting",
+        "permitted_actions":         "Actions the subject may take",
+        "prohibited_actions":        "Actions explicitly forbidden",
+        "resource_scope":            "Resources the action may affect",
+        "quantitative_limits":       "Numeric bounds (amount, count, rate)",
+        "temporal_validity":         "When the region is valid (T0 to T_expiry)",
+        "freshness_requirements":    "How current the authority evidence must be",
+        "state_constraints":         "Conditions that must hold for actions to be admissible",
+        "invalidation_predicates":   "Conditions that invalidate the region",
+        "reauthorization_triggers":  "Events requiring fresh authority",
+        "escalation_requirements":   "Conditions requiring higher-level approval",
+        "stop_conditions":           "Conditions requiring immediate halt",
+        "designated_authority_source": "Where to verify current authority",
+        "authority_version":         "Version of the authority grant",
+    },
+}
+
+
+def build_admissible_region(vcb_decision: dict, action_payload: dict) -> dict:
+    """
+    Construct an AdmissibleRegion record from a VCB decision object.
+    This is the named boundary structure recommended by the expert audit.
+    Every VCB passport should reference its admissible region.
+    """
+    return {
+        "schema":                    "VGS-ADMISSIBLE-REGION-1.0",
+        "subject_identity":          vcb_decision.get("authority_hash", ""),
+        "permitted_actions":         [vcb_decision.get("decision", "UNKNOWN")],
+        "prohibited_actions":        [],  # Declared by authority source
+        "resource_scope":            {
+            "consequence_type":      vcb_decision.get("consequence_type", "UNSPECIFIED"),
+            "enforcement_point":     vcb_decision.get("enforcement_point", ""),
+        },
+        "quantitative_limits":       {
+            "action_hash_bound":     vcb_decision.get("action_hash", ""),
+        },
+        "temporal_validity":         {
+            "authority_hash":        vcb_decision.get("authority_hash", ""),
+            "policy_hash":           vcb_decision.get("policy_hash", ""),
+            "state_hash":            vcb_decision.get("state_hash", ""),
+        },
+        "freshness_requirements":    "30s for HIGH consequence domain",
+        "invalidation_predicates":   ["authority_revoked", "scope_reduced", "state_changed"],
+        "reauthorization_triggers":  ["authority_expiry", "scope_change", "personnel_change"],
+        "designated_authority_source": vcb_decision.get("authority_hash", ""),
+        "authority_version":         vcb_decision.get("authority_version", "v1"),
+        "vcb_note": (
+            "VCB examines whether the exact proposed action remained inside this "
+            "declared admissible region at the commitment point. "
+            "VCB does not certify the institutional legitimacy of the authority source."
+        ),
+    }
+
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# VCB VERIFICATION BASIS — Three independent dimensions of every artifact
+# Expert audit: "Proof and assurance must remain separate"
+# A technically valid VCB artifact must never imply independent certification
+# merely because VCB created and checked it.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+VCB_VERIFICATION_BASIS = {
+    "schema": "VGS-VERIFICATION-BASIS-1.0",
+    "claim_result": {
+        "PROVABLE":     "Established by the available evidence under declared constraints",
+        "FAILED":       "Established as not holding by the available evidence",
+        "NOT_PROVABLE": "Evidence insufficient to establish either way",
+    },
+    "verification_basis": {
+        "SELF_VERIFIED":              "VCB checked its own artifact",
+        "INTERNALLY_REPRODUCED":      "Reproduced by another instance of the same system",
+        "EXTERNALLY_REVIEWED":        "Reviewed by an independent party with access to the system",
+        "INDEPENDENTLY_RECONSTRUCTED": "Reconstructed offline without access to the original runtime",
+    },
+    "boundary_statement": "WHAT THIS RECORD DOES NOT ESTABLISH",
+    "principle": (
+        "Every artifact exposes all three dimensions independently. "
+        "SELF_VERIFIED does not imply INDEPENDENTLY_RECONSTRUCTED. "
+        "A technically valid VCB artifact must never imply independent certification "
+        "simply because VCB created and checked it."
+    ),
+}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# VCB OUTCOME RECONCILIATION — WHAT conjunct result status
+# Expert audit: "Reconciliation determines whether observations can be attributed
+# to the protected consequence."
+# ═══════════════════════════════════════════════════════════════════════════════
+
+VCB_OUTCOME_RECONCILIATION_SCHEMA = {
+    "schema": "VGS-OUTCOME-RECONCILIATION-1.0",
+    "reconciliation_results": {
+        "MATCH":           "Observed outcome matches expected consequence (same id, amount, recipient)",
+        "MISMATCH":        "Observed outcome exists but does not match expected consequence",
+        "NOT_RECONCILABLE": "Insufficient evidence to attribute observation to this consequence",
+    },
+    "observation_status": {
+        "OBSERVATION_PROVABLE":     "Operational evidence is attributable to this exact passport",
+        "OBSERVATION_NOT_PROVABLE": "Cannot establish that observation is from this passport",
+    },
+    "required_fields": [
+        "consequence_id",
+        "action_hash",
+        "decision_id",
+        "commitment_id",
+        "authority_version",
+        "evidence_chain_root",
+        "trace_id",
+        "external_reference_ids",
+    ],
+    "principle": (
+        "trace_id alone is insufficient. The reconciliation engine must determine "
+        "whether evidence is attributable to the exact protected consequence. "
+        "LOG EXISTS ≠ OUTCOME PROVEN."
+    ),
+}
+
+
 VCB_HALPERN_PEARL_PAYMENT_MODEL = {
     "schema": "VGS-CAUSAL-MODEL-1.0",
     "model_id": "VCB-HALPERN-PEARL-PAYMENT-v1",
@@ -98314,7 +98457,6 @@ def _compute_could_field(
     }
 
 
-class MockPaymentActuator:
     """
     Mock consequence actuator for the payment domain.
     In P4: simulates the boundary evaluate_release() must gate.
@@ -98384,6 +98526,73 @@ class MockPaymentActuator:
             "vcb_invariant": "SATISFIED: admissible evidence preceded execution",
         }
     
+    @property
+    def vcb_invariant_holds(self) -> bool:
+        """True if NO bypass attempt succeeded."""
+        return len(self.bypass_attempts) == 0 or all(
+            a.get("blocked") for a in self.bypass_attempts
+        )
+
+
+
+class MockPaymentActuator:
+    """
+    Mock consequence actuator for the payment domain.
+    In P4: simulates the boundary evaluate_release() must gate.
+    In production (P5/P6): would be replaced by Stripe API call.
+
+    The VCB invariant: evaluate_release() result must be RELEASE_GRANTED
+    before this actuator executes. If it is called without a valid passport,
+    it records BYPASS_DETECTED.
+
+    This is the "real actuator" that makes the invariant testable:
+    "An inadmissible action cannot reach a protected consequence."
+    """
+
+    def __init__(self):
+        self.executions = []
+        self.refused_attempts = []
+        self.bypass_attempts = []
+
+    def attempt_payment(
+        self,
+        amount: float,
+        vendor: str,
+        passport: dict = None,
+        release_result: dict = None,
+    ) -> dict:
+        """
+        Attempt a payment. Requires a valid release_result from evaluate_release().
+        If called without RELEASE_GRANTED: records BYPASS_DETECTED.
+        """
+        ts = datetime.now(timezone.utc).isoformat()
+
+        if release_result is None or release_result.get("release") != "RELEASE_GRANTED":
+            self.bypass_attempts.append({
+                "attempted_at": ts, "amount": amount, "vendor": vendor,
+                "release_result": release_result, "blocked": True,
+                "reason": "NO_ADMISSIBLE_EVIDENCE",
+            })
+            return {
+                "executed": False, "blocked": True,
+                "reason": "NO_ADMISSIBLE_EVIDENCE_NO_ADMISSIBLE_EXECUTION",
+                "vcb_invariant": "An inadmissible action cannot reach a protected consequence",
+                "timestamp": ts,
+            }
+
+        execution_id = _vcc_hash({"amount": amount, "vendor": vendor, "ts": ts})[:16]
+        self.executions.append({
+            "execution_id": execution_id, "executed_at": ts,
+            "amount": amount, "vendor": vendor,
+            "passport_id": passport.get("sigilmark_id","") if passport else "",
+            "release_result": release_result.get("release"),
+        })
+        return {
+            "executed": True, "execution_id": execution_id,
+            "amount": amount, "vendor": vendor, "timestamp": ts,
+            "vcb_invariant": "SATISFIED: admissible evidence preceded execution",
+        }
+
     @property
     def vcb_invariant_holds(self) -> bool:
         """True if NO bypass attempt succeeded."""
@@ -111832,6 +112041,20 @@ async def what_record(
         "recorded_at": ts,
     })
 
+    # Reconcile outcome against expected consequence
+    expected = request.get("expected_outcome", {})
+    if expected:
+        if (outcome.get("consequence_id") == expected.get("consequence_id") and
+            outcome.get("amount") == expected.get("amount")):
+            reconciliation = "MATCH"
+            observation_status = "OBSERVATION_PROVABLE"
+        else:
+            reconciliation = "MISMATCH"
+            observation_status = "OBSERVATION_NOT_PROVABLE"
+    else:
+        reconciliation = "NOT_RECONCILABLE"
+        observation_status = "OBSERVATION_NOT_PROVABLE"
+
     what_record = {
         "schema": "VGS-WHAT-RECORD-1.0",
         "sigilmark_id": sigilmark_id,
@@ -111840,6 +112063,9 @@ async def what_record(
         "outcome_hash": outcome_hash,
         "recorded_at": ts,
         "attribution": "ATTRIBUTED_TO_PASSPORT",
+        "reconciliation": reconciliation,
+        "observation_status": observation_status,
+        "verification_basis": "SELF_VERIFIED",
         "note": (
             "This WHAT record ties operational evidence to the exact passport "
             "that authorised the consequence. "
