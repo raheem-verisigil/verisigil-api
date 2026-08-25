@@ -88,8 +88,12 @@ class CheckResult:
             DOMAIN_EXITS = {EXIT_FAILED, EXIT_UNDETERMINED, EXIT_SCOPE_WIDENING,
                            EXIT_CLOSURE_TRUNCATED, EXIT_REPLAY_UNAVAILABLE}
             if exit_on_fail in DOMAIN_EXITS:
-                PRIORITY = {0:0,3:1,2:2,1:3,7:4,8:4,9:4}
-                if PRIORITY.get(exit_on_fail,0) > PRIORITY.get(self.exit_code,0):
+                # Priority order: 7,8,9 (specific) > 1 (FAILED) > 2 (UNDETERMINED) > 3 (INVALID)
+                # FAILED beats UNDETERMINED: definitive evidence beats "could not establish"
+                PRIORITY = {EXIT_ADMISSIBLE: 0, EXIT_INVALID: 1, EXIT_UNDETERMINED: 2,
+                            EXIT_FAILED: 3, EXIT_SCOPE_WIDENING: 4,
+                            EXIT_CLOSURE_TRUNCATED: 4, EXIT_REPLAY_UNAVAILABLE: 4}
+                if PRIORITY.get(exit_on_fail, 0) > PRIORITY.get(self.exit_code, 0):
                     self.exit_code = exit_on_fail
             elif self.exit_code == EXIT_ADMISSIBLE:
                 self.exit_code = exit_on_fail
@@ -412,7 +416,10 @@ def check_replay(passport: dict, r: CheckResult):
 def check_assurance(passport: dict, r: CheckResult):
     """
     Check 7: Assurance triple (INV-EV-01, INV-EV-02, INV-EV-03).
-    independence_class must be computed, never asserted as INDEPENDENT without dependency sets.
+    P3: independence_class COMPUTED from dependency_sets, never accepted as asserted.
+    INV-EV-03: checker compares declared dependency sets.
+    If two conjuncts share any member: SHARED_DEPENDENCY regardless of what record claims.
+    If dependency_sets absent: NOT_ESTABLISHED — never INDEPENDENT.
     """
     assurance = passport.get("assurance", {})
     if not assurance:
@@ -421,7 +428,7 @@ def check_assurance(passport: dict, r: CheckResult):
 
     integrity = assurance.get("integrity_class", "")
     custody = assurance.get("custody_class", "")
-    independence = assurance.get("independence_class", "NOT_ESTABLISHED")
+    claimed_independence = assurance.get("independence_class", "NOT_ESTABLISHED")
 
     # INV-EV-01: UNAUTHENTICATED_TELEMETRY cannot satisfy a conjunct
     if integrity == "UNAUTHENTICATED_TELEMETRY":
@@ -430,42 +437,84 @@ def check_assurance(passport: dict, r: CheckResult):
               EXIT_FAILED)
         return
 
-    # INV-EV-02: GAP_UNKNOWN => UNDETERMINED
-    if custody == "GAP_UNKNOWN":
-        r.add_undetermined("assurance_custody",
-                           "CUSTODY_GAP_UNKNOWN: conjunct UNDETERMINED (INV-EV-02)")
-        return
-
-    # INV-EV-03: independence COMPUTED from dependency_sets — never accepted as asserted
+    # INV-EV-03: independence COMPUTED from dependency_sets — check BEFORE custody short-circuit
+    # These are orthogonal invariants; independence must be checked regardless of custody state
     dep_sets = assurance.get("dependency_sets")
-    claimed_independence = independence
     if dep_sets is None:
+        # No dependency sets declared => NOT_ESTABLISHED (never INDEPENDENT)
         computed_independence = "NOT_ESTABLISHED"
         if claimed_independence == "INDEPENDENT":
             r.add("assurance_independence", False,
-                  "INDEPENDENCE_ASSERTED_NOT_COMPUTED: dependency_sets absent (INV-EV-03)",
+                  "INDEPENDENCE_ASSERTED_NOT_COMPUTED: dependency_sets absent — "
+                  "CONSISTENT != INDEPENDENT (INV-EV-03)",
                   EXIT_FAILED)
             return
     else:
+        # Compute independence from declared dependency sets
         active_sets = [set(v) for v in dep_sets.values() if v]
         computed_independence = "NOT_ESTABLISHED"
         if len(active_sets) >= 2:
-            shared = any(s1 & s2 for i,s1 in enumerate(active_sets) for s2 in active_sets[i+1:])
+            shared = False
+            for i, s1 in enumerate(active_sets):
+                for s2 in active_sets[i+1:]:
+                    if s1 & s2:
+                        shared = True
+                        break
+                if shared:
+                    break
             computed_independence = "SHARED_DEPENDENCY" if shared else "INDEPENDENT"
+        elif len(active_sets) == 1:
+            computed_independence = "NOT_ESTABLISHED"
+
+        # Checker overrides claimed independence with computed value
         if claimed_independence == "INDEPENDENT" and computed_independence != "INDEPENDENT":
             r.add("assurance_independence", False,
-                  f"INDEPENDENCE_COMPUTED_{computed_independence}: claimed INDEPENDENT but computed {computed_independence} (INV-EV-03)",
+                  f"INDEPENDENCE_COMPUTED_{computed_independence}: "
+                  f"claimed INDEPENDENT but computed {computed_independence} (INV-EV-03)",
                   EXIT_FAILED)
+            return  # Do not fall through to pass
             return
 
-    # INV-EV-02: GAP_UNKNOWN after independence check (orthogonal invariants)
+    # INV-EV-02: GAP_UNKNOWN => UNDETERMINED (checked after independence)
     if custody == "GAP_UNKNOWN":
         r.add_undetermined("assurance_custody",
                            "CUSTODY_GAP_UNKNOWN: conjunct UNDETERMINED (INV-EV-02)")
         return
 
     r.add("assurance", True,
-          f"ASSURANCE_VERIFIED: integrity={integrity} custody={custody} independence=computed:{computed_independence if dep_sets else claimed_independence}")
+          f"ASSURANCE_VERIFIED: integrity={integrity} custody={custody} "
+          f"independence=computed:{computed_independence}")
+
+
+def check_custody(passport: dict, r: CheckResult):
+    """
+    Check 8a: Custody chain digest continuity (INV-EV-04).
+    For consecutive entries: digest_after[i] == digest_before[i+1].
+    If broken: GAP_DECLARED with break recorded.
+    """
+    custody = passport.get("custody", [])
+    if not custody:
+        r.add_undetermined("custody_chain", "UNDETERMINED.CUSTODY_CHAIN_ABSENT")
+        return
+
+    if len(custody) < 2:
+        r.add("custody_chain", True, f"CUSTODY_SINGLE_ENTRY: {custody[0].get('action','?')}")
+        return
+
+    breaks = []
+    for i in range(len(custody) - 1):
+        after = custody[i].get("digest_after", "")
+        before_next = custody[i+1].get("digest_before", "")
+        if after != before_next:
+            breaks.append(f"entry[{i}].digest_after={after[:16]} != entry[{i+1}].digest_before={before_next[:16]}")
+
+    if breaks:
+        r.add("custody_continuity", False,
+              f"CUSTODY_DIGEST_DISCONTINUITY: {breaks[0]} (INV-EV-04)",
+              EXIT_UNDETERMINED)
+    else:
+        r.add("custody_continuity", True,
+              f"CUSTODY_DIGEST_CONTINUOUS: {len(custody)} entries, all digests chain")
 
 
 def check_scope_ledger(passport: dict, r: CheckResult):
@@ -485,6 +534,87 @@ def check_scope_ledger(passport: dict, r: CheckResult):
     else:
         r.add("scope_ledger", True,
               f"SCOPE_LEDGER_PRESENT: {len(ledger.get('limits', []))} declared limits")
+
+
+def check_could(passport: dict, r: CheckResult):
+    """
+    Check P4: COULD conjunct (INV-COULD-01, INV-COULD-02, INV-COULD-03).
+    Vector 14: COULD asserted with witness value never observed.
+    INV-COULD-02: every witness entry must appear in variables[].actual_value.
+    """
+    could = passport.get("could")
+    if could is None:
+        r.add_undetermined("could", "UNDETERMINED.COULD_NOT_MODELLED")
+        return
+
+    model_id = could.get("model_id")
+    result = could.get("result", "NOT_MODELLED")
+
+    # INV-COULD-01: no model_id => NOT_MODELLED, non-contributing
+    if model_id is None:
+        if result != "NOT_MODELLED":
+            r.add("could_model", False,
+                  f"COULD_RESULT_WITHOUT_MODEL: result={result} but model_id=null (INV-COULD-01)",
+                  EXIT_FAILED)
+            return
+        r.add("could", True, "COULD_NOT_MODELLED: acceptable — model_id absent")
+        return
+
+    # INV-COULD-03: intervention_window_ms == 0 or null => no preventability
+    window = could.get("intervention_window_ms")
+    if window is None or window == 0:
+        r.add_undetermined("could_window",
+                           "COULD_NO_INTERVENTION_WINDOW: preventability cannot be asserted (INV-COULD-03)")
+        return
+
+    # INV-COULD-02: witness values must appear in variables[].actual_value
+    variables = could.get("variables", [])
+    actual_values = {v.get("name"): v.get("actual_value") for v in variables}
+    witnesses = could.get("witness", [])
+
+    violations = []
+    for w in witnesses:
+        var_name = w.get("variable")
+        witness_val = w.get("value")
+        if var_name not in actual_values:
+            violations.append(f"witness variable '{var_name}' not in variables list")
+        elif actual_values[var_name] != witness_val:
+            violations.append(f"witness '{var_name}'={witness_val!r} != actual {actual_values[var_name]!r}")
+
+    if violations:
+        r.add("could_witness", False,
+              f"COULD_WITNESS_NOT_OBSERVED: {violations[0]} (INV-COULD-02)",
+              EXIT_FAILED)
+        return
+
+    r.add("could", True, f"COULD_VERIFIED: model={model_id} result={result}")
+
+
+def check_replay_digests(passport: dict, r: CheckResult):
+    """
+    Check P4: Replay digest cross-reference (INV-EV-05 extension).
+    Vector 12: replay with mismatched policy_digest.
+    Cross-checks replay.policy_digest against evidence_references.policy_hash.
+    """
+    replay = passport.get("replay", {})
+    if not replay:
+        return  # Already handled by check_replay
+
+    # Cross-check replay.policy_digest vs evidence_references.policy_hash
+    evidence_refs = passport.get("why_examination", {}).get("evidence_references", {})
+    policy_hash = evidence_refs.get("policy_hash", "")
+    policy_digest = replay.get("policy_digest", "")
+
+    if policy_hash and policy_digest and policy_hash != policy_digest:
+        r.add("replay_policy_mismatch", False,
+              f"REPLAY_POLICY_DIGEST_MISMATCH: replay.policy_digest != evidence_references.policy_hash (INV-EV-05)",
+              EXIT_REPLAY_UNAVAILABLE)
+        return
+
+    if policy_hash and policy_digest and policy_hash == policy_digest:
+        r.add("replay_cross_check", True,
+              "REPLAY_POLICY_DIGEST_VERIFIED: matches evidence_references.policy_hash")
+
 
 
 def check_word_ban(passport: dict, r: CheckResult):
@@ -559,6 +689,9 @@ def main():
     check_still(passport, args.at, r)
     check_replay(passport, r)
     check_assurance(passport, r)
+    check_custody(passport, r)
+    check_could(passport, r)
+    check_replay_digests(passport, r)
     check_scope_ledger(passport, r)
     check_word_ban(passport, r)
 
