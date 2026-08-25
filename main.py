@@ -97938,6 +97938,147 @@ VCB_CEDAR_PROPERTIES = {
 # Applied to VCB payment domain: one published model, one domain
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# VCB CORE DOCTRINE — INVARIANTS INV-EXT-01 through INV-EXT-05
+# MINIMUM CONSEQUENTIAL CONTROL SET (MCCS)
+# DURABLE EXECUTION CONTINUITY PRINCIPLE
+#
+# Derived from independent external analysis (August 2025/2026) confirming VCB terrain.
+# These are permanent architectural invariants — not product modules.
+# NEVER use A2A, SPIFFE, ARD, OKF, or MCP terminology inside VCB claim language.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+VCB_INVARIANTS_EXT = {
+    "schema": "VGS-INV-EXT-1.0",
+    "doctrine": "Opaque execution is compatible with verifiable consequential control.",
+    "invariants": {
+        "INV-EXT-01": {
+            "name": "Opaque Execution Boundary",
+            "statement": (
+                "VCB must not require disclosure of an agent's internal reasoning, "
+                "memory, model state, or private implementation merely to examine a "
+                "consequential transition. The examination operates on the externally "
+                "attributable conditions required for the protected consequence."
+            ),
+        },
+        "INV-EXT-02": {
+            "name": "Explicitness Does Not Equal Correctness",
+            "statement": (
+                "A structured or machine-readable representation of policy, identity, "
+                "resource capability, or task state does not itself establish that the "
+                "represented condition was correctly applied."
+            ),
+        },
+        "INV-EXT-03": {
+            "name": "Discovery Does Not Grant Authority",
+            "statement": (
+                "Discovery, reachability, authenticity, or cryptographic verification "
+                "of a resource does not establish that the resource is authorized for "
+                "use in the proposed consequential action."
+            ),
+        },
+        "INV-EXT-04": {
+            "name": "Identity Does Not Prove Admissibility",
+            "statement": (
+                "A cryptographically verifiable identity establishes only the identity "
+                "claim supported by the identity evidence. It does not establish "
+                "authority, policy compliance, correct execution, or outcome correctness."
+            ),
+        },
+        "INV-EXT-05": {
+            "name": "Interaction Does Not Equal Consequence",
+            "statement": (
+                "A successful interaction does not establish that the intended protected "
+                "consequence occurred. "
+                "RELEASE ≠ ATTEMPT ≠ EXECUTION ≠ OBSERVATION ≠ RECONCILIATION ≠ PROOF."
+            ),
+        },
+    },
+    "addressability_doctrine": (
+        "ADDRESSABILITY ≠ ADMISSIBILITY. "
+        "A condition may be externally addressable without establishing that the action "
+        "was admissible. Addressable → evidence available → examination required → "
+        "PROVABLE / FAILED / NOT_PROVABLE."
+    ),
+    "public_answer": (
+        "VCB does not claim to prove the entire internal system. It examines the "
+        "externally attributable conditions required to establish whether a specific "
+        "consequential transition was admissible, whether those conditions remained "
+        "valid at commitment, whether the boundary retained leverage, and what can "
+        "later be established about the outcome. "
+        "The proof stops where the attributable evidence stops."
+    ),
+}
+
+
+VCB_MCCS = {
+    "schema": "VGS-MCCS-1.0",
+    "name": "Minimum Consequential Control Set",
+    "definition": (
+        "The minimal, action-specific set of external conditions required to govern "
+        "a consequential transition when the executing system is otherwise opaque. "
+        "This is a testable completeness contract, not a product module."
+    ),
+    "bindings": {
+        "MCCS-01": {"name": "Actor Binding",       "question": "Who or what is requesting?"},
+        "MCCS-02": {"name": "Action Binding",      "question": "What exact consequence is proposed?"},
+        "MCCS-03": {"name": "Authority Binding",   "question": "Under what declared authority?"},
+        "MCCS-04": {"name": "Scope Binding",       "question": "What exact limits apply?"},
+        "MCCS-05": {"name": "Requirement Binding", "question": "Which requirements materially govern release?"},
+        "MCCS-06": {"name": "Evidence Binding",    "question": "What evidence supports the examination?"},
+        "MCCS-07": {"name": "Current-State Continuity",
+                    "question": "Did identity, authority, scope, policy, or evidence materially change?"},
+        "MCCS-08": {"name": "Consumption Binding",
+                    "question": "Has the authorization already been consumed?"},
+        "MCCS-09": {"name": "Leverage Binding",
+                    "question": "Can the boundary still prevent the consequence?"},
+        "MCCS-10": {"name": "Outcome Correlation",
+                    "question": "Can subsequent operational evidence be attributed to this exact consequence?"},
+    },
+    "vcb_mapping": {
+        "MCCS-01": "signing_key_id + actor_chain in WHY examination",
+        "MCCS-02": "action_hash + consequence_type in signed payload",
+        "MCCS-03": "authority_hash + WHY.ASSOCIATED_WITH_PLAN edge",
+        "MCCS-04": "scope_ledger with declared limits",
+        "MCCS-05": "policy_hash + WHY examination edges",
+        "MCCS-06": "evidence_references + custody chain",
+        "MCCS-07": "STILL conjunct — authority currency check",
+        "MCCS-08": "consumption_state in signed payload",
+        "MCCS-09": "COULD conjunct — leverage/controller verification",
+        "MCCS-10": "WHAT conjunct — outcome correlation (post-P6)",
+    },
+}
+
+
+VCB_EXECUTION_CONTINUITY_PRINCIPLE = {
+    "schema": "VGS-EXEC-CONTINUITY-1.0",
+    "principle": (
+        "An interruption must preserve work continuity without preserving stale authority."
+    ),
+    "corollaries": [
+        "Restoration of execution state proves only what was previously saved — "
+        "it does not prove that the saved conditions remain current.",
+        "Terminology, definitions, constraints, and accepted decisions must not "
+        "silently drift merely because execution crossed a session, model, token, "
+        "or network boundary.",
+        "CHECKPOINT RESTORATION → TASK CONTINUATION → CONSEQUENTIAL PROPOSAL → "
+        "VCB STILL → CURRENT AUTHORITY CHECK → RELEASE / REFUSE.",
+    ],
+    "new_invariant": "INV-CONT-01: Restoration of a prior execution state must never "
+                     "by itself establish the continued validity of authority, evidence, "
+                     "conditions, or admissibility.",
+    "terminology_anchor": "terminology_version field in every signed passport — "
+                          "locks claim language to the definitions in force at issue time.",
+    "layer_separation": {
+        "upstream": "Execution Continuity Layer — checkpoints, terminology ledger, "
+                    "artifact persistence, continuation contracts, resumption",
+        "vcb_boundary": "VCB examines whether the resumed action's conditions remain "
+                        "currently admissible — not whether they were admissible when saved",
+    },
+}
+
+
 VCB_HALPERN_PEARL_PAYMENT_MODEL = {
     "schema": "VGS-CAUSAL-MODEL-1.0",
     "model_id": "VCB-HALPERN-PEARL-PAYMENT-v1",
