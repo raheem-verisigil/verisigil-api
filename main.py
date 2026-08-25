@@ -95869,17 +95869,25 @@ def issue_sigilmark(
     # Verifiers must use hardcoded prefix b"SIGILMARK-v1\x00", not this field value
     # See domain_prefix_note field in issued passport for consumer guidance
 
-    # Compute integrity hash — excludes only integrity_hash and signature
-    payload["integrity_hash"] = _vcc_hash(
-        {k: v for k, v in payload.items() if k not in ("integrity_hash", "signature")}
-    )
+    # Compute integrity hash — convert to JSON-safe form first
+    # CRITICAL: jar_verify reads the JSON response. We must hash exactly
+    # what jar_verify will see after JSON serialization.
+    # FastAPI serializes datetime → str, None → null, etc.
+    # We must apply the same transformation before hashing.
+    _json_safe = json.loads(json.dumps(
+        {k: v for k, v in payload.items() if k not in ("integrity_hash", "signature")},
+        default=str
+    ))
+    payload["integrity_hash"] = _vcc_hash(_json_safe)
 
     # Domain-separated signing over full payload (excluding signature only)
-    # Perplexity R2-07: legacy fallback permanently removed
-    # All VGS-SIGILMARK-1.0 passports use domain-separated signing exclusively
+    # Sign the JSON-safe version for the same reason
     domain_bytes = b"SIGILMARK-v1" + b"\x00"  # no literal null in source
-    payload_for_sig = {k: v for k, v in payload.items() if k != "signature"}
-    payload_bytes = domain_bytes + _vcb_canonical(payload_for_sig)
+    _sig_payload_safe = json.loads(json.dumps(
+        {k: v for k, v in payload.items() if k != "signature"},
+        default=str
+    ))
+    payload_bytes = domain_bytes + _vcb_canonical(_sig_payload_safe)
     raw_sig = SIGNING_KEY.sign(payload_bytes).signature
     payload["signature"] = base64.b64encode(raw_sig).decode()
     return payload
@@ -110722,112 +110730,3 @@ async def engineering_master_audit():
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=int(os.environ.get("PORT", 8000)), reload=False)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
