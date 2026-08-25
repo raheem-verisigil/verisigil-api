@@ -97134,7 +97134,22 @@ VCB_INSURANCE_GRADE_DOCTRINE = {
             "Downstream audit and insurance claims examination independently verify "
             "that the evidence supports the claims that were made when the coverage was bound."
         ),
+        "regulatory_surface": (
+            "The Portable Evidence Package / signed reconstruction must be sufficient for an "
+            "independent examiner to determine, after an incident, whether the required control "
+            "conditions were (or were not) satisfied at the moment of the consequential transition. "
+            "This directly supports time-bound serious-incident reporting obligations under regimes "
+            "such as EU AI Act Article 73, without VCB itself becoming the reporting system. "
+            "VCB is the Control + Evidence layer. It does not replace the organisational "
+            "operating model, ISO 42001 management system, or regulatory notification workflow."
+        ),
     },
+    "what_vcb_is_not": [
+        "A full ISO/IEC 42001 management system implementation",
+        "An enterprise AI inventory or vendor management system",
+        "An incident-reporting workflow or regulatory notification system",
+        "A claim that delivering VCB equals EU AI Act or 42001 compliance",
+    ],
     "consequence": (
         "Organizations that can produce continuous, captured, time-bound proof that the "
         "control operated (or correctly refused) at the moment of loss will be more insurable. "
