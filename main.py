@@ -96885,6 +96885,79 @@ VCB_ADR_REGISTRY = {
 #   external framework terminology.
 # ─────────────────────────────────────────────────────────────────────────────
 
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# VCB INSURANCE-GRADE EVIDENCE DOCTRINE
+# Source: Mike McClain post analysis (August 2026)
+# "The decisive question an insurer asks after a loss is not 'Did you have a policy?'
+#  but: Did the controls you described at underwriting actually operate at the moment of loss?"
+# ═══════════════════════════════════════════════════════════════════════════════
+
+VCB_INSURANCE_GRADE_DOCTRINE = {
+    "schema": "VGS-INSURANCE-DOCTRINE-1.0",
+    "core_question": (
+        "Did the controls you described at underwriting actually operate "
+        "at the moment of loss?"
+    ),
+    "vcb_answer": (
+        "The VCB condition record provides continuous, captured, time-bound evidence "
+        "that the control ran (or correctly refused) at the moment of commitment. "
+        "Post-event reconstruction from logs never signed or bound at commitment time "
+        "is explicitly insufficient for this purpose."
+    ),
+    "primary_consumers": [
+        "Organizational governance / accountability",
+        "Independent audit / assurance",
+        "Insurer / claims examination",
+    ],
+    "what_vcb_does_not_do": (
+        "VCB does not price insurance or determine coverage. "
+        "It produces the continuous, captured, time-bound evidence both auditors "
+        "and insurers require to distinguish 'we had controls' from "
+        "'the controls operated at the moment of loss.'"
+    ),
+    "insurance_grade_requirements": {
+        "independence": "Verifiable without network access to the original system",
+        "temporality": "What control operated at the moment of the consequential transition",
+        "authority": "Under which authority, ownership, context, and human intervention",
+        "commitment_time": "Was the authority evaluated at commitment time, not reconstructed after",
+        "historical_validity": "Historical validity preserved distinctly from current status",
+        "survivability": (
+            "Temporally interpretable after role changes, personnel departures, "
+            "key rotation, and system upgrades"
+        ),
+    },
+    "standard_statement_addition": (
+        "The artifact is designed so that an independent examiner (auditor or insurer) "
+        "can verify, without reliance on the original runtime, that the admissible-examination "
+        "and release (or refuse) decision occurred at the moment of commitment and remains "
+        "temporally interpretable thereafter."
+    ),
+    "positioning": {
+        "upstream": "Governance defines the rules.",
+        "vcb": "VCB enforces and evidences what was actually admissible at the moment of commitment.",
+        "downstream": (
+            "Downstream audit and insurance claims examination independently verify "
+            "that the evidence supports the claims that were made when the coverage was bound."
+        ),
+    },
+    "consequence": (
+        "Organizations that can produce continuous, captured, time-bound proof that the "
+        "control operated (or correctly refused) at the moment of loss will be more insurable. "
+        "This is a direct consequence of the existing priorities (live STILL, temporal authority, "
+        "real actuator, ownership-authorized kill, full offline reconstructibility) — "
+        "not a new product direction."
+    ),
+    "what_does_not_change": [
+        "Priority order (P0-P7)",
+        "Locked-claim status (NOT YET DELIVERED)",
+        "Adversarial test set",
+        "Claims-registry discipline",
+        "Rejection of morality / fairness / psychological engines",
+    ],
+}
+
+
 VCB_CONDITION_RECORD_DEFINITION = {
     "schema": "VGS-CONDITION-RECORD-DEF-1.0",
     "term": "condition record with declared limits",
