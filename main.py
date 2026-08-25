@@ -95725,6 +95725,7 @@ def issue_sigilmark(
     payload = {
         "schema":                 "VGS-SIGILMARK-2.2",  # Condition record with declared limits — v2.2
         "payload_version":        "2.2",              # One version bump — all v2.2 fields batched
+        "terminology_version":    "VGS-TERMINOLOGY-1.0",  # Locks claim language to this passport
         "sigilmark_id":           sm_id,
         "vcb_id":                 sm_id,
         "decision":               decision,
