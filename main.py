@@ -99155,6 +99155,52 @@ def build_rejection_result(
     }
 
 
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# VCB MODEL-AGNOSTIC POSTURE
+# Source: Guillaume Belisle post on AI governance harness (August 2026)
+# Assessment: clean architectural alignment, no change to VCB priorities required.
+# VCB is the Control + Evidence layer at the consequential boundary.
+# It is one critical part of the broader harness — not the full harness.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+VCB_MODEL_AGNOSTIC_POSTURE = {
+    "schema": "VGS-MODEL-AGNOSTIC-1.0",
+    "principle": (
+        "VCB does not depend on any particular model, provider, or internal reasoning trace. "
+        "It evaluates the conditions of the action — authority, ownership, context, evidence, "
+        "leverage — at commitment time. The model provides intelligence. "
+        "VCB is the admission and evidence component of the control harness."
+    ),
+    "what_vcb_gates": [
+        "Consequential actions, not model selection",
+        "Authority and ownership at commitment time, not model capability",
+        "Evidence conditions, not internal reasoning traces",
+        "Release or refusal, not model routing or orchestration",
+    ],
+    "harness_mapping": {
+        "permission_model":    "Authority + ownership + admissible human intervention + release gate",
+        "workflow_evidence":   "Signed examination record + Portable Evidence Package + jar_verify",
+        "outcome_data":        "WHAT conjunct + admissible non-occurrence (open: requires real actuator)",
+        "task_contract":       "Action binding + scope + context sufficiency (open: live STILL)",
+        "tool_interfaces":     "Capability ≠ permission separation at actuator (P1)",
+        "model_migration":     "VCB is model-agnostic by design — gates the action, not the model",
+    },
+    "what_vcb_is_not_in_harness": [
+        "A model-routing or provider-selection system",
+        "An evaluation-set or benchmark platform",
+        "A context-assembly or tool-orchestration layer",
+        "A solution to model migration or provider outage handling",
+    ],
+    "locked_claim_unchanged": (
+        "The locked claim, priority order (P0-P7), and success condition are unchanged. "
+        "Continue closing live STILL, real actuator + COULD, ownership-authorized kill, "
+        "path audit, and full reconstructibility. "
+        "Those remain the only path to making the locked claim PROVABLE."
+    ),
+}
+
+
 VCB_HALPERN_PEARL_PAYMENT_MODEL = {
     "schema": "VGS-CAUSAL-MODEL-1.0",
     "model_id": "VCB-HALPERN-PEARL-PAYMENT-v1",
