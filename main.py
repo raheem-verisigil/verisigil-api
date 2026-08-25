@@ -95869,6 +95869,23 @@ def issue_sigilmark(
                 "policy": vcb_decision.get("policy_hash",""),
                 "consequence_type": vcb_decision.get("consequence_type",""),
             }),
+            "identity_continuity": {
+                # INV-ID-01: identity ≠ authority
+                # INV-ID-02: authority must bind to the relevant subject
+                # INV-ID-03: runtime discontinuity must not inherit consequence rights
+                "schema":              "VGS-IDENTITY-CONTINUITY-1.0",
+                "subject_id":          vcb_decision.get("subject_id", "NOT_DECLARED"),
+                "subject_type":        vcb_decision.get("subject_type", "UNKNOWN"),
+                "issuer_or_source":    vcb_decision.get("authority_hash", "NOT_DECLARED"),
+                "runtime_binding":     "AT_ISSUE_TIME",  # Revalidated at T1 by STILL + identity continuity
+                "evidence_status":     "CURRENT",        # Status at T0; STILL checks T1
+                "continuity_result":   "NOT_PROVABLE",   # Default: requires live STILL to establish
+                "note": (
+                    "Identity continuity must be re-examined at commitment time. "
+                    "This field records T0 state only. "
+                    "INV-ID-03: runtime discontinuity must not inherit consequence rights."
+                ),
+            },
             "evidentiary_sufficiency": {
                 # INV-SUFF-01: provenance/integrity ≠ sufficiency for this consequence
                 # INV-SUFF-02: threshold must be declared by authority, not invented here
@@ -98256,6 +98273,25 @@ VCB_INVARIANTS_EXT = {
             ),
         },
     },
+    "INV-ID-01": {
+        "name": "Identity Does Not Imply Authority",
+        "statement": "IDENTITY_PROVABLE ≠ AUTHORITY_PROVABLE. A valid identity alone cannot produce release.",
+    },
+    "INV-ID-02": {
+        "name": "Authority Must Bind to the Relevant Subject",
+        "statement": "AUTHORITY X must be applicable to IDENTITY/PRINCIPAL Y for ACTION Z.",
+    },
+    "INV-ID-03": {
+        "name": "Runtime Discontinuity Must Not Inherit Consequence Rights Automatically",
+        "statement": (
+            "If ORIGINAL_RUNTIME ≠ RESUMED_RUNTIME, the new runtime must establish "
+            "current identity binding before continuing toward consequence."
+        ),
+    },
+    "INV-ID-04": {
+        "name": "Identity Infrastructure Is External to VCB Claim",
+        "statement": "VCB evaluates identity evidence from a designated source. VCB does not certify the identity system.",
+    },
     "INV-SUFF-01": {
         "name": "Positive Evidence Result Does Not Establish Sufficiency for Higher Consequence",
         "statement": (
@@ -98739,6 +98775,157 @@ def build_evidence_requirement_profile(
         ),
     }
 
+
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# VCB IDENTITY LAYER DOCTRINE
+# Source: Diego Fernández post on national digital identity architectures (August 2026)
+# Core lesson: identity infrastructure may vary; evidentiary questions at the
+# consequential boundary should remain consistent.
+# All terminology is VCB's own. No external identity protocol terminology used.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+VCB_IDENTITY_LAYER_DOCTRINE = {
+    "schema": "VGS-IDENTITY-LAYER-1.0",
+    "core_principle": (
+        "Identity infrastructure may vary. "
+        "The evidentiary questions at the consequential boundary remain consistent. "
+        "VCB is identity-infrastructure-neutral and identity-evidence-strict."
+    ),
+    "dangerous_collapse_prevented": (
+        "ENTITY/AGENT ≠ IDENTITY_CLAIM ≠ IDENTITY_EVIDENCE ≠ IDENTITY_SOURCE "
+        "≠ RUNTIME_BINDING ≠ DECLARED_AUTHORITY ≠ ACTION_ADMISSIBILITY ≠ CONSEQUENCE. "
+        "These must never be silently treated as equivalent."
+    ),
+    "identity_hierarchy": {
+        "ORGANIZATION":        "The institutional context within which authority is granted",
+        "DECLARED_PRINCIPAL":  "The named owner or supervisor with accountability",
+        "AGENT_IDENTITY":      "The logical identity of the acting agent",
+        "RUNTIME_IDENTITY":    "The specific executing instance at the moment of action",
+        "EXACT_ACTION":        "The specific consequential transition proposed",
+        "CONSEQUENCE":         "The protected outcome the boundary governs",
+        "rule": (
+            "At each transition, the system must establish whether the relationship "
+            "is PROVABLE, FAILED, or NOT_PROVABLE. "
+            "A cryptographically valid runtime identity alone does not establish "
+            "that the workload remains authorized to execute the exact consequence."
+        ),
+    },
+    "identity_evidence_fields": {
+        "subject_id":           "The stable identifier of the acting entity",
+        "subject_type":         "ORGANIZATION | AGENT | RUNTIME | HUMAN | AUTOMATED_PROCESS",
+        "identity_claim":       "The asserted identity at the time of action",
+        "issuer_or_source":     "Who or what attested to the identity claim",
+        "credential_reference": "Reference to the identity credential — VCB does not store it",
+        "observed_at":          "When the identity evidence was observed",
+        "valid_until":          "When the identity evidence expires",
+        "runtime_binding":      "How the runtime instance is bound to the declared identity",
+        "evidence_status":      "CURRENT | STALE | EXPIRED | REVOKED | UNKNOWN",
+    },
+    "identity_continuity": {
+        "definition": (
+            "Can the identity evidence presented at the consequential boundary "
+            "still be sufficiently bound to the identity and authority context "
+            "under which the action was admitted?"
+        ),
+        "results": {
+            "IDENTITY_CONTINUITY_PROVABLE":     "Runtime identity is demonstrably bound to T0 identity context",
+            "IDENTITY_CONTINUITY_FAILED":       "Runtime identity cannot be bound to T0 identity context",
+            "IDENTITY_CONTINUITY_NOT_PROVABLE": "Insufficient evidence to determine binding",
+        },
+        "t0_to_t1_risks": [
+            "Credential expired between T0 and T1",
+            "Workload restarted — new runtime instance",
+            "Agent identity changed after T0 examination",
+            "Signing key rotated — historical binding broken",
+            "Session replaced — runtime no longer bound to original authority",
+        ],
+    },
+    "resumable_execution_context": {
+        "definition": (
+            "After a material interruption, a resumed process must not automatically "
+            "inherit consequence rights based solely on possession of historical context. "
+            "A checkpoint is not permission to continue."
+        ),
+        "required_fields": [
+            "continuation_id",
+            "prior_context_hash",
+            "checkpoint_hash",
+            "original_action_hash",
+            "original_identity_binding",
+            "authority_reference",
+            "checkpoint_timestamp",
+            "interruption_reason",
+        ],
+        "required_revalidation": [
+            "IDENTITY_CONTINUITY",
+            "STILL",
+            "CONSUMPTION_STATE_CHECK",
+            "COULD",
+        ],
+        "rule": (
+            "OLD_AUTHORITY ≠ CURRENT_AUTHORITY. "
+            "OLD_CONTEXT ≠ CURRENT_REALITY. "
+            "A resumed process must revalidate identity continuity and STILL "
+            "before continuing toward consequence."
+        ),
+    },
+    "portability_principle": (
+        "VCB must not hard-code trust in one identity infrastructure. "
+        "Every identity source must return evidence in a common VCB form: "
+        "SOURCE_ATTRIBUTION → FRESHNESS/VALIDITY → RUNTIME_BINDING → IDENTITY_CONTINUITY_RESULT. "
+        "Supported source types: enterprise access control, workload runtime identity, "
+        "government-issued identity, financial institution identity, "
+        "verifiable credential infrastructure, custom organizational identity source."
+    ),
+    "what_vcb_does_not_claim": [
+        "That a person truly exists",
+        "That a government identity system is universally correct",
+        "That a credential issuance process was lawful",
+        "That an institution granting identity is legitimate",
+        "That an authenticated workload is authorized to execute a consequence",
+    ],
+}
+
+
+VCB_IDENTITY_INVARIANTS = {
+    "schema": "VGS-IDENTITY-INVARIANTS-1.0",
+    "INV-ID-01": {
+        "name": "Identity Does Not Imply Authority",
+        "statement": (
+            "IDENTITY_PROVABLE ≠ AUTHORITY_PROVABLE. "
+            "A valid identity alone cannot produce release. "
+            "Identity establishes who or what is acting. "
+            "It does not establish that the action is admissible."
+        ),
+    },
+    "INV-ID-02": {
+        "name": "Authority Must Bind to the Relevant Subject",
+        "statement": (
+            "AUTHORITY X must be demonstrably applicable to IDENTITY/PRINCIPAL Y "
+            "for ACTION Z. Otherwise the result is NOT_PROVABLE or FAILED "
+            "depending on what the evidence establishes."
+        ),
+    },
+    "INV-ID-03": {
+        "name": "Runtime Discontinuity Must Not Inherit Consequence Rights Automatically",
+        "statement": (
+            "If ORIGINAL_RUNTIME ≠ RESUMED_RUNTIME, the new runtime must not "
+            "automatically inherit the right to continue a consequential transition "
+            "merely because it possesses historical context. "
+            "It must establish the required current identity binding."
+        ),
+    },
+    "INV-ID-04": {
+        "name": "Identity Infrastructure Is External to VCB's Claim",
+        "statement": (
+            "VCB may evaluate identity evidence supplied by a designated source. "
+            "VCB does not claim that the identity system itself is correct, lawful, "
+            "or institutionally legitimate. Those are upstream claims outside VCB's terrain."
+        ),
+    },
+}
 
 
 VCB_HALPERN_PEARL_PAYMENT_MODEL = {
