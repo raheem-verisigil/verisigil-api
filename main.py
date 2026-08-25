@@ -113400,6 +113400,7 @@ async def test_non_mutation_invariant(
 @app.post("/v1/engineering/test-paystack-actuator",
           tags=["Engineering — Adversarial"])
 async def test_paystack_actuator(
+    req: dict = None,
     x_api_key: Optional[str] = Header(None),
     authorization: Optional[str] = Header(None),
 ):
@@ -113418,8 +113419,10 @@ async def test_paystack_actuator(
     """
     require_api_key(x_api_key, authorization)
 
-    # Check all possible Paystack key variable names
-    api_key = (os.environ.get("PAYSTACK_SECRET_KEY", "") or
+    # Check all possible Paystack key variable names (env vars + optional request body)
+    req = req or {}
+    api_key = (req.get("paystack_key", "") or
+               os.environ.get("PAYSTACK_SECRET_KEY", "") or
                os.environ.get("PAYSTACK_TEST_KEY", "") or
                os.environ.get("PAYSTACK_KEY", "") or
                os.environ.get("PAYSTACK_API_KEY", ""))
