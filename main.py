@@ -98223,6 +98223,23 @@ VCB_INVARIANTS_EXT = {
             ),
         },
     },
+    "INV-TEMP-01": {
+        "name": "Integrity Continuity Is Not Condition Continuity",
+        "statement": (
+            "A signed record that has not been altered establishes only that the record "
+            "has not been altered. It does not establish that the conditions described "
+            "by the record are still true. "
+            "Integrity continuity ≠ condition continuity."
+        ),
+    },
+    "INV-TEMP-02": {
+        "name": "A Record May Remain Verifiable After Its Right-to-Rely Has Expired",
+        "statement": (
+            "A passport may be perfectly verifiable after the operational basis for "
+            "relying on it has expired. Verifiability ≠ current admissibility. "
+            "VALID_AT_RELEVANT_TIME ≠ CURRENTLY_VALID."
+        ),
+    },
     "addressability_doctrine": (
         "ADDRESSABILITY ≠ ADMISSIBILITY. "
         "A condition may be externally addressable without establishing that the action "
@@ -98442,6 +98459,88 @@ VCB_OUTCOME_RECONCILIATION_SCHEMA = {
         "whether evidence is attributable to the exact protected consequence. "
         "LOG EXISTS ≠ OUTCOME PROVEN."
     ),
+}
+
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# VCB TEMPORAL CHAIN DOCTRINE — Four Distinct Claims
+# These must never be collapsed into one another.
+# Derived from independent analysis of commitment-time governance gaps.
+# All terminology is VCB's own.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+VCB_TEMPORAL_CHAIN_DOCTRINE = {
+    "schema": "VGS-TEMPORAL-CHAIN-1.0",
+    "four_distinct_claims": {
+        "CLAIM_1": {
+            "statement": "Evidence was valid at T0 (examination time)",
+            "vcb_field": "why_examination — records what supported the proposal at T0",
+            "establishes": "The material basis existed at the moment of examination",
+            "does_not_establish": "That the basis still holds at T1",
+        },
+        "CLAIM_2": {
+            "statement": "Evidence is still reliable at T1 (commitment time)",
+            "vcb_field": "still_interval / evidence_freshness — STILL conjunct",
+            "establishes": "The material basis remained valid through T0→T1",
+            "does_not_establish": "That the action was actually authorized or occurred",
+        },
+        "CLAIM_3": {
+            "statement": "Action was actually authorized at T1",
+            "vcb_field": "evaluate_release() — RELEASE_GRANTED after all gates pass",
+            "establishes": "The consequence boundary examined and released",
+            "does_not_establish": "That the action actually occurred or was observed",
+        },
+        "CLAIM_4": {
+            "statement": "Action actually occurred",
+            "vcb_field": "could / what — actuator execution + outcome correlation",
+            "establishes": "Consequence was attempted and observed",
+            "does_not_establish": "That the outcome matched the authorization or was beneficial",
+        },
+    },
+    "chain_rule": (
+        "CLAIM_1 ≠ CLAIM_2 ≠ CLAIM_3 ≠ CLAIM_4. "
+        "No engineering component may collapse these four into one. "
+        "Each requires independent evidence."
+    ),
+    "material_dependency_classification": {
+        "CURRENT":           "Dependency confirmed current at T1 by authoritative source",
+        "UNCHANGED":         "Dependency confirmed not changed since T0 (hash continuity)",
+        "MATERIALLY_CHANGED": "Dependency has changed in a way material to the claim",
+        "STALE":             "Dependency evidence is beyond the declared freshness window",
+        "REVOKED":           "Dependency has been explicitly revoked",
+        "UNAVAILABLE":       "Dependency source cannot be reached — NOT_PROVABLE applies",
+        "UNKNOWN":           "Dependency status cannot be determined — UNKNOWN ≠ CURRENT",
+    },
+    "material_dependency_rule": (
+        "Only dependencies material to the exact consequential claim enter the "
+        "commit-time continuity examination. "
+        "Revalidating everything is scope explosion. "
+        "Revalidating nothing allows historical evidence to silently govern current reality. "
+        "The correct scope: MATERIAL DEPENDENCY SET → DECLARED AT T0 → BOUND TO THE CLAIM → "
+        "RE-EXAMINED WHERE REQUIRED AT T1 → STILL RESULT."
+    ),
+    "two_permanant_invariants": {
+        "INV-TEMP-01": {
+            "name": "Integrity Continuity Is Not Condition Continuity",
+            "statement": (
+                "A signed record that has not been altered establishes only that the record "
+                "has not been altered. It does not establish that the conditions described by "
+                "the record are still true. "
+                "Cryptographic integrity continuity ≠ condition continuity."
+            ),
+        },
+        "INV-TEMP-02": {
+            "name": "A Record May Remain Verifiable After Its Right-to-Rely Has Expired",
+            "statement": (
+                "A passport may be perfectly verifiable (integrity confirmed, signature valid) "
+                "after the operational basis for relying on it has expired. "
+                "Verifiability of the record ≠ current admissibility of the consequential claim. "
+                "VALID_AT_RELEVANT_TIME establishes what was true at T0. "
+                "CURRENTLY_VALID must be separately established at T1."
+            ),
+        },
+    },
 }
 
 
@@ -112053,30 +112152,45 @@ async def still_check(
     if revoked or chain_collapsed:
         return {
             "still_result": "FAILED",
+            "dependency_status": "REVOKED" if revoked else "MATERIALLY_CHANGED",
             "reason": "REVOKED" if revoked else "DELEGATION_CHAIN_COLLAPSED",
             "authority_hash": authority_hash,
             "checked_at": ts,
+            "valid_at_relevant_time": True,   # Was valid at T0
+            "currently_valid": False,          # No longer valid at T1
             "vcb_ruling": "REFUSE — authority no longer holds at T1",
+            "vcb_invariant": "INV-AUTH-TEMP-01: accountability evidence survives authority change",
         }
 
-    # T0/T1 baseline comparison
-    # If t0_baseline provided, verify it matches the current authority state
+    # T0/T1 baseline comparison using material dependency classification
     if t0_baseline and authority_hash:
-        # Hash matches = authority unchanged since T0
-        still_status = "PROVABLE"
-        method = "HASH_CONTINUITY"
+        if t0_baseline == authority_hash:
+            # Hash identity = dependency UNCHANGED since T0
+            dependency_status = "UNCHANGED"
+            still_status = "PROVABLE"
+            method = "HASH_CONTINUITY"
+        else:
+            # Hash differs = dependency MATERIALLY_CHANGED
+            dependency_status = "MATERIALLY_CHANGED"
+            still_status = "FAILED"
+            method = "HASH_CONTINUITY"
     else:
+        dependency_status = "UNKNOWN"
         still_status = "NOT_VERIFIED"
         method = "NO_BASELINE"
 
     return {
         "still_result": still_status,
+        "dependency_status": dependency_status,
         "authority_hash": authority_hash,
         "t0_baseline_hash": t0_baseline,
         "method": method,
         "checked_at": ts,
-        "note": "STILL verified by hash continuity. Full revocation check requires Supabase connection.",
+        "valid_at_relevant_time": True,
+        "currently_valid": still_status == "PROVABLE",
+        "note": "STILL verified by hash continuity — material dependency classification applied.",
         "scope_limit": "IN_MEMORY_ONLY — persistent revocation check requires db_mode=SUPABASE",
+        "vcb_temporal_chain": "CLAIM_2: evidence still reliable at T1",
     }
 
 
