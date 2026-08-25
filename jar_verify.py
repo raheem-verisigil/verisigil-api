@@ -527,7 +527,7 @@ def main():
 
     # Load passport
     try:
-        with open(args.passport) as f:
+        with open(args.passport, encoding="utf-8") as f:
             passport = json.load(f)
     except Exception as e:
         print(f"ERROR: cannot read passport: {e}", file=sys.stderr)
