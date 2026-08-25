@@ -95812,6 +95812,17 @@ def issue_sigilmark(
             "status":                       "UNKNOWN",   # Set to PROVABLE when hash continuity confirmed
             "result":                       "NOT_PROVABLE",  # Set by STILL adapter
             "max_staleness_ms":             30000,       # 30s for HIGH consequence domain
+            # INV-AUTH-TEMP-01: Temporal validity distinction
+            # VALID_AT_RELEVANT_TIME: was the authority valid when the action was examined?
+            # CURRENTLY_VALID: is the authority valid right now?
+            # These are SEPARATE claims and must never be collapsed.
+            "valid_at_relevant_time":       True,        # Authority was valid at decision_binding_at
+            "currently_valid":              "UNKNOWN",   # Must be determined by STILL adapter at T1
+            "temporal_validity_note": (
+                "VALID_AT_RELEVANT_TIME ≠ CURRENTLY_VALID. "
+                "Historical passports remain verifiable even after authority has changed. "
+                "INV-AUTH-TEMP-01: accountability evidence must survive authority."
+            ),
         },
         "t0_baseline": {
             # T0 authority snapshot — captured at examination time
@@ -96018,6 +96029,69 @@ def issue_sigilmark(
 def _record_gate_result(gate_id: str, endpoint: str, passed: bool, result: dict) -> None:
     """Record adversarial gate result — stub for production logging."""
     pass  # Future: persist to Supabase gate_results table
+
+
+def issue_refusal_record(
+    release_result: dict,
+    action_hash: str = "",
+    authority_hash: str = "",
+    enforcement_point: str = "",
+) -> dict:
+    """
+    Issue a signed refusal record — admissible non-occurrence as first-class evidence.
+    
+    Audit document §5 Cross-Cutting Principle:
+    "Admissible non-occurrence is first-class successful governance."
+    
+    A REFUSED evaluation is a positive governance outcome.
+    The refusal record provides signed, time-bound evidence that:
+    - The gate was reached
+    - The conditions were examined
+    - Release was correctly refused
+    - The refusal occurred at a specific commitment time
+    
+    This record survives as evidence even after the authority changes.
+    It is verifiable offline without access to the original runtime.
+    INV-AUTH-TEMP-01: accountability evidence must survive authority.
+    """
+    import hashlib as _hl
+    ts = datetime.now(timezone.utc).isoformat()
+    refusal_id = f"REF-{_hl.sha256((action_hash + ts).encode()).hexdigest()[:16].upper()}"
+
+    record = {
+        "schema":             "VGS-REFUSAL-RECORD-1.0",
+        "refusal_id":         refusal_id,
+        "record_type":        "ADMISSIBLE_NON_OCCURRENCE",
+        "release":            "REFUSED",
+        "gate_failed":        release_result.get("gate_failed", "UNKNOWN"),
+        "refuse_reason":      release_result.get("refuse_reason", ""),
+        "action_hash":        action_hash,
+        "authority_hash":     authority_hash,
+        "enforcement_point":  enforcement_point,
+        "refused_at":         ts,
+        "valid_at_relevant_time": True,
+        "currently_valid":    "NOT_APPLICABLE",  # Refusal is independent of current authority
+        "terminology_version": "VGS-TERMINOLOGY-1.0",
+        "scope_note": (
+            "This refusal record establishes that the gate was reached and "
+            "release was correctly refused at the recorded time. "
+            "It does not establish that no alternate path existed. "
+            "INV-AUTH-TEMP-01: this record remains valid after authority changes."
+        ),
+    }
+
+    # Sign the refusal record
+    import json as _json_ref
+    _ref_safe = _json_ref.loads(_json_ref.dumps(
+        {k: v for k, v in record.items() if k not in ("refusal_signature",)},
+        default=str
+    ))
+    domain_bytes = b"REFUSAL-v1" + bytes([0])  # domain separator
+    msg = domain_bytes + _vcb_canonical(_ref_safe)
+    record["refusal_signature"] = base64.b64encode(SIGNING_KEY.sign(msg).signature).decode()
+    record["signing_key_id"] = hashlib.sha256(VERIFY_KEY.encode()).hexdigest()[:32]
+
+    return record
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -98134,6 +98208,18 @@ VCB_INVARIANTS_EXT = {
                 "A successful interaction does not establish that the intended protected "
                 "consequence occurred. "
                 "RELEASE ≠ ATTEMPT ≠ EXECUTION ≠ OBSERVATION ≠ RECONCILIATION ≠ PROOF."
+            ),
+        },
+        "INV-AUTH-TEMP-01": {
+            "name": "Authority Is Temporary; Accountability Evidence Must Survive Authority",
+            "statement": (
+                "The authority under which an action was taken may expire, be revoked, "
+                "or be superseded. The accountability evidence recording what was examined "
+                "and decided under that authority must remain verifiable after the authority "
+                "itself has changed. "
+                "VALID_AT_RELEVANT_TIME ≠ CURRENTLY_VALID. "
+                "Historical passports must remain verifiable under the signing key that "
+                "was active at issue time, regardless of subsequent key rotation."
             ),
         },
     },
