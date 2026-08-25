@@ -95838,8 +95838,41 @@ def issue_sigilmark(
             "schema":             "VGS-ASSURANCE-TRIPLE-1.0",
             "integrity_class":    "SELF_REPORTED",
             "custody_class":      "GAP_UNKNOWN",
-            "independence_class": "NOT_ESTABLISHED",
+            # INV-EV-03: independence_class computed from dependency_sets, never asserted
+            # If dependency_sets absent or overlap found => NOT_ESTABLISHED
+            # Checker computes this — caller cannot assert INDEPENDENT
+            "independence_class": "NOT_ESTABLISHED",  # Computed below from dependency_sets
+            "dependency_sets": {
+                # Each conjunct declares its dependencies
+                # If any two conjuncts share a dependency: SHARED_DEPENDENCY
+                # If dependency_sets absent: NOT_ESTABLISHED (never INDEPENDENT)
+                "WHY": ["policy_hash", "authority_hash", "action_hash"],
+                "STILL": ["authority_hash"],
+                "COULD": [],   # NOT_MODELLED — no causal model yet
+                "WHAT": [],    # NOT_IMPLEMENTED — no real actuator
+            },
         },
+        # P3: Custody chain with digest continuity (INV-EV-04)
+        "custody": [
+            {
+                "handler_id":    "VCB-EXAMINER-1.0",
+                "action":        "COLLECT",
+                "at":            ts,
+                "digest_before": _vcc_hash(action_payload) if action_payload else "",
+                "digest_after":  action_hash,
+                "tool_id":       "VCB-CANONICAL-HASHER",
+                "tool_version":  "rfc8785-jcs-v1",
+            },
+            {
+                "handler_id":    "VCB-EXAMINER-1.0",
+                "action":        "STORE",
+                "at":            ts,
+                "digest_before": action_hash,
+                "digest_after":  "PENDING_INTEGRITY_HASH",  # Updated after hash computed
+                "tool_id":       "VCB-SIGILMARK-ISSUER",
+                "tool_version":  "VCB-2.2",
+            },
+        ],
         "replay": {
             "schema":                        "VGS-REPLAY-DIGESTS-1.0",
             "policy_digest":                 vcb_decision.get("policy_hash", ""),
@@ -95869,6 +95902,25 @@ def issue_sigilmark(
     # Verifiers must use hardcoded prefix b"SIGILMARK-v1\x00", not this field value
     # See domain_prefix_note field in issued passport for consumer guidance
 
+    # P3: Compute independence_class from dependency_sets — INV-EV-03
+    # Computed in code, never asserted. Checker verifies this computation.
+    _p3_dep = payload.get("assurance", {}).get("dependency_sets", {})
+    if _p3_dep:
+        _p3_active = [set(v) for v in _p3_dep.values() if v]
+        if len(_p3_active) >= 2:
+            _p3_shared = False
+            for _p3_i, _p3_s1 in enumerate(_p3_active):
+                for _p3_s2 in _p3_active[_p3_i+1:]:
+                    if _p3_s1 & _p3_s2:
+                        _p3_shared = True
+                        break
+                if _p3_shared:
+                    break
+            payload["assurance"]["independence_class"] = "SHARED_DEPENDENCY" if _p3_shared else "INDEPENDENT"
+        else:
+            payload["assurance"]["independence_class"] = "NOT_ESTABLISHED"
+
+
     # Compute integrity hash — convert to JSON-safe form first
     # CRITICAL: jar_verify reads the JSON response. We must hash exactly
     # what jar_verify will see after JSON serialization.
@@ -95879,6 +95931,22 @@ def issue_sigilmark(
         default=str
     ))
     payload["integrity_hash"] = _vcc_hash(_json_safe)
+
+    # P3: Update custody STORE digest_after with actual integrity_hash
+    if "custody" in payload:
+        for _entry in payload["custody"]:
+            if _entry.get("digest_after") == "PENDING_INTEGRITY_HASH":
+                _entry["digest_after"] = payload["integrity_hash"]
+
+
+    # P3: Recompute integrity_hash after custody update (custody now has actual hash)
+    # This ensures verify_sigilmark sees consistent custody digest
+    if "custody" in payload:
+        _json_safe = json.loads(json.dumps(
+            {k: v for k, v in payload.items() if k not in ("integrity_hash", "signature")},
+            default=str
+        ))
+        payload["integrity_hash"] = _vcc_hash(_json_safe)
 
     # Domain-separated signing over full payload (excluding signature only)
     # Sign the JSON-safe version for the same reason
@@ -95917,8 +95985,12 @@ def verify_sigilmark(sm: dict, presented_action: dict = None, presented_enforcem
     # 1. Integrity hash check — using unified canonical form
     # Perplexity R2-02 fix: domain_prefix is now INSIDE integrity hash
     # Only exclude the hash itself and signature from recomputation
-    sm_check = {k: v for k, v in sm.items()
-                if k not in ("integrity_hash", "sigilmark_hash", "signature")}
+    # P3: Use JSON-safe form to match FastAPI serialization (same as issue_sigilmark)
+    import json as _json_v
+    sm_check = _json_v.loads(_json_v.dumps(
+        {k: v for k, v in sm.items() if k not in ("integrity_hash", "sigilmark_hash", "signature")},
+        default=str
+    ))
     expected_hash = _vcc_hash(sm_check)
     stored_hash = sm.get("integrity_hash") or sm.get("sigilmark_hash", "")
     if expected_hash != stored_hash:
@@ -98531,7 +98603,12 @@ def _verify_evidence_chain_integrity(package: dict) -> dict:
     # 1. SigilMark hash — check primary hash field (integrity_hash) and flag any tampered secondary hash
     sm = package.get("sigilmark", {})
     # Perplexity R2-02: domain_prefix now in integrity hash — remove from exclusion
-    sm_check = {k: v for k, v in sm.items() if k not in ("sigilmark_hash","integrity_hash","issuer_signature","signature","vcc_hash")}
+    # P3: JSON-safe form — must match FastAPI serialization used by issue_sigilmark
+    import json as _json_ei
+    sm_check = _json_ei.loads(_json_ei.dumps(
+        {k: v for k, v in sm.items() if k not in ("sigilmark_hash","integrity_hash","issuer_signature","signature","vcc_hash")},
+        default=str
+    ))
     expected_sm_hash = _vcc_hash(sm_check)
     # Check integrity_hash (primary field from issue_sigilmark)
     if sm.get("integrity_hash") and expected_sm_hash != sm.get("integrity_hash",""):
