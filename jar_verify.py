@@ -88,10 +88,8 @@ class CheckResult:
             DOMAIN_EXITS = {EXIT_FAILED, EXIT_UNDETERMINED, EXIT_SCOPE_WIDENING,
                            EXIT_CLOSURE_TRUNCATED, EXIT_REPLAY_UNAVAILABLE}
             if exit_on_fail in DOMAIN_EXITS:
-                # Domain exit wins unless we already have a more specific domain exit
-                if self.exit_code == EXIT_INVALID or self.exit_code == EXIT_ADMISSIBLE:
-                    self.exit_code = exit_on_fail
-                elif exit_on_fail > self.exit_code and self.exit_code not in DOMAIN_EXITS:
+                PRIORITY = {0:0,3:1,2:2,1:3,7:4,8:4,9:4}
+                if PRIORITY.get(exit_on_fail,0) > PRIORITY.get(self.exit_code,0):
                     self.exit_code = exit_on_fail
             elif self.exit_code == EXIT_ADMISSIBLE:
                 self.exit_code = exit_on_fail
@@ -438,19 +436,36 @@ def check_assurance(passport: dict, r: CheckResult):
                            "CUSTODY_GAP_UNKNOWN: conjunct UNDETERMINED (INV-EV-02)")
         return
 
-    # INV-EV-03: INDEPENDENT must be computed, not asserted
-    # If claimed INDEPENDENT but no dependency_sets field, reject
-    if independence == "INDEPENDENT":
-        dep_sets = assurance.get("dependency_sets")
-        if not dep_sets:
+    # INV-EV-03: independence COMPUTED from dependency_sets — never accepted as asserted
+    dep_sets = assurance.get("dependency_sets")
+    claimed_independence = independence
+    if dep_sets is None:
+        computed_independence = "NOT_ESTABLISHED"
+        if claimed_independence == "INDEPENDENT":
             r.add("assurance_independence", False,
-                  "INDEPENDENCE_ASSERTED_NOT_COMPUTED: dependency_sets absent — "
-                  "must be computed by checker (INV-EV-03)",
+                  "INDEPENDENCE_ASSERTED_NOT_COMPUTED: dependency_sets absent (INV-EV-03)",
+                  EXIT_FAILED)
+            return
+    else:
+        active_sets = [set(v) for v in dep_sets.values() if v]
+        computed_independence = "NOT_ESTABLISHED"
+        if len(active_sets) >= 2:
+            shared = any(s1 & s2 for i,s1 in enumerate(active_sets) for s2 in active_sets[i+1:])
+            computed_independence = "SHARED_DEPENDENCY" if shared else "INDEPENDENT"
+        if claimed_independence == "INDEPENDENT" and computed_independence != "INDEPENDENT":
+            r.add("assurance_independence", False,
+                  f"INDEPENDENCE_COMPUTED_{computed_independence}: claimed INDEPENDENT but computed {computed_independence} (INV-EV-03)",
                   EXIT_FAILED)
             return
 
+    # INV-EV-02: GAP_UNKNOWN after independence check (orthogonal invariants)
+    if custody == "GAP_UNKNOWN":
+        r.add_undetermined("assurance_custody",
+                           "CUSTODY_GAP_UNKNOWN: conjunct UNDETERMINED (INV-EV-02)")
+        return
+
     r.add("assurance", True,
-          f"ASSURANCE_RECORDED: integrity={integrity} custody={custody} independence={independence}")
+          f"ASSURANCE_VERIFIED: integrity={integrity} custody={custody} independence=computed:{computed_independence if dep_sets else claimed_independence}")
 
 
 def check_scope_ledger(passport: dict, r: CheckResult):
