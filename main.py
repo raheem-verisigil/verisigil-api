@@ -968,20 +968,41 @@ ALTER TABLE governance_events ENABLE ROW LEVEL SECURITY;
 """
 
 
+def _chain_event_hash(event: dict) -> str:
+    """
+    Compute the hash of an audit event for chain linkage.
+    PAYNOVYN pattern: each event references the hash of the prior event.
+    Makes tampering with the audit trail detectable.
+    """
+    import json as _j
+    safe = _j.loads(_j.dumps(
+        {k: v for k, v in event.items() if k != "previous_event_hash"},
+        default=str
+    ))
+    return _vcc_hash(safe)
+
+
 async def log_event(agent_id: str, event: str, event_data: dict = {}):
     try:
         passport = await db_get("passports", "agent_id", agent_id)
         if not passport:
             return
         timestamp = datetime.utcnow().isoformat()
-        new_event = {
-            "event":          event,
-            "timestamp":      timestamp,
-            "event_data":     event_data,
-            "signature":      sign_payload({"agent_id": agent_id, "event": event, "timestamp": timestamp}),
-            "signature_type": "Ed25519",
-        }
         existing = list(passport.get("audit_events") or [])
+
+        # INV-COMMIT-02 / PAYNOVYN audit chain pattern:
+        # Each event references the hash of the previous event.
+        # Tampering with any event breaks the chain.
+        previous_hash = _chain_event_hash(existing[-1]) if existing else "GENESIS"
+
+        new_event = {
+            "event":               event,
+            "timestamp":           timestamp,
+            "event_data":          event_data,
+            "previous_event_hash": previous_hash,
+            "signature":           sign_payload({"agent_id": agent_id, "event": event, "timestamp": timestamp}),
+            "signature_type":      "Ed25519",
+        }
         existing.append(new_event)
         await db_patch("passports", "agent_id", agent_id, {"audit_events": existing})
     except Exception as e:
@@ -95842,6 +95863,20 @@ def issue_sigilmark(
                 "P3.2: treasury_mandate_id must be passed via vcb_decision.authority_id "
                 "to enable STILL revalidation at commitment time."
             ),
+            # INV-COMMIT-01: policy commitment verification
+            # The policy_hash declared here must match the policy used at evaluation.
+            # An independent verifier can check: hash(loaded_policy) == policy_hash
+            # If they differ, the evaluation used a different policy than declared.
+            "policy_commitment_verification": {
+                "schema":      "VGS-POLICY-COMMITMENT-1.0",
+                "policy_hash": vcb_decision.get("policy_hash", "NOT_DECLARED"),
+                "state_hash":  vcb_decision.get("state_hash", "NOT_DECLARED"),
+                "commitment_rule": (
+                    "hash(loaded_policy) MUST EQUAL policy_hash at evaluation time. "
+                    "If not equal: REJECT. INV-COMMIT-01."
+                ),
+                "verified_at": ts,
+            },
         },
         "canonical_form": "rfc8785-jcs-v1",  # Updated from compact-json-sha256-v1
         "why_examination": {
@@ -98292,6 +98327,27 @@ VCB_INVARIANTS_EXT = {
         "name": "Identity Infrastructure Is External to VCB Claim",
         "statement": "VCB evaluates identity evidence from a designated source. VCB does not certify the identity system.",
     },
+    "INV-COMMIT-01": {
+        "name": "Policy Commitment Must Match Policy Used at Evaluation",
+        "statement": (
+            "The policy/authority hash declared in the signed passport at issue time "
+            "must match the policy actually used during evaluation. "
+            "If hash(loaded_policy) ≠ passport.policy_hash → REJECT. "
+            "A constitution/policy that has drifted since the object was issued "
+            "must not silently govern a new evaluation. "
+            "Source: PAYNOVYN/PBST architectural principle — constitution commitment verification."
+        ),
+    },
+    "INV-COMMIT-02": {
+        "name": "A Rejected Transition Must Never Mutate Consequential State",
+        "statement": (
+            "A REFUSED or FAILED evaluation result must not alter the protected state "
+            "in any way. The original state is preserved exactly as it was before "
+            "the examination. Rejection is evidence of governance operating correctly — "
+            "it is not a partial transition. "
+            "Source: PAYNOVYN INV-007 — 'A rejected transition must never mutate economic state.'"
+        ),
+    },
     "INV-SUFF-01": {
         "name": "Positive Evidence Result Does Not Establish Sufficiency for Higher Consequence",
         "statement": (
@@ -98925,6 +98981,45 @@ VCB_IDENTITY_INVARIANTS = {
             "or institutionally legitimate. Those are upstream claims outside VCB's terrain."
         ),
     },
+}
+
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# VCB CONSUMPTION ATOMICITY NOTE — Re-verify-after-lock pattern
+# Source: PAYNOVYN/PBST architecture (independent convergence)
+# INV-COMMIT-02: A rejected transition must never mutate consequential state.
+# INV-COMMIT-01: Policy commitment must match policy used at evaluation.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+VCB_CONSUMPTION_ATOMICITY = {
+    "schema": "VGS-CONSUMPTION-ATOMICITY-1.0",
+    "required_pattern": (
+        "EXAMINE → ADMIT → ACQUIRE_LOCK → RE-VERIFY_STATE → CONSUME → RELEASE. "
+        "A transition admissible at T_examine may no longer be admissible at T_commit "
+        "if the object state has changed between examination and commitment."
+    ),
+    "current_scope": (
+        "In-memory single-instance: examine and consume happen atomically. "
+        "Multi-instance atomicity (V-002 full) requires a serializable Supabase "
+        "transaction with row-level lock. This is an open gap in the current build."
+    ),
+    "invariants": {
+        "INV-COMMIT-01": (
+            "hash(loaded_policy) MUST EQUAL passport.policy_hash at evaluation time. "
+            "Policy drift since issue must be detected and rejected."
+        ),
+        "INV-COMMIT-02": (
+            "A REFUSED or FAILED evaluation must not alter the protected state. "
+            "Rejection is evidence of governance operating correctly — not a partial transition."
+        ),
+    },
+    "production_requirement": (
+        "Supabase serializable transaction with SELECT FOR UPDATE on the passport record. "
+        "Re-verify current_state == state_before after lock acquisition. "
+        "Commit consumption only if re-verification passes."
+    ),
+    "scope_note": "OPEN_GAP: multi-instance atomicity requires Supabase serializable transaction.",
 }
 
 
