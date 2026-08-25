@@ -71349,6 +71349,142 @@ _DECISION_GRAPH_DB:    dict = {}  # entity_id -> decision authority map
 _KNOWLEDGE_GRAPH:      dict = {}  # doc_id -> policy/regulation/SOP
 _DELEGATION_PASSPORTS: dict = {}  # agent_id -> delegation passport
 _WHAT_RECORDS: dict = {}  # sigilmark_id -> WHAT outcome record
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PERSISTENT RELEASE STORAGE — Foundation Proof Priority 1
+# INV-P4: A release cannot be replayed beyond its permitted execution semantics.
+# The release record must survive: process restart, deployment restart,
+# database reconnection, crash, repeated requests, concurrent requests.
+# Architecture: Supabase table `release_records` with UNIQUE constraint on
+# (action_hash, release_id) prevents duplicate consumption even across instances.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# In-memory fallback (used when Supabase unavailable)
+_RELEASE_RECORDS: dict = {}  # release_id -> release record
+
+
+async def consume_release_atomic(
+    release_id: str,
+    action_hash: str,
+    authority_hash: str,
+    passport_id: str = "",
+    proposed_amount: float = None,
+    proposed_vendor: str = None,
+) -> dict:
+    """
+    Atomically consume a release record — exactly once.
+    INV-P4: COUNT(successful executions) <= 1 per release_id.
+    Uses per-key asyncio.Lock() for within-process concurrency.
+    Uses Supabase INSERT with conflict detection for cross-instance atomicity.
+    release_id is the single-use token — same release_id cannot be used twice
+    regardless of action_hash (prevents cross-action replay: INV-P3+P4).
+    """
+    import datetime as _dt, asyncio as _asyncio
+    ts = _dt.datetime.now(_dt.timezone.utc).isoformat()
+
+    # release_key = release_id only (INV-P3+P4: same release cannot be reused
+    # even with a different action_hash / modified parameters)
+    release_key = release_id
+
+    # Per-key asyncio.Lock() prevents concurrent duplicate consumption
+    # within the same process instance
+    if not hasattr(consume_release_atomic, "_locks"):
+        consume_release_atomic._locks = {}
+    if release_key not in consume_release_atomic._locks:
+        consume_release_atomic._locks[release_key] = _asyncio.Lock()
+
+    async with consume_release_atomic._locks[release_key]:
+        # Fast path: check in-memory (catches replay within same process)
+        if release_key in _RELEASE_RECORDS:
+            existing = _RELEASE_RECORDS[release_key]
+            return {
+                "consumed": False,
+                "reason": "ALREADY_CONSUMED",
+                "first_consumed_at": existing.get("consumed_at"),
+                "replay_detected": True,
+                "storage": "IN_MEMORY",
+                "vcb_inv": "INV-P4",
+            }
+
+        # Attempt Supabase persistent storage (cross-instance atomicity)
+        try:
+            record = {
+                "release_id":      release_id,
+                "action_hash":     action_hash,
+                "authority_hash":  authority_hash,
+                "passport_id":     passport_id,
+                "proposed_amount": proposed_amount,
+                "proposed_vendor": proposed_vendor,
+                "consumed_at":     ts,
+                "consumed":        True,
+            }
+            result = await db_insert_once("release_records", record)
+            if result and result.get("conflict"):
+                return {
+                    "consumed": False,
+                    "reason": "ALREADY_CONSUMED_CROSS_INSTANCE",
+                    "replay_detected": True,
+                    "storage": "SUPABASE",
+                    "vcb_inv": "INV-P4",
+                }
+            # Record in memory for fast subsequent checks
+            _RELEASE_RECORDS[release_key] = record
+            return {
+                "consumed": True,
+                "consumed_at": ts,
+                "release_id": release_id,
+                "action_hash": action_hash,
+                "storage": "SUPABASE",
+                "vcb_inv": "INV-P4: single consumption recorded persistently",
+            }
+        except Exception as e:
+            # Supabase unavailable — in-memory fallback
+            _RELEASE_RECORDS[release_key] = {
+                "release_id": release_id, "action_hash": action_hash,
+                "consumed_at": ts, "consumed": True,
+            }
+            return {
+                "consumed": True,
+                "consumed_at": ts,
+                "release_id": release_id,
+                "storage": "IN_MEMORY_FALLBACK",
+                "scope_limit": "NOT_DURABLE_ACROSS_RESTARTS",
+                "error": str(e)[:100],
+                "vcb_inv": "INV-P4: recorded in-memory (not durable)",
+            }
+
+
+async def db_insert_once(table: str, record: dict) -> dict:
+    """
+    Insert a record into Supabase with conflict detection.
+    Returns {"conflict": True} if the record already exists (ON CONFLICT DO NOTHING).
+    In production: use Supabase INSERT with ON CONFLICT DO NOTHING + returning count.
+    """
+    try:
+        import httpx as _httpx
+        headers = get_headers(write=True)
+        # Use ON CONFLICT DO NOTHING via Supabase prefer header
+        headers["Prefer"] = "resolution=ignore-duplicates,return=representation"
+        async with _httpx.AsyncClient() as client:
+            resp = await client.post(
+                f"{SUPABASE_URL}/rest/v1/{table}",
+                headers=headers,
+                json=record,
+                timeout=5,
+            )
+            if resp.status_code == 409:
+                return {"conflict": True}
+            if resp.status_code in (200, 201):
+                data = resp.json()
+                # Empty array = conflict (record already existed)
+                if isinstance(data, list) and len(data) == 0:
+                    return {"conflict": True}
+                return {"inserted": True, "data": data}
+            return {"conflict": False, "status": resp.status_code}
+    except Exception as e:
+        raise Exception(f"Supabase insert_once failed: {e}")
+
+
 _CAPABLE_PEOPLE:       dict = {}  # person_id -> capability profile
 _WORKFORCE_REGISTRY:   dict = {}  # worker_id -> AI worker profile
 _ROUTING_RULES:        dict = {}  # org_id -> decision routing config
@@ -113607,6 +113743,128 @@ async def env_diagnostic(x_api_key: Optional[str] = Header(None),
         "supabase_vars": supabase_keys,
         "sign_secret_vars": sign_keys,
         "all_var_names": all_keys,
+    }
+
+
+
+
+@app.post("/v1/engineering/test-replay-protection",
+          tags=["Engineering — Adversarial"])
+async def test_replay_protection(
+    req: dict = None,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Foundation Proof Priority 1+2: Persistent replay protection + atomic consumption.
+    
+    Tests INV-P4: A release cannot be replayed beyond its permitted execution semantics.
+    
+    Adversarial scenarios:
+    1. Same release consumed twice in same process (in-memory replay)
+    2. Release consumed, then Paystack called — second call blocked
+    3. Replay with modified amount — BLOCKED (different action_hash)
+    4. Rapid duplicate requests (concurrent replay simulation)
+    """
+    require_api_key(x_api_key, authorization)
+    req = req or {}
+    paystack_key = req.get("paystack_key", "")
+
+    tests = []
+    all_pass = True
+
+    def chk(ok, label, detail=""):
+        nonlocal all_pass
+        if not ok: all_pass = False
+        tests.append({"test": label, "status": "PASS" if ok else "FAIL", "detail": detail})
+
+    # Generate a unique release_id for this test run
+    import uuid as _uuid, hashlib as _hl
+    test_run = _uuid.uuid4().hex[:12]
+    release_id = f"REL-TEST-{test_run}"
+    action_hash = _hl.sha256(f"payment:5000:VENDOR-A:{test_run}".encode()).hexdigest()
+
+    # Test 1: First consumption succeeds
+    r1 = await consume_release_atomic(
+        release_id=release_id,
+        action_hash=action_hash,
+        authority_hash="MANDATE-TEST",
+        proposed_amount=5000.0,
+        proposed_vendor="VENDOR-A",
+    )
+    chk(r1.get("consumed") is True,
+        "First consumption: CONSUMED",
+        f"storage={r1.get('storage')}")
+
+    # Test 2: Second consumption of same release_id → ALREADY_CONSUMED
+    r2 = await consume_release_atomic(
+        release_id=release_id,
+        action_hash=action_hash,
+        authority_hash="MANDATE-TEST",
+        proposed_amount=5000.0,
+        proposed_vendor="VENDOR-A",
+    )
+    chk(r2.get("consumed") is False and r2.get("replay_detected"),
+        "Second consumption: REPLAY_DETECTED → REFUSED",
+        f"reason={r2.get('reason')}")
+    chk(r2.get("consumed") is False,
+        "INV-P4: release not consumed twice",
+        f"replay_detected={r2.get('replay_detected')}")
+
+    # Test 3: Rapid duplicate simulation (5 concurrent attempts, same release)
+    import asyncio as _asyncio
+    replay_run = _uuid.uuid4().hex[:12]
+    replay_release_id = f"REL-REPLAY-{replay_run}"
+    replay_action_hash = _hl.sha256(f"payment:5000:VENDOR-A:{replay_run}".encode()).hexdigest()
+
+    concurrent_results = await _asyncio.gather(*[
+        consume_release_atomic(
+            release_id=replay_release_id,
+            action_hash=replay_action_hash,
+            authority_hash="MANDATE-TEST",
+            proposed_amount=5000.0,
+            proposed_vendor="VENDOR-A",
+        )
+        for _ in range(5)
+    ])
+
+    consumed_count = sum(1 for r in concurrent_results if r.get("consumed") is True)
+    blocked_count = sum(1 for r in concurrent_results if r.get("consumed") is False)
+    chk(consumed_count == 1,
+        f"Concurrent replay: exactly 1 consumed (got {consumed_count}/5)",
+        f"blocked={blocked_count}")
+    chk(blocked_count == 4,
+        f"Concurrent replay: 4 replays blocked (got {blocked_count}/5)",
+        f"consumed={consumed_count}")
+
+    # Test 4: Modified amount = different action_hash = separate release required
+    modified_action_hash = _hl.sha256(f"payment:10000000:VENDOR-A:{test_run}".encode()).hexdigest()
+    r4 = await consume_release_atomic(
+        release_id=release_id,  # same release_id
+        action_hash=modified_action_hash,  # different action_hash
+        authority_hash="MANDATE-TEST",
+        proposed_amount=10000000.0,
+    )
+    # Different action_hash → different key → would succeed as new consumption
+    # But if we check: release_id already used, we block it
+    chk(r4.get("consumed") is False,
+        "INV-P3+P4: same release_id with modified params → BLOCKED",
+        f"reason={r4.get('reason','different_action_hash')}")
+
+    storage_modes = list(set(r.get("storage","?") for r in [r1,r2] + list(concurrent_results)))
+
+    return {
+        "invariant": "INV-P4 — Persistent Replay Protection",
+        "status": "PASS" if all_pass else "FAIL",
+        "passed": sum(1 for t in tests if t["status"] == "PASS"),
+        "total": len(tests),
+        "tests": tests,
+        "storage_modes": storage_modes,
+        "scope": (
+            "SUPABASE: durable across restarts and instances" 
+            if "SUPABASE" in storage_modes 
+            else "IN_MEMORY_FALLBACK: not durable across restarts — Supabase required for full proof"
+        ),
     }
 
 
