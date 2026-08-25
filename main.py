@@ -113506,6 +113506,29 @@ async def test_paystack_actuator(
     }
 
 
+
+@app.get("/v1/engineering/env-diagnostic", tags=["Engineering — Adversarial"])
+async def env_diagnostic(x_api_key: Optional[str] = Header(None),
+                         authorization: Optional[str] = Header(None)):
+    """
+    List all environment variable NAMES visible to the running container.
+    Values are NOT returned — only names. Safe to call publicly.
+    Use this to diagnose Railway variable injection issues.
+    """
+    require_api_key(x_api_key, authorization)
+    all_keys = sorted(os.environ.keys())
+    paystack_keys = [k for k in all_keys if "PAYSTACK" in k.upper()]
+    supabase_keys = [k for k in all_keys if "SUPABASE" in k.upper()]
+    sign_keys = [k for k in all_keys if "SIGN" in k.upper() or "SECRET" in k.upper()]
+    return {
+        "total_env_vars": len(all_keys),
+        "paystack_vars": paystack_keys,
+        "supabase_vars": supabase_keys,
+        "sign_secret_vars": sign_keys,
+        "all_var_names": all_keys,
+    }
+
+
 @app.get("/v1/engineering/master-audit", tags=["Engineering Gates 0-7"])
 async def engineering_master_audit():
     """
