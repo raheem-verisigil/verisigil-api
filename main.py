@@ -95848,6 +95848,20 @@ def issue_sigilmark(
             # P1: PROV-DM vocabulary — W3C Recommendation 30 April 2013
             # Closed enum — VCB_JAR_GRAMMAR_v1.why_edges_rel_enum
             "examination_schema": "VGS-WHY-EXAMINATION-2.0",
+            # INV-SUFF-01/02/03: Evidentiary sufficiency is separate from provenance/integrity
+            "evidentiary_sufficiency": {
+                "schema":                "VGS-EVIDENTIARY-THRESHOLD-1.0",
+                "consequence_class":     vcb_decision.get("consequence_type", "UNSPECIFIED"),
+                "threshold_id":          vcb_decision.get("policy_hash", "")[:16] if vcb_decision.get("policy_hash") else "NOT_DECLARED",
+                "threshold_version":     vcb_decision.get("authority_version", "v1"),
+                "declared_by":           vcb_decision.get("authority_hash", ""),
+                "sufficiency_result":    "NOT_PROVABLE",  # Default: declared threshold not yet examined
+                "sufficiency_note": (
+                    "INV-SUFF-01: provenance/integrity do not establish consequential sufficiency. "
+                    "INV-SUFF-02: threshold must be attributable to declared authority. "
+                    "Sufficiency examination requires explicit evidence_requirement_profile at commit time."
+                ),
+            },
             "requirement_id":     vcb_decision.get("consequence_type", "UNSPECIFIED"),
             "authority_reference": vcb_decision.get("authority_hash", ""),
             "admissible_region_reference": _vcc_hash({
@@ -95855,6 +95869,25 @@ def issue_sigilmark(
                 "policy": vcb_decision.get("policy_hash",""),
                 "consequence_type": vcb_decision.get("consequence_type",""),
             }),
+            "evidentiary_sufficiency": {
+                # INV-SUFF-01: provenance/integrity ≠ sufficiency for this consequence
+                # INV-SUFF-02: threshold must be declared by authority, not invented here
+                # INV-SUFF-03: INSUFFICIENT ≠ NOT_PROVABLE
+                "schema":            "VGS-EVIDENTIARY-SUFFICIENCY-1.0",
+                "consequence_class": vcb_decision.get("consequence_type", "UNSPECIFIED"),
+                "threshold_id":      vcb_decision.get("threshold_id", "NOT_DECLARED"),
+                "declared_by":       vcb_decision.get("authority_hash", "NOT_DECLARED"),
+                "sufficiency_result": (
+                    "NOT_PROVABLE"  # Default: threshold must be declared before sufficiency can be examined
+                    if not vcb_decision.get("threshold_id")
+                    else "DECLARED_PENDING_EXAMINATION"
+                ),
+                "note": (
+                    "Provenance, integrity, and policy validity do not by themselves "
+                    "establish evidentiary sufficiency for this consequence class. "
+                    "INV-SUFF-01: positive evidence result ≠ sufficiency for higher consequence."
+                ),
+            },
             "action_examined":    action_hash,
             "enforcement_point":  enforcement_point,
             "evaluation_result":  decision,
@@ -98223,6 +98256,30 @@ VCB_INVARIANTS_EXT = {
             ),
         },
     },
+    "INV-SUFF-01": {
+        "name": "Positive Evidence Result Does Not Establish Sufficiency for Higher Consequence",
+        "statement": (
+            "A positive result for provenance, integrity, or factual validity "
+            "MUST NOT by itself be interpreted as satisfaction of the evidentiary "
+            "requirements for a different or higher consequence class."
+        ),
+    },
+    "INV-SUFF-02": {
+        "name": "Evidentiary Threshold Must Be Attributable",
+        "statement": (
+            "The evidentiary threshold applicable to a protected consequence "
+            "MUST be attributable to a declared authority, policy, or designated source. "
+            "VCB MUST NOT silently invent a threshold."
+        ),
+    },
+    "INV-SUFF-03": {
+        "name": "Insufficient Evidence Must Not Be Upgraded to Sufficient",
+        "statement": (
+            "INSUFFICIENT ≠ NOT_PROVABLE. "
+            "If the declared evidentiary threshold was not satisfied, "
+            "the result MUST NOT be upgraded to SUFFICIENT."
+        ),
+    },
     "INV-TEMP-01": {
         "name": "Integrity Continuity Is Not Condition Continuity",
         "statement": (
@@ -98542,6 +98599,146 @@ VCB_TEMPORAL_CHAIN_DOCTRINE = {
         },
     },
 }
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# VCB EVIDENTIARY SUFFICIENCY DOCTRINE
+# Source: Analysis of consequence-proportional evidence requirements
+# "Authentic evidence is not necessarily sufficient evidence."
+# "Sufficient evidence for one consequence is not automatically sufficient
+#  evidence for another."
+# ═══════════════════════════════════════════════════════════════════════════════
+
+VCB_EVIDENTIARY_THRESHOLD = {
+    "schema": "VGS-EVIDENTIARY-THRESHOLD-1.0",
+    "core_distinction": (
+        "PROVENANCE ≠ INTEGRITY ≠ POLICY_VALIDITY ≠ EVIDENTIARY_SUFFICIENCY "
+        "≠ CONSEQUENTIAL_AUTHORIZATION. "
+        "A positive result for any one of these does not establish the others. "
+        "Evidence sufficient to establish one proposition is not automatically "
+        "sufficient to authorize every consequence that may follow from it."
+    ),
+    "five_questions": {
+        "Q1_ATTRIBUTABLE": "Is the evidence attributable? (Source / Provenance)",
+        "Q2_INTACT":       "Is the evidence intact? (Integrity)",
+        "Q3_CURRENT":      "Is the evidence current enough? (Freshness / Continuity)",
+        "Q4_SUFFICIENT":   "Does the evidence meet the declared threshold for this consequence? (Evidentiary Sufficiency)",
+        "Q5_AUTHORIZED":   "Is the consequence still authorized at commitment? (Authority + STILL + Commit)",
+    },
+    "vcb_role": (
+        "The policy owner defines the required evidence threshold. "
+        "VCB examines whether the declared threshold was actually satisfied "
+        "at the relevant moment. "
+        "VCB does not silently invent a threshold. "
+        "VCB does not determine how much evidence society or an institution should require."
+    ),
+    "evidence_requirement_profile_fields": {
+        "consequence_class":         "Exact class of consequence being gated (e.g. PAYMENT_HIGH_VALUE)",
+        "threshold_id":              "Identifier of the declared evidentiary threshold",
+        "threshold_version":         "Version of the threshold at time of examination",
+        "required_evidence_classes": "What types of evidence must be present",
+        "minimum_source_count":      "How many independent sources are required",
+        "freshness_requirements":    "How current the evidence must be",
+        "conflict_handling":         "What happens when evidence sources conflict",
+        "escalation_requirement":    "Whether human escalation is required and when",
+        "declared_by":               "Who owns this threshold (authority source)",
+        "effective_from":            "When this threshold became operative",
+    },
+    "consequence_ceiling": (
+        "An evidence set may support a maximum admissible consequence class. "
+        "Evidence sufficient for LOG/REVIEW does not automatically support "
+        "SUSPEND/BLOCK/TERMINATE. "
+        "VCB examines whether the attempted action remained within the declared "
+        "consequence ceiling. "
+        "The ceiling derives from an explicit, attributable policy or authority — "
+        "not from an opaque algorithmic determination inside VCB."
+    ),
+    "sufficiency_results": {
+        "SUFFICIENT":     "Declared evidentiary requirements were established",
+        "INSUFFICIENT":   "Declared requirements exist but were not met",
+        "NOT_PROVABLE":   "Cannot establish whether requirements were met",
+    },
+    "critical_distinction": "INSUFFICIENT ≠ NOT_PROVABLE",
+    "invariants": {
+        "INV-SUFF-01": {
+            "name": "Positive Evidence Result Does Not Establish Consequential Sufficiency",
+            "statement": (
+                "A positive result for provenance, integrity, or factual validity "
+                "MUST NOT by itself be interpreted as satisfaction of the evidentiary "
+                "requirements for a different or higher consequence class. "
+                "PROVENANCE ESTABLISHED ≠ CONSEQUENCE AUTHORIZED."
+            ),
+        },
+        "INV-SUFF-02": {
+            "name": "Evidentiary Threshold Must Be Attributable",
+            "statement": (
+                "The evidentiary threshold applicable to a protected consequence "
+                "MUST be attributable to a declared authority, policy, or other "
+                "designated source. "
+                "VCB MUST NOT silently invent a threshold. "
+                "An unatttributed threshold is not an evidentiary requirement — it is "
+                "a hidden assumption."
+            ),
+        },
+        "INV-SUFF-03": {
+            "name": "Insufficient Evidence Must Not Be Upgraded",
+            "statement": (
+                "If the system cannot establish that the declared evidentiary threshold "
+                "was satisfied, the result MUST NOT be upgraded to SUFFICIENT. "
+                "The result remains INSUFFICIENT or NOT_PROVABLE as warranted. "
+                "INSUFFICIENT ≠ NOT_PROVABLE: "
+                "INSUFFICIENT = requirements declared, not met. "
+                "NOT_PROVABLE = cannot determine whether requirements were met."
+            ),
+        },
+    },
+    "combined_discipline": (
+        "Francois finding: giving control is not giving a prudent procedure for exercising it. "
+        "Eva finding: giving evidence is not giving that evidence authority to carry a consequence. "
+        "Together: CONTROL BOUNDARY + EVIDENCE BOUNDARY. "
+        "The authority may say 'the agent may act.' "
+        "The evidentiary threshold may say 'not on this evidence alone.'"
+    ),
+}
+
+def build_evidence_requirement_profile(
+    consequence_class: str,
+    threshold_id: str,
+    required_evidence_classes: list,
+    minimum_source_count: int = 1,
+    freshness_seconds: int = 30,
+    conflict_handling: str = "NOT_PROVABLE",
+    escalation_requirement: str = "NONE",
+    declared_by: str = "",
+) -> dict:
+    """
+    Build an EVIDENCE_REQUIREMENT_PROFILE — the declared evidentiary
+    requirements for a specific consequence class.
+
+    VCB receives this profile and examines whether the declared requirements
+    were actually satisfied. VCB does not invent the profile.
+
+    INV-SUFF-02: The threshold must be attributable to a declared authority.
+    """
+    return {
+        "schema":                    "VGS-EVIDENCE-REQUIREMENT-PROFILE-1.0",
+        "consequence_class":         consequence_class,
+        "threshold_id":              threshold_id,
+        "threshold_version":         "v1",
+        "required_evidence_classes": required_evidence_classes,
+        "minimum_source_count":      minimum_source_count,
+        "freshness_seconds":         freshness_seconds,
+        "conflict_handling":         conflict_handling,
+        "escalation_requirement":    escalation_requirement,
+        "declared_by":               declared_by,
+        "effective_from":            datetime.now(timezone.utc).isoformat(),
+        "vcb_note": (
+            "VCB examines whether these declared requirements were satisfied at "
+            "commitment time. VCB does not determine what the requirements should be. "
+            "INV-SUFF-02: threshold must be attributable to a declared authority."
+        ),
+    }
+
 
 
 VCB_HALPERN_PEARL_PAYMENT_MODEL = {
@@ -112305,6 +112502,105 @@ async def what_retrieve(
             "note": "No outcome evidence tied to this passport. WHAT is NOT_ESTABLISHED.",
         })
     return record
+
+
+
+@app.post("/v1/evidentiary/check", tags=["Evidentiary Sufficiency"])
+async def evidentiary_check(
+    request: dict,
+    x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Evidentiary Sufficiency check — Q4 in the five-question chain.
+    
+    VCB does not determine what level of evidence is required.
+    VCB examines whether the declared threshold was actually satisfied.
+    
+    INV-SUFF-01: Provenance/integrity do not establish consequential sufficiency.
+    INV-SUFF-02: The threshold must be attributable to a declared authority.
+    INV-SUFF-03: Insufficient evidence must not be upgraded to SUFFICIENT.
+    
+    The policy owner declares the required evidence profile.
+    VCB examines: were those declared requirements actually satisfied?
+    
+    Returns SUFFICIENT / INSUFFICIENT / NOT_PROVABLE.
+    INSUFFICIENT ≠ NOT_PROVABLE.
+    """
+    require_api_key(x_api_key, authorization)
+    ts = datetime.now(timezone.utc).isoformat()
+
+    # The declared evidence requirement profile (must come from policy, not VCB)
+    profile = request.get("evidence_requirement_profile", {})
+    evidence_presented = request.get("evidence_presented", [])
+
+    if not profile:
+        return {
+            "sufficiency_result": "NOT_PROVABLE",
+            "reason": "INV-SUFF-02: No evidence_requirement_profile declared. "
+                      "VCB cannot silently invent a threshold.",
+            "checked_at": ts,
+        }
+
+    if not profile.get("declared_by"):
+        return {
+            "sufficiency_result": "NOT_PROVABLE",
+            "reason": "INV-SUFF-02: threshold.declared_by is required. "
+                      "An unattributed threshold is a hidden assumption, not a declared requirement.",
+            "checked_at": ts,
+        }
+
+    required_classes = profile.get("required_evidence_classes", [])
+    min_sources = profile.get("minimum_source_count", 1)
+    freshness_s = profile.get("freshness_seconds", 30)
+    consequence_class = profile.get("consequence_class", "UNSPECIFIED")
+
+    # Examine whether presented evidence satisfies declared requirements
+    presented_classes = {e.get("class", "") for e in evidence_presented}
+    missing_classes = [r for r in required_classes if r not in presented_classes]
+
+    # Source count check
+    independent_sources = len({e.get("source_id","") for e in evidence_presented
+                                if e.get("source_id") and e.get("independent", False)})
+
+    # Freshness check
+    stale_evidence = []
+    for e in evidence_presented:
+        age_s = e.get("age_seconds", 0)
+        if age_s > freshness_s:
+            stale_evidence.append(e.get("class", "unknown"))
+
+    # Determine result
+    if missing_classes:
+        result = "INSUFFICIENT"
+        reason = f"Required evidence classes not presented: {missing_classes}. INV-SUFF-03: not upgraded."
+    elif independent_sources < min_sources:
+        result = "INSUFFICIENT"
+        reason = f"Minimum source count not met: {independent_sources} < {min_sources}. INV-SUFF-03: not upgraded."
+    elif stale_evidence:
+        result = "INSUFFICIENT"
+        reason = f"Evidence stale beyond declared freshness window: {stale_evidence}."
+    else:
+        result = "SUFFICIENT"
+        reason = "All declared requirements satisfied."
+
+    return {
+        "sufficiency_result": result,
+        "consequence_class": consequence_class,
+        "threshold_id": profile.get("threshold_id", ""),
+        "declared_by": profile.get("declared_by", ""),
+        "missing_evidence_classes": missing_classes,
+        "independent_sources_presented": independent_sources,
+        "minimum_required": min_sources,
+        "stale_evidence": stale_evidence,
+        "reason": reason,
+        "checked_at": ts,
+        "vcb_scope": (
+            "VCB examined whether the declared threshold was satisfied. "
+            "VCB did not determine what the threshold should be. "
+            "INV-SUFF-01: sufficiency result does not automatically establish consequential authorization."
+        ),
+    }
 
 
 @app.get("/v1/engineering/master-audit", tags=["Engineering Gates 0-7"])
