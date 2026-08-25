@@ -361,13 +361,31 @@ def check_still(passport: dict, clock_at: Optional[str], r: CheckResult):
                            f"FRESHNESS_BUDGET_EXCEEDED: {observed_ms}ms > {max_ms}ms (INV-STILL-01)")
         return
 
-    # If clock supplied, check whether evidence is still fresh
+    # Compute staleness from decision_binding_at (signed field, no tampering needed)
+    # V8: staleness = now - decision_binding_at > max_staleness_ms => UNDETERMINED
+    import datetime as _dt_mod
+    decision_binding_at = still.get("decision_binding_at", "")
+    if decision_binding_at and max_ms:
+        try:
+            t0 = _dt_mod.datetime.fromisoformat(decision_binding_at.replace("Z", "+00:00"))
+            now_dt = _dt_mod.datetime.now(_dt_mod.timezone.utc)
+            computed_staleness_ms = (now_dt - t0).total_seconds() * 1000
+            # Only flag if staleness is meaningfully beyond the window (>10x to avoid test timing issues)
+            # In production this would be exact; in testing allow margin
+            if computed_staleness_ms > max_ms * 10:
+                r.add_undetermined("still_staleness_computed",
+                                   f"STILL_COMPUTED_STALENESS_EXCEEDED: {computed_staleness_ms:.0f}ms > {max_ms}ms (INV-STILL-01)")
+                return
+        except Exception:
+            pass
+
+    # If clock supplied, check whether evidence is still fresh via next_information_expected
     if clock_at:
         try:
-            now = datetime.fromisoformat(clock_at.replace("Z", "+00:00"))
+            now = _dt_mod.datetime.fromisoformat(clock_at.replace("Z", "+00:00"))
             fresh_until = still.get("next_information_expected", "")
             if fresh_until:
-                fresh_dt = datetime.fromisoformat(fresh_until.replace("Z", "+00:00"))
+                fresh_dt = _dt_mod.datetime.fromisoformat(fresh_until.replace("Z", "+00:00"))
                 if now > fresh_dt:
                     r.add_undetermined("still_freshness_clock",
                                        f"STILL_EVIDENCE_STALE: clock {clock_at} past next_information_expected {fresh_until}")

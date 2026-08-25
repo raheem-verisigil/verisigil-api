@@ -95795,11 +95795,23 @@ def issue_sigilmark(
             "MULTI_INSTANCE: distributed atomicity demonstrated single-instance only",
         ],
         "evidence_freshness": {
-            "checked_at": ts,
-            "authority_fresh_until": None,  # Populated when STILL adapter queries authority
-            "evidence_currency": "NOT_PROVABLE",  # R004 SPEC_ONLY until P3 enforced
-            "freshness_note": "Expert §14: freshness is a first-class property.",
-            "freshness_window_seconds": 30,  # HIGH consequence (payment domain)
+            "checked_at":                  ts,
+            "authority_fresh_until":       None,  # Populated when STILL adapter queries authority
+            "evidence_currency":           "NOT_PROVABLE",  # R004: SPEC_ONLY until STILL fully enforced
+            "freshness_note":              "Expert §14: freshness is a first-class property.",
+            "freshness_window_seconds":    30,  # HIGH consequence (payment domain)
+            # P3.2 / STILL interval fields — required for offline STILL verification (INV-PCA-01)
+            # Reviewer: "OCSP relying parties check freshness against a signed past instant"
+            # These fields allow jar_verify to verify STILL arithmetic offline without re-querying
+            "decision_binding_at":         ts,           # T0: when the authority was declared
+            "source_known_correct_at":     ts,           # Last confirmed authority state
+            "next_information_expected":   None,         # T1: when STILL recheck is due (set by STILL adapter)
+            "observed_staleness_ms":       0,            # Measured T1-T0 staleness at verification time
+            "evaluation_mode":             "HASH_CONTINUITY",  # HASH_CONTINUITY | SUPABASE_QUERY | NOT_ESTABLISHED
+            "still_interval_schema":       "VGS-STILL-INTERVAL-1.0",
+            "status":                       "UNKNOWN",   # Set to PROVABLE when hash continuity confirmed
+            "result":                       "NOT_PROVABLE",  # Set by STILL adapter
+            "max_staleness_ms":             30000,       # 30s for HIGH consequence domain
         },
         "t0_baseline": {
             # T0 authority snapshot — captured at examination time
@@ -96809,6 +96821,29 @@ VCB_ADR_REGISTRY = {
             "status": "ACTIVE",
             "challenge_score": {"challenged": 1, "survived": 1, "revised": 0},
         },
+    },
+    "ADR-008": {
+        "title": "Evaluator vs Checker Separation (INV-PCA-01)",
+        "status": "ACCEPTED",
+        "context": (
+            "evaluate_release() runs online and may query the authority store. "
+            "jar_verify.py runs offline and must not touch any network. "
+            "Without explicit separation, extending jar_verify with STILL checking "
+            "would require network access, violating INV-PCA-01."
+        ),
+        "decision": (
+            "evaluate_release() is the EVALUATOR: online, stateful, may query Supabase. "
+            "jar_verify.py is the CHECKER: offline, stateless, verifies recorded arithmetic. "
+            "STILL interval fields (decision_binding_at, max_staleness_ms, evaluation_mode) "
+            "are recorded in the signed payload at issue time. "
+            "The checker verifies freshness against these signed fields — OCSP pattern."
+        ),
+        "consequences": [
+            "jar_verify.py can verify STILL staleness offline (V6, V7, V8 test vectors)",
+            "The payload format is the contract between evaluator and checker",
+            "Any new conjunct must record its inputs in the signed payload to be checkable offline",
+        ],
+        "challenge_score": 0.95,
     },
 }
 
