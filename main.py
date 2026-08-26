@@ -99699,6 +99699,26 @@ VCB_MODEL_AGNOSTIC_POSTURE = {
         "This is architectural control, not a convenience feature. "
         "Source: Nairametrics cloud-concentration risk parallel, August 2026."
     ),
+    "intelligence_source_non_authority": (
+        "Capability is portable. Authority is not automatically portable. "
+        "A change in the intelligence system proposing a consequential action must not, "
+        "by itself, increase the admissibility of that action. "
+        "The proposer may be identified — but identity of the proposer is not sufficient "
+        "authority for the consequence. "
+        "VCB does not depend on whether the model is open-weight or closed, "
+        "fine-tuned or original, locally deployed or API-hosted. "
+        "Authority must be independently established at the consequential boundary "
+        "regardless of where the intelligence came from. "
+        "Source: Keith King post analysis + expert synthesis, August 2026."
+    ),
+    "scope_boundary": (
+        "VCB does NOT govern: model safety, cyber capability classification, "
+        "open-weight model release controls, continuous model monitoring, "
+        "or nation-state AI policy. "
+        "VCB governs one narrow thing: whether a specific consequential action can reach "
+        "a specific protected actuator without satisfying the required proof conditions "
+        "at the moment consequence is about to occur."
+    ),
 }
 
 
