@@ -1,6 +1,14 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+import sys
+import io
+# Ensure UTF-8 output even on Windows consoles
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+elif sys.platform == 'win32':
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
 """
-jar-verify — VCB Justified Action Record offline checker
+jar-verify -- VCB Justified Action Record offline checker
 Document v2.2 §6.2
 
 Single binary. Zero network. Deterministic. Total.
@@ -14,7 +22,7 @@ Usage:
 Exit codes:
     0 = ADMISSIBLE (all checks passed)
     1 = FAILED (positive evidence of failure)
-    2 = UNDETERMINED (cannot establish — honest limit)
+    2 = UNDETERMINED (cannot establish -- honest limit)
     3 = INVALID (structural/cryptographic failure)
     7 = SCOPE_WIDENING (child scope exceeds parent)
     8 = CLOSURE_TRUNCATED (chain ran out of budget)
@@ -43,7 +51,7 @@ SCOPE_LEDGER_REQUIRED_LINE = (
     "and is not an exhaustive list of everything unproven"
 )
 
-# Word ban — applies to signed payload text (F-2.2-02)
+# Word ban -- applies to signed payload text (F-2.2-02)
 WORD_BAN = [
     "proves", "proven", "guaranteed", "prevents",
     "tamper-proof", "market standard", "survives any attack",
@@ -127,7 +135,7 @@ class CheckResult:
             any(s in c for s in STRUCTURAL_REASONS) for c in self.reason_codes
         )
         if has_structural and self.exit_code == EXIT_INVALID:
-            pass  # Keep EXIT_INVALID — structural violation dominates
+            pass  # Keep EXIT_INVALID -- structural violation dominates
         elif self.exit_code in (EXIT_INVALID, EXIT_UNDETERMINED):
             if has_failed and EXIT_FAILED < self.exit_code:
                 self.exit_code = EXIT_FAILED
@@ -155,7 +163,7 @@ class CheckResult:
 
 def check_integrity(passport: dict, r: CheckResult) -> bytes:
     """
-    Check 1: Integrity hash — tries RFC 8785/JCS first, then compact JSON fallback.
+    Check 1: Integrity hash -- tries RFC 8785/JCS first, then compact JSON fallback.
     The passport may have been issued with either form depending on Railway build.
     Returns canonical bytes for signature verification.
     """
@@ -177,14 +185,14 @@ def check_integrity(passport: dict, r: CheckResult) -> bytes:
     except ImportError:
         pass
 
-    # Try compact JSON (fallback — Railway may use this if rfc8785 not installed)
+    # Try compact JSON (fallback -- Railway may use this if rfc8785 not installed)
     canonical_compact = json.dumps(
         check_fields, sort_keys=True, separators=(",", ":"),
         ensure_ascii=False
     ).encode("utf-8")
     if hashlib.sha256(canonical_compact).hexdigest() == stored:
         r.add("integrity_hash", True,
-              "INTEGRITY_VERIFIED (compact-json — note: rfc8785 preferred for new passports)")
+              "INTEGRITY_VERIFIED (compact-json -- note: rfc8785 preferred for new passports)")
         return canonical_compact
 
     # Neither matched
@@ -260,7 +268,7 @@ def check_closure(passport: dict, r: CheckResult):
 
     # limit must be present (absent => reject)
     if limit is None:
-        r.add("closure_limit", False, "CLOSURE_LIMIT_ABSENT — absent means reject")
+        r.add("closure_limit", False, "CLOSURE_LIMIT_ABSENT -- absent means reject")
         return
 
     # depth must not exceed limit
@@ -271,11 +279,11 @@ def check_closure(passport: dict, r: CheckResult):
 
     r.add("closure_terminated", True, f"CLOSURE_AT_DECLARED_ROOT depth={depth}/{limit}")
 
-    # root.provable must be False (constant — INV-WHY-01)
+    # root.provable must be False (constant -- INV-WHY-01)
     root_provable = root.get("provable")
     if root_provable is not False:
         r.add("root_provable_false", False,
-              f"ROOT_PROVABLE_VIOLATION: provable={root_provable} — must be False")
+              f"ROOT_PROVABLE_VIOLATION: provable={root_provable} -- must be False")
     else:
         r.add("root_provable_false", True,
               f"ROOT_PROVABLE_CORRECT: kind={root.get('kind','UNKNOWN')}")
@@ -309,14 +317,14 @@ def check_why_edges(passport: dict, r: CheckResult):
     has_delegation = any(e.get("rel") == "ACTED_ON_BEHALF_OF" for e in edges)
     if not has_delegation:
         r.add("actor_chain", False,
-              "ACTOR_CHAIN_ABSENT: no ACTED_ON_BEHALF_OF edge — label as SELF if agent acting alone")
+              "ACTOR_CHAIN_ABSENT: no ACTED_ON_BEHALF_OF edge -- label as SELF if agent acting alone")
     else:
         r.add("actor_chain", True, "ACTOR_CHAIN_PRESENT")
 
 
 def check_still(passport: dict, clock_at: Optional[str], r: CheckResult):
     """
-    Check 5: STILL interval (OCSP pattern — RFC 6960).
+    Check 5: STILL interval (OCSP pattern -- RFC 6960).
     INV-STILL-01: observed_staleness_ms > max_staleness_ms => UNDETERMINED
     INV-STILL-02: SOFT_FAIL never ADMISSIBLE
     INV-STILL-03: UNKNOWN != GOOD
@@ -345,7 +353,7 @@ def check_still(passport: dict, clock_at: Optional[str], r: CheckResult):
     # INV-STILL-03: UNKNOWN != GOOD
     if status == "UNKNOWN":
         r.add_undetermined("still_unknown",
-                           "STILL_UNKNOWN_STATUS: UNKNOWN is not GOOD (INV-STILL-03) — seek another source")
+                           "STILL_UNKNOWN_STATUS: UNKNOWN is not GOOD (INV-STILL-03) -- seek another source")
         return
 
     # Status check
@@ -391,7 +399,7 @@ def check_still(passport: dict, clock_at: Optional[str], r: CheckResult):
                                        f"STILL_EVIDENCE_STALE: clock {clock_at} past next_information_expected {fresh_until}")
                     return
         except Exception:
-            pass  # clock parse error — continue without freshness check
+            pass  # clock parse error -- continue without freshness check
 
     r.add("still", True,
           f"STILL_VERIFIED: status={status} mode={eval_mode} staleness={observed_ms}ms/{max_ms}ms")
@@ -439,7 +447,7 @@ def check_assurance(passport: dict, r: CheckResult):
     P3: independence_class COMPUTED from dependency_sets, never accepted as asserted.
     INV-EV-03: checker compares declared dependency sets.
     If two conjuncts share any member: SHARED_DEPENDENCY regardless of what record claims.
-    If dependency_sets absent: NOT_ESTABLISHED — never INDEPENDENT.
+    If dependency_sets absent: NOT_ESTABLISHED -- never INDEPENDENT.
     """
     assurance = passport.get("assurance", {})
     if not assurance:
@@ -457,7 +465,7 @@ def check_assurance(passport: dict, r: CheckResult):
               EXIT_FAILED)
         return
 
-    # INV-EV-03: independence COMPUTED from dependency_sets — check BEFORE custody short-circuit
+    # INV-EV-03: independence COMPUTED from dependency_sets -- check BEFORE custody short-circuit
     # These are orthogonal invariants; independence must be checked regardless of custody state
     dep_sets = assurance.get("dependency_sets")
     if dep_sets is None:
@@ -465,7 +473,7 @@ def check_assurance(passport: dict, r: CheckResult):
         computed_independence = "NOT_ESTABLISHED"
         if claimed_independence == "INDEPENDENT":
             r.add("assurance_independence", False,
-                  "INDEPENDENCE_ASSERTED_NOT_COMPUTED: dependency_sets absent — "
+                  "INDEPENDENCE_ASSERTED_NOT_COMPUTED: dependency_sets absent -- "
                   "CONSISTENT != INDEPENDENT (INV-EV-03)",
                   EXIT_FAILED)
             return
@@ -577,7 +585,7 @@ def check_could(passport: dict, r: CheckResult):
                   f"COULD_RESULT_WITHOUT_MODEL: result={result} but model_id=null (INV-COULD-01)",
                   EXIT_FAILED)
             return
-        r.add("could", True, "COULD_NOT_MODELLED: acceptable — model_id absent")
+        r.add("could", True, "COULD_NOT_MODELLED: acceptable -- model_id absent")
         return
 
     # INV-COULD-03: intervention_window_ms == 0 or null => no preventability
@@ -670,7 +678,7 @@ def check_schema_version(passport: dict, r: CheckResult):
     if "2.2" in schema or version == "2.2":
         r.add("schema_version", True, f"SCHEMA_V2.2: {schema}")
     elif schema.startswith("VGS-SIGILMARK"):
-        r.add("schema_version", True, f"SCHEMA_LEGACY: {schema} — some checks may not apply")
+        r.add("schema_version", True, f"SCHEMA_LEGACY: {schema} -- some checks may not apply")
     else:
         r.add("schema_version", False, f"SCHEMA_UNKNOWN: {repr(schema)}")
 
@@ -679,7 +687,7 @@ def check_schema_version(passport: dict, r: CheckResult):
 
 def main():
     parser = argparse.ArgumentParser(
-        description=f"{VERSION} — VCB Justified Action Record offline checker"
+        description=f"{VERSION} -- VCB Justified Action Record offline checker"
     )
     parser.add_argument("passport", help="Path to passport JSON file")
     parser.add_argument("--pubkey", required=True,
@@ -742,7 +750,7 @@ def main():
         print(f"\n  NOTE: {SCOPE_LEDGER_REQUIRED_LINE}")
         print(f"\n  Checks ({len(r.checks)}):")
         for check in r.checks:
-            icon = "✓" if check["status"] == "PASS" else ("~" if check["status"] in ("UNDETERMINED", "NOTE") else "✗")
+            icon = "OK" if check["status"] == "PASS" else ("~" if check["status"] in ("UNDETERMINED", "NOTE") else "FAIL")
             print(f"    {icon} {check['check']}: {check['reason'][:80]}")
         print(f"{'='*60}\n")
 

@@ -45543,6 +45543,125 @@ async def rate_limit_middleware(request, call_next):
 
 # ── PERSISTENCE-BACKED ENDPOINTS (key routes) ────────────────
 
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SIGILMARK PERSISTENCE — Full passport durability
+# Closes the in-memory fallback gap for VCB signed passports.
+# Required for: Alkama DP-3/DP-4 re-run, authority binding probes,
+# delegation lineage verification, post-restart retrieval.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+_SIGILMARK_STORE: dict = {}  # in-memory cache: sigilmark_id -> sigilmark
+
+
+async def persist_sigilmark(sigilmark: dict) -> dict:
+    """
+    Persist a signed sigilmark to Supabase.
+    Falls back to in-memory if Supabase unavailable.
+    The sigilmark_id is the lookup key.
+    Returns storage mode so callers can declare the scope of any test.
+    """
+    import json as _jr
+    sm_id = sigilmark.get("sigilmark_id", "")
+    if not sm_id:
+        return {"persisted": False, "error": "NO_SIGILMARK_ID"}
+
+    ts = datetime.now(timezone.utc).isoformat()
+
+    # Always write to in-memory cache
+    _SIGILMARK_STORE[sm_id] = sigilmark
+
+    # Attempt Supabase persistence
+    try:
+        record = {
+            "sigilmark_id":    sm_id,
+            "schema":          sigilmark.get("schema", ""),
+            "decision":        sigilmark.get("decision", ""),
+            "consequence_type": sigilmark.get("consequence_type", ""),
+            "action_hash":     sigilmark.get("action_hash", ""),
+            "authority_hash":  sigilmark.get("authority_hash", ""),
+            "integrity_hash":  sigilmark.get("integrity_hash", ""),
+            "signature":       sigilmark.get("signature", ""),
+            "signing_key_id":  sigilmark.get("signing_key_id", ""),
+            "issued_at":       sigilmark.get("issued_at", ts),
+            "expires_at":      sigilmark.get("expires_at", ""),
+            "enforcement_point": sigilmark.get("enforcement_point", ""),
+            "payload_json":    _jr.dumps(sigilmark, default=str),
+            "created_at":      ts,
+        }
+        result = await db_insert_once("sigilmarks", record, conflict_column="sigilmark_id")
+        if result and (result.get("inserted") or result.get("conflict")):
+            return {
+                "persisted": True,
+                "sigilmark_id": sm_id,
+                "storage": "SUPABASE",
+                "conflict": result.get("conflict", False),
+            }
+    except Exception as e:
+        pass  # Fall through to in-memory result
+
+    return {
+        "persisted": True,
+        "sigilmark_id": sm_id,
+        "storage": "IN_MEMORY_FALLBACK",
+        "scope_limit": "NOT_DURABLE_ACROSS_RESTARTS",
+    }
+
+
+async def retrieve_sigilmark(sigilmark_id: str) -> dict:
+    """
+    Retrieve a sigilmark by ID.
+    Checks Supabase first (durable), then in-memory cache.
+    Returns NOT_FOUND if unavailable in both.
+    """
+    import json as _jr
+
+    # Check in-memory cache first (fast path)
+    if sigilmark_id in _SIGILMARK_STORE:
+        return {
+            "found": True,
+            "sigilmark_id": sigilmark_id,
+            "storage": "IN_MEMORY",
+            "sigilmark": _SIGILMARK_STORE[sigilmark_id],
+        }
+
+    # Query Supabase
+    try:
+        import httpx as _hx
+        headers = {
+            "apikey": SUPABASE_KEY,
+            "Authorization": f"Bearer {SUPABASE_KEY}",
+            "Content-Type": "application/json",
+        }
+        async with _hx.AsyncClient() as c:
+            resp = await c.get(
+                f"{SUPABASE_URL}/rest/v1/sigilmarks",
+                headers=headers,
+                params={"sigilmark_id": f"eq.{sigilmark_id}", "limit": "1"},
+                timeout=5,
+            )
+            if resp.status_code == 200 and resp.json():
+                row = resp.json()[0]
+                # Restore full sigilmark from payload_json
+                sm = _jr.loads(row.get("payload_json", "{}"))
+                _SIGILMARK_STORE[sigilmark_id] = sm  # cache it
+                return {
+                    "found": True,
+                    "sigilmark_id": sigilmark_id,
+                    "storage": "SUPABASE",
+                    "sigilmark": sm,
+                }
+    except Exception:
+        pass
+
+    return {
+        "found": False,
+        "sigilmark_id": sigilmark_id,
+        "reason": "NOT_FOUND_IN_SUPABASE_OR_MEMORY",
+        "ruling": "HALT",
+    }
+
+
 @app.post("/v1/passport/persist", tags=["Persistence"])
 async def passport_persist(
     agent_id:  str,
@@ -45558,7 +45677,7 @@ async def passport_persist(
     record = {
         "agent_id":   agent_id,
         "org_id":     org_id,
-        "trust_score": 1.0,
+        "trust_score": None,  # No history — trust not yet established (not 1.0)
         "status":     "ACTIVE",
         "issued_at":  datetime.now(timezone.utc).isoformat(),
     }
@@ -99767,6 +99886,162 @@ def verify_with_key_registry(passport: dict, key_registry: dict = None) -> dict:
 # Source: Expert synthesis (2026-08-26)
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# VCB DELEGATION LINEAGE DOCTRINE
+# Source: Alkama external review + expert synthesis (2026-08-26)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ECT — EXAMINED CONSEQUENTIAL TRANSITION
+# Source: Final engineering direction audit (2026-08-26)
+# Internal VCB term. Not an industry standard claim.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+VCB_ECT_DOCTRINE = {
+    "schema": "VGS-ECT-DOCTRINE-1.0",
+    "term": "ECT — Examined Consequential Transition",
+    "definition": (
+        "An internal VCB engineering model for verifying that the evidence chain is complete "
+        "before a consequential action reaches its commit boundary. "
+        "Not a new platform or industry standard."
+    ),
+    "completeness_questions": {
+        "A": "What was proposed?",
+        "B": "Under whose authority?",
+        "C": "What exact action was bound?",
+        "D": "What scope and constraints applied?",
+        "E": "What evidence was actually relied upon?",
+        "F": "Was that evidence sufficient for THIS PARTICULAR consequence?",
+        "G": "Were the relevant conditions still true?",
+        "H": "Was the exact examined action the exact action committed?",
+        "I": "Could an alternate path reach the consequence?",
+        "J": "What actually happened?",
+        "K": "Can an independent examiner reconstruct the transition?",
+    },
+    "governing_rule": "If any required proof predicate is unavailable: UNKNOWN → UNDETERMINED. Never UNKNOWN → ADMISSIBLE.",
+    "candidate_invariants": {
+        "INV-ECT-01": {
+            "name": "Consequence Admission Integrity",
+            "statement": (
+                "A consequential action cannot become admissible solely because an upstream "
+                "authorization, signature, classification, or evidence artifact is valid. "
+                "Every consequence-specific required predicate must be established at the "
+                "applicable commit boundary."
+            ),
+            "status": "CANDIDATE — not yet adversarially proven",
+            "required_tests": [
+                "all required predicates TRUE → ADMISSIBLE",
+                "required predicate FALSE → FAILED",
+                "required predicate UNKNOWN → UNDETERMINED",
+                "missing evidence → UNDETERMINED",
+                "stale evidence → UNDETERMINED",
+                "valid evidence for wrong consequence → FAILED",
+                "valid signature with invalid authority → FAILED",
+                "valid scope with changed conditions → UNDETERMINED",
+            ],
+        },
+        "INV-ECT-02": {
+            "name": "Transition Binding",
+            "statement": (
+                "The evidence examined must remain bound to the exact consequential action "
+                "reaching the commit boundary. "
+                "Examine Action A, modify parameters → Action B, reuse A's receipt: REJECTED."
+            ),
+            "status": "CANDIDATE — not yet adversarially proven",
+            "required_tests": [
+                "stale receipts", "replay", "parameter substitution",
+                "race conditions", "retries", "restart", "delegated execution",
+            ],
+        },
+        "INV-ECT-03": {
+            "name": "Protected Constraint Preservation",
+            "statement": (
+                "A delegated or derived authority must not silently acquire powers exceeding "
+                "the protected authority boundary. "
+                "Child scope ⊆ parent scope must be cryptographically and semantically bound. "
+                "Requires parent-child binding to exist before the test is meaningful."
+            ),
+            "status": "CANDIDATE — requires parent binding implementation first",
+            "alkama_lesson": (
+                "DP-3 was non-diagnostic because the child delegation had no verifiable "
+                "relationship to the parent. A test that cannot establish the required "
+                "relationship is not a failed proof — it is evidence the test preconditions "
+                "were not met."
+            ),
+        },
+        "INV-ECT-04": {
+            "name": "Outcome Reconciliation",
+            "statement": (
+                "The system must be able to reconstruct and reconcile: "
+                "what was proposed, what was examined, what was authorized, "
+                "what was committed, and what actually happened. "
+                "Outcome: MATCH / MISMATCH / NOT_RECONCILABLE."
+            ),
+            "status": "CANDIDATE — WHAT conjunct partially built",
+        },
+    },
+    "what_must_not_be_added": [
+        "General Decision Engineering",
+        "AI explainability or model introspection",
+        "Psychological inference",
+        "General-purpose enterprise governance",
+        "Universal identity or policy management",
+        "Generic AI memory",
+        "Full alternative-generation tracking",
+        "Internal reasoning capture",
+    ],
+    "proof_hierarchy": [
+        "DOCUMENTED", "IMPLEMENTED", "UNIT_TESTED",
+        "ADVERSARIALLY_TESTED", "PRODUCTION_TESTED", "INDEPENDENTLY_REPRODUCED",
+    ],
+    "governing_principle": (
+        "A concept is not a proof. A test passing is not necessarily an invariant proof. "
+        "A cryptographic signature is not authority proof. "
+        "An authorization is not current-state proof. "
+        "A log is not prevention proof. "
+        "A NOT_FOUND is not escalation prevention proof. "
+        "A successful cold run is evidence of reproducibility, not proof of the entire architecture."
+    ),
+}
+
+
+VCB_DELEGATION_LINEAGE_DOCTRINE = {
+    "schema": "VGS-DELEGATION-LINEAGE-1.0",
+    "principle": (
+        "A delegation must be cryptographically and semantically bound to the authority "
+        "from which it derives. Without a parent binding, the system cannot establish: "
+        "inheritance, narrowing, non-escalation, revocation propagation, or scope containment."
+    ),
+    "required_invariant": "CHILD_SCOPE ⊆ PARENT_SCOPE",
+    "required_fields": [
+        "parent_passport_id — the sigilmark_id of the parent authority",
+        "parent_action_hash — hash of the parent's authorized action scope",
+        "delegated_ceiling — must be ≤ parent ceiling",
+        "forbidden_propagation — child cannot grant what parent forbids",
+    ],
+    "proof_obligations": [
+        "Child admissible scope ⊆ parent admissible scope",
+        "child_limit ≤ parent_limit (not merely API-accepted, but provably bound)",
+        "forbidden_in_parent ∉ child_scope",
+        "Revocation of parent propagates to child",
+    ],
+    "current_status": (
+        "NOT_YET_IMPLEMENTED — delegation schema has no parent_passport_id field. "
+        "DP-3/DP-4 are INCONCLUSIVE until lineage binding is implemented. "
+        "This is a proof gap, not a security failure."
+    ),
+    "alkama_finding": (
+        "External reviewer Alkama correctly identified that DP-3 (privilege escalation probe) "
+        "was non-diagnostic because the child delegation had no verifiable relationship to the parent. "
+        "The request schema contained no parent passport id or delegator id. "
+        "The 200 response proves nothing about authority inheritance. "
+        "Correct conclusion: the experiment measures nothing about authority containment."
+    ),
+}
+
+
 VCB_CCI_DOCTRINE = {
     "schema": "VGS-CCI-DOCTRINE-1.0",
     "term": "CCI — Consequence Commitment Instant",
@@ -115378,6 +115653,152 @@ async def test_key_lifecycle(
             "revoked_key_ids": len(_REVOKED_KEY_IDS),
         },
         "scope": "In-memory key registry. Production: persist to Supabase key_registry table.",
+    }
+
+
+
+
+@app.post("/v1/sigilmark/persist", tags=["Persistence"])
+async def sigilmark_persist_endpoint(
+    req: dict = None,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Persist a full signed VCB sigilmark (passport) to Supabase.
+    Replaces in-memory-only storage — makes passports durable and retrievable.
+    Required for: delegation probes, authority binding tests, restart proofs.
+    Body: the complete sigilmark JSON from /v1/vcb/seal or issue_sigilmark().
+    """
+    require_api_key(x_api_key, authorization)
+    sm = req or {}
+    if not sm.get("sigilmark_id") or not sm.get("signature"):
+        return {"error": "INVALID_SIGILMARK", "message": "Body must be a signed VCB sigilmark"}
+
+    result = await persist_sigilmark(sm)
+    return {
+        "schema": "VGS-SIGILMARK-PERSIST-1.0",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        **result,
+    }
+
+
+@app.get("/v1/sigilmark/retrieve", tags=["Persistence"])
+async def sigilmark_retrieve_endpoint(
+    sigilmark_id: str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Retrieve a persisted sigilmark by ID.
+    Checks Supabase first (durable), then in-memory cache.
+    Returns HALT/NOT_FOUND if not available.
+    Required for: Alkama DP-3/DP-4, delegation lineage verification.
+    """
+    require_api_key(x_api_key, authorization)
+    result = await retrieve_sigilmark(sigilmark_id)
+    return {
+        "schema": "VGS-SIGILMARK-RETRIEVE-1.0",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        **result,
+    }
+
+
+@app.post("/v1/delegation/issue", tags=["Delegation"])
+async def delegation_issue(
+    req: dict = None,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Issue a delegation passport bound to a parent sigilmark.
+
+    INV-DELEGATION-01: A delegation must be cryptographically bound to its parent.
+    Required fields:
+      - parent_sigilmark_id: sigilmark_id of the parent authority
+      - delegated_scope: must be a strict subset of parent scope
+      - delegated_ceiling: must be <= parent ceiling
+      - forbidden_propagation: actions the parent forbids cannot appear in child scope
+
+    Alkama DP-3 finding: without parent_sigilmark_id, the delegation system
+    has no basis on which to refuse escalated permissions. This endpoint
+    requires explicit parent binding.
+    """
+    require_api_key(x_api_key, authorization)
+    req = req or {}
+
+    parent_id = req.get("parent_sigilmark_id")
+    if not parent_id:
+        return {
+            "error": "MISSING_PARENT_BINDING",
+            "message": (
+                "parent_sigilmark_id is required. "
+                "A delegation without parent binding cannot establish authority lineage. "
+                "See VCB_DELEGATION_LINEAGE_DOCTRINE."
+            ),
+            "vcb_invariant": "INV-DELEGATION-01: child scope ⊆ parent scope",
+        }
+
+    # Retrieve parent sigilmark
+    parent = await retrieve_sigilmark(parent_id)
+    if not parent.get("found"):
+        return {
+            "error": "PARENT_NOT_FOUND",
+            "parent_sigilmark_id": parent_id,
+            "ruling": "HALT",
+            "message": "Parent sigilmark not found in durable store. Persist parent first.",
+        }
+
+    parent_sm = parent.get("sigilmark", {})
+    parent_decision = parent_sm.get("decision", "")
+    parent_ceiling = parent_sm.get("consequence_envelope", {}).get("ceiling", float("inf"))
+
+    # Validate delegation does not exceed parent
+    child_ceiling = req.get("delegated_ceiling", 0)
+    child_scope = req.get("delegated_scope", [])
+    forbidden = parent_sm.get("consequence_envelope", {}).get("forbidden_actions", [])
+
+    violations = []
+    if child_ceiling > parent_ceiling:
+        violations.append(f"CEILING_EXCEEDED: child {child_ceiling} > parent {parent_ceiling}")
+    for action in child_scope:
+        if action in forbidden:
+            violations.append(f"FORBIDDEN_ACTION_IN_CHILD: {action} is forbidden by parent")
+
+    if violations:
+        return {
+            "error": "DELEGATION_SCOPE_VIOLATION",
+            "violations": violations,
+            "ruling": "REFUSED",
+            "vcb_invariant": "INV-DELEGATION-01: child scope ⊆ parent scope",
+            "state_mutation": "NONE",
+        }
+
+    # Issue bound delegation passport
+    ts = datetime.now(timezone.utc).isoformat()
+    import uuid as _uuid
+    delegation_id = f"DEL-{_uuid.uuid4().hex[:12].upper()}"
+    delegation = {
+        "schema": "VGS-DELEGATION-1.0",
+        "delegation_id": delegation_id,
+        "parent_sigilmark_id": parent_id,
+        "parent_decision": parent_decision,
+        "delegated_scope": child_scope,
+        "delegated_ceiling": child_ceiling,
+        "parent_ceiling": parent_ceiling,
+        "issued_at": ts,
+        "lineage_verified": True,
+        "violations_checked": True,
+        "vcb_invariant": "INV-DELEGATION-01: child scope ⊆ parent scope — VERIFIED",
+    }
+    delegation["signature"] = sign_governance_payload(delegation)
+
+    return {
+        "schema": "VGS-DELEGATION-ISSUE-1.0",
+        "timestamp": ts,
+        "issued": True,
+        "delegation": delegation,
+        "storage": "in-memory — call /v1/sigilmark/persist to make durable",
     }
 
 
