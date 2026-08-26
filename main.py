@@ -99575,6 +99575,101 @@ VCB_MODEL_AGNOSTIC_POSTURE = {
 }
 
 
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# CCI — CONSEQUENCE COMMITMENT INSTANT
+# Source: Expert synthesis (2026-08-26)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+VCB_CCI_DOCTRINE = {
+    "schema": "VGS-CCI-DOCTRINE-1.0",
+    "term": "CCI — Consequence Commitment Instant",
+    "definition": (
+        "The first moment at which an external system capable of producing "
+        "the protected consequence is invoked under a release decision. "
+        "After CCI, the system can only evidence what happened; it can no longer prevent it. "
+        "Before CCI, STILL, binding, consumption, ownership, and kill can still refuse. "
+        "At CCI, the actuator is called — or not."
+    ),
+    "claim_form": (
+        "For a governed consequence path, no invocation of the external actuator "
+        "may occur unless a valid, unconsumed, parameter-bound release is verified "
+        "at the Commitment Boundary. "
+        "After CCI, the system can only evidence what happened; "
+        "it can no longer prevent it. "
+        "Adversarial tests must show that inadmissible attempts never cross CCI."
+    ),
+    "three_zones": {
+        "PRE_CCI": (
+            "STILL, binding, consumption, ownership, and kill can still refuse. "
+            "This is where VCB's enforcement operates."
+        ),
+        "AT_CCI": (
+            "The actuator is invoked — or the gate refuses and actuator is never called. "
+            "This is the boundary proven in Paystack INV-P1 tests."
+        ),
+        "POST_CCI": (
+            "Only evidence and reconstruction remain. "
+            "The system cannot prevent the consequence; it can only record and reconcile. "
+            "I2S_ACTIVE may be entered if outcome is unsettled."
+        ),
+    },
+    "i2s_doctrine": {
+        "term": "I2S — Indeterminate-to-Settled Interval",
+        "definition": (
+            "The bounded period between a consequential transition attempt "
+            "and the point at which the system can establish a sufficiently settled state. "
+            "During I2S_ACTIVE: absence of confirmation must not be interpreted "
+            "as absence of consequence. No blind retry. No false success."
+        ),
+        "states": {
+            "SETTLED": "The relevant transition state can currently be established.",
+            "I2S_ACTIVE": "A consequential transition may be unresolved.",
+        },
+        "i2s_axioms": [
+            "NO_SUCCESS_RESPONSE ≠ ACTION_DID_NOT_OCCUR",
+            "PROCESS_RESUMED ≠ ORIGINAL_EXECUTION_CONTINUED_UNCHANGED",
+            "CHECKPOINT_EXISTS ≠ SAFE_RESUMPTION",
+        ],
+    },
+    "continuity_doctrine": {
+        "invariant": "INV-CONT-01",
+        "statement": (
+            "A resumed consequential workflow must not represent itself as continuous "
+            "merely because execution resumed. "
+            "Continuity must be established through examination."
+        ),
+        "continuity_examination": {
+            "questions": [
+                "What was already completed? (COMPLETED / INCOMPLETE / UNKNOWN)",
+                "Did any consequence already escape? (NO / YES / NOT_PROVABLE)",
+                "Did the governing environment change? "
+                "(POLICY / AUTHORITY / MODEL / TOOL / STATE)",
+                "Can the original workflow safely continue?",
+            ],
+            "results": {
+                "CONTINUITY_PROVABLE": "CONTINUE",
+                "CONTINUITY_FAILED": "REFUSE",
+                "CONTINUITY_NOT_PROVABLE": "RE-EXAMINE or REFUSE",
+            },
+        },
+    },
+    "what_this_is_not": [
+        "Not a biological claim about birth, death, or conception.",
+        "Not a spiritual or metaphysical claim about AI consciousness.",
+        "Not a claim that AI systems have life events.",
+        "Not a claim that a 2-minute interval exists universally.",
+        "Not a new governance platform or certification standard.",
+    ],
+    "adversarial_tests_queued": [
+        "Test I: Token interruption — checkpoint, model changes, resume → continuity examined",
+        "Test J: Unknown external consequence — network lost, no response → I2S_ACTIVE, not retry",
+        "Test K: Duplicate resume attack — two resume requests, one checkpoint → exactly one continues",
+        "Test L: Semantic drift — checkpoint under policy V1/model A, resume under V2/B → NOT_PROVABLE",
+    ],
+}
+
+
 VCB_HALPERN_PEARL_PAYMENT_MODEL = {
     "schema": "VGS-CAUSAL-MODEL-1.0",
     "model_id": "VCB-HALPERN-PEARL-PAYMENT-v1",
