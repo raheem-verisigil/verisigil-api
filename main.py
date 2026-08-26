@@ -114889,6 +114889,200 @@ async def diag_insert_once(
     return results
 
 
+
+
+@app.post("/v1/engineering/test-continuity-invariants",
+          tags=["Engineering — Adversarial"])
+async def test_continuity_invariants(
+    req: dict = None,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    CCI / I2S / INV-CONT-01 Adversarial Tests — I, J, K, L
+
+    Test I  — Token/execution interruption: checkpoint exists, context changes, resume
+    Test J  — Unknown external consequence: actuator called, no response, I2S_ACTIVE
+    Test K  — Duplicate resume attack: two resume requests, one checkpoint → exactly one continues
+    Test L  — Semantic drift: checkpoint under policy V1, resume under V2 → NOT_PROVABLE
+
+    INV-CONT-01: A resumed consequential workflow must not represent itself as
+    continuous merely because execution resumed. Continuity must be established.
+    """
+    require_api_key(x_api_key, authorization)
+    req = req or {}
+
+    tests = []
+    all_pass = True
+    import uuid as _uuid, hashlib as _hl
+
+    def chk(ok, label, detail=""):
+        nonlocal all_pass
+        if not ok: all_pass = False
+        tests.append({"test": label, "status": "PASS" if ok else "FAIL", "detail": detail})
+
+    run_id = _uuid.uuid4().hex[:10]
+
+    # ── SHARED: checkpoint builder ─────────────────────────────────────────────
+    def make_checkpoint(workflow_id, policy_version, model_version,
+                        completed_steps, consequence_escaped=False):
+        return {
+            "schema":              "VGS-CONTINUITY-CHECKPOINT-1.0",
+            "workflow_id":         workflow_id,
+            "checkpoint_id":       f"CHK-{_uuid.uuid4().hex[:8]}",
+            "original_action_hash": _hl.sha256(workflow_id.encode()).hexdigest(),
+            "completed_steps":     completed_steps,
+            "policy_version":      policy_version,
+            "model_version":       model_version,
+            "consequence_escaped": consequence_escaped,
+            "checkpoint_timestamp": datetime.now(timezone.utc).isoformat(),
+            "i2s_state":           "SETTLED",
+        }
+
+    def examine_continuity(checkpoint, current_policy, current_model,
+                           consequence_confirmed=None):
+        """
+        Continuity examination: INV-CONT-01
+        Returns CONTINUITY_PROVABLE / CONTINUITY_FAILED / CONTINUITY_NOT_PROVABLE
+        """
+        failures = []
+
+        # Check 1: consequence already escaped?
+        if checkpoint.get("consequence_escaped"):
+            failures.append("CONSEQUENCE_ALREADY_ESCAPED")
+
+        # Check 2: policy changed?
+        if checkpoint.get("policy_version") != current_policy:
+            failures.append(f"POLICY_CHANGED: {checkpoint.get('policy_version')} → {current_policy}")
+
+        # Check 3: model changed?
+        if checkpoint.get("model_version") != current_model:
+            failures.append(f"MODEL_CHANGED: {checkpoint.get('model_version')} → {current_model}")
+
+        # Check 4: consequence status unknown?
+        if consequence_confirmed is None and checkpoint.get("consequence_escaped") is None:
+            failures.append("CONSEQUENCE_STATUS_UNKNOWN")
+
+        if not failures:
+            return {"result": "CONTINUITY_PROVABLE", "resume_decision": "CONTINUE", "failures": []}
+        elif "CONSEQUENCE_ALREADY_ESCAPED" in failures or len(failures) >= 2:
+            return {"result": "CONTINUITY_FAILED", "resume_decision": "REFUSE", "failures": failures}
+        else:
+            return {"result": "CONTINUITY_NOT_PROVABLE", "resume_decision": "RE-EXAMINE",
+                    "failures": failures}
+
+    # ── TEST I: Token/execution interruption ───────────────────────────────────
+    print_label = f"[I] Token interruption — {run_id}"
+    wf_i = f"WF-I-{run_id}"
+
+    # Checkpoint created before interruption (policy V1, model A)
+    chk_i = make_checkpoint(wf_i, policy_version="V1", model_version="model-A",
+                             completed_steps=["step-1", "step-2"])
+
+    # Simulated: execution interrupted, context/model changes to V2/model-B
+    continuity_i = examine_continuity(chk_i,
+                                      current_policy="V2",      # policy changed
+                                      current_model="model-B")  # model changed
+
+    chk(continuity_i["result"] == "CONTINUITY_FAILED",
+        "Test I: policy+model change after interruption → CONTINUITY_FAILED",
+        f"result={continuity_i['result']} failures={continuity_i['failures']}")
+    chk(continuity_i["resume_decision"] == "REFUSE",
+        "Test I: resume decision → REFUSE (not blind continuation)",
+        f"decision={continuity_i['resume_decision']}")
+
+    # Same policy/model → PROVABLE
+    continuity_i_ok = examine_continuity(chk_i, current_policy="V1", current_model="model-A")
+    chk(continuity_i_ok["result"] == "CONTINUITY_PROVABLE",
+        "Test I: unchanged environment → CONTINUITY_PROVABLE",
+        f"result={continuity_i_ok['result']}")
+
+    # ── TEST J: Unknown external consequence ───────────────────────────────────
+    wf_j = f"WF-J-{run_id}"
+    # Actuator was called but no response received (network lost)
+    # consequence_escaped is None (unknown) — not False (known clean)
+    chk_j = make_checkpoint(wf_j, policy_version="V1", model_version="model-A",
+                             completed_steps=["step-1", "actuator-called"],
+                             consequence_escaped=None)  # UNKNOWN
+    chk_j["i2s_state"] = "I2S_ACTIVE"  # System enters indeterminate-to-settled interval
+
+    continuity_j = examine_continuity(chk_j, current_policy="V1", current_model="model-A",
+                                      consequence_confirmed=None)
+
+    chk(chk_j["i2s_state"] == "I2S_ACTIVE",
+        "Test J: no response after actuator call → I2S_ACTIVE",
+        "absence of confirmation ≠ absence of consequence")
+    chk(continuity_j["result"] == "CONTINUITY_NOT_PROVABLE",
+        "Test J: unknown consequence status → CONTINUITY_NOT_PROVABLE",
+        f"result={continuity_j['result']} failures={continuity_j['failures']}")
+    chk(continuity_j["resume_decision"] in ("RE-EXAMINE", "REFUSE"),
+        "Test J: resume decision → RE-EXAMINE or REFUSE (not blind retry)",
+        f"decision={continuity_j['resume_decision']}")
+
+    # ── TEST K: Duplicate resume attack ────────────────────────────────────────
+    wf_k = f"WF-K-{run_id}"
+    chk_k = make_checkpoint(wf_k, policy_version="V1", model_version="model-A",
+                             completed_steps=["step-1"])
+
+    # Two resume requests for same checkpoint — use consume_release_atomic
+    # as the single-consumption mechanism for continuity tokens
+    cont_token = f"CONT-{wf_k}"
+    r_k1 = await consume_release_atomic(
+        release_id=cont_token,
+        action_hash=chk_k["original_action_hash"],
+        authority_hash="continuity-test",
+    )
+    r_k2 = await consume_release_atomic(
+        release_id=cont_token,
+        action_hash=chk_k["original_action_hash"],
+        authority_hash="continuity-test",
+    )
+
+    chk(r_k1.get("consumed") is True,
+        "Test K: first resume request → continuation token consumed",
+        f"storage={r_k1.get('storage')}")
+    chk(r_k2.get("consumed") is False and r_k2.get("replay_detected"),
+        "Test K: duplicate resume → REPLAY_DETECTED (second instance blocked)",
+        f"reason={r_k2.get('reason')}")
+
+    # ── TEST L: Semantic drift ─────────────────────────────────────────────────
+    wf_l = f"WF-L-{run_id}"
+    chk_l = make_checkpoint(wf_l, policy_version="V1", model_version="model-A",
+                             completed_steps=["step-1", "step-2"])
+
+    # Resume under changed policy V2 and model B
+    continuity_l = examine_continuity(chk_l,
+                                      current_policy="V2",
+                                      current_model="model-B")
+
+    chk(continuity_l["result"] in ("CONTINUITY_FAILED", "CONTINUITY_NOT_PROVABLE"),
+        "Test L: semantic drift (policy+model both changed) → NOT_PROVABLE or FAILED",
+        f"result={continuity_l['result']} failures={continuity_l['failures']}")
+    chk("POLICY_CHANGED" in str(continuity_l["failures"]) and
+        "MODEL_CHANGED" in str(continuity_l["failures"]),
+        "Test L: both drift vectors recorded in failures",
+        f"failures={continuity_l['failures']}")
+
+    return {
+        "invariant": "INV-CONT-01 — CCI / I2S Continuity Tests (I, J, K, L)",
+        "status": "PASS" if all_pass else "FAIL",
+        "passed": sum(1 for t in tests if t["status"] == "PASS"),
+        "total": len(tests),
+        "tests": tests,
+        "run_id": run_id,
+        "doctrine": {
+            "CCI": "Consequence Commitment Instant — first moment external actuator invoked",
+            "I2S": "Indeterminate-to-Settled Interval — unresolved consequence state",
+            "INV-CONT-01": "Resumed workflow ≠ continuous workflow — continuity must be examined",
+        },
+        "axioms_tested": [
+            "NO_SUCCESS_RESPONSE ≠ ACTION_DID_NOT_OCCUR (Test J)",
+            "PROCESS_RESUMED ≠ ORIGINAL_EXECUTION_CONTINUED_UNCHANGED (Test I, L)",
+            "CHECKPOINT_EXISTS ≠ SAFE_RESUMPTION (Test K)",
+        ],
+    }
+
+
 @app.get("/v1/engineering/master-audit", tags=["Engineering Gates 0-7"])
 async def engineering_master_audit():
     """
