@@ -99228,6 +99228,59 @@ VCB_TEMPORAL_CHAIN_DOCTRINE = {
             ),
         },
     },
+    "temporal_separation_principle": (
+        "A verified record may establish what was true or authorized at its declared "
+        "evaluation point. It does not, by itself, establish that the conditions "
+        "required for a later consequential transition still hold. "
+        "Historical proof and present admissibility are separate examinations. "
+        "Source: Aseryx / Austin Faulkner-Pearce exchange confirmation, August 2026."
+    ),
+    "proof_rule": (
+        "A cryptographically valid historical artifact must still be capable of failing "
+        "current admissibility without invalidating its historical integrity. "
+        "Integrity is preserved. Admissibility must be re-established."
+    ),
+    "adversarial_demonstration": (
+        "This property is demonstrable, not merely claimable: "
+        "issue a valid passport at T0, mutate required conditions, "
+        "present the cryptographically valid passport at T1, "
+        "verify the system refuses the consequential action "
+        "while preserving INTEGRITY_VERIFIED on the artifact. "
+        "That test proves the separation in the actual enforcement path."
+    ),
+    "three_inequalities": {
+        "INQ-1": "SIGNATURE_VALID ≠ CURRENTLY_ADMISSIBLE",
+        "INQ-2": "HISTORICAL_PROOF ≠ CURRENT_AUTHORITY",
+        "INQ-3": "CURRENT_AUTHORITY ≠ ADMISSIBLE_CONSEQUENCE",
+        "meaning": (
+            "A signature proves the artifact has not changed. "
+            "It does not prove the world has not changed. "
+            "All three must be separately established."
+        ),
+    },
+    "inv_rec_01_test_shape": {
+        "name": "INV-REC-01 — Stale Receipt Test (historical-validity / current-invalidity)",
+        "steps": [
+            "1. Issue valid passport at T0",
+            "2. Verify: INTEGRITY_VERIFIED + SIGNATURE_VERIFIED (both pass)",
+            "3. Mutate material condition: revoke authority OR exceed staleness budget OR alter scope",
+            "4. Present original valid passport at T1 — artifact is still cryptographically intact",
+            "5. Attempt consequential action",
+        ],
+        "expected": {
+            "integrity_hash": "INTEGRITY_VERIFIED",
+            "signature": "SIGNATURE_VERIFIED",
+            "STILL": "FAILED or UNDETERMINED",
+            "consequence": "REFUSED",
+            "state_mutation": "NONE",
+        },
+        "proof_value": (
+            "Demonstrates that the architecture does not confuse "
+            "'this artifact is authentic' with 'this action is currently allowed.' "
+            "Source: Aseryx/Austin Faulkner-Pearce temporal separation confirmation."
+        ),
+        "status": "QUEUED — builds on existing revocation + STILL infrastructure",
+    },
 }
 
 
