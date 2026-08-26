@@ -71454,35 +71454,55 @@ async def consume_release_atomic(
             }
 
 
-async def db_insert_once(table: str, record: dict) -> dict:
+async def db_insert_once(
+    table: str,
+    record: dict,
+    conflict_column: str = "release_id",
+) -> dict:
     """
     Insert a record into Supabase with conflict detection.
-    Returns {"conflict": True} if the record already exists (ON CONFLICT DO NOTHING).
-    In production: use Supabase INSERT with ON CONFLICT DO NOTHING + returning count.
+    Returns {"conflict": True} if the record already exists.
+    Returns {"inserted": True} on success.
+
+    Uses on_conflict=<conflict_column> query param so PostgREST
+    knows which UNIQUE constraint to check (required for ignore-duplicates).
     """
     try:
         import httpx as _httpx
         headers = get_headers(write=True)
-        # Use ON CONFLICT DO NOTHING via Supabase prefer header
         headers["Prefer"] = "resolution=ignore-duplicates,return=representation"
+        params = {"on_conflict": conflict_column}
         async with _httpx.AsyncClient() as client:
             resp = await client.post(
                 f"{SUPABASE_URL}/rest/v1/{table}",
                 headers=headers,
+                params=params,
                 json=record,
                 timeout=5,
             )
             if resp.status_code == 409:
                 return {"conflict": True}
             if resp.status_code in (200, 201):
-                data = resp.json()
-                # Empty array = conflict (record already existed)
+                try:
+                    data = resp.json()
+                except Exception:
+                    data = []
+                # Empty array = conflict (PostgREST ignored the duplicate)
                 if isinstance(data, list) and len(data) == 0:
                     return {"conflict": True}
-                return {"inserted": True, "data": data}
-            return {"conflict": False, "status": resp.status_code}
+                if isinstance(data, list) and len(data) > 0:
+                    return {"inserted": True, "data": data}
+                return {"inserted": True}
+            # Log unexpected status for diagnosis
+            return {
+                "conflict": False,
+                "inserted": False,
+                "status": resp.status_code,
+                "body": resp.text[:200],
+            }
     except Exception as e:
-        raise Exception(f"Supabase insert_once failed: {e}")
+        # Return error dict rather than raising — caller decides how to handle
+        return {"error": str(e)[:200], "conflict": False, "inserted": False}
 
 
 _CAPABLE_PEOPLE:       dict = {}  # person_id -> capability profile
@@ -114542,19 +114562,22 @@ async def test_multi_instance_atomicity(
     # Each simulates a separate process instance
     race_results = await asyncio.gather(*[
         db_insert_once("release_records", {**record,
-            "consumed_at": datetime.now(timezone.utc).isoformat()})
+            "consumed_at": datetime.now(timezone.utc).isoformat()},
+            conflict_column="release_id")
         for _ in range(n_racers)
     ])
 
     inserted = sum(1 for r in race_results if r and r.get("inserted"))
     conflicted = sum(1 for r in race_results if r and r.get("conflict"))
+    errors = [r for r in race_results if r and r.get("error")]
+    error_sample = errors[0].get("error","")[:80] if errors else ""
 
     chk(inserted == 1,
         f"Cross-process race: exactly 1 INSERT succeeded ({inserted}/{n_racers})",
-        f"inserted={inserted} conflicted={conflicted}")
+        f"inserted={inserted} conflicted={conflicted} errors={len(errors)} sample={error_sample}")
     chk(conflicted == n_racers - 1,
         f"Cross-process race: {n_racers-1} blocked by Supabase UNIQUE",
-        f"conflicted={conflicted}")
+        f"conflicted={conflicted} errors={len(errors)}")
 
     # ── TEST 2: Full consume_release_atomic cross-process simulation ────────────
     # Use different release_id, simulate N processes each starting fresh
