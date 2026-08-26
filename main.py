@@ -114804,7 +114804,7 @@ async def engineering_master_audit():
 
     # P6: PRODUCTION_CLAIM_ALLOWED — flips to True after external portability test passes
     # External engineer must pass §5.5 unaided: jar_verify.py + public key + live passport
-    PRODUCTION_CLAIM_ALLOWED = False  # Flip to True after external test confirmed
+    PRODUCTION_CLAIM_ALLOWED = True  # P6 confirmed: Naimatullah INTEGRITY_VERIFIED + SIGNATURE_VERIFIED 2026-08-26  # Flip to True after external test confirmed
 
     return {
         "schema":                      "VGS-MASTER-AUDIT-2.0",
