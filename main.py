@@ -114368,10 +114368,12 @@ async def foundation_proof_report(
     )
     report["overall_status"] = "FOUNDATION_PROOF_V1_COMPLETE" if all_proven else "FOUNDATION_PROOF_V1_PARTIAL"
     report["locked_claim_status"] = (
-        "SUBSTANTIALLY_DEMONSTRATED — Gaps 1-4 closed (2026-08-26). "
-        "Remaining: production Paystack credentials (C2 permanent limitation), "
-        "key lifecycle, and Harold Nunes P6 external cold verification. "
-        "Full claim NOT_YET_DELIVERED until P6 confirmed and key lifecycle implemented."
+        "NOT_YET_DELIVERED — Gaps 1-4 closed (2026-08-26). "
+        "P6 external cold verification: INTEGRITY_VERIFIED + SIGNATURE_VERIFIED (scope-bounded). "
+        "Remaining open: production Paystack credentials (C2 permanent limitation), "
+        "key lifecycle, full alternate-path proof under adversarial conditions. "
+        "Locked claim requires: verifier positioned on every execution path, "
+        "real actuator causal evidence, no hallucinated authority on unresolved conditions."
     )
 
     # Sign the report
@@ -114804,7 +114806,7 @@ async def engineering_master_audit():
 
     # P6: PRODUCTION_CLAIM_ALLOWED — flips to True after external portability test passes
     # External engineer must pass §5.5 unaided: jar_verify.py + public key + live passport
-    PRODUCTION_CLAIM_ALLOWED = True  # P6 confirmed: Naimatullah INTEGRITY_VERIFIED + SIGNATURE_VERIFIED 2026-08-26  # Flip to True after external test confirmed
+    PRODUCTION_CLAIM_ALLOWED = False  # P6 scope-bounded: crypto bounds verified, locked claim NOT_YET_DELIVERED  # Flip to True after external test confirmed
 
     return {
         "schema":                      "VGS-MASTER-AUDIT-2.0",
