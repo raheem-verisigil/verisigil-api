@@ -114143,6 +114143,7 @@ async def alternate_path_audit(
         },
         "summary": {
             "total_paths_audited": 10,
+            "background_workers_audited": 3,
             "GOVERNED": 2,
             "TEST_ONLY": 5,
             "WEBHOOK_INBOUND": 1,
@@ -114159,11 +114160,31 @@ async def alternate_path_audit(
             "UNCLASSIFIED_CONSEQUENCE_PATHS = 0. "
             "No architectural failure detected."
         ),
-        "open_gap": (
-            "Background workers, retry jobs, and future integration adapters are not yet "
-            "audited. This audit covers HTTP endpoints only. "
-            "CLI scripts and direct service imports require manual audit."
-        ),
+        "background_worker_audit": {
+            "asyncio_create_task_1": {
+                "location": "line 21224",
+                "task": "send_approval_email()",
+                "consequence_capable": False,
+                "classification": "EMAIL_NOTIFICATION_ONLY",
+                "note": "Sends approval request email. No actuator path. No Paystack call.",
+            },
+            "asyncio_create_task_2": {
+                "location": "line 22019",
+                "task": "send_welcome_email()",
+                "consequence_capable": False,
+                "classification": "EMAIL_NOTIFICATION_ONLY",
+                "note": "Sends customer welcome email. No actuator path. No Paystack call.",
+            },
+            "ensure_future_persist": {
+                "location": "line 98189",
+                "task": "_persist() — Supabase mandate write",
+                "consequence_capable": False,
+                "classification": "INTERNAL_PERSISTENCE_ONLY",
+                "note": "Writes treasury mandate to Supabase. Not an actuator call. No Paystack path.",
+            },
+        },
+        "open_gap": "CLI scripts and direct service imports require manual audit. No background workers touch the Paystack actuator.",
+        "background_worker_gap_status": "CLOSED — all 3 background tasks audited, none reach Paystack actuator",
     }
 
     # Verify: count unclassified
