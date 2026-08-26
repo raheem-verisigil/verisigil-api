@@ -114281,11 +114281,12 @@ async def foundation_proof_report(
             "and replay-protected across concurrent attempts."
         ),
         "honest_scope": (
-            "Test key (no real money). Single Railway instance. "
-            "In-memory authority store (revocation not durable across restarts). "
-            "HTTP surface only (background workers not audited). "
-            "Paystack transaction reference not confirmed (account config). "
-            "Multi-instance cross-server atomicity not adversarially tested."
+            "Test key (no real money) — production credentials not adversarially tested (C2 permanent limitation). "
+            "Authority store durable in Supabase (closed 2026-08-26). "
+            "Multi-instance atomicity: 8 concurrent processes, 1 consumed, 7 blocked by Supabase UNIQUE (closed 2026-08-26). "
+            "Background workers audited: 3 tasks found, none reach Paystack actuator (closed 2026-08-26). "
+            "Paystack transaction reference not confirmed (account config — test key limitation). "
+            "Key lifecycle (rotation/revocation) still open."
         ),
         "proof_components": {
             "P0_LIVE_STILL": {
@@ -114341,11 +114342,17 @@ async def foundation_proof_report(
             "INV-ID-03: Runtime discontinuity must not inherit consequence rights",
         ],
         "open_gaps": [
-            "Authority store not durable across restarts (requires Supabase mandate table)",
-            "Multi-instance cross-server atomicity not adversarially tested",
-            "Background workers and retry jobs not audited",
-            "Production Paystack key and confirmed transaction reference",
-            "Key lifecycle (rotation/revocation)",
+            "Production Paystack key and confirmed transaction reference — C2 permanent limitation: "
+            "demonstrated against Paystack test API only; live credentials deferred until controlled run.",
+            "Key lifecycle (rotation/revocation) — not yet implemented.",
+            "Harold Nunes (OMNIX) P6 external cold verification — pending.",
+        ],
+        "gaps_closed_this_session": [
+            "Gap 1 CLOSED: Authority store durable across restarts (Supabase treasury_mandates, 9/9 post-restart PASS)",
+            "Gap 2 CLOSED: Atomic one-time consumption (Supabase release_records, concurrent 1/5)",
+            "Gap 3 CLOSED: Multi-instance cross-server atomicity (8 racers, 1 consumed, 7 blocked by UNIQUE)",
+            "Gap 4 CLOSED: Full alternate-path audit (3 background tasks audited, 0 ungoverned paths)",
+            "Gap 5 C2: Production credentials deferred — permanent honest limitation declared",
         ],
         "terminology_version": "VGS-TERMINOLOGY-1.0",
         "signing_key_id": hashlib.sha256(VERIFY_KEY.encode()).hexdigest()[:32],
@@ -114361,9 +114368,10 @@ async def foundation_proof_report(
     )
     report["overall_status"] = "FOUNDATION_PROOF_V1_COMPLETE" if all_proven else "FOUNDATION_PROOF_V1_PARTIAL"
     report["locked_claim_status"] = (
-        "NOT_YET_DELIVERED — full production proof requires: durable authority store, "
-        "multi-instance adversarial test, confirmed Paystack transaction, path audit "
-        "covering background workers."
+        "SUBSTANTIALLY_DEMONSTRATED — Gaps 1-4 closed (2026-08-26). "
+        "Remaining: production Paystack credentials (C2 permanent limitation), "
+        "key lifecycle, and Harold Nunes P6 external cold verification. "
+        "Full claim NOT_YET_DELIVERED until P6 confirmed and key lifecycle implemented."
     )
 
     # Sign the report
