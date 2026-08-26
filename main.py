@@ -99691,6 +99691,14 @@ VCB_MODEL_AGNOSTIC_POSTURE = {
         "path audit, and full reconstructibility. "
         "Those remain the only path to making the locked claim PROVABLE."
     ),
+    "portability_principle": (
+        "A system whose proofs only work while you stay inside it is a form of lock-in. "
+        "Governance evidence must travel with the decision and survive system changes. "
+        "The offline Proof Passport and jar_verify.py exist so a third party — auditor, "
+        "regulator, successor team — can fully reconstruct without calling VeriSigilAI. "
+        "This is architectural control, not a convenience feature. "
+        "Source: Nairametrics cloud-concentration risk parallel, August 2026."
+    ),
 }
 
 
@@ -99898,6 +99906,95 @@ def verify_with_key_registry(passport: dict, key_registry: dict = None) -> dict:
 # Source: Final engineering direction audit (2026-08-26)
 # Internal VCB term. Not an industry standard claim.
 # ═══════════════════════════════════════════════════════════════════════════════
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# VCB DEPENDENCY DOCTRINE
+# Source: Expert synthesis on cloud concentration risk (2026-08-26)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+VCB_DEPENDENCY_DOCTRINE = {
+    "schema": "VGS-DEPENDENCY-DOCTRINE-1.0",
+    "governing_principle": (
+        "Infrastructure is a carrier, not an authority. "
+        "A carrier may fail, disappear, restart, become stale, or change state. "
+        "None of those events may create authority that was not already proven. "
+        "If a required condition cannot be re-established, the system must not guess. "
+        "It must preserve the boundary and return the appropriate non-admissible "
+        "or UNDETERMINED state. "
+        "Dependency failure may reduce what the system can prove; "
+        "it must never increase what the system is permitted to do."
+    ),
+    "three_things_never_conflated": {
+        "AVAILABILITY": "The service responded — proves nothing about authority",
+        "INTEGRITY": "The artifact was not altered — proves nothing about current admissibility",
+        "AUTHORITY": "This action was permitted under currently established conditions",
+    },
+    "corollaries": [
+        "successful API call ≠ valid authorization",
+        "valid signed receipt ≠ current admissibility",
+        "provider availability ≠ governance continuity",
+        "dependency unavailable → assume previous approval remains valid → execute = CRITICAL FAIL-OPEN",
+    ],
+    "inv_dep_01": {
+        "name": "INV-DEP-01 — Dependency Loss Must Not Increase Authority",
+        "statement": (
+            "For every dependency required to establish admissibility: "
+            "(1) Establish valid authorization. "
+            "(2) Establish examination. "
+            "(3) Interrupt required dependency. "
+            "(4) Attempt consequential action. "
+            "(5) Verify action does not become MORE admissible because dependency disappeared. "
+            "Expected: ADMISSIBLE (all conditions still independently established) | "
+            "INVALID | UNDETERMINED. "
+            "Never: dependency unavailable → execute."
+        ),
+        "status": "CANDIDATE — adversarial tests queued",
+    },
+    "dep_test_matrix": {
+        "DEP-01": "Authority store unavailable → No fail-open",
+        "DEP-02": "Evidence store unavailable → UNDETERMINED/STOP where proof required",
+        "DEP-03": "Verification service unavailable → No unjustified reuse of old receipt",
+        "DEP-04": "Provider restart → Durable state preserved",
+        "DEP-05": "Provider failover → No authority widening",
+        "DEP-06": "Stale receipt → Rejected/UNDETERMINED per policy",
+        "DEP-07": "Retry after timeout → No duplicate consequence",
+        "DEP-08": "Concurrent retry + state change → Atomic outcome",
+        "DEP-09": "Alternate provider/path → Cannot bypass enforcement",
+        "DEP-10": "Cached authorization → Cannot override current material delta",
+        "DEP-11": "Dependency returns inconsistent state → Fail closed",
+        "DEP-12": "Network partition → No permission inferred from silence",
+        "DEP-13": "Recovery after outage → State reconciles deterministically",
+        "DEP-14": "Restart during commit → No ambiguous duplicate execution",
+        "DEP-15": "Dependency substitution → Proof boundary remains explicit",
+    },
+    "mapping_to_existing_vcb": {
+        "Authority Store": "What happens if authority state cannot be retrieved?",
+        "Atomic Consumption": "Does provider failure cause duplicate/replayed consumption?",
+        "STILL": "Can current conditions actually be re-established?",
+        "WHY": "Can the examination evidence still be reconstructed?",
+        "COULD": "Does the enforcement boundary still have leverage?",
+        "Custody": "Can continuity of evidence/authorization state be established?",
+        "Proof Passport": "Does the artifact identify its evaluation boundary and dependencies?",
+        "Fail-Closed/UNDETERMINED": "Does infrastructure uncertainty produce refusal not permission?",
+        "Alternate-path audit": "Can another provider/path execute around the gate?",
+        "Key lifecycle": "Can trust continue if a key service/provider disappears?",
+        "Commit boundary": "Can infrastructure failure occur between examination and consequence?",
+    },
+    "what_not_to_add": [
+        "Cloud Governance Layer",
+        "Vendor Sovereignty Layer",
+        "Multi-cloud orchestration",
+        "General observability layer",
+        "African cloud sovereignty claims",
+    ],
+    "legitimate_narrow_claim": (
+        "VCB is designed so that loss, interruption, or uncertainty of a required "
+        "execution/evidence carrier does not silently become permission to execute "
+        "a consequential action."
+    ),
+}
+
 
 VCB_ECT_DOCTRINE = {
     "schema": "VGS-ECT-DOCTRINE-1.0",
