@@ -114699,6 +114699,70 @@ async def test_multi_instance_atomicity(
     }
 
 
+
+
+@app.post("/v1/engineering/diag-insert-once",
+          tags=["Engineering — Adversarial"])
+async def diag_insert_once(
+    req: dict = None,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Diagnostic: test db_insert_once and show raw Supabase response."""
+    require_api_key(x_api_key, authorization)
+    import uuid as _uuid, httpx as _hx
+    test_id = f"DIAG-{_uuid.uuid4().hex[:8]}"
+
+    record = {
+        "release_id": test_id,
+        "action_hash": "diag-hash",
+        "authority_hash": "diag",
+        "consumed_at": datetime.now(timezone.utc).isoformat(),
+        "consumed": True,
+    }
+
+    # Test 1: raw insert to see what Supabase returns
+    headers = get_headers(write=True)
+    headers["Prefer"] = "resolution=ignore-duplicates,return=representation"
+    results = {}
+    async with _hx.AsyncClient() as c:
+        # First insert — should succeed
+        r1 = await c.post(
+            f"{SUPABASE_URL}/rest/v1/release_records",
+            headers=headers,
+            params={"on_conflict": "release_id"},
+            json=record,
+            timeout=5,
+        )
+        results["first_insert"] = {
+            "status": r1.status_code,
+            "body": r1.text[:300],
+            "headers": dict(r1.headers),
+        }
+
+        # Second insert — same release_id, should be conflict
+        r2 = await c.post(
+            f"{SUPABASE_URL}/rest/v1/release_records",
+            headers=headers,
+            params={"on_conflict": "release_id"},
+            json={**record, "consumed_at": datetime.now(timezone.utc).isoformat()},
+            timeout=5,
+        )
+        results["second_insert"] = {
+            "status": r2.status_code,
+            "body": r2.text[:300],
+        }
+
+    # Test db_insert_once wrapper
+    r3 = await db_insert_once("release_records",
+        {**record, "release_id": f"DIAG2-{_uuid.uuid4().hex[:8]}",
+         "consumed_at": datetime.now(timezone.utc).isoformat()},
+        conflict_column="release_id")
+    results["db_insert_once_first"] = r3
+
+    return results
+
+
 @app.get("/v1/engineering/master-audit", tags=["Engineering Gates 0-7"])
 async def engineering_master_audit():
     """
