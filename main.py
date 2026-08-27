@@ -100950,6 +100950,333 @@ VCB_ADR_014 = {
         ),
     },
 
+        "ADR_015b_STRENGTHENED": {
+        "title": "ADR-015b — Interchange Independence: Strengthened Open Condition Before Public Launch",
+        "status": "SPECIFIED — none of items 1-6 currently satisfied. All required before public claim submission.",
+        "strengthening_source": "Merger expert August 2026 — independence is a lifecycle state, not a one-time qualification",
+
+        "independence_lifecycle_model": {
+            "description": "Independence is no longer a one-time qualification. It is a lifecycle state.",
+            "states": {
+                "CURRENT": "Attestation is valid, no known conflict, within attestation period",
+                "PENDING_ATTESTATION": "Due for re-attestation, not yet submitted",
+                "CONFLICT_DECLARED": "Reviewer has declared a conflict — automatic recusal until resolved",
+                "RECUSED": "Reviewer cannot sign any examination until conflict resolved",
+                "EXPIRED": "Attestation period lapsed — reviewer is ineligible",
+                "UNKNOWN": "Status cannot be determined",
+            },
+            "lifecycle_flow": (
+                "Independent appointment → Public attestation → "
+                "Quarterly re-attestation + Event-driven re-attestation → "
+                "Conflict detected? NO → CURRENT → Eligible. "
+                "YES → RECUSED → Cannot sign."
+            ),
+        },
+
+        "examination_eligibility_model": {
+            "description": (
+                "Independence status and examination eligibility are separate propositions. "
+                "A reviewer may remain personally independent but be temporarily ineligible "
+                "for a specific examination due to prior authorship, expertise limitations, "
+                "or direct involvement."
+            ),
+            "EXAMINATION_ELIGIBILITY_states": {
+                "ELIGIBLE": "Independent and qualified for this specific examination",
+                "INELIGIBLE": "Disqualified from this specific examination regardless of independence",
+                "SUSPENDED": "Temporarily unable to examine pending resolution",
+            },
+            "rule": "Independent does not automatically mean eligible for every examination.",
+        },
+
+        "independence_attestation_requirements": {
+            "periodic": "Quarterly re-attestation — mandatory, public, dated statement",
+            "event_driven_disclosure": "Immediate disclosure on any new financial relationship, equity grant, consulting retainer, or reporting-line change. Event-driven disclosure cannot wait for the next quarterly cycle.",
+            "expired_attestation": "Ineligible for any examination until re-attested",
+            "declared_conflict": "Automatic recusal pending resolution — cannot sign any examination",
+            "financial_independence_test": (
+                "The real test: Can the examination function issue a damaging verdict against VCB "
+                "without suffering financial, employment, ownership, or governance consequences "
+                "imposed by VCB? That is outcome independence — not a particular banking arrangement."
+            ),
+        },
+
+        "financial_and_governance_firewall": {
+            "required_conditions": [
+                "Separate legal structure",
+                "Separate financial records",
+                "Separate examination decision-makers",
+                "No VCB engineering authority over verdicts",
+                "No VCB revenue team authority over verdicts",
+                "No investor mechanism controlling individual outcomes",
+                "Conflict disclosure",
+                "Funding disclosure",
+                "No shared examination personnel where conflicts exist",
+                "Independent appeal mechanism",
+            ],
+            "financial_firewall": "financial firewall — outcome independence, not merely separate bank accounts",
+            "rule": (
+                "A separate brand is not enough. A separate company is not enough. "
+                "B-Corp status and nonprofit label are not enough. "
+                "Independence can still be compromised through control. "
+                "The invariant is outcome independence."
+            ),
+        },
+
+        "veto_rule_governance_invariant": {
+            "rule": (
+                "A veto VCB's side can out-vote is a consultation, not a veto. "
+                "This is a governance invariant, not a preference."
+            ),
+            "process": {
+                "step_1": "Independent reviewer issues adverse verdict",
+                "step_2": "VCB engineering disagrees",
+                "step_3": "VCB MAY publish disagreement, submit additional evidence, request appeal",
+                "step_4": "VCB CANNOT convert the public verdict into VERIFIED by internal vote",
+                "step_5": "Appeal path must also be independent",
+                "while_appeal_pending": "No positive VERIFIED status",
+            },
+            "separation": {
+                "INTERCHANGE_REVIEWER": "Can block positive public verification status",
+                "VCB": "Independently controls technical runtime ALLOW/REFUSE/ESCALATE mechanisms",
+                "rule": "The reviewer is not an operational superuser over VCB runtime. The reviewer controls public examination outcome only.",
+            },
+        },
+
+        "dogfooding_requirements": {
+            "rule": "Dogfooding is recurring, not ceremonial. A single public examination is not sufficient.",
+            "dogfood_lineage_model": {
+                "Claim_v1": "NOT_PROVABLE — evidence gap identified",
+                "Engineering_work": "gap addressed",
+                "Claim_v2": "evidence submitted → independent examination → PROVABLE / STILL_NOT_PROVABLE / PARTIALLY_SUPPORTED",
+            },
+            "verdict_follows_evidence_rule": (
+                "The system does not promise that VCB's verdict will improve. "
+                "It promises that the verdict will follow the evidence. "
+                "This distinction protects against turning the verification mechanism into marketing."
+            ),
+            "permanent_historical_test_cases": {
+                "case_1": "Invariant proved on production — ADR-013 overclaim, permanent test case",
+                "case_2": "Seven authorization properties / 100% agreement — ADR-014 unverified numeric claim, permanent test case",
+                "rule": "Historical status must never be erased. The record shows lineage. Old overclaims are the first dogfood vectors.",
+            },
+            "cadence": "Re-submit VCB claims after each phase ships (P3, P4...). Show verdict moving with evidence.",
+        },
+
+        "launch_checklist_strengthened": {
+            "1_recusal_rule_named_person": "Named person with no equity, no salary, no reporting line — not just a policy statement. Recusal re-attested quarterly.",
+            "2_repeated_dogfood": "VCB overclaims as first public Claim Readings. Re-submitted on cadence after each phase. Verdict follows evidence not schedule.",
+            "3_financial_firewall": "Separate P&L minimum; separate legal entity for T2/T3. Interchange revenue may not fund VCB roadmap. Outcome independence is the test.",
+            "4_published_governance_policy": "One page, public, versioned, dated. Dispute default: reviewer wins publicly, VCB dissent recorded non-overriding. Appeal path named and independent.",
+            "5_named_independent_reviewer_with_real_veto": "The launch gate. Independence re-attested publicly on fixed cadence. A credential never re-verified is a latent vulnerability.",
+            "6_examination_eligibility_separation": "Independence status and examination eligibility are separately tracked. Independent does not automatically mean eligible for every examination.",
+        },
+    },
+
+    "ADR_016_OPERATIONAL_AND_PRODUCTION_EVIDENCE": {
+        "title": "ADR-016 — Operational and Production Evidence (Unified)",
+        "status": "SPECIFIED — implementation follows closure of foundational VCB priorities",
+        "source": "Merger expert August 2026 — merges Expert C operational challenge and Expert D production evidence into one bounded ADR",
+
+        "question": (
+            "Can a VeriSigil governance claim be considered sufficiently supported if it has only "
+            "been examined under static, clean, or point-in-time conditions, without evidence of "
+            "relevant failure behavior or post-deployment operation?"
+        ),
+
+        "assumptions_that_failed": [
+            "A control demonstrated in a clean environment is necessarily reliable under relevant operational failure",
+            "A resilience or load result automatically proves authorization, governance, safety, or legal authority",
+            "A deployed verification result remains CURRENT until manually revoked",
+            "Observability of an event is equivalent to verification of the claim associated with that event",
+            "A positive business metric proves a causal business outcome without a declared measurement method",
+            "Production telemetry alone is sufficient evidence without a declared claim, scope, challenge conditions, and interpretation boundary",
+        ],
+
+        "surviving_principle": (
+            "A claim concerning consequential behavior must be challenged under the failure and "
+            "operating conditions relevant to that consequence, and its public validity must remain "
+            "connected to evidence of material changes after deployment. "
+            "Every fail-closed claim must be challenged against the relevant failure condition "
+            "that could cause it to fail open."
+        ),
+
+        "decision_GO": {
+            "unified_challenge_profile": {
+                "description": "Adopt a unified Challenge Profile within the existing Claim → Challenge → Carry process.",
+                "profiles": ["DETERMINISTIC", "ADVERSARIAL", "OPERATIONAL_FAILURE", "PRODUCTION_EVIDENCE"],
+                "rule": "These are evidence profiles, not separate engines or product lines.",
+            },
+            "extended_receipt_fields": {
+                "claim_version": "version of the claim being examined",
+                "evidence_version": "version of the supporting evidence",
+                "challenge_profile": "DETERMINISTIC | ADVERSARIAL | OPERATIONAL_FAILURE | PRODUCTION_EVIDENCE",
+                "challenge_conditions": "declared conditions under which challenge was run",
+                "failure_modes": "failure modes exercised",
+                "environment_identity": "environment in which challenge was run",
+                "harness_version": "version of the test harness",
+                "artifact_lineage": "evidence artifact chain",
+                "observed_behavior": "what was actually observed",
+                "declared_limitations": "what was not tested",
+                "recovery_behavior": "observed recovery behavior",
+                "currentness_status": "CURRENT | REVALIDATION_REQUIRED | EXPIRED | REVOKED",
+                "material_change_events": "changes that occurred since last examination",
+                "outcome_measurement_method": "how outcome was measured",
+            },
+            "fail_closed_claims_require": {
+                "Expected failure behavior": "what the system should do under the failure",
+                "relevant_failure_modes": "which failure modes are relevant to this claim",
+                "failure_injected_or_observed": "whether failure was injected or naturally observed",
+                "observed_result": "what actually happened",
+                "known_exclusions": "what failure modes were not tested",
+                "evidence_artifact": "artifact proving the challenge was run",
+            },
+            "material_changes_tracked": [
+                "Model change", "Prompt change", "Policy change",
+                "Tool/API change", "Permission expansion",
+                "Data-source degradation", "Authority-holder change",
+                "Dependency failure", "Incident", "Recovery",
+                "Repeated escalation", "Material outcome deterioration",
+            ],
+            "material_change_transitions": {
+                "CURRENT_to_REVALIDATION_REQUIRED": "declared change trigger fires",
+                "CURRENT_to_EXPIRED": "validity window lapses",
+                "CURRENT_to_REVOKED": "known invalidating event",
+            },
+            "bounded_production_outcome_claims": {
+                "required_declarations": [
+                    "Baseline", "Population", "Time period", "Measurement method",
+                    "Comparator where applicable", "Material exclusions",
+                    "Confounding limitations", "Human intervention",
+                    "Whether the evidence is causal or correlational",
+                ],
+            },
+        },
+
+        "decision_NO_GO": {
+            "no_observability_platform": "Do not build a general-purpose observability platform",
+            "no_resilience_as_authority_proof": "Do not treat operational resilience as proof of authority. Operational resilience must not be confused with authorization or governance proof.",
+            "no_metrics_as_governance_proof": "Do not treat production metrics as automatic proof of governance effectiveness",
+            "no_new_vcb_core_engine": "Do not add a new operational or production-control engine to VCB Core",
+        },
+
+        "vcb_priority_challenges": {
+            "description": "First operational challenges address existing unresolved architecture history",
+            "priority_challenge_conditions": [
+                "Forged or caller-supplied STILL state",
+                "COULD timeout or unavailability",
+                "Concurrent duplicate requests",
+                "Authorization consumption during worker failure",
+                "Delegation parent/child binding failure",
+                "Delegation revocation and disappearance",
+                "Key rotation and revocation",
+                "Signed empty grants",
+                "Audit-write failure",
+                "Generic exception paths",
+                "Platform-specific verifier failure",
+                "Restart and stale-authority recovery",
+                "Dependency timeout",
+                "Backpressure",
+                "Malformed or unknown input",
+            ],
+            "rule": (
+                "The expected behavior must be declared before the challenge is run. "
+                "A test is not a pass merely because the system survives. "
+                "The observed behavior must be compared with the declared consequence boundary."
+            ),
+        },
+
+        "evidence_lifecycle": {
+            "flow": [
+                "Claim",
+                "Claim Decomposition",
+                "Claim–Proof Boundary Check",
+                "Challenge Profile Selection",
+                "Challenge Execution",
+                "Evidence Lineage",
+                "Verification Receipt",
+                "Living Attestation",
+                "Operational Change / Failure / Production Evidence",
+                "CURRENT / REVALIDATION_REQUIRED / EXPIRED / REVOKED",
+            ],
+            "vcb_position": (
+                "VCB remains downstream from examination. "
+                "A positive examination result does not itself authorize a consequential action. "
+                "Evidence and Verification Status → VCB reads declared status and limitations → "
+                "STILL → COULD → Authorization or refusal path → ALLOW / REFUSE / ESCALATE"
+            ),
+        },
+
+        "expert_D_boundary_correction": {
+            "rejected_formulation": "Reconstructing the governed action extends too far — VCB must not support reconstruction of all downstream organizational outcomes",
+            "accepted_formulation": (
+                "VCB reconstructs the evidence boundary around the consequential action. "
+                "Production Evidence may link subsequent outcome evidence when that evidence "
+                "is explicitly within the declared claim boundary."
+            ),
+            "scope_boundary": {
+                "VCB_Core": "Governs the consequential transition",
+                "Verification_Interchange": "Examines the evidence supporting the claim",
+                "Production_Evidence_Profile": "May link relevant downstream evidence",
+                "Excluded": "No implied full organizational observability. No implied causal business analysis. No implied continuous enterprise monitoring.",
+            },
+            "adr003_scope_discipline": (
+                "ADR-003 already warned against expanding into process mining, workflow analytics, "
+                "enterprise telemetry, and organizational continuity. "
+                "Production evidence must not silently re-open that rejected scope."
+            ),
+        },
+
+        "relationship_tags": {
+            "ANALOGOUS_TO": "operational resilience, fault-injection, chaos-testing, and production-observability disciplines",
+            "INSPIRED_BY": "public failure-evidence and repeatable challenge-report method in reviewed external material",
+            "INTERNAL_DESIGN": "integration into Claim → Challenge → Carry, Verification Receipts, Living Attestation, and VCB evidence paths",
+        },
+
+        "reopen_conditions": (
+            "Reopen if real challenge reports demonstrate that the existing Claim, Challenge, Carry, "
+            "Verification Receipt, and Living Attestation structures cannot represent: "
+            "relevant failure conditions, sustained challenge duration, recovery behavior, "
+            "material production changes, evidence lineage, independent replay, "
+            "or bounded outcome measurement. Until demonstrated otherwise, no additional subsystem is created."
+        ),
+    },
+
+    "MERGER_EXPERT_FINAL_DOCTRINE": {
+        "coherent_evidence_lifecycle": (
+            "PUBLIC CLAIM → CLAIM DECOMPOSITION → CLAIM-PROOF BOUNDARY → "
+            "CHALLENGE (DETERMINISTIC | ADVERSARIAL | OPERATIONAL) → "
+            "PRODUCTION EVIDENCE → EVIDENCE LINEAGE → VERIFICATION RECEIPT → "
+            "LIVING ATTESTATION → CURRENT | REVALIDATION_REQUIRED | EXPIRED/REVOKED → "
+            "VCB CONSEQUENCE → STILL → COULD → ALLOW | REFUSE | ESCALATE"
+        ),
+        "examiner_governance_lifecycle": (
+            "EXAMINER GOVERNANCE → Independence Status → "
+            "CURRENT (→ ELIGIBLE) | CONFLICT_DECLARED (→ RECUSED) | EXPIRED (→ INELIGIBLE) → "
+            "No public positive verdict when recused or expired"
+        ),
+        "frozen_decisions": [
+            "ADR-015b is upgraded with continuous and event-driven independence testing",
+            "Dogfooding becomes recurring, not ceremonial",
+            "The independent reviewer has a real public-status veto",
+            "VCB cannot internally out-vote an adverse examination finding",
+            "Financial and governance independence is a real launch condition — outcome independence is the test",
+            "Operational failure testing and production evidence merge into one ADR-016, not two competing ADRs",
+            "Operational resilience must not be confused with authorization or governance proof",
+            "Production evidence must not silently expand VCB into enterprise observability",
+        ],
+        "governing_doctrine": (
+            "A claim is not strengthened merely by being stated, designed, tested once, monitored, "
+            "or independently reviewed. Its credibility depends on whether the relevant evidence "
+            "remains current, survives challenge, preserves independence, and continues to support "
+            "the exact scope of the claim."
+        ),
+        "non_negotiable_governance_rule": (
+            "No current independence, no public examination. "
+            "No independent veto, no claim of independent verification. "
+            "No completed resolution of a genuine dispute, no positive public status."
+        ),
+    },
+
         "positioning_sentence": (
         "Full AI governance runs upstream (should this exist?), "
         "midstream (is this still the approved system under change?), "
