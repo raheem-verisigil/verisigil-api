@@ -100020,7 +100020,183 @@ VCB_ADR_014 = {
             "If no → observation only. Do not build."
         ),
     },
-    "positioning_sentence": (
+    "ADR_018_through_022": {
+        "ADR-018": {
+            "title": "Carrier-Bound Provenance",
+            "status": "DOCTRINE — GO",
+            "rule": (
+                "Every material architectural or verification claim must be bound to: "
+                "DATE → CARRIER → EXACT RECORD → EXACT PROPOSITION. "
+                "Later summaries, vocabulary, or interpretations cannot expand an earlier claim. "
+                "Technical similarity does not automatically prove derivation. "
+                "Acknowledgment does not automatically establish ownership. "
+                "Chronology, exposure, technical distinction, derivation, and attribution are separate questions."
+            ),
+            "provenance_record_schema": {
+                "provenance_record_id": "VS-PR-{uuid}",
+                "claim_id": "VS-CL-{uuid}",
+                "carrier": {
+                    "type": "SPECIFICATION | ADR | TEST_RESULT | COMMIT",
+                    "uri": "internal-reference or public URL",
+                    "captured_at": "ISO-8601",
+                    "content_hash": "sha256:...",
+                    "capture_method": "MANUAL | AUTOMATED",
+                },
+                "exact_record": {
+                    "content_ref": "section or line reference",
+                    "offset_or_section": "identifier within carrier",
+                },
+                "exact_proposition": {
+                    "statement": "verbatim or precisely normalized claim",
+                    "scope": "declared scope of the proposition",
+                    "interpretation_status": "DECLARED | VERIFIED | UNDETERMINED",
+                },
+                "limitations": {
+                    "untested_scope": [],
+                    "unknown_scope": [],
+                },
+                "integrity": {
+                    "content_hash": "sha256:...",
+                    "signature": "Ed25519 signature",
+                },
+            },
+            "INV-01": "A provenance carrier cannot be silently modified after freezing.",
+            "INV-02": "Every material claim must declare its scope.",
+            "INV-03": "Later terminology cannot automatically expand earlier records.",
+        },
+        "ADR-019": {
+            "title": "Governance Evidence and Currentness",
+            "status": "DOCTRINE — GO",
+            "rule": (
+                "Controls affecting consequential AI authority must be capable of exposing: "
+                "WHERE can authority enter? WHO owns the control? "
+                "WHAT evidence supports it? WHEN was it last reviewed? "
+                "Controls are not governance merely because they exist."
+            ),
+            "named_control_ownership_schema": {
+                "control_id": "VS-CTRL-{uuid}",
+                "control_type": "CONSEQUENCE_BOUNDARY | AUTHORITY_GATE | DELEGATION_CHECK | REPLAY_GUARD",
+                "owner_id": "role or person identifier",
+                "owner_role": "SECURITY_ARCHITECT | COMPLIANCE_OWNER | SYSTEM_OWNER",
+                "ownership_status": "DECLARED | VERIFIED | OWNER_UNDECLARED",
+                "review_requirement": "P30D | P90D | ON_CHANGE",
+                "last_review_time": "ISO-8601",
+                "next_review_due": "ISO-8601",
+                "review_evidence_ref": "artifact reference",
+                "escalation_path": "on_overdue: ESCALATE",
+                "currentness_status": "CURRENT | STALE | REVIEW_OVERDUE | CHANGE_PENDING_REVIEW",
+            },
+            "INV-04": "Control ownership must be explicit — not inferred from repository or deployment ownership.",
+            "INV-05": "A review claim requires a review evidence reference.",
+            "INV-06": (
+                "Currentness must remain separate from historical truth. "
+                "WHAT WAS TRUE AT ACTION TIME ≠ WHAT IS TRUE NOW. "
+                "Historical and current truth must remain separately inspectable. "
+                "Never overwrite a historical evidence record to make it look current."
+            ),
+        },
+        "ADR-020": {
+            "title": "Authority Currentness Envelope (ACE)",
+            "status": "SPEC_ONLY — Phase 3+, after STILL and COULD are proven",
+            "rule": (
+                "ACE is a bounded evidence object describing whether the authority context "
+                "surrounding a consequential action is current. "
+                "It does not decide action admissibility. "
+                "It does not calculate a risk score. "
+                "It does not replace IAM."
+            ),
+            "ace_schema": {
+                "ace_id": "VS-ACE-{uuid}",
+                "subject": {"subject_type": "AGENT | HUMAN | SERVICE", "subject_id": "..."},
+                "authority_context": {
+                    "authority_source": "...",
+                    "effective_from": "ISO-8601",
+                    "effective_until": "ISO-8601",
+                    "revocation_status": "NOT_REVOKED | REVOKED | UNKNOWN",
+                },
+                "ownership": {"control_owner_id": "...", "owner_status": "DECLARED"},
+                "review": {
+                    "last_review_time": "ISO-8601",
+                    "next_review_due": "ISO-8601",
+                    "review_evidence_ref": "...",
+                },
+                "currentness": {
+                    "evaluated_at": "ISO-8601",
+                    "status": "CURRENT | STALE | EXPIRED | REVOKED | REVIEW_OVERDUE | CHANGE_PENDING_REVIEW | UNKNOWN",
+                    "basis_refs": [],
+                },
+            },
+            "currentness_states": [
+                "CURRENT", "STALE", "EXPIRED", "REVOKED",
+                "REVIEW_OVERDUE", "CHANGE_PENDING_REVIEW", "SUPERSEDED", "UNKNOWN", "NOT_APPLICABLE",
+            ],
+            "prohibited_states": ["SAFE", "UNSAFE", "TRUSTED", "UNTRUSTED", "LOW_RISK", "HIGH_RISK"],
+        },
+        "ADR-021": {
+            "title": "Consequence Boundary Explicitness — CRITICAL",
+            "status": "DOCTRINE — GO (CRITICAL)",
+            "rule": (
+                "A pre-execution check must not automatically be represented as a consequence-formation guarantee. "
+                "Every consequential action type must explicitly identify and test its actual commit boundary. "
+                "PRE-EXECUTION CONTROL ≠ CONSEQUENCE-FORMATION FLOOR."
+            ),
+            "consequence_boundary_declaration_schema": {
+                "action_type": "exact consequential action type",
+                "proposal_object": "schema reference",
+                "bound_parameter_set": "parameters_hash + schema reference",
+                "authority_requirements": [],
+                "condition_requirements": [],
+                "commit_boundary": "the exact point where consequence becomes real",
+                "replay_protection": "ENABLED | DISABLED_DECLARED",
+                "delegation_constraints": [],
+                "failure_mode": "FAIL_CLOSED or DECLARED_EXCEPTION (never silent)",
+                "evidence_requirements": [],
+            },
+            "boundary_test_questions": [
+                "What exact parameters form the request?",
+                "What object binds those parameters?",
+                "Where does the system transition from proposal to consequence?",
+                "Can an alternate path bypass the boundary?",
+                "Can a replay reach consequence?",
+                "Can a child delegation exceed its parent?",
+                "What happens after timeout?",
+                "What happens after restart?",
+                "What happens if the control plane is lost?",
+                "What happens if state changes after examination?",
+            ],
+            "INV-07": "Authority validity must remain separate from action admissibility.",
+            "INV-08": (
+                "Every consequential action type must declare its commit or consequence boundary. "
+                "Absence of a declared boundary means the action type is ungoverned."
+            ),
+        },
+        "ADR-022": {
+            "title": "Bounded Verification Results",
+            "status": "DOCTRINE — GO (already implemented in jar_verify.py)",
+            "rule": (
+                "Verification outputs must report separate propositions rather than a single universal status. "
+                "Never return a single VERIFIED without defining the exact proposition and scope."
+            ),
+            "allowed_output_vocabulary": [
+                "CARRIER_AUTHENTICATED", "CHRONOLOGY_SUPPORTED", "AUTHORITY_VALID_AT_COMMIT",
+                "AUTHORITY_INVALIDATED_BEFORE_EXECUTION", "ADMISSIBILITY_SUPPORTED",
+                "PARAMETER_BINDING_VERIFIED", "STATE_CORRESPONDENCE_SUPPORTED",
+                "REPLAY_ATTEMPT_BLOCKED", "INDEPENDENT_RECONSTRUCTION_SUPPORTED",
+                "CONTROL_OWNER_DEFINED", "REVIEW_CURRENT",
+            ],
+            "allowed_negative_vocabulary": [
+                "NOT_PROVEN", "UNDETERMINED", "OUT_OF_SCOPE", "STALE",
+                "MISSING_EVIDENCE", "VERIFICATION_FAILED", "CARRIER_UNAVAILABLE",
+                "INDEPENDENT_REVIEW_PENDING",
+            ],
+            "prohibited_without_exact_proposition": [
+                "SAFE", "GOVERNED", "PROVEN", "AUTHORIZED", "PRIORITY_ESTABLISHED",
+            ],
+            "INV-09": "A VERIFIED-class result requires declared evidence supporting the exact proposition.",
+            "INV-10": "Missing evidence must not be converted into positive evidence.",
+        },
+    },
+        "positioning_sentence": (
         "Full AI governance runs upstream (should this exist?), "
         "midstream (is this still the approved system under change?), "
         "and downstream (may this action run now?). "

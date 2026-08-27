@@ -675,7 +675,8 @@ if __name__ == "__main__":
         ),
         "test_vectors": results,
     }
-    outfile = "/home/claude/interchange_receipts_v01.json"
+    import os as _os
+    outfile = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "interchange_receipts_v01.json")
     with open(outfile, "w", encoding="utf-8") as f:
         _json.dump(output, f, indent=2, default=str)
     print(f"Receipts saved to: {outfile}")
