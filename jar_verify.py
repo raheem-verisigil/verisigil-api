@@ -743,6 +743,27 @@ def main():
         print(f"\n{'='*60}")
         print(f"  {VERSION}")
         print(f"{'='*60}")
+        # Three-line evidence summary (Jake Macdonald external examiner model)
+        # Maps to three inequalities: SIGNATURE_VALID != CURRENTLY_ADMISSIBLE
+        #   HISTORICAL_PROOF != CURRENT_AUTHORITY
+        #   CURRENT_AUTHORITY != ADMISSIBLE_CONSEQUENCE
+        _checks_by_name = {c["check"]: c["status"] for c in r.checks}
+        _issuance = "VERIFIED" if (
+            _checks_by_name.get("integrity_hash") == "PASS" and
+            _checks_by_name.get("signature") == "PASS"
+        ) else "FAILED"
+        _current = "NOT_RE-ESTABLISHED" if (
+            _checks_by_name.get("still_unknown") == "UNDETERMINED" or
+            _checks_by_name.get("assurance_custody") == "UNDETERMINED"
+        ) else ("VERIFIED" if r.verdict == "ADMISSIBLE" else "FAILED")
+        _consequence = "NOT_ESTABLISHED" if r.verdict == "UNDETERMINED" else (
+            "VERIFIED" if r.verdict == "ADMISSIBLE" else "FAILED"
+        )
+        print(f"\n  EVIDENCE SUMMARY")
+        print(f"  ISSUANCE INTEGRITY:       {_issuance}")
+        print(f"  CURRENT STANDING:         {_current}")
+        print(f"  CONSEQUENCE SUFFICIENCY:  {_consequence}")
+        print(f"")
         print(f"  VERDICT:    {r.verdict}")
         print(f"  ROOT KIND:  {root_kind}")
         if r.reason_codes:
