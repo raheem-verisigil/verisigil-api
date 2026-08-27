@@ -100196,6 +100196,760 @@ VCB_ADR_014 = {
             "INV-10": "Missing evidence must not be converted into positive evidence.",
         },
     },
+        "VCB_AUTHORITY_CURRENTNESS_ENVELOPE": {
+        "name": "Authority Currentness Envelope (ACE)",
+        "status": "IMPLEMENTED_AS_DOCTRINE — schema ready, build after STILL proven",
+        "purpose": (
+            "ACE is a bounded evidence object describing whether the authority context "
+            "surrounding a consequential action is current at commitment time. "
+            "It does not decide admissibility. It does not score risk. It does not replace IAM. "
+            "It provides independently examinable evidence about the governance state of authority."
+        ),
+        "ace_full_schema": {
+            "ace_id": "VS-ACE-{uuid4}",
+            "schema_version": "ACE-1.0",
+            "subject": {
+                "subject_type": "AGENT | HUMAN | SERVICE | TOOL",
+                "subject_id": "unique identifier",
+                "subject_version": "version or digest of the subject",
+            },
+            "authority_context": {
+                "authority_source": "DELEGATION | DIRECT | INHERITED | EMERGENCY",
+                "delegation_chain_ref": "reference to delegation lineage record",
+                "effective_from": "ISO-8601",
+                "effective_until": "ISO-8601",
+                "revocation_status": "NOT_REVOKED | REVOKED | UNKNOWN",
+                "revocation_checked_at": "ISO-8601",
+            },
+            "ownership": {
+                "control_owner_id": "role or person identifier",
+                "owner_role": "SECURITY_ARCHITECT | COMPLIANCE_OWNER | SYSTEM_OWNER | OWNER_UNDECLARED",
+                "owner_status": "DECLARED | VERIFIED | OWNER_UNDECLARED",
+            },
+            "review": {
+                "review_requirement": "P30D | P90D | ON_CHANGE | NOT_REQUIRED",
+                "last_review_time": "ISO-8601 or NEVER",
+                "reviewer": "role or person identifier",
+                "review_evidence_ref": "artifact or document reference",
+                "next_review_due": "ISO-8601",
+                "escalation_path": "on_overdue: ESCALATE | SUSPEND | NOTIFY",
+            },
+            "change_state": {
+                "changes_since_review": [],
+                "change_status": "NO_KNOWN_RELEVANT_CHANGE | CHANGE_PENDING_REVIEW | UNKNOWN",
+            },
+            "currentness": {
+                "evaluated_at": "ISO-8601",
+                "status": "CURRENT | STALE | EXPIRED | REVOKED | REVIEW_OVERDUE | CHANGE_PENDING_REVIEW | SUPERSEDED | UNKNOWN | NOT_APPLICABLE",
+                "basis_refs": [],
+                "evaluation_method": "CLAIMANT_DECLARED | VERISIGIL_REVIEWED | EXTERNAL_REVIEWED | CONTINUOUS_MONITORING",
+            },
+            "carrier_refs": [],
+            "known_limitations": [],
+            "integrity": {
+                "content_hash": "sha256 of canonical ACE body",
+                "signature": "Ed25519 signature",
+            },
+        },
+        "currentness_evaluation_model": {
+            "step_1": "Identify supporting evidence for the authority",
+            "step_2": "Identify declared validity period",
+            "step_3": "Identify review requirement and cadence",
+            "step_4": "Identify expiry and revocation signals",
+            "step_5": "Identify relevant changes since last review",
+            "step_6": "Compare snapshot with current declared state",
+            "step_7": "Return bounded currentness status with evaluation_time, evidence_basis, known_change_events, unknown_dependencies",
+        },
+        "review_trigger_events": [
+            "AUTHORITY_CHANGE", "DELEGATION_CHANGE", "MODEL_CHANGE",
+            "TOOL_CHANGE", "CREDENTIAL_CHANGE", "POLICY_CHANGE",
+            "DEPLOYMENT_CHANGE", "CONTROL_FAILURE", "CHALLENGE_FAILURE",
+            "EXPIRY", "MANUAL_TRIGGER",
+        ],
+    },
+
+    "VCB_AUTHORITY_RISK_ENTRY_MAP": {
+        "name": "Authority Risk Entry Map",
+        "status": "SPEC_ONLY — build after Alkama DP-3/DP-4 confirms delegation lineage",
+        "purpose": (
+            "Explicitly identify where consequential authority can enter the execution environment. "
+            "This is an evidence map, NOT a general identity inventory platform."
+        ),
+        "authority_entry_point_classes": [
+            "HUMAN_DELEGATION", "AGENT_DELEGATION", "SERVICE_IDENTITY",
+            "TOOL_CREDENTIAL", "API_CREDENTIAL", "TEMPORARY_AUTHORITY",
+            "EMERGENCY_OVERRIDE", "VENDOR_DELEGATION", "INHERITED_AUTHORITY",
+            "SYSTEM_DEFAULT_AUTHORITY", "EXCEPTION_AUTHORITY", "UNKNOWN_AUTHORITY_SOURCE",
+        ],
+        "entry_point_schema": {
+            "entry_id": "VS-EP-{uuid4}",
+            "entry_type": "see authority_entry_point_classes",
+            "subject_ref": "agent or system identifier",
+            "authority_ref": "treasury_mandate or authority record reference",
+            "carrier_ref": "provenance record reference",
+            "effective_time": "ISO-8601",
+            "expiry_time": "ISO-8601",
+            "owner_ref": "control owner reference",
+            "status": "DECLARED | VERIFIED | UNKNOWN_AUTHORITY_SOURCE",
+        },
+        "rule": (
+            "No unregistered authority path may silently become valid. "
+            "Every entry point must have: entry_type, subject_ref, authority_ref, status. "
+            "UNKNOWN_AUTHORITY_SOURCE is a valid and required state — not an error."
+        ),
+    },
+
+    "VCB_REVIEW_CADENCE_ENFORCEMENT": {
+        "name": "Review Cadence and Escalation Evidence",
+        "status": "DOCTRINE_IMPLEMENTED — fields defined, enforcement via ESCALATE path",
+        "purpose": (
+            "Every applicable control must carry review evidence. "
+            "Review triggers a re-examination, not an automatic pass."
+        ),
+        "review_cadence_schema": {
+            "control_id": "VS-CTRL-{uuid4}",
+            "review_required": True,
+            "review_interval": "ISO-8601 duration e.g. P30D",
+            "review_trigger_events": "see VCB_AUTHORITY_CURRENTNESS_ENVELOPE.review_trigger_events",
+            "last_review_time": "ISO-8601",
+            "reviewer": "role or person identifier",
+            "review_basis": "description of what was reviewed",
+            "review_result": "PASSED | FAILED | CONDITIONAL | OVERDUE",
+            "review_carrier": "artifact or document reference",
+            "next_review_due": "ISO-8601",
+            "escalation_path": {
+                "on_overdue": "ESCALATE to Declaration Obligation (ADR-005)",
+                "on_failed": "SUSPEND consequential authority until remediation",
+                "on_unknown": "REVIEW_OVERDUE status, ESCALATE",
+            },
+        },
+        "invariant": (
+            "The system records evidence of reviews. "
+            "It does not pretend that a review automatically makes the control effective. "
+            "A review claim without a review evidence reference = UNVERIFIED."
+        ),
+    },
+
+    "VCB_ON_DEMAND_AUTHORITY_EVIDENCE_PACKAGE": {
+        "name": "Authority Evidence View (On-Demand Package)",
+        "status": "SPEC_ONLY — Phase 3+ API surface over proven components",
+        "purpose": (
+            "For any agent + deployment + authority + control + time window + action, "
+            "generate a structured evidence package without duplicating underlying records."
+        ),
+        "input": {
+            "agent_id": "required",
+            "deployment_id": "optional",
+            "authority_id": "optional — if known",
+            "control_id": "optional — if specific",
+            "time_window": {"from": "ISO-8601", "to": "ISO-8601"},
+            "action_type": "optional — filters to relevant authority",
+        },
+        "output_sections": {
+            "1_authority_entry_points": "How could authority enter?",
+            "2_delegation_chain": "Parent → child lineage",
+            "3_named_control_owners": "Who owns each relevant control?",
+            "4_applicable_controls": "Which controls governed this action?",
+            "5_evidence_references": "Artifact hashes and references",
+            "6_review_history": "Last review per control",
+            "7_currentness_state": "ACE result for each authority",
+            "8_known_changes": "Changes since last review",
+            "9_revocation_expiry": "Status of each authority",
+            "10_related_passports": "SigilMark references",
+        },
+        "implementation_rule": (
+            "This is an API projection over existing evidence objects. "
+            "Do not duplicate evidence. Do not build a separate data store. "
+            "Build only after: treasury_mandates + sigilmarks + delegation + STILL are all proven."
+        ),
+    },
+
+    "VCB_ADVERSARIAL_TEST_MATRIX": {
+        "name": "Complete Adversarial Test Matrix",
+        "status": "ACCEPTANCE_CRITERIA — tests to build in Phases 1-4",
+        "categories": {
+            "A_provenance_attacks": {
+                "description": "Carrier Integrity Challenge attacks",
+                "attacks": [
+                    "Modify later wording — expected: CLAIM_REJECTED",
+                    "Substitute summary for original — expected: SCOPE_LIMITED",
+                    "Change chronology metadata — expected: CARRIER_MISMATCH",
+                    "Introduce later terminology — expected: PROVENANCE_INCOMPLETE",
+                    "Remove scope limitations — expected: PROPOSITION_NOT_SUPPORTED_BY_CARRIER",
+                    "Attach unrelated supporting evidence — expected: CLAIM_REJECTED",
+                ],
+            },
+            "B_authority_attacks": {
+                "description": "Authority and delegation attacks",
+                "attacks": [
+                    "Expired authority → STILL_FAILED → REFUSED",
+                    "Revoked authority between T0 and T1 → STILL_FAILED → REFUSED",
+                    "Delegation chain break → PARENT_NOT_FOUND → HALT",
+                    "Child authority escalation → DELEGATION_SCOPE_VIOLATION",
+                    "Unknown authority source → STILL_NOT_PROVABLE → REFUSED",
+                    "Stale credential evidence → STILL_NOT_PROVABLE → REFUSED",
+                    "Owner missing → OWNER_UNDECLARED",
+                    "Review overdue → REVIEW_OVERDUE → ESCALATE",
+                ],
+                "note": "Tests B1-B3 partially demonstrated. B4-B8 require Alkama DP-3/DP-4 and STILL suite.",
+            },
+            "C_consequence_boundary_attacks": {
+                "description": "VCB commitment boundary attacks",
+                "attacks": [
+                    "Replay → REPLAY_DETECTED → BLOCKED (6/6 DEMONSTRATED)",
+                    "Parameter mutation after examination → COMMITMENT_INVALID",
+                    "TOCTOU state change → STILL_NOT_PROVABLE → REFUSED",
+                    "Direct API bypass → 0 ungoverned paths (DEMONSTRATED)",
+                    "Alternate execution path → path audit required",
+                    "Control-plane loss → STILL_NOT_PROVABLE → REFUSED (fail-closed)",
+                    "Restart and recovery → durable Supabase state (DEMONSTRATED)",
+                    "Duplicate request → UNIQUE constraint (DEMONSTRATED)",
+                    "Stale examination → INV-REC-01 10/10 (DEMONSTRATED)",
+                    "Post-examination authority revocation → STILL_FAILED (STILL suite pending)",
+                ],
+            },
+            "D_currentness_attacks": {
+                "description": "Living Attestation and currency attacks",
+                "attacks": [
+                    "Review expires → REVIEW_OVERDUE",
+                    "Owner changes → CHANGE_PENDING_REVIEW",
+                    "Policy changes → REVALIDATION_REQUIRED",
+                    "Credential changes → CHANGE_PENDING_REVIEW",
+                    "Deployment changes → REVALIDATION_REQUIRED",
+                    "Authority revoked after snapshot → REVOKED",
+                    "Evidence carrier superseded → SUPERSEDED",
+                    "Required dependency unavailable → UNKNOWN",
+                ],
+                "note": "V4 in interchange demonstrates EXPIRED. Full suite requires ACE implementation (Phase 3+).",
+            },
+        },
+    },
+
+    "VCB_CONSEQUENCE_BOUNDARY_PER_ACTION": {
+        "name": "Mandatory Consequence Boundary Declaration Per Action Type",
+        "status": "DOCTRINE — must be completed for every consequential action type before claiming governance",
+        "current_declared_action_types": {
+            "PAYMENT_INSTRUCTION": {
+                "proposal_object": "payment_instruction with amount, recipient, currency",
+                "bound_parameter_set": "parameters_hash of amount + recipient + currency + timestamp",
+                "authority_requirements": ["treasury_mandate in ACTIVE status", "ceiling not exceeded"],
+                "condition_requirements": ["STILL_PROVABLE", "mandate not revoked", "ceiling not exceeded"],
+                "commit_boundary": "Paystack API call — the moment funds instruction is sent",
+                "replay_protection": "ENABLED — UNIQUE(release_id) in release_records",
+                "delegation_constraints": ["child ceiling <= parent ceiling", "child scope ⊆ parent scope"],
+                "failure_mode": "FAIL_CLOSED — C2 permanent: test API only until live money proven",
+                "evidence_requirements": ["SigilMark issued", "release_record created", "Paystack response captured"],
+                "demonstration_status": "C2 PERMANENT — test API only",
+            },
+        },
+        "rule": (
+            "Every new consequential action type added to VCB must declare all fields above "
+            "before being used in a governed path. "
+            "Absence of a declared boundary means the action type is ungoverned by VCB. "
+            "A pre-execution check for an undeclared action type is not a consequence boundary."
+        ),
+    },
+
+    "VCB_EVIDENCE_IMMUTABILITY_SUPERSESSION": {
+        "name": "Evidence Immutability and Supersession Model",
+        "status": "DOCTRINE — IA-5 Postgres triggers enforce this at database level",
+        "model": {
+            "ORIGINAL": "evidence record created and signed",
+            "SUPERSEDED_BY": "new version created, original preserved",
+            "SUPERSESSION_TIME": "ISO-8601 timestamp",
+            "REASON": "why the record was superseded",
+            "SCOPE_OF_CHANGE": "what changed, what did not",
+        },
+        "rule": (
+            "Never overwrite a historical evidence record to make it look current. "
+            "Original truth and current truth must remain separately inspectable. "
+            "Postgres triggers vcb_release_immutability and vcb_mandate_revocation_immutability "
+            "enforce one-way state transitions at the database layer."
+        ),
+        "implemented": "IA-5 triggers applied to Supabase 2026-08-27 — CLOSED",
+        "supersession_required_for": [
+            "Authority records after revocation",
+            "Policy versions after updates",
+            "Delegation records after parent changes",
+            "Claim status after new evidence",
+        ],
+    },
+
+    "VCB_EIGHT_ENGINEERING_INVARIANTS": {
+        "name": "Eight Engineering Invariants — Testable Assertions",
+        "status": "DOCTRINE — all eight must have adversarial tests before locked claim",
+        "invariants": {
+            "INV-01_CARRIER_IMMUTABILITY": {
+                "rule": "A provenance carrier cannot be silently modified after freezing.",
+                "test": "Attempt to modify a frozen carrier — expected: CARRIER_MISMATCH or INTEGRITY_FAILED",
+                "status": "DOCTRINE — test not yet built",
+            },
+            "INV-02_PROPOSITION_SCOPE": {
+                "rule": "Every material claim must declare its scope.",
+                "test": "Submit claim without scope — expected: SCOPE_UNDEFINED rejection at admission",
+                "status": "IMPLEMENTED — Claim Admission Protocol enforces this",
+            },
+            "INV-03_NO_RETROSPECTIVE_EXPANSION": {
+                "rule": "Later terminology cannot automatically expand earlier records.",
+                "test": "V6 in interchange demonstrates — expected: CARRIER_BOUND result",
+                "status": "IMPLEMENTED — V6 in interchange_v01.py",
+            },
+            "INV-04_OWNERSHIP_EXPLICITNESS": {
+                "rule": "Control ownership must be explicit — not inferred from repository or deployment.",
+                "test": "Query control with no owner — expected: OWNER_UNDECLARED",
+                "status": "DOCTRINE — test not yet built",
+            },
+            "INV-05_REVIEW_EVIDENCE": {
+                "rule": "A review claim requires a review evidence reference.",
+                "test": "Submit review without evidence_ref — expected: UNVERIFIED review status",
+                "status": "DOCTRINE — test not yet built",
+            },
+            "INV-06_CURRENTNESS_SEPARATION": {
+                "rule": "Currentness must remain separate from historical truth.",
+                "test": "Verify expired receipt still shows original VERIFIED status with lifecycle_status=EXPIRED",
+                "status": "IMPLEMENTED — V4 in interchange demonstrates this",
+            },
+            "INV-07_AUTHORITY_SEPARATION": {
+                "rule": "Authority validity must remain separate from action admissibility.",
+                "test": "Valid authority + inadmissible action = REFUSED",
+                "status": "PARTIALLY_IMPLEMENTED — evaluate_release separates these; COULD not yet proven live",
+            },
+            "INV-08_BOUNDARY_EXPLICITNESS": {
+                "rule": "Every consequential action type must declare its commit boundary.",
+                "test": "Attempt to add a consequential action without declared boundary — expected: build fails",
+                "status": "DOCTRINE — PAYMENT_INSTRUCTION declared; enforcement check not yet automated",
+            },
+        },
+    },
+
+    "VCB_PUBLIC_CLAIM_DISCIPLINE": {
+        "name": "Public Claim Discipline — Language Enforcement",
+        "status": "ACTIVE RULE — applies to all external communications",
+        "allowed_language_patterns": [
+            "Designed to provide...",
+            "Evidence recorded for...",
+            "Verified within the declared test scope...",
+            "Challenge-tested against...",
+            "Demonstrated on production within tested boundary...",
+            "Independently reproduced by [name] from cold run...",
+            "Current standing not re-established offline (UNDETERMINED)...",
+        ],
+        "prohibited_without_exact_evidence": [
+            "impossible to bypass",
+            "guaranteed safe",
+            "100% non-bypassable",
+            "proves all AI actions are governed",
+            "eliminates AI risk",
+            "first to solve",
+            "priority established",
+            "copied from",
+            "proves authorship",
+            "ensures",
+            "guarantees",
+            "prevents all",
+            "non-bypassable",
+        ],
+        "self_application_rule": (
+            "VeriSigil AI applies the same claim discipline to its own public statements "
+            "as it requires from any external claimant submitting to the Verification Interchange. "
+            "VCB's own claims are the first dogfood test vectors — including prior overclaims "
+            "already identified in ADR-013 and ADR-014."
+        ),
+        "prior_overclaims_to_correct": [
+            "ADR-013: 'cleared for production' — broader than what was tested",
+            "ADR-014: unverified Cedar 7/7 numeric claim — no artifact exists",
+            "Any statement of 'Phase 0 complete' — correct to: substantially complete with named residuals",
+        ],
+    },
+
+    "VCB_BOUNDED_RECEIPT_UPGRADE": {
+        "name": "Verification Receipt Upgrade — Bounded Propositions",
+        "status": "PARTIALLY_IMPLEMENTED — jar_verify.py three-line summary done; full receipt upgrade Phase 2",
+        "current_implementation": "jar_verify.py outputs EVIDENCE SUMMARY + THIS RECEIPT DOES NOT PROVE",
+        "full_receipt_target_schema": {
+            "ACTION_ID": "VS-ACT-{uuid}",
+            "ACTION_ADMISSIBILITY": "ADMITTED | REFUSED | ESCALATED | NOT_PROVABLE",
+            "AUTHORITY_AT_ACTION_TIME": "SUPPORTED | NOT_ESTABLISHED | UNDETERMINED",
+            "AUTHORITY_CURRENTNESS_NOW": "CURRENT | CHANGE_PENDING_REVIEW | STALE | REVOKED | UNKNOWN",
+            "CONTROL_OWNER": "DECLARED | OWNER_UNDECLARED",
+            "LAST_REVIEW": "SUPPORTED_BY_CARRIER | REVIEW_OVERDUE | NEVER_REVIEWED | UNKNOWN",
+            "CONSEQUENCE_BOUNDARY": "IDENTIFIED | NOT_DECLARED | UNDETERMINED",
+            "NON_BYPASSABILITY": "TESTED_WITHIN_SCOPE | NOT_YET_TESTED | TEST_SCOPE_LIMITED",
+            "PROVENANCE": "CARRIER_BOUND | UNDETERMINED | MISSING",
+            "DERIVATION": "NOT_ADJUDICATED",
+            "LEGAL_PRIORITY": "NOT_ADJUDICATED",
+        },
+        "rule": (
+            "Return separate propositions, not a single VERIFIED. "
+            "Every field states exactly what was and was not established. "
+            "DERIVATION and LEGAL_PRIORITY are always NOT_ADJUDICATED unless a formal "
+            "legal proceeding has established them — VeriSigil does not adjudicate these."
+        ),
+    },
+
+        "S03_consequential_evidence_chain": {
+        "name": "Consequential Evidence Chain — Combined Architectural Principle",
+        "chain": [
+            "CONTROL EXISTS",
+            "WHAT EXACTLY DOES IT CONTROL?",
+            "WHO OWNS IT?",
+            "WHAT AUTHORITY SUPPORTS IT?",
+            "WHAT EVIDENCE PROVES IT OPERATED?",
+            "WHICH CARRIER PRESERVES THAT EVIDENCE?",
+            "WHEN WAS IT LAST REVIEWED?",
+            "WHAT CHANGED AFTER REVIEW?",
+            "IS THE SUPPORTING EVIDENCE STILL CURRENT?",
+            "CAN AN INDEPENDENT PARTY VERIFY THE CLAIM?",
+        ],
+        "rule": "A missing link must not be silently filled with inference.",
+    },
+
+    "S04_non_equivalence_registry": {
+        "name": "Critical Non-Equivalence Registry",
+        "mandatory_distinctions": {
+            "IDENTITY_VALIDITY": "IDENTITY_VALIDITY ≠ AUTHORITY_VALIDITY",
+            "AUTHORITY_VALIDITY": "AUTHORITY_VALIDITY ≠ AUTHORITY_CURRENTNESS",
+            "AUTHORITY_CURRENTNESS": "AUTHORITY_CURRENTNESS ≠ CONTROL_OWNERSHIP",
+            "CONTROL_OWNERSHIP": "CONTROL_OWNERSHIP ≠ ACTION_ADMISSIBILITY",
+            "ACTION_ADMISSIBILITY": "ACTION_ADMISSIBILITY ≠ CONSEQUENCE_NON_BYPASSABILITY",
+            "CONSEQUENCE_NON_BYPASSABILITY": "CONSEQUENCE_NON_BYPASSABILITY ≠ EVIDENCE_EXISTENCE",
+            "EVIDENCE_EXISTENCE": "EVIDENCE_EXISTENCE ≠ HISTORICAL_PROVENANCE",
+            "HISTORICAL_PROVENANCE": "HISTORICAL_PROVENANCE ≠ LEGAL_ATTRIBUTION",
+        },
+        "rule": (
+            "No component may return a broad result such as SAFE, GOVERNED, PROVEN, AUTHORIZED, "
+            "or PRIORITY_ESTABLISHED unless the exact proposition and scope supporting that "
+            "result are explicitly defined."
+        ),
+    },
+
+    "S10_carrier_integrity_challenge_output_vocab": {
+        "name": "Carrier Integrity Challenge — Complete Allowed Output Vocabulary",
+        "allowed_outputs": [
+            "CARRIER_AUTHENTICATED",
+            "CARRIER_DECLARED_NOT_AUTHENTICATED",
+            "CHRONOLOGY_SUPPORTED",
+            "CHRONOLOGY_UNDETERMINED",
+            "EXACT_PROPOSITION_IDENTIFIED",
+            "PROPOSITION_SCOPE_LIMITED",
+            "TECHNICAL_OVERLAP_NONE",
+            "TECHNICAL_OVERLAP_PARTIAL",
+            "TECHNICAL_OVERLAP_SUBSTANTIAL",
+            "TECHNICAL_DISTINCTION_PRESERVED",
+            "DERIVATION_UNDETERMINED",
+            "ATTRIBUTION_NOT_ADJUDICATED",
+            "NO_PRIORITY_CONCLUSION",
+        ],
+        "challenge_attacks": [
+            "RETROSPECTIVE_EXPANSION",
+            "LATER_VOCABULARY_PROJECTED_BACKWARD",
+            "SUMMARY_SUBSTITUTED_FOR_CARRIER",
+            "GENERAL_THEME_SUBSTITUTED_FOR_EXACT_PROPOSITION",
+            "LATER_DOCUMENT_TREATED_AS_EARLIER_EVIDENCE",
+            "SIMILARITY_TREATED_AS_DERIVATION",
+            "ACKNOWLEDGMENT_TREATED_AS_OWNERSHIP_ADMISSION",
+            "TECHNICAL_CONTROL_CONFUSED_WITH_CONSEQUENCE_BOUNDARY",
+            "UNSUPPORTED_PRIORITY_CONCLUSION",
+        ],
+    },
+
+    "S18_proof_passport_upgrade": {
+        "name": "Proof Passport Upgrade — Point-in-Time Evidence Carrier",
+        "rule": (
+            "The Proof Passport must distinguish WHAT WAS TRUE AT ACTION TIME "
+            "from WHAT IS TRUE NOW. "
+            "The Passport is a product of the execution structure, not a post-hoc report. "
+            "Later changes must create new evidence objects — the Passport must not silently mutate."
+        ),
+        "full_passport_schema": {
+            "passport_id": "VS-PP-{uuid4}",
+            "schema_version": "PP-2.0",
+            "action": {
+                "action_type": "exact consequential action type",
+                "parameters_hash": "sha256 of exact parameters",
+            },
+            "action_time": "ISO-8601 — the moment of consequence",
+            "authority_snapshot_ref": "reference to authority record at action time",
+            "currentness_snapshot_ref": "reference to ACE evaluated at action time",
+            "control_snapshot_ref": "reference to control ownership at action time",
+            "examination_ref": "reference to evaluate_release() call record",
+            "parameter_binding_ref": "reference to ConsequenceCommitment object",
+            "revalidation_ref": "reference to STILL examination result",
+            "commit_boundary_ref": "reference to the exact commit boundary record",
+            "result": "ADMITTED | REFUSED | ESCALATED | NOT_PROVABLE",
+            "carrier_provenance_refs": [],
+            "known_limitations": [],
+            "explicit_non_claims": [],
+            "integrity": {
+                "content_hash": "sha256 of canonical passport body",
+                "signature": "Ed25519 signature",
+            },
+        },
+        "passport_sections_target": [
+            "01_SUBJECT_IDENTITY",
+            "02_AUTHORITY_BASIS",
+            "03_DELEGATION_LINEAGE",
+            "04_EXACT_PROPOSED_ACTION",
+            "05_ADMISSIBILITY_BASIS",
+            "06_POLICY_INVARIANT_REFERENCES",
+            "07_RELEVANT_STATE_EVIDENCE",
+            "08_COMMITMENT_OBJECT",
+            "09_REVALIDATION_RESULT",
+            "10_EXECUTION_PATH",
+            "11_CONSEQUENCE_RESULT",
+            "12_CONTROL_OWNERSHIP",
+            "13_REVIEW_CURRENTNESS",
+            "14_EVIDENCE_LINEAGE",
+            "15_VERIFICATION_MATERIAL",
+            "16_EXPLICIT_NON_CLAIMS",
+        ],
+    },
+
+    "S21_api_engineering_direction": {
+        "name": "API Engineering Direction — Service Boundaries",
+        "service_boundaries": [
+            "/verifications", "/actions", "/authority", "/delegations",
+            "/controls", "/reviews", "/currentness", "/evidence",
+            "/passports", "/provenance", "/claims", "/challenges", "/receipts",
+        ],
+        "example_operations": {
+            "POST_authority_evaluate": "POST /authority/evaluate",
+            "POST_currentness_evaluate": "POST /currentness/evaluate",
+            "POST_provenance_freeze": "POST /provenance/freeze",
+            "POST_claims_register": "POST /claims/register",
+            "POST_challenges_carrier_integrity": "POST /challenges/carrier-integrity",
+            "POST_challenges_consequence_boundary": "POST /challenges/consequence-boundary",
+            "GET_authority_evidence": "GET /authority/{id}/evidence",
+            "GET_passport": "GET /passport/{id}",
+            "GET_receipt": "GET /receipt/{id}",
+            "GET_claim": "GET /claim/{id}",
+        },
+        "rule": "These are the target API surface for the Verification Interchange. "
+                "Do not build these until VCB Phase 1 STILL is adversarially proven.",
+    },
+
+    "S22_core_data_relationships": {
+        "name": "Core Internal Data Relationships",
+        "structure": {
+            "AGENT": {
+                "IDENTITY": "subject_id, version, digest",
+                "AUTHORITY": {
+                    "DELEGATION GRAPH": "parent → child lineage",
+                    "AUTHORITY ENTRY MAP": "entry points per authority class",
+                    "AUTHORITY CURRENTNESS ENVELOPE": "ACE per authority",
+                },
+                "GOVERNANCE_CONTROLS": {
+                    "OWNER": "control_owner_id, owner_role",
+                    "REVIEW": "cadence, last_review, next_due",
+                    "CURRENTNESS": "ACE evaluation result",
+                },
+                "CONSEQUENTIAL_ACTION": {
+                    "PROPOSAL": "proposed action object",
+                    "EXAMINATION": "evaluate_release() record",
+                    "PARAMETER_BINDING": "ConsequenceCommitment object",
+                    "REVALIDATION": "STILL examination result",
+                    "COMMIT_BOUNDARY": "exact commit boundary record",
+                    "EVIDENCE": {
+                        "PROOF_PASSPORT": "SigilMark / Proof Passport",
+                        "CVR": "Verifiable Consequence Record",
+                        "VERIFICATION_RECEIPT": "Verification Receipt",
+                    },
+                },
+            },
+            "CLAIMS": {
+                "PROVENANCE_RECORD": {
+                    "DATE": "ISO-8601",
+                    "CARRIER": "carrier reference + hash",
+                    "EXACT_RECORD": "section or offset",
+                    "EXACT_PROPOSITION": "normalized statement",
+                    "SCOPE": "declared scope",
+                    "SUPPORTING_ARTIFACTS": [],
+                },
+            },
+        },
+    },
+
+    "S23_failure_philosophy": {
+        "name": "Required Failure Philosophy",
+        "rule": (
+            "The system must not invent missing evidence. "
+            "Where evidence is absent: UNKNOWN, UNVERIFIED, NOT_PROVABLE, OUT_OF_SCOPE are valid outcomes. "
+            "Where a control is stale: STALE, REVIEW_OVERDUE, CHANGE_PENDING_REVIEW are valid outcomes. "
+            "REVOKED (authority state) must remain distinct from ACTION_DENIED (action decision)."
+        ),
+        "required_failure_modes": {
+            "AUTHORITY_REVOKED_AFTER_APPROVAL": "COMMITMENT_INVALIDATED → EXECUTION_BLOCKED → PASSPORT_RECORDS_INVALIDATION",
+            "PARAMETER_CHANGED_AFTER_ADMISSIBILITY": "NEW_COMMITMENT_REQUIRED",
+            "STATE_CHANGED_AFTER_VALIDATION": "REVALIDATION_REQUIRED",
+            "REPLAY_ATTEMPT": "REPLAY_DETECTED → CONSEQUENCE_BLOCKED",
+            "CHILD_EXCEEDS_DELEGATION": "OUT_OF_SCOPE → EXECUTION_DENIED",
+            "CONTROL_PLANE_UNAVAILABLE": "FAIL_CLOSED or DECLARED_DEGRADED_MODE — never silent continue",
+        },
+    },
+
+    "S25_implementation_order": {
+        "name": "Engineering Implementation Order — All 8 Phases",
+        "phases": {
+            "Phase 1 — Freeze the Baseline": (
+                "Freeze Engineering Baseline. Generate content hashes. Version specifications. "
+                "Freeze schemas. Freeze existing test vectors. Freeze known claims. Register current limitations. "
+                "Output: VS-BASELINE-v1.7 — this becomes the historical carrier for future comparison."
+            ),
+            "Phase 2 — Claim and Provenance Registry": (
+                "Build: Claim ID system, carrier registry, content hashing, exact proposition field, "
+                "scope field, artifact references, supersession model. Priority: HIGH."
+            ),
+            "Phase 3 — Currentness Layer": (
+                "Add cross-cutting currentness fields to: Authority, Delegation, Control, Review, "
+                "Deployment, Evidence Snapshot, Proof Passport. Priority: HIGH."
+            ),
+            "Phase 4 — Authority Currentness Envelope": (
+                "Implement: ACE creation, ACE evaluation, revocation state, expiry state, "
+                "review state, change detection references, bounded currentness output. Priority: HIGH."
+            ),
+            "Phase 5 — Consequence Boundary Declaration": (
+                "For every high-consequence integration: define proposal object, bound parameters, "
+                "authority, examination, revalidation, commit boundary, bypass attempts, recovery behavior. "
+                "Priority: CRITICAL."
+            ),
+            "Phase 6 — Adversarial Challenge Packs": (
+                "Implement: Carrier Integrity Challenge, Authority Challenge, Delegation Challenge, "
+                "Replay Challenge, Bypass Challenge, Changed-Condition Challenge, Recovery Challenge, "
+                "Currentness Challenge. Priority: CRITICAL before strong public claims."
+            ),
+            "Phase 7 — Receipt and Passport Upgrade": (
+                "Expose: Historical action evidence, current authority state, currentness state, "
+                "control ownership, review evidence, boundary evidence, known limitations, untested scope. "
+                "Priority: HIGH."
+            ),
+            "Phase 8 — Independent Verification": (
+                "Only after Phases 1-7: External verifier interface, portable evidence package, "
+                "reproducible test vectors, independent challenge execution, verifier receipts. "
+                "Priority: HIGH before production-proof positioning."
+            ),
+        },
+        "current_status_mapping": {
+            "Phase 1": "PARTIALLY_DONE — main.py baseline frozen, schemas defined, test vectors in QUICKSTART",
+            "Phase 2": "PARTIALLY_DONE — CLM-01 through CLM-11 in claims registry, provenance record schema defined",
+            "Phase 3": "SPEC_ONLY — currentness fields defined in doctrine, not yet in live API responses",
+            "Phase 4": "SPEC_ONLY — ACE schema defined, not yet implemented as live endpoint",
+            "Phase 5": "PARTIALLY_DONE — PAYMENT_INSTRUCTION declared, Alkama DP-3/DP-4 pending",
+            "Phase 6": "PARTIALLY_DONE — V1-V6 in interchange_v01.py; STILL-01...08 suite pending",
+            "Phase 7": "PARTIALLY_DONE — jar_verify three-line summary done; full receipt upgrade pending",
+            "Phase 8": "PARTIALLY_DONE — Naimatullah, Alkama, Jake cold verifications done; composited challenge pending",
+        },
+    },
+
+    "S26_test_gates": {
+        "name": "Test Gates — All Four",
+        "gates": {
+            "Gate A — Implemented": {
+                "requirements": [
+                    "Specification exists",
+                    "Code exists",
+                    "Version identified",
+                    "Claim scope declared",
+                ],
+            },
+            "Gate B — Tested": {
+                "requirements": [
+                    "Expected tests pass",
+                    "Negative tests pass",
+                    "Failure behavior documented",
+                    "Test scope recorded",
+                ],
+            },
+            "Gate C — Adversarially Challenged": {
+                "requirements": [
+                    "Replay tested",
+                    "Mutation tested",
+                    "Bypass attempts tested",
+                    "State-change scenarios tested",
+                    "Recovery tested where applicable",
+                ],
+            },
+            "Gate D — Independently Verified": {
+                "requirements": [
+                    "Evidence package portable",
+                    "Independent party can inspect",
+                    "Results reproducible within declared scope",
+                    "Limitations preserved",
+                ],
+            },
+        },
+        "current_gate_status": {
+            "cryptographic_layer": "Gate D — three independent cold verifications",
+            "replay_protection": "Gate C — 6/6 adversarial",
+            "stale_receipt": "Gate C — 10/10 adversarial INV-REC-01",
+            "STILL_suite": "Gate A — specification done, adversarial suite pending",
+            "delegation_lineage": "Gate A — schema done, Alkama DP-3/DP-4 pending",
+            "COULD_actuator": "Gate A — C2 spec done, live path pending",
+            "carrier_integrity": "Gate B — V6 in interchange tested",
+        },
+    },
+
+    "S29_final_architecture_position": {
+        "name": "Final Architecture Position",
+        "what_verisigil_is": (
+            "VeriSigil AI is an evidence and verification layer for consequential AI actions, "
+            "designed to make the authority, examination, parameter binding, currentness, "
+            "consequence boundary, and supporting provenance of those actions independently "
+            "examinable within a declared scope."
+        ),
+        "what_verisigil_is_not": [
+            "An IAM platform",
+            "A GRC platform",
+            "A general AI governance platform",
+            "A plagiarism detector",
+            "A legal prior-art authority",
+            "A universal AI safety engine",
+        ],
+        "differentiating_questions": [
+            "What exactly was controlled?",
+            "Who owned that control?",
+            "What authority supported the action?",
+            "Was that authority current?",
+            "What exact conditions were examined?",
+            "What exact parameters were bound?",
+            "Where did consequence become real?",
+            "What evidence was preserved?",
+            "What carrier supports the claim?",
+            "What changed afterward?",
+            "What remains untested?",
+            "Can an independent verifier reproduce the finding?",
+        ],
+    },
+
+    "S30_final_engineering_rule": {
+        "name": "Final Engineering Rule — Master Doctrine",
+        "rule": (
+            "No consequential claim may exceed its evidence. "
+            "No historical claim may exceed its carrier. "
+            "No control may be confused with governance merely because it exists. "
+            "No authority may be assumed current merely because it was once valid. "
+            "No pre-execution check may be represented as a consequence-formation guarantee "
+            "until the actual commit boundary and bypass behavior have been explicitly "
+            "identified and tested."
+        ),
+        "complete_architecture_chain": [
+            "CLAIM", "CARRIER", "PROPOSITION",
+            "IDENTITY", "AUTHORITY", "OWNERSHIP", "REVIEW", "CURRENTNESS",
+            "PROPOSAL", "EXAMINATION", "PARAMETER BINDING", "REVALIDATION",
+            "CONSEQUENCE BOUNDARY", "EVIDENCE", "PROOF PASSPORT",
+            "CHALLENGE", "INDEPENDENT VERIFICATION",
+        ],
+        "engineering_conclusion": (
+            "Build Currentness, Carrier-Bound Provenance, Explicit Control Ownership, "
+            "Review Evidence, and Consequence-Boundary declarations as strengthening layers "
+            "on top of the existing baseline. "
+            "Do not create a parallel product architecture. "
+            "Do not introduce broad risk scoring. "
+            "Do not issue legal attribution conclusions. "
+            "Do not upgrade claims beyond the actual carrier, implementation, test scope, "
+            "and verification evidence."
+        ),
+    },
+
         "positioning_sentence": (
         "Full AI governance runs upstream (should this exist?), "
         "midstream (is this still the approved system under change?), "
