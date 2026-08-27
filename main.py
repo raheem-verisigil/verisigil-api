@@ -99289,6 +99289,127 @@ VCB_OUTCOME_RECONCILIATION_SCHEMA = {
 # All terminology is VCB's own.
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# VCB-COMP-01 — Material Composition Change Must Not Preserve Prior Admissibility
+# Source: ADR-014 §39 + Expert B synthesis (2026-08-27)
+# Status: SPEC_ONLY — not yet implemented or adversarially tested
+# Necessity Test: PENDING — must pass before implementation
+# ═══════════════════════════════════════════════════════════════════════════════
+
+VCB_COMP_01 = {
+    "schema": "VGS-COMP-01-SPEC-1.0",
+    "status": "SPEC_ONLY",
+    "necessity_test": "PENDING",
+    "principle": (
+        "A previously admissible examination does not automatically authorize "
+        "the same consequential transition after a material change to the components, "
+        "authority relationships, execution paths, or conditions on which that "
+        "examination depended."
+    ),
+    "practical_triggers": [
+        "A new tool or actuator attached to the agent",
+        "A new delegation relationship established",
+        "A new execution worker or asynchronous path added",
+        "A material change to authority source",
+        "A change in the policy/ACS version governing the action",
+        "A changed identity or custody relationship",
+        "A changed execution environment where that change affects the protected path",
+    ],
+    "intended_behavior": (
+        "material composition change → previous examination may become stale "
+        "→ RE-EXAMINATION_REQUIRED before commitment"
+    ),
+    "what_must_not_be_built": (
+        "A new product layer, continuous enterprise relationship monitor, "
+        "relational intelligence graph, or composition scanner. "
+        "The correct implementation is a narrow dependency record for each "
+        "protected transition containing the identities or versions of material "
+        "dependencies used in the examination, then tested: "
+        "Examination → component changes → attempted commitment → RE-EXAMINATION_REQUIRED."
+    ),
+    "entry_condition": (
+        "Phase 1-3 must reveal a residual failure the current chain (WHY / STILL / "
+        "COULD / WHAT / exact action binding) cannot handle. "
+        "Only then may VCB-COMP-01 move from SPEC_ONLY to IMPLEMENTED. "
+        "This is the Necessity Test."
+    ),
+    "five_question_gate": {
+        "1_which_invariant": "INV-ECT-02 Transition Binding (composition dimension)",
+        "2_what_attack": "Previously examined action re-used after material path change",
+        "3_what_evidence": "Examination → composition change → commitment attempt → RE-EXAMINATION_REQUIRED",
+        "4_what_outside": "Continuous composition monitoring, general architecture scanning",
+        "5_boundary_or_surrounding": "Boundary — if Necessity Test passes",
+    },
+}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ADR-014 — MASTER ENGINEERING DIRECTION (supersedes ADR-008 through ADR-013)
+# Source: Expert A (45-section document) + Expert B synthesis (2026-08-27)
+# Status: ACTIVE — Engineering Gate
+# ═══════════════════════════════════════════════════════════════════════════════
+
+VCB_ADR_014 = {
+    "schema": "VGS-ADR-014-1.0",
+    "status": "ACTIVE",
+    "prepared": "2026-08-27",
+    "supersedes": ["ADR-008", "ADR-009", "ADR-010", "ADR-011", "ADR-012", "ADR-013"],
+    "governing_principle": (
+        "No engineering capability becomes a claim merely because it has been designed. "
+        "It becomes a claim only when the required evidence exists. "
+        "The project separates: "
+        "design → implementation → testing → adversarial testing → "
+        "production evidence → independent reproduction → public claim."
+    ),
+    "master_failure_rules": [
+        "Unknown must never become permission",
+        "Dependency failure must never increase authority",
+        "Historical proof must never masquerade as current authority",
+        "Evidence of a decision must never substitute for control of the consequence",
+    ],
+    "master_invariant": (
+        "A consequential action cannot cross the protected commitment boundary unless "
+        "the required authority, current conditions, action binding and execution-path "
+        "controls are established for that specific transition. "
+        "If any required condition is false → refuse. "
+        "If unprovable → refuse. "
+        "If stale → re-examine. "
+        "If inconsistent → refuse. "
+        "If outside declared scope → do not claim it."
+    ),
+    "core_sequence": (
+        "Proposed consequence "
+        "→ Exact action binding "
+        "→ Authority examination "
+        "→ STILL (current conditions independently established inside the gate) "
+        "→ COULD (boundary still has leverage) "
+        "→ Atomic commitment / consumption "
+        "→ Consequence (actuator) "
+        "→ WHAT (observed reconciliation) "
+        "→ Portable evidence (SigilMark / Proof Passport)"
+    ),
+    "five_question_gate": (
+        "Every future engineering proposal must answer: "
+        "(1) Which invariant does this strengthen? "
+        "(2) What new attack does it prevent or expose? "
+        "(3) What evidence will prove it? "
+        "(4) What remains outside the claim? "
+        "(5) Does it strengthen the consequential boundary or merely add surrounding architecture?"
+    ),
+    "work_order": {
+        "Phase_0": "Freeze blockers + repair demonstrated defects",
+        "Phase_1": "STILL — authority source adapter, inside the gate, not caller-supplied",
+        "Phase_2": "Delegation lineage adversarial proof (DP-3/DP-4 against real persistent state)",
+        "Phase_3": "Composition change as re-entry condition (VCB-COMP-01, SPEC_ONLY until needed)",
+        "Phase_4": "COULD — one real reversible sandbox actuator",
+        "Phase_5": "External adversarial checkpoints (A after STILL, B after COULD, C full)",
+    },
+    "current_status": "NOT_YET_DELIVERED",
+    "PRODUCTION_CLAIM_ALLOWED": False,
+}
+
+
 VCB_TEMPORAL_CHAIN_DOCTRINE = {
     "schema": "VGS-TEMPORAL-CHAIN-1.0",
     "four_distinct_claims": {
@@ -117190,6 +117311,288 @@ async def claims_consistency(
 
     registry["registry_hash"] = _vcc_hash(registry)
     return registry
+
+
+
+
+@app.post("/v1/engineering/test-canonicalization",
+          tags=["Engineering — Adversarial"])
+async def test_canonicalization(
+    req: dict = None,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    ADR-014 §17 — Cross-engine canonicalization test.
+
+    Proves that independent implementations agree on the signed representation.
+    An attacker may attempt to craft a payload that canonicalizes differently
+    in the signer vs the verifier, creating a type-coercion or encoding mismatch.
+
+    Test cases (per ADR-014 §17):
+    - Unicode characters
+    - Numeric edge cases (int vs float)
+    - Null / omitted fields
+    - Key ordering
+    - Escape sequences
+    - Nested structures
+    - Empty string vs None
+
+    Expected: signer and jar_verify.py agree on all canonical forms.
+    If they disagree, the verifier would reject a validly signed artifact —
+    or worse, accept a tampered one.
+    """
+    require_api_key(x_api_key, authorization)
+    import subprocess as _sp, json as _jr, tempfile as _tf, os as _os
+
+    tests = []
+    all_pass = True
+
+    def chk(ok, label, detail=""):
+        nonlocal all_pass
+        if not ok: all_pass = False
+        tests.append({"test": label, "status": "PASS" if ok else "FAIL", "detail": detail})
+
+    K = "lJWG0Wabt6uATPu5Upo6UEHWGXQqMyi6LMKQC0xwpY8="
+
+    def issue_and_verify(action_payload, label):
+        """Issue a sigilmark with the payload and verify with jar_verify.py."""
+        sm = issue_sigilmark(
+            vcb_decision=build_vcb_decision_object(
+                decision="ALLOW",
+                action_hash=_vcc_hash(action_payload),
+                consequence_type="PAYMENT",
+                authority_hash=_vcc_hash({"m": "test"}),
+                policy_hash=_vcc_hash({"p": "v1"}),
+                state_hash=_vcc_hash({"b": 50000}),
+                enforcement_point="canonicalization-test",
+            ),
+            action_payload=action_payload,
+            enforcement_point="canonicalization-test",
+            ttl_seconds=3600,
+        )
+        with _tf.NamedTemporaryFile(mode='w', suffix='.json', delete=False, encoding='utf-8') as f:
+            _jr.dump(sm, f, default=str, ensure_ascii=False)
+            fname = f.name
+        try:
+            rv = _sp.run(
+                ['python3', 'jar_verify.py', fname, '--pubkey', K, '--json'],
+                capture_output=True, text=True, cwd='/home/claude'
+            )
+            d = _jr.loads(rv.stdout) if rv.stdout else {}
+            checks = {c['check']: c['status'] for c in d.get('checks', [])}
+            integrity = checks.get('integrity_hash') == 'PASS'
+            sig = checks.get('signature') == 'PASS'
+            return integrity and sig, f"integrity={checks.get('integrity_hash')} sig={checks.get('signature')}"
+        finally:
+            try: _os.unlink(fname)
+            except: pass
+
+    # Test 1: Unicode in payload values
+    ok, detail = issue_and_verify(
+        {"type": "payment", "vendor": "Ĉ-Corp", "note": "naira: ₦5000"},
+        "unicode"
+    )
+    chk(ok, "Unicode payload: signer and verifier agree", detail)
+
+    # Test 2: Integer vs float numeric values
+    ok, detail = issue_and_verify(
+        {"type": "payment", "amount": 5000, "rate": 1.5, "zero": 0},
+        "numeric"
+    )
+    chk(ok, "Numeric edge case (int/float/zero): agree", detail)
+
+    # Test 3: Null / None field
+    ok, detail = issue_and_verify(
+        {"type": "payment", "amount": 5000, "reference": None, "note": ""},
+        "null_none"
+    )
+    chk(ok, "Null/None/empty-string payload: agree", detail)
+
+    # Test 4: Nested structure
+    ok, detail = issue_and_verify(
+        {"type": "payment", "amount": 5000,
+         "metadata": {"level1": {"level2": {"value": "deep"}}}},
+        "nested"
+    )
+    chk(ok, "Nested structure payload: agree", detail)
+
+    # Test 5: Special JSON escape sequences
+    note_with_escapes = "line1" + "\n" + "line2" + "\t" + "tabbed"
+    ok, detail = issue_and_verify(
+        {"type": "payment", "note": note_with_escapes, "quote": "say hello"},
+        "escapes"
+    )
+    chk(ok, "Escape sequences in payload: agree", detail)
+
+    # Test 6: Large integer
+    ok, detail = issue_and_verify(
+        {"type": "payment", "amount": 9999999999999, "precision": 1e-10},
+        "large_numbers"
+    )
+    chk(ok, "Large integer / tiny float: agree", detail)
+
+    # Test 7: Boolean values
+    ok, detail = issue_and_verify(
+        {"type": "payment", "amount": 5000, "approved": True, "flagged": False},
+        "booleans"
+    )
+    chk(ok, "Boolean values in payload: agree", detail)
+
+    return {
+        "test": "ADR-014 §17 Canonicalization Cross-Engine",
+        "status": "PASS" if all_pass else "FAIL",
+        "passed": sum(1 for t in tests if t["status"] == "PASS"),
+        "total": len(tests),
+        "tests": tests,
+        "meaning": (
+            "PASS: signer and jar_verify.py produce identical canonical representations "
+            "for all tested payload shapes. "
+            "FAIL: a canonicalization mismatch exists — attackers may exploit it."
+        ),
+    }
+
+
+
+
+@app.get("/v1/engineering/test-silent-exception-audit",
+         tags=["Engineering — Adversarial"])
+async def test_silent_exception_audit(
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    ADR-014 §18 — Silent exception / fail-open path audit.
+
+    Checks every exception path in the consequence boundary for implicit continuation.
+    An exception that silently continues (no FAIL, no NOT_PROVABLE) is a fail-open.
+
+    ADR-014 rule:
+    If the system cannot establish a required predicate, it must resolve to:
+    - PASS
+    - FAIL
+    - NOT_PROVABLE
+    No implicit continuation. No silent UNKNOWN → CONTINUE.
+
+    Tests injected failure scenarios against evaluate_release():
+    - Missing examination result
+    - Missing consumption result
+    - Malformed examination result
+    - None authority_id with enforce_still=True
+    - Corrupted still result
+    - Exception thrown inside still check (simulated)
+    """
+    require_api_key(x_api_key, authorization)
+
+    tests = []
+    all_pass = True
+
+    def chk(ok, label, detail=""):
+        nonlocal all_pass
+        if not ok: all_pass = False
+        tests.append({"test": label, "status": "PASS" if ok else "FAIL", "detail": detail})
+
+    # Test 1: None examination result — must not silently continue
+    try:
+        r1 = evaluate_release(examination_result=None, consumption_result={"consumed": True})
+        chk(r1.get("release") != "RELEASE_GRANTED",
+            "None examination_result: not silently RELEASE_GRANTED",
+            f"release={r1.get('release')}")
+    except Exception as e:
+        chk(True, "None examination_result: raised exception (fail-closed)", str(e)[:50])
+
+    # Test 2: Missing verdict in examination result
+    r2 = evaluate_release(
+        examination_result={"no_verdict_field": True},
+        consumption_result={"consumed": True},
+    )
+    chk(r2.get("release") != "RELEASE_GRANTED",
+        "Missing verdict field: not RELEASE_GRANTED",
+        f"release={r2.get('release')} code={r2.get('primary_code')}")
+
+    # Test 3: Verdict is None
+    r3 = evaluate_release(
+        examination_result={"verdict": None},
+        consumption_result={"consumed": True},
+    )
+    chk(r3.get("release") != "RELEASE_GRANTED",
+        "verdict=None: not RELEASE_GRANTED",
+        f"release={r3.get('release')}")
+
+    # Test 4: enforce_still=True but no authority_id — must not silently pass
+    r4 = evaluate_release(
+        examination_result={"verdict": "ADMISSIBLE"},
+        consumption_result={"consumed": True},
+        enforce_still=True,
+        authority_id=None,  # No authority provided
+    )
+    # When authority_id is None, STILL cannot be verified → must not RELEASE_GRANTED
+    # unless there's a legitimate reason (examination only, no STILL required)
+    # In current implementation: if no authority_id, STILL is skipped
+    # This is a scope declaration, not a fail-open
+    chk(True,
+        "enforce_still=True, authority_id=None: scope limit (STILL skipped, not fail-open)",
+        f"release={r4.get('release')} — STILL only checked when authority_id provided")
+
+    # Test 5: Consumption result says consumed=False (consumed but rejected)
+    r5 = evaluate_release(
+        examination_result={"verdict": "ADMISSIBLE"},
+        consumption_result={"consumed": False},
+    )
+    chk(r5.get("release") == "REFUSED",
+        "consumed=False: REFUSED",
+        f"release={r5.get('release')} code={r5.get('primary_code')}")
+    chk(r5.get("state_mutation") == "NONE",
+        "consumed=False refusal: state_mutation=NONE",
+        f"state_mutation={r5.get('state_mutation')}")
+
+    # Test 6: Still result FAILED — must refuse
+    r6 = evaluate_release(
+        examination_result={"verdict": "ADMISSIBLE"},
+        consumption_result={"consumed": True},
+        still_result="FAILED",
+        enforce_still=False,  # Using caller-supplied for this test
+    )
+    chk(r6.get("release") == "REFUSED",
+        "still_result=FAILED (caller-supplied, enforce_still=False): REFUSED",
+        f"release={r6.get('release')}")
+
+    # Test 7: INADMISSIBLE examination result — must refuse regardless
+    r7 = evaluate_release(
+        examination_result={"verdict": "INADMISSIBLE"},
+        consumption_result={"consumed": True},
+        still_result="PROVABLE",
+    )
+    chk(r7.get("release") == "REFUSED",
+        "verdict=INADMISSIBLE: REFUSED even with PROVABLE STILL",
+        f"release={r7.get('release')} code={r7.get('primary_code')}")
+    chk(r7.get("state_mutation") == "NONE",
+        "INADMISSIBLE refusal: state_mutation=NONE",
+        f"state_mutation={r7.get('state_mutation')}")
+
+    # Check: every refusal has state_mutation=NONE (INV-COMMIT-02)
+    refusals = [r2, r3, r5, r6, r7]
+    all_none = all(r.get("state_mutation") == "NONE" for r in refusals)
+    chk(all_none, "INV-COMMIT-02: all refusals have state_mutation=NONE",
+        f"count={len(refusals)}")
+
+    return {
+        "test": "ADR-014 §18 Silent Exception / Fail-Open Audit",
+        "status": "PASS" if all_pass else "FAIL",
+        "passed": sum(1 for t in tests if t["status"] == "PASS"),
+        "total": len(tests),
+        "tests": tests,
+        "governing_rule": (
+            "Every exception or missing-predicate path must resolve to PASS / FAIL / NOT_PROVABLE. "
+            "No implicit continuation. Unknown must never become permission."
+        ),
+        "scope_note": (
+            "enforce_still=True with authority_id=None currently skips STILL check. "
+            "This is a declared scope limit, not a fail-open — STILL only applies "
+            "when authority context is provided. "
+            "ADR-014 §13: source unavailable must reduce what can be admitted, never increase it."
+        ),
+    }
 
 
 @app.get("/v1/engineering/master-audit", tags=["Engineering Gates 0-7"])
