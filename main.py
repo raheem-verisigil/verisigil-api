@@ -116549,7 +116549,7 @@ async def test_stale_receipt(
     K = "lJWG0Wabt6uATPu5Upo6UEHWGXQqMyi6LMKQC0xwpY8="
     rv = _sp.run(
         ['python3', 'jar_verify.py', passport_path, '--pubkey', K, '--json'],
-        capture_output=True, text=True, cwd='/home/claude'
+        capture_output=True, text=True, cwd=_os.path.dirname(_os.path.abspath(__file__))
     )
     vd = _jr.loads(rv.stdout) if rv.stdout else {}
     checks_t0 = {c['check']: c['status'] for c in vd.get('checks', [])}
@@ -116585,7 +116585,7 @@ async def test_stale_receipt(
     # Step 6: Verify T0 passport still passes crypto check (artifact unchanged)
     rv2 = _sp.run(
         ['python3', 'jar_verify.py', passport_path, '--pubkey', K, '--json'],
-        capture_output=True, text=True, cwd='/home/claude'
+        capture_output=True, text=True, cwd=_os.path.dirname(_os.path.abspath(__file__))
     )
     vd2 = _jr.loads(rv2.stdout) if rv2.stdout else {}
     checks_t1 = {c['check']: c['status'] for c in vd2.get('checks', [])}
@@ -117377,7 +117377,7 @@ async def test_canonicalization(
         try:
             rv = _sp.run(
                 ['python3', 'jar_verify.py', fname, '--pubkey', K, '--json'],
-                capture_output=True, text=True, cwd='/home/claude'
+                capture_output=True, text=True, cwd=_os.path.dirname(_os.path.abspath(__file__))
             )
             d = _jr.loads(rv.stdout) if rv.stdout else {}
             checks = {c['check']: c['status'] for c in d.get('checks', [])}
