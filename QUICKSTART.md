@@ -60,6 +60,7 @@ endpoints, or administrative functions. It is intentionally published to support
 independent verification of VCB's public evidence surface.
 Do not use this key for any production purpose.
 
+### Bash / Linux / macOS
 ```bash
 curl -s -X POST https://verisigil-api-production.up.railway.app/v1/vcb/seal \
   -H "X-API-Key: verisigil-secret-2026" \
@@ -67,11 +68,41 @@ curl -s -X POST https://verisigil-api-production.up.railway.app/v1/vcb/seal \
   -d '{"vcb_decision":{"decision":"ALLOW","action_hash":"abc123def456abc123def456abc123def456abc123def456abc123def456abc1","authority_hash":"def456abc123def456abc123def456abc123def456abc123def456abc123def4","policy_hash":"aaa111bbb222aaa111bbb222aaa111bbb222aaa111bbb222aaa111bbb222aaa1","state_hash":"bbb222ccc333bbb222ccc333bbb222ccc333bbb222ccc333bbb222ccc333bbb2","consequence_type":"PAYMENT"},"action":{"type":"payment","amount":5000,"vendor":"VENDOR-A"},"enforcement_point":"payment-boundary-v1","ttl_seconds":86400}' > passport.json
 ```
 
+### Windows PowerShell
+```powershell
+$body = '{"vcb_decision":{"decision":"ALLOW","action_hash":"abc123def456abc123def456abc123def456abc123def456abc123def456abc1","authority_hash":"def456abc123def456abc123def456abc123def456abc123def456abc123def4","policy_hash":"aaa111bbb222aaa111bbb222aaa111bbb222aaa111bbb222aaa111bbb222aaa1","state_hash":"bbb222ccc333bbb222ccc333bbb222ccc333bbb222ccc333bbb222ccc333bbb2","consequence_type":"PAYMENT"},"action":{"type":"payment","amount":5000,"vendor":"VENDOR-A"},"enforcement_point":"payment-boundary-v1","ttl_seconds":86400}'
+
+Invoke-RestMethod -Method Post `
+  -Uri "https://verisigil-api-production.up.railway.app/v1/vcb/seal" `
+  -Headers @{"X-API-Key"="verisigil-secret-2026"; "Content-Type"="application/json"} `
+  -Body $body | ConvertTo-Json -Depth 20 | Out-File -Encoding utf8 passport.json
+```
+
+### Windows curl (Git Bash or WSL)
+```bash
+curl -s -X POST https://verisigil-api-production.up.railway.app/v1/vcb/seal \
+  -H "X-API-Key: verisigil-secret-2026" \
+  -H "Content-Type: application/json" \
+  -d "{\"vcb_decision\":{\"decision\":\"ALLOW\",\"action_hash\":\"abc123def456abc123def456abc123def456abc123def456abc123def456abc1\",\"authority_hash\":\"def456abc123def456abc123def456abc123def456abc123def456abc123def4\",\"policy_hash\":\"aaa111bbb222aaa111bbb222aaa111bbb222aaa111bbb222aaa111bbb222aaa1\",\"state_hash\":\"bbb222ccc333bbb222ccc333bbb222ccc333bbb222ccc333bbb222ccc333bbb2\",\"consequence_type\":\"PAYMENT\"},\"action\":{\"type\":\"payment\",\"amount\":5000,\"vendor\":\"VENDOR-A\"},\"enforcement_point\":\"payment-boundary-v1\",\"ttl_seconds\":86400}" > passport.json
+```
+
 ---
 
 ## Step 3 — Verify the passport
+
+### Bash / Linux / macOS / Git Bash
 ```bash
 python jar_verify.py passport.json --pubkey lJWG0Wabt6uATPu5Upo6UEHWGXQqMyi6LMKQC0xwpY8=
+```
+
+### Windows PowerShell
+```powershell
+python jar_verify.py passport.json --pubkey lJWG0Wabt6uATPu5Upo6UEHWGXQqMyi6LMKQC0xwpY8=
+```
+
+If python is not in your PATH, use the full path:
+```powershell
+& "C:\Users\<YourName>\AppData\Local\Programs\Python\Python310\python.exe" jar_verify.py passport.json --pubkey lJWG0Wabt6uATPu5Upo6UEHWGXQqMyi6LMKQC0xwpY8=
 ```
 
 ---
