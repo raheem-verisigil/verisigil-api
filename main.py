@@ -99802,6 +99802,134 @@ VCB_ADR_014 = {
     },
     "current_status": "NOT_YET_DELIVERED",
     "PRODUCTION_CLAIM_ALLOWED": False,
+    "three_public_principles": {
+        "principle_1": "Approval is historical. Authority is current. Consequence requires sufficiency.",
+        "principle_2": "Historical proof ≠ current standing ≠ admissible consequence.",
+        "principle_3": (
+            "VeriSigil AI is not a system for proving that an AI was once approved. "
+            "It is a proof-and-enforcement boundary that distinguishes historical authorization "
+            "from current standing and current consequence sufficiency."
+        ),
+        "source": "Expert synthesis: Javier Muñoz + Jake Macdonald + ADR-014R, August 2026",
+    },
+    "refined_still_model": {
+        "definition": (
+            "STILL_PROVABLE only when all six conditions hold simultaneously. "
+            "STILL is not merely 'authority source is reachable.' "
+            "It means: the relevant authority conditions remain demonstrably continuous "
+            "and applicable to the exact current system state and proposed action."
+        ),
+        "formula": "STILL = A ∧ I ∧ Δ ∧ C ∧ F ∧ S",
+        "conditions": {
+            "A": "Authority continuity — authority still exists and has not been revoked",
+            "I": "Identity continuity — relevant system identity remains within approved boundary",
+            "delta": "No unexamined material delta — no material change invalidates prior examination",
+            "C": "Required controls still effective — control continuity holds",
+            "F": "Freshness — examination is sufficiently recent per policy",
+            "S": "Scope — authority is applicable to this proposed consequence",
+        },
+        "outcomes": {
+            "STILL_PROVABLE": "All six conditions independently established",
+            "STILL_FAILED": "One or more conditions established and shown not to hold",
+            "STILL_NOT_PROVABLE": (
+                "Cannot establish whether conditions remain satisfied. "
+                "Unknown is not good. Source unavailable → NOT_PROVABLE → REFUSE. "
+                "Never: source unavailable → assume valid → release."
+            ),
+        },
+        "admissibility_equation": {
+            "formula": "ADMISSIBLE(ACTION, T1) only if HISTORY ∧ STILL ∧ COULD",
+            "meaning": (
+                "HISTORY = issuance integrity (cryptographic authenticity). "
+                "STILL = A ∧ I ∧ Δ ∧ C ∧ F ∧ S (current standing). "
+                "COULD = consequence sufficiency + enforcement leverage."
+            ),
+        },
+    },
+    "three_layer_proof_model": {
+        "layer_1": {
+            "name": "ISSUANCE_INTEGRITY",
+            "question": "Did this authorization exist and has its evidence remained intact?",
+            "outputs": ["INTEGRITY_VERIFIED", "SIGNATURE_VERIFIED"],
+            "vcb_mechanism": "Cryptographic hash + Ed25519 signature on canonical form",
+        },
+        "layer_2": {
+            "name": "CURRENT_STANDING",
+            "question": "Can authority and governing conditions be independently re-established now?",
+            "outputs": ["CURRENT_STANDING_PROVABLE", "CURRENT_STANDING_FAILED", "CURRENT_STANDING_NOT_PROVABLE"],
+            "vcb_mechanism": "STILL gate — A ∧ I ∧ Δ ∧ C ∧ F ∧ S",
+            "jar_verify_line": "CURRENT STANDING: VERIFIED / NOT_RE-ESTABLISHED / FAILED",
+        },
+        "layer_3": {
+            "name": "CONSEQUENCE_SUFFICIENCY",
+            "question": "Is this specific action permitted to cross this consequence boundary?",
+            "outputs": ["CONSEQUENCE_ADMISSIBLE", "CONSEQUENCE_REFUSED", "CONSEQUENCE_NOT_PROVABLE"],
+            "vcb_mechanism": "COULD + exact action binding + admissibility gate",
+            "jar_verify_line": "CONSEQUENCE SUFFICIENCY: VERIFIED / NOT_ESTABLISHED / FAILED",
+        },
+    },
+    "sp1b_material_delta": {
+        "name": "SP-1B — Material Delta / Authorization Continuity",
+        "status": "QUEUED — part of hardened STILL definition in Phase 1",
+        "description": (
+            "Not a new primitive. A refinement of STILL's material delta condition (Δ). "
+            "The examination baseline must commit what was in force. "
+            "At commitment, compare current state against baseline. "
+            "Delta → STILL_NOT_PROVABLE → no release. "
+            "Does NOT build a full enterprise monitoring platform. "
+            "Governs only the declared audited governed path."
+        ),
+        "acceptance_criteria": {
+            "CONT-01": (
+                "The examined authority identifies the baseline system/configuration/policy "
+                "boundary it applies to."
+            ),
+            "CONT-02": (
+                "The commitment gate obtains current relevant state rather than trusting "
+                "a caller-supplied assertion."
+            ),
+            "CONT-03": (
+                "A material change invalidates prior examination until revalidation occurs."
+            ),
+            "CONT-04": (
+                "An unknown or unobservable material delta produces NOT_PROVABLE "
+                "rather than assumed continuity."
+            ),
+            "CONT-05": (
+                "The evidence package identifies the baseline examined, the current state examined, "
+                "and the continuity result."
+            ),
+            "CONT-06": (
+                "Revocation or supersession between T0 and T1 prevents prior authority "
+                "from silently remaining sufficient."
+            ),
+            "CONT-07": (
+                "A revalidation decision is attributable to an identified authority source "
+                "or accountable decision process."
+            ),
+            "CONT-08": (
+                "Only the declared audited state set is evaluated. "
+                "No claim is made that all enterprise changes are monitored. "
+                "This criterion prevents scope inflation."
+            ),
+        },
+        "scope_boundary": (
+            "VCB does not become an enterprise monitoring platform. "
+            "Admission test for any new midstream feature: "
+            "Does refusing it allow a consequential action under stale identity, purpose, "
+            "permissions, or controls that STILL cannot already catch? "
+            "If no → observation only. Do not build."
+        ),
+    },
+    "positioning_sentence": (
+        "Full AI governance runs upstream (should this exist?), "
+        "midstream (is this still the approved system under change?), "
+        "and downstream (may this action run now?). "
+        "VeriSigil VCB is the downstream enforcement and evidence layer: "
+        "it re-checks current authority and scope at the commitment boundary "
+        "and records the decision. "
+        "Performance success and past approval are not treated as current permission to act."
+    ),
 }
 
 
