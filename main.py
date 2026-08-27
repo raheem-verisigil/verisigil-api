@@ -97782,6 +97782,30 @@ VCB_ADR_REGISTRY = {
             "status": "ACTIVE",
             "challenge_score": {"challenged": 1, "survived": 1, "revised": 0},
         },
+        "ADR-004-R1": {
+            "title": "Consequential Boundary Adoption — supersedes enforcement-gateway framing",
+            "status": "ACTIVE — supersedes historical ADR-004 enforcement-gateway NOT ADOPTED decision",
+            "decision": (
+                "VCB's primary terrain is CONSEQUENTIAL TRANSITION CONTROL under defined governed paths, "
+                "not a general enterprise PEP suite and not post-hoc-only evidence reconstruction. "
+                "The enforcement-gateway framing (historical ADR-004 seed) said NOT ADOPTED; "
+                "the current build IS that boundary — narrow, path-specific, three-state honest, "
+                "with portable evidence. This ADR-004-R1 resolves the contradiction. "
+                "Differentiation from crowded PEP/runtime-enforcement market: "
+                "three-state honesty (STILL_NOT_PROVABLE ≠ ALLOW), offline independent verifiability, "
+                "durable STILL, and explicit non-claims. "
+                "Not a general enterprise PEP suite. Not post-hoc-only."
+            ),
+            "non_goals": [
+                "Not a universal enterprise policy-enforcement point",
+                "Not continuous monitoring of all AI system behavior",
+                "Not a replacement for upstream governance frameworks",
+                "Not a general compliance certification mechanism",
+            ],
+            "relationship_tag": "DIRECTLY_IMPLEMENTED (narrow consequential boundary) — "
+                                "NOT ANALOGOUS_TO general enterprise PEP/runtime-enforcement category",
+            "source": "Expert 2 correction — August 2026 session",
+        },
         "ADR-004": {
             "title": "Separation of enforcement, revalidation, and modification authority",
             "proposal": "VCB must not combine enforcement, revalidation, and modification into one authority",
