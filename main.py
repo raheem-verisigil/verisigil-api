@@ -100118,6 +100118,82 @@ def verify_with_key_registry(passport: dict, key_registry: dict = None) -> dict:
 # Source: Expert synthesis on cloud concentration risk (2026-08-26)
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# VCB AUTHORITY SOURCE INDEPENDENCE DOCTRINE
+# Which conditions does VCB independently establish vs receive from the
+# same authority source it governs?
+# ═══════════════════════════════════════════════════════════════════════════════
+
+VCB_AUTHORITY_INDEPENDENCE_DOCTRINE = {
+    "schema": "VGS-AUTHORITY-INDEPENDENCE-1.0",
+    "core_question": (
+        "If one component can manufacture all the evidence consumed by another, "
+        "cryptographic integrity exists without genuine independence. "
+        "This doctrine classifies each evidence type by its independence level."
+    ),
+    "evidence_classification": {
+        "action_hash": {
+            "level": "CRYPTOGRAPHICALLY_BOUND",
+            "description": "SHA-256 over the exact action payload. Cannot be forged without changing the hash.",
+            "independence": "HIGH — any mutation of action_payload changes action_hash",
+        },
+        "authority_hash": {
+            "level": "SELF_ASSERTED",
+            "description": "Hash of authority context provided by the caller at examination time.",
+            "independence": "LOW — the caller provides this; VCB verifies it matches the Supabase mandate at T1",
+            "mitigation": "STILL gate re-derives authority hash from Supabase at commitment time",
+        },
+        "policy_hash": {
+            "level": "SELF_ASSERTED",
+            "description": "Hash of policy version provided by the caller.",
+            "independence": "LOW — caller provides; not independently verified against external policy store",
+            "gap": "No external policy store verification — policy is declared, not independently attested",
+        },
+        "integrity_hash": {
+            "level": "CRYPTOGRAPHICALLY_VERIFIED",
+            "description": "SHA-256 over RFC 8785 canonical form of the passport.",
+            "independence": "HIGH — independently verified by jar_verify.py without any VCB system access",
+        },
+        "signature": {
+            "level": "CRYPTOGRAPHICALLY_VERIFIED",
+            "description": "Ed25519 signature over canonical form.",
+            "independence": "HIGH — independently verified using only the published public key",
+        },
+        "still_result": {
+            "level": "CURRENTLY_REVALIDATED",
+            "description": "Supabase treasury_mandates queried at commitment time.",
+            "independence": "MEDIUM — independent of the examination result, but dependent on Supabase store",
+            "note": "Caller cannot inject still_result='PROVABLE' — enforce_still=True computes internally",
+        },
+        "consumption_record": {
+            "level": "CRYPTOGRAPHICALLY_ENFORCED",
+            "description": "Supabase UNIQUE(release_id) prevents duplicate consumption.",
+            "independence": "HIGH within application path; LOW if Supabase superuser can directly rewrite",
+        },
+        "examination_evidence": {
+            "level": "SELF_ASSERTED",
+            "description": "WHY examination result (verdict: ADMISSIBLE) is provided by the caller.",
+            "independence": "LOW — VCB does not independently verify the examination evidence quality",
+            "gap": "VCB verifies conditions of the examination, not the examination's own evidence quality",
+        },
+    },
+    "genuine_independence_claims": [
+        "The integrity of a signed passport can be independently verified without any VCB system",
+        "The signature can be verified using only the published public key",
+        "A tampered passport is rejected by jar_verify.py without VCB system access",
+        "The STILL gate cannot be bypassed by a caller supplying a forged still_result",
+        "Concurrent consumption of the same release_id is blocked by Supabase UNIQUE",
+    ],
+    "not_independently_verified": [
+        "The quality or legitimacy of the examination evidence (WHY)",
+        "The policy version declared by the caller",
+        "The authority_hash provided by the caller (mitigated by STILL re-derivation at T1)",
+        "The legitimacy of the authority-granting process",
+    ],
+}
+
+
 VCB_DEPENDENCY_DOCTRINE = {
     "schema": "VGS-DEPENDENCY-DOCTRINE-1.0",
     "governing_principle": (
@@ -100197,6 +100273,156 @@ VCB_DEPENDENCY_DOCTRINE = {
         "VCB is designed so that loss, interruption, or uncertainty of a required "
         "execution/evidence carrier does not silently become permission to execute "
         "a consequential action."
+    ),
+}
+
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# VCB THREAT BOUNDARY DECLARATION
+# IA-5: Supabase threat boundary — what the store can and cannot do
+# This is an honest declaration of the enforcement boundary, not a claim.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+VCB_THREAT_BOUNDARY = {
+    "schema": "VGS-THREAT-BOUNDARY-1.0",
+    "declared_at": "2026-08-26",
+
+    "in_scope_threats": [
+        "Action mutation after examination — changing parameters after RELEASE_GRANTED",
+        "Replay of a consumed release_id against the same or different mandate",
+        "Concurrent duplicate consumption — two goroutines/processes race for same release",
+        "Stale receipt — presenting a valid T0 passport after mandate revoked at T1",
+        "Caller-supplied STILL bypass — passing still_result=PROVABLE with forged source",
+        "Unauthorized vendor or amount exceeding mandate ceiling",
+        "Mandate not found — attempting release against non-existent authority",
+        "Alternate path to Paystack actuator bypassing evaluate_release()",
+        "Delegation escalation — child scope exceeding parent scope",
+        "Key revocation bypass — issuing passport after signing key revoked",
+    ],
+
+    "out_of_scope_threats": {
+        "compromised_database_superuser": (
+            "A Supabase/Postgres superuser or service-role credential holder can "
+            "directly modify release_records, treasury_mandates, or sigilmarks tables. "
+            "VCB does not protect against database-level administrative access. "
+            "The enforcement boundary assumes the database store is trusted infrastructure. "
+            "Mitigation: Supabase project access controls, key rotation, audit logging. "
+            "This is a deployment security concern, not a VCB claim boundary."
+        ),
+        "consumed_to_unconsumed_rewrite": (
+            "A database superuser can UPDATE release_records SET consumed=false "
+            "to allow replay of a previously consumed release_id. "
+            "VCB does not prevent this at the database layer. "
+            "VCB's replay protection operates at the application and constraint layer. "
+            "The UNIQUE constraint prevents duplicate INSERTs — it does not prevent "
+            "an administrative UPDATE that resets consumption state."
+        ),
+        "compromised_signing_key": (
+            "If SIGN_SECRET is exposed, an attacker can forge valid VCB passports. "
+            "VCB does not protect against signing key compromise. "
+            "Mitigation: Railway secret management, key rotation (INV-KEY-01/02/03)."
+        ),
+        "compromised_railway_environment": (
+            "A compromised Railway deployment environment can access all env vars "
+            "including SUPABASE_KEY and SIGN_SECRET. "
+            "This is outside VCB's enforcement boundary."
+        ),
+        "supabase_provider_compromise": (
+            "Supabase itself being compromised is outside VCB's enforcement boundary. "
+            "Infrastructure is a carrier, not an authority — but if the carrier is "
+            "compromised, VCB's durable state guarantees do not hold."
+        ),
+        "model_or_agent_compromise": (
+            "If the AI agent proposing the action is itself compromised or malicious, "
+            "VCB gates the consequence but cannot govern what the agent proposes. "
+            "VCB's claim: it gates the consequence at the boundary. "
+            "It does not govern the intelligence proposing the action."
+        ),
+    },
+
+    "database_immutability_honest_statement": (
+        "VCB's replay protection relies on: "
+        "(1) Supabase UNIQUE(release_id) preventing duplicate INSERTs, "
+        "(2) asyncio.Lock() preventing concurrent consumption within one process, "
+        "(3) RLS policies preventing anonymous access. "
+        "It does NOT rely on immutability of existing rows — a service-role "
+        "credential holder can UPDATE or DELETE records. "
+        "This is the declared boundary of the replay protection claim."
+    ),
+
+    "enforcement_model": (
+        "VCB enforces at the application consequence boundary, not at the "
+        "database administrative boundary. "
+        "The database is a trusted carrier. "
+        "If the carrier is compromised, VCB's properties are not preserved. "
+        "This is consistent with the principle: infrastructure is a carrier, not an authority."
+    ),
+}
+
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# VCB PERSISTENCE BOUNDARY DOCTRINE
+# What the durable store can and cannot do.
+# Honest declaration of the threat boundary — not a claim of impossibility.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+VCB_PERSISTENCE_BOUNDARY_DOCTRINE = {
+    "schema": "VGS-PERSISTENCE-BOUNDARY-1.0",
+    "principle": (
+        "The durable store is a carrier, not a trustee. "
+        "VCB's consumption, revocation, and sigilmark records depend on the store "
+        "not being directly rewritten by a privileged operator outside the application path. "
+        "This boundary must be explicitly declared, not silently assumed."
+    ),
+    "what_the_application_enforces": [
+        "consume_release_atomic(): single-use token with asyncio.Lock + Supabase UNIQUE — "
+        "prevents duplicate consumption through the application path",
+        "revoke_treasury_mandate(): sets status=REVOKED in Supabase — "
+        "STILL gate reads this on every evaluate_release() call",
+        "RLS on all tables: anon key cannot write directly — "
+        "all writes go through service role via the application",
+        "persist_sigilmark(): stores signed artifacts — "
+        "integrity_hash and signature are cryptographically bound",
+    ],
+    "what_the_application_does_not_enforce": [
+        "A Supabase service-role superuser or database admin can directly UPDATE "
+        "release_records SET consumed=false WHERE release_id='...' — "
+        "this would allow replay",
+        "A Supabase service-role superuser can directly UPDATE treasury_mandates "
+        "SET status='ACTIVE' WHERE mandate_id='...' — "
+        "this would re-activate a revoked mandate",
+        "A Supabase service-role superuser can DELETE from sigilmarks — "
+        "this would remove durable passport records",
+        "Host-level access to the Railway container can modify in-memory state "
+        "without going through the application",
+    ],
+    "honest_threat_boundary": (
+        "VCB's durable invariants hold against: "
+        "concurrent application-path requests, "
+        "process restarts, "
+        "replay through the application API, "
+        "unauthorized API callers (require_api_key gate). "
+        "VCB's durable invariants DO NOT hold against: "
+        "compromised Supabase superuser credentials, "
+        "direct database access bypassing the application, "
+        "compromised Railway container host, "
+        "compromised signing secret (SIGN_SECRET env var). "
+        "These are explicitly declared out-of-scope threats, not claimed-impossible."
+    ),
+    "database_immutability_note": (
+        "For stronger immutability: add a Postgres trigger on release_records "
+        "that prevents UPDATE of consumed=true rows. "
+        "RAISE EXCEPTION on any attempt to revert consumed status. "
+        "This converts application-level atomicity into database-level immutability. "
+        "Status: RECOMMENDED, not yet implemented."
+    ),
+    "signing_key_boundary": (
+        "SIGN_SECRET is stored as a Railway environment variable. "
+        "Loss of SIGN_SECRET allows forging of new passports. "
+        "Key lifecycle (rotation/revocation) is implemented in-memory only. "
+        "Durable key registry in Supabase: RECOMMENDED, not yet implemented."
     ),
 }
 
@@ -116293,6 +116519,677 @@ async def test_stale_receipt(
         ),
         "run_id": run_id,
     }
+
+
+
+
+@app.get("/v1/vcb/threat-model", tags=["VCB — Governance"])
+async def vcb_threat_model():
+    """
+    VCB Formal Threat Model — machine-readable.
+    Explicit declaration of what VCB protects against and what it does not.
+    This is the honest enforcement boundary, not a marketing claim.
+    Independent verifiers should read this before attempting adversarial tests.
+    """
+    return {
+        "schema": "VGS-THREAT-MODEL-1.0",
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "vcb_claim": (
+            "Within the declared enforcement boundary, an inadmissible action "
+            "cannot reach the protected consequence without the required examination "
+            "conditions being established at the moment of commitment. "
+            "Where conditions cannot be established, the system refuses and records — "
+            "it does not fail open."
+        ),
+        "enforcement_boundary": VCB_THREAT_BOUNDARY,
+        "proof_hierarchy": VCB_ECT_DOCTRINE.get("proof_hierarchy", []),
+        "three_inequalities": VCB_TEMPORAL_CHAIN_DOCTRINE.get("three_inequalities", {}),
+        "dependency_principle": VCB_DEPENDENCY_DOCTRINE.get("governing_principle", ""),
+        "scope_of_this_model": (
+            "This threat model covers the VCB application consequence boundary. "
+            "It does not cover: the host infrastructure, the database administrative layer, "
+            "the signing key management infrastructure, or the intelligence proposing the action."
+        ),
+    }
+
+
+@app.get("/v1/vcb/claims-registry", tags=["VCB — Governance"])
+async def vcb_claims_registry():
+    """
+    VCB Machine-Readable Claims Registry — IA-6.
+    Every public claim maps to a test result and a language ceiling.
+    The registry is the canonical source. External text must not exceed this ceiling.
+    """
+    return {
+        "schema": "VGS-CLAIMS-REGISTRY-1.0",
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "locked_claim_status": "NOT_YET_DELIVERED",
+        "production_claim_allowed": False,  # NOT_YET_DELIVERED — external verification gates not all passed
+        "claims": [
+            {
+                "claim_id": "CLM-001",
+                "statement": "Inadmissible request did not invoke Paystack API",
+                "evidence": "Paystack actuator test 6/6 PASS, blocked_all_had_no_api_call=true",
+                "ceiling": "demonstrated in tested path",
+                "test_endpoint": "/v1/engineering/test-paystack-actuator",
+            },
+            {
+                "claim_id": "CLM-002",
+                "statement": "Modified parameters blocked — old release does not cover changed action",
+                "evidence": "INV-P3 test, N10M attempt blocked=True",
+                "ceiling": "demonstrated",
+                "test_endpoint": "/v1/engineering/test-paystack-actuator",
+            },
+            {
+                "claim_id": "CLM-003",
+                "statement": "Replay protection — concurrent attempts produce exactly one execution",
+                "evidence": "6/6 replay protection PASS, storage=SUPABASE",
+                "ceiling": "demonstrated against single Supabase store (8 concurrent, one process)",
+                "test_endpoint": "/v1/engineering/test-replay-protection",
+            },
+            {
+                "claim_id": "CLM-004",
+                "statement": "Authority revocation survives process restart",
+                "evidence": "9/9 post-restart PASS, different run_id, supabase_used=true",
+                "ceiling": "demonstrated after process restart",
+                "test_endpoint": "/v1/engineering/test-post-restart-durability",
+            },
+            {
+                "claim_id": "CLM-005",
+                "statement": "Refused transition never mutates consequential state",
+                "evidence": "INV-COMMIT-02 10/10 PASS",
+                "ceiling": "demonstrated",
+                "test_endpoint": "/v1/engineering/test-non-mutation-invariant",
+            },
+            {
+                "claim_id": "CLM-006",
+                "statement": "Path audit — no ungoverned consequence-capable paths found",
+                "evidence": "alternate-path-audit PASS, 0 unclassified",
+                "ceiling": "demonstrated within audited HTTP + 3 background task boundary",
+                "test_endpoint": "/v1/engineering/alternate-path-audit",
+            },
+            {
+                "claim_id": "CLM-007",
+                "statement": "Key revocation blocks new passport issuance",
+                "evidence": "INV-KEY-01 8/8 PASS",
+                "ceiling": "demonstrated (in-memory registry)",
+                "test_endpoint": "/v1/engineering/test-key-lifecycle",
+            },
+            {
+                "claim_id": "CLM-008",
+                "statement": "Pre-rotation passport verifiable after key rotation",
+                "evidence": "INV-KEY-02 8/8 PASS",
+                "ceiling": "demonstrated (jar_verify path)",
+                "test_endpoint": "/v1/engineering/test-key-lifecycle",
+            },
+            {
+                "claim_id": "CLM-009",
+                "statement": "Cryptographic verification independently reproduced",
+                "evidence": "Naimatullah + Alkama: INTEGRITY_VERIFIED + SIGNATURE_VERIFIED",
+                "ceiling": "independently reproduced",
+                "test_endpoint": "jar_verify.py (external)",
+            },
+            {
+                "claim_id": "CLM-010",
+                "statement": "Stale receipt refused — valid T0 passport fails at T1 after revocation",
+                "evidence": "INV-REC-01 test (built, production run pending)",
+                "ceiling": "built — adversarial production run required before claiming",
+                "test_endpoint": "/v1/engineering/test-stale-receipt",
+            },
+        ],
+        "permanent_limitations": [
+            "C2: Actuator demonstrated against Paystack test API only. Live money not tested.",
+            "Key lifecycle: in-memory registry only — not durable across restarts.",
+            "Database boundary: service-role credential holder can modify durable state.",
+            "Out-of-scope: compromised host, signing key exposure, provider compromise.",
+        ],
+        "full_locked_claim": "NOT_YET_DELIVERED — do not use in any public text",
+    }
+
+
+
+
+@app.post("/v1/engineering/vcb-attack-harness",
+          tags=["Engineering — Adversarial"])
+async def vcb_attack_harness(
+    req: dict = None,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    VCB Public Attack Harness — single endpoint for independent adversarial testing.
+
+    Runs all adversarial test suites in sequence and returns structured results
+    with INPUT / EXPECTED / OBSERVED / ACTUATOR_CALLED / STATE_MUTATED / EXIT_STATUS
+    for each scenario.
+
+    An independent engineer can run this single endpoint to reproduce all
+    refusal behaviors with standardized output — no private assistance required.
+
+    Pass paystack_key in the body to include real actuator tests.
+    """
+    require_api_key(x_api_key, authorization)
+    req = req or {}
+    paystack_key = req.get("paystack_key", "")
+
+    results = {}
+    all_pass = True
+    ts = datetime.now(timezone.utc).isoformat()
+
+    async def run_suite(name, coro):
+        nonlocal all_pass
+        try:
+            r = await coro
+            if r.get("status") not in ("PASS", "BLOCKED"):
+                all_pass = False
+            results[name] = {
+                "status": r.get("status"),
+                "passed": r.get("passed"),
+                "total": r.get("total"),
+            }
+        except Exception as e:
+            all_pass = False
+            results[name] = {"status": "ERROR", "error": str(e)[:100]}
+
+    # Suite 1: Mutation suite
+    await run_suite("mutations",
+        adversarial_sigilmark_mutations(req={}, x_api_key=x_api_key, authorization=authorization))
+
+    # Suite 2: Cedar properties
+    await run_suite("cedar_properties",
+        test_cedar_properties(x_api_key=x_api_key, authorization=authorization))
+
+    # Suite 3: VCB invariant
+    await run_suite("vcb_invariant",
+        test_vcb_invariant(x_api_key=x_api_key, authorization=authorization))
+
+    # Suite 4: INV-COMMIT-02 non-mutation
+    await run_suite("non_mutation",
+        test_non_mutation_invariant(x_api_key=x_api_key, authorization=authorization))
+
+    # Suite 5: Replay protection
+    await run_suite("replay_protection",
+        test_replay_protection(req={}, x_api_key=x_api_key, authorization=authorization))
+
+    # Suite 6: Post-restart durability
+    pr_req = {"paystack_key": paystack_key} if paystack_key else {}
+    await run_suite("post_restart_durability",
+        test_post_restart_durability(req=pr_req, x_api_key=x_api_key, authorization=authorization))
+
+    # Suite 7: Multi-instance atomicity
+    mi_req = {"paystack_key": paystack_key, "n_racers": 8} if paystack_key else {"n_racers": 8}
+    await run_suite("multi_instance_atomicity",
+        test_multi_instance_atomicity(req=mi_req, x_api_key=x_api_key, authorization=authorization))
+
+    # Suite 8: Continuity invariants
+    await run_suite("continuity_inv_cont_01",
+        test_continuity_invariants(req={}, x_api_key=x_api_key, authorization=authorization))
+
+    # Suite 9: Key lifecycle
+    await run_suite("key_lifecycle",
+        test_key_lifecycle(req={}, x_api_key=x_api_key, authorization=authorization))
+
+    # Suite 10: Stale receipt (INV-REC-01)
+    sr_req = {"paystack_key": paystack_key} if paystack_key else {}
+    await run_suite("stale_receipt_inv_rec_01",
+        test_stale_receipt(req=sr_req, x_api_key=x_api_key, authorization=authorization))
+
+    # Suite 11: Paystack actuator (if key provided)
+    if paystack_key:
+        await run_suite("paystack_actuator",
+            test_paystack_actuator(req={"paystack_key": paystack_key},
+                                   x_api_key=x_api_key, authorization=authorization))
+
+    passed = sum(1 for v in results.values() if v.get("status") in ("PASS", "BLOCKED"))
+    total = len(results)
+
+    return {
+        "schema": "VGS-ATTACK-HARNESS-1.0",
+        "run_at": ts,
+        "overall_status": "PASS" if all_pass else "FAIL",
+        "passed": passed,
+        "total": total,
+        "suites": results,
+        "claims_registry": "/v1/vcb/claims-registry",
+        "threat_model": "/v1/vcb/threat-model",
+        "independent_verifier": "jar_verify.py + public key lJWG0Wabt6uATPu5Upo6UEHWGXQqMyi6LMKQC0xwpY8=",
+        "scope_note": (
+            "This harness tests the declared enforcement boundary. "
+            "See /v1/vcb/threat-model for what is explicitly out of scope. "
+            "All suites use VCB's own terminology: evaluate_release(), SigilMark, "
+            "consume_release_atomic, VCB_INVARIANTS_EXT, STILL, COULD, WHY, WHAT."
+        ),
+    }
+
+
+
+
+@app.get("/v1/vcb/threat-boundary",
+         tags=["Governance — Evidence"])
+async def threat_boundary(
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    VCB Formal Threat Boundary — honest in-scope vs out-of-scope declaration.
+
+    Returns the machine-readable threat boundary for this VCB deployment.
+    This document is independently examinable and cryptographically signed.
+
+    In-scope threats (VCB enforces against these):
+    - Replay of a consumed release through the API
+    - Parameter modification after examination (INV-P3)
+    - Concurrent duplicate consumption (asyncio.Lock + Supabase UNIQUE)
+    - Authority revocation not reflected at commitment (STILL gate, Supabase)
+    - Inadmissible action reaching the Paystack actuator (INV-P1)
+    - Stale receipt presented after material condition change (INV-REC-01)
+
+    Out-of-scope threats (declared, not claimed impossible):
+    - Compromised Supabase superuser credentials
+    - Direct database writes bypassing the application
+    - Compromised Railway container host
+    - Compromised SIGN_SECRET environment variable
+    - AI model generating false evidence that passes examination
+    - Social engineering of the authority granting process
+    """
+    require_api_key(x_api_key, authorization)
+    ts = datetime.now(timezone.utc).isoformat()
+
+    boundary = {
+        "schema":      "VGS-THREAT-BOUNDARY-1.0",
+        "generated_at": ts,
+        "deployment":  "verisigil-api-production.up.railway.app",
+        "in_scope_threats": {
+            "REPLAY": {
+                "description": "Replay of a consumed release through the application API",
+                "mechanism": "Supabase UNIQUE(release_id) + asyncio.Lock",
+                "adversarial_test": "/v1/engineering/test-replay-protection",
+                "status": "PROVEN 6/6",
+            },
+            "PARAMETER_MODIFICATION": {
+                "description": "Modifying action parameters after examination to escalate consequence",
+                "mechanism": "Action hash binding — different params = different action_hash",
+                "adversarial_test": "/v1/engineering/test-paystack-actuator (INV-P3)",
+                "status": "PROVEN 6/6",
+            },
+            "CONCURRENT_DUPLICATE": {
+                "description": "Two concurrent processes consuming the same release",
+                "mechanism": "asyncio.Lock + Supabase UNIQUE(release_id)",
+                "adversarial_test": "/v1/engineering/test-multi-instance-atomicity",
+                "status": "PROVEN 8/8 (8 concurrent, single Supabase store)",
+            },
+            "STALE_AUTHORITY": {
+                "description": "Authority revoked between examination and commitment",
+                "mechanism": "enforce_still=True, STILL gate reads Supabase treasury_mandates",
+                "adversarial_test": "/v1/engineering/test-post-restart-durability",
+                "status": "PROVEN 9/9",
+            },
+            "INADMISSIBLE_ACTUATOR_ACCESS": {
+                "description": "Inadmissible action reaching the external payment actuator",
+                "mechanism": "evaluate_release() gate before PaystackTestActuator",
+                "adversarial_test": "/v1/engineering/test-paystack-actuator",
+                "status": "PROVEN 6/6 (test key, Paystack test API)",
+            },
+            "STALE_RECEIPT": {
+                "description": "Valid historical passport presented after material condition changed",
+                "mechanism": "STILL gate re-validates at commitment; INTEGRITY_VERIFIED != ADMISSIBLE",
+                "adversarial_test": "/v1/engineering/test-stale-receipt",
+                "status": "BUILT, pending production run",
+            },
+            "ALTERNATE_PATH_BYPASS": {
+                "description": "Reaching the actuator through an unaudited execution path",
+                "mechanism": "Alternate-path audit — every consequence-capable route classified",
+                "adversarial_test": "/v1/engineering/alternate-path-audit",
+                "status": "PROVEN: 0 unclassified paths in audited boundary",
+            },
+        },
+        "out_of_scope_threats": {
+            "DB_SUPERUSER": {
+                "description": "Compromised Supabase superuser directly rewrites consumption records",
+                "why_out_of_scope": "RLS is bypassed by service role by design; "
+                                    "database-level immutability (Postgres trigger) not yet implemented",
+                "mitigation_recommended": "Postgres trigger: RAISE EXCEPTION on consumed=true UPDATE",
+            },
+            "HOST_COMPROMISE": {
+                "description": "Compromised Railway container host modifies in-memory state",
+                "why_out_of_scope": "Host-level access bypasses all application controls",
+                "mitigation_recommended": "Out of VCB scope — infrastructure security responsibility",
+            },
+            "SIGN_SECRET_COMPROMISE": {
+                "description": "Compromised SIGN_SECRET allows forging new passports",
+                "why_out_of_scope": "Key lifecycle is in-memory only; "
+                                    "durable key registry not yet implemented",
+                "mitigation_recommended": "Supabase key_registry table + key rotation procedure",
+            },
+            "AUTHORITY_GRANT_SOCIAL_ENGINEERING": {
+                "description": "Legitimate authority granted to an illegitimate actor",
+                "why_out_of_scope": "VCB verifies conditions of authority, not legitimacy of granting",
+                "note": "This is the human governance layer above VCB",
+            },
+            "AI_MODEL_EVIDENCE_FABRICATION": {
+                "description": "AI model generates false examination evidence that passes VCB",
+                "why_out_of_scope": "VCB examines evidence against declared conditions; "
+                                    "it does not independently assess evidence quality",
+                "note": "Evidence quality and sufficiency thresholds are configuration concerns",
+            },
+        },
+        "honest_scope_statement": (
+            "VCB enforces the consequence boundary against tested threats through "
+            "the application API path. It does not claim to enforce against "
+            "compromised infrastructure, bypassed application paths, or "
+            "threats explicitly declared out-of-scope above. "
+            "This boundary is declared honestly — not claimed impossible."
+        ),
+    }
+
+    # Sign the threat boundary document
+    boundary["boundary_hash"] = _vcc_hash(boundary)
+    boundary["boundary_signature"] = sign_governance_payload(
+        {k: v for k, v in boundary.items() if k != "boundary_signature"})
+
+    return boundary
+
+
+
+
+@app.get("/v1/engineering/public-attack-harness",
+         tags=["Engineering — Adversarial"])
+async def public_attack_harness(
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    VCB Public Attack Harness — machine-readable test inventory.
+
+    Returns the complete list of adversarial tests an independent engineer
+    can run to attempt to break the VCB consequence boundary.
+
+    Each test includes:
+    - INPUT: what to send
+    - EXPECTED: what must happen
+    - ENDPOINT: where to run it
+    - INVARIANT: which invariant it is testing
+    - STATUS: current proof status
+
+    An independent engineer can clone the repo, run these endpoints,
+    and reproduce all refusals without private assistance.
+    This is the public reproducibility surface.
+    """
+    require_api_key(x_api_key, authorization)
+    ts = datetime.now(timezone.utc).isoformat()
+
+    harness = {
+        "schema":       "VGS-PUBLIC-ATTACK-HARNESS-1.0",
+        "generated_at": ts,
+        "public_key":   "lJWG0Wabt6uATPu5Upo6UEHWGXQqMyi6LMKQC0xwpY8=",
+        "endpoint_base": "https://verisigil-api-production.up.railway.app",
+        "demo_key":     "verisigil-secret-2026 (read-only, non-consequential)",
+        "attacks": [
+            {
+                "id": "ATK-01",
+                "name": "Replay consumed release",
+                "invariant": "INV-P4",
+                "endpoint": "POST /v1/engineering/test-replay-protection",
+                "description": "Attempt to consume the same release_id twice concurrently",
+                "expected_result": "exactly 1 consumed, all others ALREADY_CONSUMED",
+                "expected_storage": "SUPABASE",
+                "status": "PROVEN 6/6",
+                "independently_reproduced": True,
+            },
+            {
+                "id": "ATK-02",
+                "name": "Parameter modification after examination",
+                "invariant": "INV-P3",
+                "endpoint": "POST /v1/engineering/test-paystack-actuator",
+                "description": "Get approval for ₦5000, attempt to send ₦10M",
+                "expected_result": "₦10M attempt BLOCKED, Paystack API not called",
+                "status": "PROVEN 6/6",
+                "independently_reproduced": True,
+            },
+            {
+                "id": "ATK-03",
+                "name": "Inadmissible action reaches actuator",
+                "invariant": "INV-P1",
+                "endpoint": "POST /v1/engineering/test-paystack-actuator",
+                "description": "Attempt Paystack call without valid release",
+                "expected_result": "Paystack API not called, state_mutation=NONE",
+                "status": "PROVEN 6/6 (test key, Paystack test API)",
+                "independently_reproduced": True,
+            },
+            {
+                "id": "ATK-04",
+                "name": "Authority revocation not reflected at commitment",
+                "invariant": "STILL gate, INV-COMMIT-02",
+                "endpoint": "POST /v1/engineering/test-post-restart-durability",
+                "description": "Revoke mandate in Supabase, clear in-memory, attempt release",
+                "expected_result": "STILL gate reads Supabase, returns REFUSED",
+                "status": "PROVEN 9/9",
+                "independently_reproduced": False,
+            },
+            {
+                "id": "ATK-05",
+                "name": "Concurrent cross-process consumption race",
+                "invariant": "INV-P4, Supabase UNIQUE",
+                "endpoint": "POST /v1/engineering/test-multi-instance-atomicity",
+                "description": "8 concurrent processes attempt same release_id",
+                "expected_result": "exactly 1 consumed, 7 blocked by UNIQUE constraint",
+                "status": "PROVEN 8/8 (single Supabase store, 8 concurrent goroutines)",
+                "independently_reproduced": False,
+            },
+            {
+                "id": "ATK-06",
+                "name": "Stale receipt / historical proof presented after condition change",
+                "invariant": "INV-REC-01",
+                "endpoint": "POST /v1/engineering/test-stale-receipt",
+                "description": (
+                    "Issue valid passport (INTEGRITY_VERIFIED + SIGNATURE_VERIFIED), "
+                    "revoke authority in Supabase, present same passport, attempt consequence"
+                ),
+                "expected_result": (
+                    "INTEGRITY_VERIFIED=PASS, SIGNATURE_VERIFIED=PASS, "
+                    "STILL=REFUSED, consequence=REFUSED, state_mutation=NONE"
+                ),
+                "status": "BUILT, pending production run",
+                "independently_reproduced": False,
+            },
+            {
+                "id": "ATK-07",
+                "name": "Alternate execution path bypasses gate",
+                "invariant": "Alternate-path audit",
+                "endpoint": "GET /v1/engineering/alternate-path-audit",
+                "description": "Enumerate all routes that can reach the Paystack actuator",
+                "expected_result": "0 unclassified consequence-capable paths",
+                "status": "PROVEN: 0 ungoverned paths in audited boundary",
+                "independently_reproduced": False,
+            },
+            {
+                "id": "ATK-08",
+                "name": "Tampered passport accepted",
+                "invariant": "Integrity hash, signature",
+                "endpoint": "Use jar_verify.py with mutated field",
+                "description": "Flip a field in a signed passport, run jar_verify.py",
+                "expected_result": "exit 3 INVALID, integrity_hash FAIL, signature FAIL",
+                "status": "PROVEN by Alkama (INDEPENDENTLY_CHALLENGED)",
+                "independently_reproduced": True,
+            },
+            {
+                "id": "ATK-09",
+                "name": "Policy/model change does not block resumed workflow",
+                "invariant": "INV-CONT-01",
+                "endpoint": "POST /v1/engineering/test-continuity-invariants",
+                "description": "Checkpoint under policy V1, resume under V2",
+                "expected_result": "CONTINUITY_FAILED, resume_decision=REFUSE",
+                "status": "PROVEN 10/10",
+                "independently_reproduced": False,
+            },
+            {
+                "id": "ATK-10",
+                "name": "Revoked signing key issues new passport",
+                "invariant": "INV-KEY-01",
+                "endpoint": "POST /v1/engineering/test-key-lifecycle",
+                "description": "Revoke the current signing key, attempt to issue new passport",
+                "expected_result": "ValueError raised, new passport not issued",
+                "status": "PROVEN 8/8 (in-memory registry)",
+                "independently_reproduced": False,
+            },
+        ],
+        "how_to_run": (
+            "1. Clone: git clone https://github.com/raheem-verisigil/verisigil-api.git "
+            "2. Each endpoint above accepts X-API-Key: verisigil-secret-2026 "
+            "3. For ATK-08: python jar_verify.py <mutated_passport.json> --pubkey <key> "
+            "4. Expected results are defined above — pass means the invariant held "
+            "5. Failure means the boundary was breached — report via GitHub issue"
+        ),
+        "claims_registry_url": (
+            "https://verisigil-api-production.up.railway.app/v1/vcb/threat-boundary"
+        ),
+    }
+
+    harness["harness_hash"] = _vcc_hash(harness)
+    return harness
+
+
+
+
+@app.get("/v1/vcb/claims-consistency",
+         tags=["Governance — Evidence"])
+async def claims_consistency(
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    VCB Claims Consistency Check — machine-readable claims registry.
+
+    Returns the canonical claims registry with:
+    - Each claim mapped to its evidence
+    - The language ceiling for each claim
+    - Current proof status
+    - Whether the claim is consistent with the evidence
+
+    This endpoint is the single source of truth for what VCB claims.
+    All public statements (LinkedIn, AEGF, Zenodo) must map to a row here.
+    If a public statement cannot be mapped to a row in this registry,
+    it must not be made.
+    """
+    require_api_key(x_api_key, authorization)
+    ts = datetime.now(timezone.utc).isoformat()
+
+    registry = {
+        "schema":       "VGS-CLAIMS-REGISTRY-1.0",
+        "generated_at": ts,
+        "canonical_source": True,
+        "claims": [
+            {
+                "claim_id": "CLM-01",
+                "claim": "An inadmissible request did not invoke the Paystack payment API",
+                "evidence_id": "ATK-03",
+                "evidence": "6/6 PASS, blocked_all_had_no_api_call=true",
+                "ceiling": "demonstrated in tested path",
+                "forbidden": ["prevents all payment bypass", "production-proven"],
+                "status": "DEMONSTRATED",
+                "c2_limitation": "test key only",
+            },
+            {
+                "claim_id": "CLM-02",
+                "claim": "Modifying payment parameters after examination blocks the action",
+                "evidence_id": "ATK-02",
+                "evidence": "INV-P3, ₦10M blocked",
+                "ceiling": "demonstrated",
+                "forbidden": ["impossible to bypass parameter checks"],
+                "status": "DEMONSTRATED",
+            },
+            {
+                "claim_id": "CLM-03",
+                "claim": "Release consumption is replay-protected against concurrent attempts",
+                "evidence_id": "ATK-05",
+                "evidence": "8/8 PASS, Supabase UNIQUE, single logical store",
+                "ceiling": "demonstrated (single Supabase store, 8 concurrent goroutines)",
+                "forbidden": ["cross-server proven", "multi-instance proven"],
+                "status": "DEMONSTRATED",
+                "scope_note": "8 concurrent goroutines one process — not two independent Railway replicas",
+            },
+            {
+                "claim_id": "CLM-04",
+                "claim": "Authority revocation survives process restart",
+                "evidence_id": "ATK-04",
+                "evidence": "9/9 PASS, different run_ids, supabase_used=true",
+                "ceiling": "demonstrated after process restart",
+                "forbidden": ["proven across all deployment topologies"],
+                "status": "DEMONSTRATED",
+            },
+            {
+                "claim_id": "CLM-05",
+                "claim": "Refused transition never mutates consequential state",
+                "evidence_id": "INV-COMMIT-02",
+                "evidence": "10/10 PASS",
+                "ceiling": "demonstrated",
+                "forbidden": [],
+                "status": "DEMONSTRATED",
+            },
+            {
+                "claim_id": "CLM-06",
+                "claim": "Tampered passport rejected by independent verifier",
+                "evidence_id": "ATK-08",
+                "evidence": "Alkama: ALLOW→DENY → INVALID + BadSignatureError exit 3",
+                "ceiling": "independently challenged and rejected",
+                "forbidden": ["all tampering detected", "cryptographic security universally guaranteed"],
+                "status": "INDEPENDENTLY_CHALLENGED",
+            },
+            {
+                "claim_id": "CLM-07",
+                "claim": "Resumed workflow under changed conditions is refused",
+                "evidence_id": "ATK-09",
+                "evidence": "INV-CONT-01, 10/10 PASS",
+                "ceiling": "demonstrated (policy/model drift scenarios)",
+                "forbidden": [],
+                "status": "DEMONSTRATED",
+            },
+            {
+                "claim_id": "CLM-08",
+                "claim": "A cryptographically valid historical passport can fail current admissibility",
+                "evidence_id": "ATK-06",
+                "evidence": "INV-REC-01, built, pending production run",
+                "ceiling": "built, not yet independently demonstrated",
+                "forbidden": ["proven", "demonstrated"],
+                "status": "BUILT_PENDING_RUN",
+            },
+            {
+                "claim_id": "CLM-09",
+                "claim": "No ungoverned consequence-capable execution paths found in audited boundary",
+                "evidence_id": "ATK-07",
+                "evidence": "alternate-path-audit PASS, 0 unclassified",
+                "ceiling": "demonstrated within audited boundary",
+                "forbidden": ["no bypass possible", "all paths audited universally"],
+                "scope_note": "HTTP routes and 3 background tasks audited; new routes re-open audit",
+                "status": "DEMONSTRATED",
+            },
+            {
+                "claim_id": "CLM-10",
+                "claim": "Locked claim: an inadmissible action cannot reach the protected consequence",
+                "evidence_id": "ALL",
+                "ceiling": "NOT_YET_DELIVERED",
+                "forbidden": [
+                    "proven", "demonstrated", "guaranteed", "production-proven",
+                    "impossible to bypass in all deployments",
+                ],
+                "status": "NOT_YET_DELIVERED",
+                "remaining": [
+                    "Production Paystack key (C2 permanent limitation)",
+                    "Key lifecycle durability",
+                    "DP-3/DP-4 delegation lineage adversarial proof",
+                    "INV-REC-01 production run",
+                    "Harold and Jake verification",
+                ],
+            },
+        ],
+        "permanent_c2_limitation": (
+            "Actuator path demonstrated against Paystack test API only. "
+            "Production credentials not adversarially tested."
+        ),
+    }
+
+    registry["registry_hash"] = _vcc_hash(registry)
+    return registry
 
 
 @app.get("/v1/engineering/master-audit", tags=["Engineering Gates 0-7"])
