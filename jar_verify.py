@@ -768,6 +768,12 @@ def main():
         print(f"  ROOT KIND:  {root_kind}")
         if r.reason_codes:
             print(f"  REASONS:    {', '.join(r.reason_codes)}")
+        print(f"\n  THIS RECEIPT DOES NOT PROVE:")
+        print(f"  - General system safety or regulatory compliance")
+        print(f"  - Current authority (CURRENT STANDING not re-established offline)")
+        print(f"  - Consequence sufficiency without live STILL + COULD gates")
+        print(f"  - Authority for actions outside the governed path inventory")
+        print(f"  - Production actuator path (C2: test API only)")
         print(f"\n  NOTE: {SCOPE_LEDGER_REQUIRED_LINE}")
         print(f"\n  Checks ({len(r.checks)}):")
         for check in r.checks:

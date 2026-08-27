@@ -99826,7 +99826,36 @@ VCB_ADR_014 = {
     },
     "current_status": "NOT_YET_DELIVERED",
     "PRODUCTION_CLAIM_ALLOWED": False,
-    "three_public_principles": {
+    "explicit_non_claims_rule": {
+        "principle": (
+            "Every claim, passport, and receipt must explicitly state what it does NOT prove. "
+            "A good evidence object must be able to say: "
+            "'THIS PASSPORT PROVES: [X]. THIS PASSPORT DOES NOT PROVE: [Y].' "
+            "This prevents evidentiary inflation — the progressive expansion of a claim "
+            "beyond what the underlying evidence can support."
+        ),
+        "mandatory_non_claims_for_vcb_production_passport": [
+            "Does not prove the AI system is generally safe",
+            "Does not prove legal or regulatory compliance",
+            "Does not prove authority for actions outside the governed path inventory",
+            "Does not prove current standing was independently re-established offline",
+            "Does not prove consequence sufficiency without live STILL and COULD gates",
+            "Does not prove the system's full behavior beyond the tested boundary",
+            "Does not prove production actuator path (C2: test API only until COULD is proven live)",
+        ],
+        "carrier_integrity_rule": (
+            "The normalized proposition of any claim must never expand the original carrier text. "
+            "Later interpretation cannot be projected backward as if it were the original claim. "
+            "Every architectural claim must reference the carrier version that originated it."
+        ),
+        "engineering_acceptance_question": (
+            "For every component: what inadmissible consequence becomes impossible, "
+            "or what evidence proves the system refused to allow it? "
+            "If the answer is only 'there is a log showing a check occurred' — "
+            "that is insufficient."
+        ),
+    },
+        "three_public_principles": {
         "principle_1": "Approval is historical. Authority is current. Consequence requires sufficiency.",
         "principle_2": "Historical proof ≠ current standing ≠ admissible consequence.",
         "principle_3": (
@@ -99861,6 +99890,52 @@ VCB_ADR_014 = {
                 "Never: source unavailable → assume valid → release."
             ),
         },
+        "VCB_CONSEQUENCE_COMMITMENT_DOCTRINE": {
+        "principle": (
+            "An admissibility decision must bind the exact consequential object — "
+            "not a general approval of the agent or action class. "
+            "The commitment must name: who, under what authority, what exact action, "
+            "with what parameters, against what state, under what policy, "
+            "during what validity window. "
+            "If any material element changes, the commitment is invalid and "
+            "the action must return to admissibility evaluation."
+        ),
+        "consequence_commitment_schema": {
+            "commitment_id": "CC-{uuid}",
+            "subject_id": "agent or system identity",
+            "action_type": "exact consequential action type",
+            "parameters_hash": "sha256 of exact action parameters",
+            "authority_hash": "sha256 of the authority record at examination time",
+            "policy_hash": "sha256 of the policy version applied",
+            "state_snapshot_hash": "sha256 of relevant state at examination time",
+            "created_at": "ISO-8601 timestamp of admissibility decision",
+            "expires_at": "ISO-8601 — commitment is time-bounded",
+            "nonce": "single-use — prevents replay",
+            "replay_protection": True,
+        },
+        "invalidation_triggers": [
+            "authority changed after commitment",
+            "parameters changed after commitment",
+            "relevant state changed after commitment",
+            "policy changed after commitment",
+            "delegation revoked after commitment",
+            "commitment TTL expired",
+            "nonce already consumed",
+        ],
+        "critical_rule": (
+            "The execution path requires a currently valid, exact commitment "
+            "binding identity, authority, parameters, policy, and relevant state. "
+            "A challenged path that cannot obtain this commitment, or cannot pass "
+            "revalidation, cannot enter the governed consequence boundary. "
+            "A log showing a check occurred is insufficient. "
+            "The commitment object is the proof."
+        ),
+        "necessity_test_result": (
+            "PASSES: Without this, an admissibility decision at T0 cannot be "
+            "distinguished from authorization for a different action at T1. "
+            "This is the binding mechanism that makes STILL meaningful."
+        ),
+    },
         "admissibility_equation": {
             "formula": "ADMISSIBLE(ACTION, T1) only if HISTORY ∧ STILL ∧ COULD",
             "meaning": (
@@ -99960,7 +100035,33 @@ VCB_ADR_014 = {
         "and conditions required for a specific consequential action can still be "
         "established at the moment that consequence is about to occur."
     ),
-    "vcb_mission": (
+    "six_plane_architecture_description": {
+        "note": (
+            "The six planes describe existing components in their relationship to each other. "
+            "They are NOT six new engines. No new endpoints are added for this doctrine."
+        ),
+        "planes": {
+            "1_claim": "Claims registry + ADR registry + carrier integrity (what is claimed, what is NOT claimed)",
+            "2_identity_authority": "Delegation lineage + authority source adapter + treasury_mandates",
+            "3_admissibility": "evaluate_release() + STILL gate + COULD gate + ConsequenceCommitment binding",
+            "4_consequence_boundary": "The single governed execution path — no alternate ungoverned route",
+            "5_evidence": "SigilMark / Proof Passport + jar_verify.py + evidence lineage",
+            "6_verification_governance": "Independent cold verify + jar_verify + review cadence + ADR-015b",
+        },
+        "critical_rule": (
+            "No later plane may compensate for the absence of a required earlier plane. "
+            "A perfect Passport cannot repair an unauthorized execution. "
+            "A cryptographic signature cannot prove a proposition never bound to the action. "
+            "A detailed log cannot establish authority absent at execution."
+        ),
+        "four_key_distinctions": {
+            "SIGNED ≠ AUTHORIZED": "Record integrity ≠ record authority",
+            "APPEND-ONLY ≠ ADMISSIBLE": "Immutability ≠ admissibility",
+            "LOGGED ≠ GOVERNED": "Observability ≠ control",
+            "RETAINED ≠ INDEPENDENTLY_PROVABLE": "Retention ≠ reconstruction",
+        },
+    },
+        "vcb_mission": (
         "VCB does not attempt to govern every aspect of an AI system. "
         "It governs a narrower and harder boundary: whether the authority and conditions "
         "required for a protected consequential transition can be established at the "
