@@ -99930,6 +99930,43 @@ VCB_ADR_014 = {
         "and records the decision. "
         "Performance success and past approval are not treated as current permission to act."
     ),
+    "differentiated_positioning": (
+        "Most governance systems establish whether an AI system may operate. "
+        "VeriSigil AI is focused on a narrower question: whether the authority "
+        "and conditions required for a specific consequential action can still be "
+        "established at the moment that consequence is about to occur."
+    ),
+    "vcb_mission": (
+        "VCB does not attempt to govern every aspect of an AI system. "
+        "It governs a narrower and harder boundary: whether the authority and conditions "
+        "required for a protected consequential transition can be established at the "
+        "time of commitment. "
+        "If they cannot be established, the system must not silently convert "
+        "uncertainty into permission."
+    ),
+    "primitive_admission_rule": (
+        "No new architectural primitive is introduced merely because it describes a real "
+        "governance problem. A new primitive must demonstrate that the existing architecture "
+        "cannot represent, test, or resolve the problem without a measurable loss of "
+        "assurance or enforcement capability. "
+        "Javier's insight strengthens STILL and material delta — not a new primitive. "
+        "Shawn's composition insight strengthens path inventory and delegation — not a new primitive. "
+        "Jake's response gives a clearer public evidence surface — not a new primitive."
+    ),
+    "continuity_of_authority_principle": (
+        "A prior authorization, approval, or examination remains historical evidence of what "
+        "was established at the time it was issued. It must not be automatically interpreted "
+        "as proof that the same authority, conditions, or admissibility still exist at the "
+        "later point of consequential execution. "
+        "Material change does not necessarily mean the system is unsafe. "
+        "It means the previous evidence may no longer be sufficient to justify the current action."
+    ),
+    "approval_is_event_authority_is_condition": (
+        "Approval is an event. Authority is a condition. "
+        "An approval happened at T0. Authority must be re-established at T1. "
+        "T0 approval ≠ T1 authority ≠ T1 admissible consequence. "
+        "This distinction is the central insight that VCB's architecture is built to enforce."
+    ),
 }
 
 
