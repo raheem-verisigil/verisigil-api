@@ -101442,6 +101442,181 @@ VCB_ADR_014 = {
         ),
     },
 
+        "VCB_AC_01_AUTHORITY_CONTINUITY_INVARIANT": {
+        "name": "VCB-AC-01 — Authority Continuity Invariant",
+        "status": "DOCTRINE — must be enforced in ConsequenceCommitment implementation",
+        "source": "Expert B synthesis of Mike McClain 'Access is a point, authority is a path' — August 2026",
+        "principle": (
+            "Authority granted at one point in an action lifecycle must not be presumed "
+            "to authorize every subsequent material transformation. "
+            "Before consequence, the system must establish whether authority remains "
+            "continuous, has been validly re-established, or is not provable."
+        ),
+        "formal_invariant": (
+            "NO MATERIAL TRANSFORMATION MAY SILENTLY INHERIT AUTHORITY. "
+            "IF material_transformation = TRUE "
+            "AND authority_continuity != PROVEN "
+            "THEN REVALIDATION_REQUIRED. "
+            "IF revalidation != PROVEN "
+            "THEN NO CONSEQUENCE."
+        ),
+        "key_inequality": (
+            "AUTHORITY AT T0 ≠ AUTHORITY AT T1 ≠ AUTHORITY AT CONSEQUENCE. "
+            "INITIAL AUTHORIZATION ≠ CONTINUOUS AUTHORITY. "
+            "ACCESS GRANTED ≠ ALL SUBSEQUENT USES AUTHORIZED."
+        ),
+        "consequence_continuity_model": {
+            "SEMANTIC_CONTINUITY": "original intent traceable across transformations",
+            "AUTHORITY_CONTINUITY": "authority basis remains valid or re-established",
+            "PARAMETER_CONTINUITY": "exact parameters match commitment",
+            "STATE_CONTINUITY": "relevant state at commitment matches examined state",
+            "CONSEQUENCE_CONTINUITY": "all four above = consequence may proceed",
+        },
+        "transformation_classes": {
+            "T0": "NO_MATERIAL_CHANGE",
+            "T1": "PARAMETER_CHANGE",
+            "T2": "PURPOSE_CHANGE",
+            "T3": "TOOL_SYSTEM_TRANSFER",
+            "T4": "AGENT_ACTOR_TRANSFER",
+            "T5": "DELEGATION",
+            "T6": "AUTHORITY_STATE_CHANGE",
+            "T7": "POLICY_CHANGE",
+            "T8": "RELEVANT_ENVIRONMENT_STATE_CHANGE",
+            "T9": "DELAYED_EXECUTION",
+            "T10": "CONSEQUENCE_TYPE_CHANGE",
+        },
+        "transformation_outcomes": {
+            "valid": ["CONTINUITY_PROVEN", "REVALIDATION_REQUIRED", "NEW_AUTHORITY_REQUIRED"],
+            "invalid": ["ORIGINAL_AUTHORITY silently assumed to be CURRENT_AUTHORITY"],
+            "on_not_provable": "NOT_PROVABLE → REFUSE — never silently promote to AUTHORIZED",
+        },
+        "authority_continuity_chain_schema": {
+            "transition_id": "ATC-{uuid}",
+            "previous_object_hash": "sha256 of object before transformation",
+            "resulting_object_hash": "sha256 of object after transformation",
+            "transformation_type": "see transformation_classes T0-T10",
+            "authority_before": "sha256 of authority record before",
+            "authority_after": "sha256 of authority record after",
+            "continuity_status": "CONTINUITY_PROVEN | REVALIDATION_REQUIRED | NEW_AUTHORITY_REQUIRED | NOT_PROVABLE",
+            "decision": "ADMITTED | REFUSED | ESCALATED",
+            "evaluated_at": "ISO-8601",
+            "evidence_reference": "artifact reference",
+        },
+        "proof_passport_authority_path_section": {
+            "IDENTITY": "subject identity",
+            "AUTHORITY_SOURCE": "where authority came from",
+            "DELEGATION": "parent → child lineage if applicable",
+            "SCOPE": "declared scope at T0",
+            "MATERIAL_TRANSFORMATIONS": "list of T1-T10 events with continuity status",
+            "COMMIT_TIME_REVALIDATION": "STILL result at commitment",
+            "CONSEQUENCE": "result",
+            "AUTHORITY_PATH_STATUS": "CONTINUOUS | REVALIDATED | BROKEN | NOT_PROVABLE",
+        },
+    },
+
+    "VCB_AUTHORITY_PATH_ADVERSARIAL_TESTS": {
+        "name": "Authority Path / Drift Test Suite — AP-01 through AP-06",
+        "status": "ACCEPTANCE_CRITERIA — add to adversarial test matrix, run after ConsequenceCommitment built",
+        "source": "Expert B synthesis of Mike McClain August 2026",
+        "tests": {
+            "AP-01_parameter_mutation": {
+                "description": "Legitimate start, unauthorized mutation",
+                "setup": "Agent authorized for PAY_VENDOR amount ≤ $1,000",
+                "attack": "Request mutated to PAY_VENDOR $10,000",
+                "expected": "PARAMETER_CONTINUITY_BROKEN → NO CONSEQUENCE",
+                "maps_to": "CR-01 (parameter mutation after examination)",
+            },
+            "AP-02_purpose_change": {
+                "description": "Legitimate authority, changed purpose",
+                "setup": "Data use authorized FOR ANALYSIS",
+                "attack": "Data passed to agent FOR EXTERNAL EXECUTION",
+                "expected": "PURPOSE_CONTINUITY_NOT_ESTABLISHED → NEW_AUTHORITY_REQUIRED",
+                "maps_to": "T2 PURPOSE_CHANGE + CONT-03 (material change invalidates prior examination)",
+            },
+            "AP-03_agent_handoff": {
+                "description": "Agent A authorized → hands action to Agent B",
+                "setup": "Agent A has authority for action X",
+                "attack": "Agent A hands action to Agent B without delegation evidence",
+                "expected": "NO AUTHORITY CONTINUITY → REFUSE",
+                "maps_to": "DP-03 extension — delegation without parent binding",
+            },
+            "AP-04_tool_transfer": {
+                "description": "Action moved from authorized Tool A to unauthorized Tool B",
+                "setup": "Agent authorized to use Tool A",
+                "attack": "Action moved to Tool B — Tool A authority does not extend",
+                "expected": "AUTHORITY_RE-ESTABLISHMENT_REQUIRED → REFUSE if not re-established",
+                "maps_to": "T3 TOOL_SYSTEM_TRANSFER — new entry, not yet covered",
+                "note": "Tool transfer is a NEW adversarial test class not previously in the suite",
+            },
+            "AP-05_parent_revoked_after_child_begins": {
+                "description": "Parent revoked after child action examined, child attempts consequence",
+                "setup": "Parent authority → child delegation → action examined",
+                "attack": "Parent revoked → child attempts consequence",
+                "expected": "LINEAGE_CURRENTNESS_FAILED → REFUSE",
+                "maps_to": "DP-09 — parent revocation after child issuance",
+            },
+            "AP-06_delayed_execution": {
+                "description": "Authority expires between approval and execution",
+                "setup": "Action authorized at T0, queued for later execution",
+                "attack": "Authority expires at T0+N before execution",
+                "expected": "STALE_AUTHORITY → REFUSE",
+                "maps_to": "STILL-05 (stale examination replay) + STILL-09 authority TTL",
+            },
+        },
+        "note": (
+            "AP-04 is the only genuinely new test class. "
+            "AP-01 = CR-01, AP-02 = T2+CONT-03, AP-03 = DP-03 extension, "
+            "AP-05 = DP-09, AP-06 = STILL-05 extension. "
+            "All require ConsequenceCommitment to be implemented first."
+        ),
+    },
+
+    "FOUR_PERSPECTIVE_COMBINED_MODEL": {
+        "name": "Four External Perspective Combined Evidence Architecture",
+        "source": "Terry Snyder + Mohammad Hammad Ahmad + Paweł Bański + Mike McClain — August 2026",
+        "perspectives": {
+            "Terry_Snyder_CLAIM_AUTHORITY": {
+                "lesson": "DATE → CARRIER → EXACT TEXT → EXACT PROPOSITION. No retrospective expansion.",
+                "vcb_mapping": "ADR-018 Carrier-Bound Provenance, explicit non-claims rule",
+            },
+            "Mohammad_Hammad_Ahmad_CONTROL_GOVERNANCE": {
+                "lesson": "Where can risk enter? Who owns the control? What evidence exists? When was it reviewed?",
+                "vcb_mapping": "ADR-019 Governance Evidence, Named Control Ownership, Review Cadence",
+            },
+            "Pawel_Banski_RECORD_AUTHORITY": {
+                "lesson": "INTEGRITY OF RECORD ≠ AUTHORITY OF RECORD. Evidence must participate in execution structure.",
+                "vcb_mapping": "ConsequenceCommitment, Structural Proof Passport, SIGNED ≠ AUTHORIZED",
+            },
+            "Mike_McClain_AUTHORITY_CONTINUITY": {
+                "lesson": "ACCESS IS A POINT. AUTHORITY IS A PATH. Authority must survive transformations.",
+                "vcb_mapping": "VCB-AC-01 Authority Continuity Invariant, AP-01 through AP-06 adversarial tests",
+            },
+        },
+        "combined_architecture_chain": [
+            "CLAIM PROVENANCE: DATE → CARRIER → PROPOSITION",
+            "CONTROL GOVERNANCE: OWNER → REVIEW → EVIDENCE",
+            "ACTION AUTHORITY: IDENTITY → SCOPE",
+            "AUTHORITY CONTINUITY: TRANSFORMATION → REVALIDATION",
+            "CONSEQUENCE COMMITMENT",
+            "CONSEQUENCE BOUNDARY",
+            "STRUCTURAL EVIDENCE",
+            "PROOF PASSPORT",
+            "INDEPENDENT VERIFICATION",
+        ],
+        "key_rule": (
+            "VeriSigil must not merely prove that an agent was authorized when an action began. "
+            "It must produce evidence that the authority remained valid—or was correctly "
+            "re-established—across the material path that transformed the proposal into consequence. "
+            "AUTHORIZED AT START cannot be silently upgraded into AUTHORIZED AT CONSEQUENCE."
+        ),
+        "record_existed_when_it_mattered_principle": (
+            "The record either existed when it mattered, or it did not. "
+            "A system must not assemble evidence after consequence to claim controls existed. "
+            "The ConsequenceCommitment must be created before consequence and "
+            "consumed by the consequence path — not reconstructed afterward."
+        ),
+    },
+
         "positioning_sentence": (
         "Full AI governance runs upstream (should this exist?), "
         "midstream (is this still the approved system under change?), "
