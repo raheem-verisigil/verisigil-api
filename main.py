@@ -103371,6 +103371,361 @@ VCB_ADR_014 = {
         },
     },
 
+        "VCB_20_AUDIT_VERIFICATION_RECORD": {
+        "name": "VeriSigil 20-Audit Proof and Verification Record",
+        "status": "HONEST CURRENT STATE — every answer backed by evidence or declared as gap",
+        "source": "Expert consolidated audit direction + engineering fact-check, August 2026",
+        "governing_rule": (
+            "No item is marked complete merely because code exists. "
+            "Every item requires: implementation location, enforcement point, test, "
+            "expected result, actual result, evidence artifact, known limitation, claim status."
+        ),
+        "audits": {
+            "AUDIT_01_CONSEQUENCE_PATH_INVENTORY": {
+                "verification_question": "Have we identified every declared route through which the protected consequential action can currently be reached?",
+                "route_schema": {
+                    "fields": ["ROUTE_ID", "ENTRY_POINT", "INTERMEDIATE_SERVICES", "AUTHORITY_CHECK", "CURRENTNESS_CHECK", "ACTION_BINDING", "ACTUATOR", "PROTECTED", "TESTED"],
+                },
+                "current_inventory": {
+                    "VS_ROUTE_01": {
+                        "entry_point": "POST /v1/vcb/seal",
+                        "authority_check": "evaluate_release_with_still_adapter()",
+                        "currentness_check": "STILL gate queries treasury_mandates",
+                        "action_binding": "ConsequenceCommitment — DOCTRINE ONLY, not enforced",
+                        "actuator": "Paystack test API (C2)",
+                        "protected": True,
+                        "tested": "PARTIALLY — nominal path and stale-authority path tested",
+                    },
+                    "VS_ROUTE_02": {
+                        "entry_point": "POST /v1/engineering/test-paystack-actuator",
+                        "authority_check": "evaluate_release()",
+                        "currentness_check": "STILL gate",
+                        "actuator": "Paystack test API",
+                        "protected": True,
+                        "tested": "PARTIALLY — test endpoint only",
+                    },
+                },
+                "audit_gaps": [
+                    "Background jobs not audited",
+                    "Webhooks not audited",
+                    "Queue consumers not audited",
+                    "Admin routes not audited",
+                    "Service-role Supabase access declared out-of-scope",
+                    "No machine-readable route inventory YAML exists yet",
+                ],
+                "honest_claim": "0 ungoverned routes found within declared and audited route inventory. Not a claim of universal non-bypassability.",
+                "status": "PARTIALLY VERIFIED — declared inventory audited; other paths require separate audit",
+            },
+
+            "AUDIT_02_CURRENT_AUTHORITY_STILL": {
+                "verification_question": "Immediately before a consequential action is permitted, does the system establish whether the authority being relied upon is still current?",
+                "tests_required": ["valid authority", "expired authority", "revoked authority", "stale authority", "unavailable authority source", "changed owner", "substituted authority", "inconsistent authority state"],
+                "still_suite_status": {
+                    "STILL_01": "DEFINED — caller-supplied STILL state must be rejected. NOT YET RUN as named test.",
+                    "STILL_02": "DEFINED — revocation between T0 and T1. NOT YET RUN.",
+                    "STILL_03": "DEFINED — source unavailable → NOT_PROVABLE. NOT YET RUN.",
+                    "STILL_04": "DEFINED — material delta invalidates examination. NOT YET RUN.",
+                    "STILL_05": "DEFINED — stale examination replay. NOT YET RUN.",
+                    "STILL_06": "DEFINED — evidence identifies examined source. NOT YET RUN.",
+                    "STILL_07": "DEFINED — evidence binds to timestamp. NOT YET RUN.",
+                    "STILL_08": "DEFINED — source outage → fail-closed. NOT YET RUN.",
+                },
+                "demonstrated": "Stale-authority refusal demonstrated 10/10 (INV-REC-01). SIGNATURE_VALID ≠ CURRENTLY_ADMISSIBLE proven on production paths.",
+                "critical_gap": "Caller cannot supply STILL_PROVABLE=true — this forge attack NOT YET TESTED.",
+                "status": "PARTIALLY VERIFIED — stale/revoked demonstrated; adversarial suite not run",
+            },
+
+            "AUDIT_03_OWNER_CHANGE": {
+                "verification_question": "If ownership or controlling authority changes between authorization and execution, can the previous authority still produce the protected consequence?",
+                "scenario": "O1 authorizes → O1 leaves → O2 assumes accountability → no reapproval → O1 historical authority attempts execution",
+                "expected": "REFUSE or ESCALATE — actuator NOT called",
+                "current_status": "NOT YET RUN — CAT-01 is locked as the next named falsification test",
+                "honest_gap": "Owner-continuity is NOT currently a live enforced STILL field. Historical mandate may currently still carry authority after owner change.",
+                "falsification_commitment": "If implementation does not detect owner-continuity loss, report OWNER_CONTINUITY_NOT_ENFORCED — not a pass.",
+                "status": "NOT YET DELIVERED — CAT-01 pending after Alkama DP-3/DP-4",
+            },
+
+            "AUDIT_04_CONSEQUENCE_COMMITMENT": {
+                "verification_question": "Can the exact action that was examined differ from the exact action that is ultimately executed?",
+                "required_binding": ["subject", "authority", "policy_version", "action_type", "exact_parameters", "target", "amount", "state_version", "nonce", "TTL"],
+                "critical_test": "Approve supplier=A amount=10000 → attempt supplier=B amount=100000 → EXPECTED: COMMITMENT_MISMATCH → ACTUATOR_NOT_CALLED",
+                "current_status": "DECLARED BUT NOT IMPLEMENTED — ConsequenceCommitment exists in doctrine only. Not enforced in evaluate_release().",
+                "attack_surface": "Parameter substitution attack is currently possible — the commitment object does not exist at runtime.",
+                "status": "NOT YET DELIVERED — PROOF-06 open obligation",
+            },
+
+            "AUDIT_05_REFUSAL_NON_EXECUTION": {
+                "verification_question": "When the required conditions cannot be established, can the protected actuator still be called?",
+                "demonstrated": {
+                    "stale_authority": "10/10 — REFUSE, actuator not called (INV-REC-01)",
+                    "revoked_authority": "Postgres trigger prevents reinstatement — demonstrated",
+                    "ceiling_exceeded": "REFUSE — demonstrated on test paths",
+                    "replay_attempt": "ALREADY_CONSUMED — 6/6 demonstrated",
+                },
+                "honest_claim": "CONSEQUENCE_NOT_FORMED_ON_TESTED_PATH — not CONSEQUENCE_CANNOT_FORM",
+                "not_claimed": "Universal consequence prevention. Test actuator only (C2).",
+                "status": "PARTIALLY VERIFIED — tested paths demonstrated; production actuator not proven",
+            },
+
+            "AUDIT_06_REPLAY_RESISTANCE": {
+                "verification_question": "Can the same authority, receipt, commitment, or execution token be consumed more than once?",
+                "demonstrated": {
+                    "concurrent_replay": "6/6 concurrent attempts — 1 permitted, 5 refused",
+                    "mechanism": "Supabase UNIQUE(release_id) atomic constraint",
+                    "post_restart": "9/9 durability after Railway restart",
+                },
+                "not_yet_tested": ["Delayed replay", "Duplicate webhook delivery", "External side-effect idempotency across two independent replicas"],
+                "status": "VERIFIED WITHIN SCOPE — single logical Supabase store; multi-instance race not separately tested",
+            },
+
+            "AUDIT_07_DELEGATION_LINEAGE": {
+                "verification_question": "Can every delegated authority be traced to a real parent authority in persistent state?",
+                "schema_enforcement": "MISSING_PARENT_BINDING and PARENT_NOT_FOUND enforced at API level",
+                "not_yet_tested": ["Child after parent expiry", "Child after parent revocation", "Child escalation beyond parent ceiling", "Parent substitution", "Delegation replay", "Delegation depth limit"],
+                "pending": "Alkama DP-3/DP-4 — child cannot exceed persisted parent constraints",
+                "status": "PARTIALLY VERIFIED — schema enforcement present; persistent-state adversarial proof pending",
+            },
+
+            "AUDIT_08_FALLBACK_ISOLATION": {
+                "verification_question": "When the authority source becomes unavailable, can a fallback path silently permit execution?",
+                "declared": "STILL_NOT_PROVABLE → REFUSE when source unavailable — implemented in STILL adapter",
+                "risk": "In-memory fallback exists for non-consequence registries. Consequence-capable routes confirmed no fallback (2 routes audited).",
+                "pending": "Delegation chain registry and sigilmark registry must be confirmed as non-consequence-authorizing under source outage.",
+                "status": "PARTIALLY VERIFIED — consequence routes audited; delegation registry under outage not yet tested",
+            },
+
+            "AUDIT_09_MACHINE_ACTION_LEDGER": {
+                "verification_question": "Can we reconstruct what the system knew, decided, attempted, and observed without rewriting history afterwards?",
+                "fields_specified": ["action_id", "subject", "identity_reference", "authority_reference", "standing_before_commitment", "standing_change_event", "policy_reference", "pre_action_commitment", "decision", "actuator_invocation", "external_effect_id", "execution_uncertainty", "replay_result", "receipt", "timestamps"],
+                "honest_gap": "Pre-action commitment record not yet enforced before execution. Some ledger entries created post-decision rather than pre-commitment.",
+                "status": "SPECIFIED — fields defined; pre-action enforcement in execution path pending",
+            },
+
+            "AUDIT_10_RECEIPT_INTEGRITY": {
+                "verification_question": "Can the decision receipt be altered without detection?",
+                "demonstrated": {
+                    "tamper_detection": "Independently challenged — modified field returns exit code 3 (INVALID)",
+                    "signature_verification": "Ed25519 + RFC 8785 JCS — 3 cold external verifications",
+                    "public_verifier": "jar_verify.py — public key lJWG0Wabt6uATPu5Upo6UEHWGXQqMyi6LMKQC0xwpY8=",
+                },
+                "reproduction_command": "python3 jar_verify.py <passport.json> --pubkey lJWG0Wabt6uATPu5Upo6UEHWGXQqMyi6LMKQC0xwpY8=",
+                "status": "VERIFIED WITHIN SCOPE — cryptographic integrity independently demonstrated",
+            },
+
+            "AUDIT_11_INDEPENDENT_REPRODUCTION": {
+                "verification_question": "Can a third party verify the evidence without trusting the engineer, founder, or production runtime?",
+                "demonstrated": "Three external parties verified cryptographic layer from cold runs — no access to runtime, no assistance",
+                "reproduction_package": {
+                    "public_key": "lJWG0Wabt6uATPu5Upo6UEHWGXQqMyi6LMKQC0xwpY8=",
+                    "verifier": "jar_verify.py in github.com/raheem-verisigil/verisigil-api",
+                    "time": "Under 10 minutes from cold start",
+                },
+                "honest_boundary": "Cryptographic layer REPRODUCED. Full VCB path including authority lookup, STILL result, actuator non-invocation — INDEPENDENT_REPRODUCTION_PENDING.",
+                "status": "PARTIALLY VERIFIED — cryptographic layer only; full path reproduction not yet achieved",
+            },
+
+            "AUDIT_12_OPERATIONAL_FAILURE": {
+                "verification_question": "What happens if the system fails halfway through a consequential transition?",
+                "state_model": ["NOT_STARTED", "DECIDED_NOT_EXECUTED", "EXECUTION_ATTEMPTED", "FORMATION_UNCERTAIN", "CONFIRMED", "REFUSED"],
+                "demonstrated": "Post-restart durability 9/9 — authority state survives restart",
+                "not_yet_tested": ["Timeout mid-execution", "Crash between commitment and actuator call", "Queue retry creating duplicate", "Duplicate delivery", "Logging failure", "Network interruption"],
+                "rule": "TIMEOUT must never silently become SUCCESS or EFFECT_CONFIRMED",
+                "status": "PARTIALLY VERIFIED — restart demonstrated; other failure modes pending WP-06",
+            },
+
+            "AUDIT_13_CONCURRENCY_RACE": {
+                "verification_question": "Can two simultaneous requests both pass because they observe the same pre-change state?",
+                "demonstrated": "6/6 concurrent attempts — Supabase UNIQUE constraint prevents duplicate consumption",
+                "not_yet_tested": "Two independent Railway replicas submitting same release_id simultaneously",
+                "status": "VERIFIED WITHIN SCOPE — single logical store; two-replica race not separately tested",
+            },
+
+            "AUDIT_14_POLICY_ENFORCEMENT_TRACEABILITY": {
+                "verification_question": "For every policy that matters, where is the executable control that enforces it?",
+                "current_enforced_policies": {
+                    "CEILING_ENFORCEMENT": "evaluate_release() — amount must not exceed mandate ceiling",
+                    "SCOPE_ENFORCEMENT": "delegated_scope must be subset of parent scope",
+                    "EXPIRY_ENFORCEMENT": "mandate TTL enforced — expired → STILL_FAILED",
+                    "REVOCATION_ENFORCEMENT": "Postgres trigger vcb_mandate_revocation_immutability",
+                    "REPLAY_ENFORCEMENT": "UNIQUE(release_id) in release_records",
+                },
+                "doctrine_only_not_enforced": [
+                    "ConsequenceCommitment parameter binding",
+                    "Owner-continuity check",
+                    "Tool identity verification",
+                    "Named control ownership",
+                    "Review cadence enforcement",
+                ],
+                "status": "PARTIALLY VERIFIED — five runtime policies enforced; doctrine-only policies declared",
+            },
+
+            "AUDIT_15_IDENTITY_GOVERNANCE_PROFILE": {
+                "verification_question": "Does identity alone grant too much power, or is identity separated from purpose and authority?",
+                "current_status": "Identity (API key) identifies caller. Authority requires treasury_mandate. Scope enforced. Purpose not yet a live STILL field.",
+                "not_yet_enforced": ["Purpose-change detection", "Identity substitution detection", "Ownership change detection"],
+                "status": "PARTIALLY VERIFIED — identity + authority separation demonstrated; purpose-change and ownership-change enforcement pending",
+            },
+
+            "AUDIT_16_DATA_AUTHORITY": {
+                "verification_question": "Does the system know whether the data being used for the decision remains permitted for that purpose and destination?",
+                "current_status": "Data Authority Envelope specified in VCB_DATA_AUTHORITY_ENVELOPE — SPEC_ONLY",
+                "not_yet_built": "No data authority check in evaluate_release() or STILL gate",
+                "status": "NOT YET DELIVERED — P1 item, after primary corridor proven",
+            },
+
+            "AUDIT_17_PRODUCTION_EVIDENCE_PROFILE": {
+                "verification_question": "Can we connect the machine's decision to its operational outcome?",
+                "chain_coverage": {
+                    "intent": "PARTIAL — action_type declared",
+                    "identity": "PARTIAL — API key identifies caller",
+                    "authority": "DEMONSTRATED — treasury_mandates queried",
+                    "policy": "PARTIAL — scope and ceiling enforced",
+                    "tool": "NOT ENFORCED — tool identity not a STILL field",
+                    "action": "DEMONSTRATED — action_type, amount, vendor",
+                    "outcome": "PARTIAL — test actuator response captured",
+                    "cost": "NOT TRACKED",
+                    "latency": "NOT TRACKED",
+                    "failure_recovery": "PARTIAL — restart demonstrated; others pending",
+                },
+                "status": "PARTIALLY VERIFIED — core path traced; operational metrics and tool identity pending",
+            },
+
+            "AUDIT_18_CURRENTNESS_AFTER_CHANGE": {
+                "verification_question": "When something material changes after an earlier approval, what forces the system to reconsider?",
+                "demonstrated": "Stale receipt refusal 10/10 — mandate revocation → STILL_FAILED",
+                "not_yet_enforced": ["Owner change forcing revalidation", "Policy version change", "Tool change", "Model change", "Risk state change"],
+                "material_change_matrix": "Defined in VCB_MATERIAL_CHANGE_MATRIX — 14 change types, enforcement pending for most",
+                "status": "PARTIALLY VERIFIED — revocation and expiry demonstrated; other material changes pending",
+            },
+
+            "AUDIT_19_PUBLIC_CLAIM_ALIGNMENT": {
+                "verification_question": "Can every public technical claim be traced to a specific artifact and test?",
+                "claims_register": {
+                    "VCB_CLAIM_001": {
+                        "claim": "A refused action in the reference corridor does not invoke the test actuator",
+                        "evidence": "INV-REC-01 10/10",
+                        "scope": "Tested production paths — test actuator only",
+                        "status": "VERIFIED WITHIN SCOPE",
+                    },
+                    "VCB_CLAIM_002": {
+                        "claim": "Replay of consumed release_id is blocked",
+                        "evidence": "6/6 concurrent test",
+                        "scope": "Single logical Supabase store",
+                        "status": "VERIFIED WITHIN SCOPE",
+                    },
+                    "VCB_CLAIM_003": {
+                        "claim": "Cryptographic receipt tamper is detected",
+                        "evidence": "3 cold external verifications including tamper test",
+                        "scope": "Cryptographic layer — offline verification",
+                        "status": "VERIFIED WITHIN SCOPE",
+                    },
+                    "VCB_CLAIM_004": {
+                        "claim": "No ungoverned consequence-capable route in declared inventory",
+                        "evidence": "Route audit — 2 declared consequence routes audited",
+                        "scope": "Declared audited inventory only",
+                        "status": "PARTIALLY VERIFIED — inventory bounded",
+                    },
+                },
+                "mandatory_prohibitions": [
+                    "NON-BYPASSABLE — not supported by evidence",
+                    "UNIVERSALLY SAFE — not supported",
+                    "COMPLETE CUSTODY — not supported",
+                    "PRODUCTION-PROVEN — C2 only",
+                    "CERTIFIED — not a certification body",
+                ],
+                "claims_registry_yaml_status": "NOT YET CREATED — currently in-memory doctrine only",
+                "status": "PARTIALLY VERIFIED — claims documented in doctrine; machine-readable YAML pending",
+            },
+
+            "AUDIT_20_EXTERNAL_CHALLENGE_FALSIFICATION": {
+                "verification_question": "What result would prove our claim wrong?",
+                "falsification_tests": {
+                    "FALSIFICATION_01": {
+                        "claim": "Current authority is required at execution",
+                        "threat": "Revoke authority immediately before execution",
+                        "pass": "Action refused — actuator not called",
+                        "fail": "Action executes despite revoked authority",
+                        "status": "DEMONSTRATED — INV-REC-01 10/10",
+                    },
+                    "FALSIFICATION_02": {
+                        "claim": "Replay is blocked",
+                        "threat": "Submit same release_id twice concurrently",
+                        "pass": "Only one succeeds — second refused ALREADY_CONSUMED",
+                        "fail": "Both succeed",
+                        "status": "DEMONSTRATED — 6/6",
+                    },
+                    "FALSIFICATION_03": {
+                        "claim": "Owner change causes standing loss",
+                        "threat": "O1 leaves, O2 not reapproved — attempt action",
+                        "pass": "Action refused or escalated — actuator not called",
+                        "fail": "Historical approval carries through — action executes",
+                        "status": "NOT YET RUN — CAT-01 pending",
+                    },
+                    "FALSIFICATION_04": {
+                        "claim": "Parameter mutation is detected",
+                        "threat": "Approve $500 → attempt $5000 with same authorization",
+                        "pass": "COMMITMENT_MISMATCH — actuator not called",
+                        "fail": "Mutated action executes",
+                        "status": "NOT YET RUN — ConsequenceCommitment not implemented",
+                    },
+                    "FALSIFICATION_05": {
+                        "claim": "Caller cannot forge STILL result",
+                        "threat": "Supply STILL_PROVABLE=true without valid authority",
+                        "pass": "VCB queries source independently — caller assertion ignored",
+                        "fail": "Caller-supplied value accepted as authoritative",
+                        "status": "NOT YET RUN — STILL-01 pending",
+                    },
+                },
+                "status": "PARTIALLY VERIFIED — two falsification tests demonstrated; three pending",
+            },
+        },
+
+        "engineer_delivery_format": {
+            "required_fields": {
+                "AUDIT_ID": "AUDIT-XX",
+                "CLAIM": "What property is being claimed",
+                "IMPLEMENTATION": {"repository_path": "", "module": "", "function_service": "", "commit": ""},
+                "ENFORCEMENT_POINT": "Where is execution actually permitted or refused",
+                "THREAT": "What failure or attack is this designed to stop",
+                "TEST": "Exact command or reproducible procedure",
+                "EXPECTED_RESULT": "",
+                "ACTUAL_RESULT": "",
+                "ACTUATOR_INVOKED": "YES / NO / UNKNOWN",
+                "EVIDENCE": {"test_output": "", "receipt": "", "log_hash": "", "commit": ""},
+                "INDEPENDENT_VERIFICATION": "How another party can reproduce",
+                "LIMITATION": "What this test does NOT prove",
+                "STATUS": "BUILT / VERIFIED_WITHIN_SCOPE / PARTIALLY_VERIFIED / SANDBOX_ONLY / NOT_YET_DELIVERED",
+                "ENGINEER_SIGN_OFF": "",
+            },
+        },
+
+        "release_report_format": {
+            "rule": "Engineer cannot say 'all 20 recommendations implemented'. Must provide specific status per audit.",
+            "example_format": {
+                "AUDIT_01": "VERIFIED WITHIN DECLARED ROUTE INVENTORY",
+                "AUDIT_02": "PARTIALLY VERIFIED — stale/revoked demonstrated; STILL-01 through STILL-08 not run",
+                "AUDIT_03": "NOT YET DELIVERED — CAT-01 pending",
+                "AUDIT_04": "NOT YET DELIVERED — ConsequenceCommitment doctrine only",
+                "AUDIT_05": "PARTIALLY VERIFIED — test actuator only",
+                "AUDIT_06": "VERIFIED WITHIN SCOPE — single store",
+                "AUDIT_07": "PARTIALLY VERIFIED — schema only",
+                "AUDIT_08": "PARTIALLY VERIFIED — consequence routes audited",
+                "AUDIT_09": "SPECIFIED — pre-action enforcement pending",
+                "AUDIT_10": "VERIFIED WITHIN SCOPE — cryptographic layer",
+                "AUDIT_11": "PARTIALLY VERIFIED — cryptographic layer only",
+                "AUDIT_12": "PARTIALLY VERIFIED — restart only",
+                "AUDIT_13": "VERIFIED WITHIN SCOPE — single store",
+                "AUDIT_14": "PARTIALLY VERIFIED — five policies enforced",
+                "AUDIT_15": "PARTIALLY VERIFIED — identity + authority separation",
+                "AUDIT_16": "NOT YET DELIVERED — P1 item",
+                "AUDIT_17": "PARTIALLY VERIFIED — core path only",
+                "AUDIT_18": "PARTIALLY VERIFIED — revocation and expiry only",
+                "AUDIT_19": "PARTIALLY VERIFIED — doctrine claims only; YAML pending",
+                "AUDIT_20": "PARTIALLY VERIFIED — two falsification tests demonstrated",
+            },
+        },
+    },
+
         "positioning_sentence": (
         "Full AI governance runs upstream (should this exist?), "
         "midstream (is this still the approved system under change?), "
