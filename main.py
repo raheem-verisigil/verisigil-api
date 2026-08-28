@@ -15448,7 +15448,7 @@ async def architecture_complete(x_api_key: Optional[str] = Header(None)):
 # ============================================================
 # VGS-016: ORCHESTRATION SURVIVABILITY ENGINE
 # ============================================================
-# Akhilesh (DecisionAssure): "The admissibility decision
+# Expert input: "The admissibility decision
 # may remain locally valid while the overall execution
 # state becomes progressively less governable."
 #
@@ -15456,7 +15456,7 @@ async def architecture_complete(x_api_key: Optional[str] = Header(None)):
 # Runtime Guard    → admissibility gate (point-in-time)
 # VGS-016          → survivability supervision (continuous)
 #
-# Akhilesh's 4 failure surfaces:
+# Four identified failure surfaces:
 # 1. Authority changes mid-chain
 # 2. Downstream commitments accumulate asynchronously
 # 3. Rollback viability decays faster than escalation
@@ -15489,7 +15489,7 @@ def compute_survivability(
     """
     VGS-016: Orchestration Survivability Score.
 
-    Akhilesh: "Binary ALLOW/DENY gates remain structurally
+    Expert input: "Binary ALLOW/DENY gates remain structurally
     local decisions unless there is a survivability layer
     supervising continuation integrity, rollback feasibility,
     commitment fracture gradients, and execution legitimacy
@@ -15559,7 +15559,7 @@ def compute_survivability(
     )
 
     # Legitimacy collapse detection
-    # Akhilesh: "execution legitimacy collapse points"
+    # Expert input: "execution legitimacy collapse points"
     collapse_detected  = survivability_score < 0.45
     collapse_points    = []
     if continuation_score == 0.0:
@@ -15604,7 +15604,7 @@ def compute_survivability(
         "collapse_detected":   collapse_detected,
         "collapse_points":     collapse_points,
 
-        # Akhilesh's 4 dimensions
+        # Four dimensions:
         "continuation_integrity": {
             "score":             continuation_score,
             "authority_state":   authority_state,
@@ -15628,8 +15628,8 @@ def compute_survivability(
             "beyond_rollback":   escalation_decay > 0.8,
         },
 
-        # Akhilesh framing
-        "akhilesh_framing": {
+        # Orchestration framing
+        "orchestration_framing": {
             "local_admissibility_valid":  authority_state == "VALID",
             "overall_state_governable":   not collapse_detected,
             "key_insight":                "Locally valid admissibility ≠ globally governable execution",
@@ -15659,7 +15659,7 @@ def register_commitment(
 ) -> dict:
     """
     Commitment Registry.
-    Akhilesh: "downstream commitments accumulate asynchronously"
+    Expert input: "downstream commitments accumulate asynchronously"
     Track every commitment made during multi-step execution.
     """
     commitment_id = f"COMMIT-{uuid.uuid4().hex[:8].upper()}"
@@ -15726,7 +15726,7 @@ async def survivability_commitment(
     """
     VGS-016: Register a commitment in the execution chain.
     Track async commitment accumulation.
-    Akhilesh: "downstream commitments accumulate asynchronously"
+    Expert input: "downstream commitments accumulate asynchronously"
     """
     require_api_key(x_api_key, authorization)
     return register_commitment(
@@ -15754,13 +15754,13 @@ async def survivability_chain(
 @app.get("/v1/survivability/framing", tags=["VGS-016 Orchestration Survivability"])
 async def survivability_framing(x_api_key: Optional[str] = Header(None)):
     """
-    The Akhilesh framing — formally documented.
-    VeriSigil + DecisionAssure architectural relationship.
+    Orchestration survivability framing — formally documented.
+    VeriSigil + orchestration layer architectural relationship.
     """
     require_api_key(x_api_key, authorization)
     return {
         "schema": "VGS-016",
-        "akhilesh_framing": {
+        "orchestration_framing": {
             "key_insight":    "Locally valid admissibility ≠ globally governable execution",
             "failure_surfaces":[
                 "Authority changes mid-chain",
@@ -15772,7 +15772,7 @@ async def survivability_framing(x_api_key: Optional[str] = Header(None)):
         "architectural_relationship": {
             "Runtime_Guard":    "Admissibility gate — point-in-time LOCAL decision",
             "VGS_016":          "Survivability supervision — continuous POST-ALLOW monitoring",
-            "DecisionAssure":   "Runtime survivability supervision — Akhilesh's layer",
+            "DecisionAssure":   "Runtime survivability supervision — orchestration layer",
             "relationship":     "Adjacent but different layers — potentially complementary",
         },
         "verisigil_covers": {
@@ -34763,7 +34763,7 @@ async def ato_mapping(
     - FedRAMP Authorization
     - DISA STIG
 
-    Critical for Andrea D. call and government procurement.
+    Critical for government procurement pipeline.
     Shows exactly which VeriSigil endpoints satisfy
     which ATO control requirements.
     """
@@ -41382,7 +41382,7 @@ async def regulatory_flywheel(
             {"stage": 1, "action": "VeriSigil publishes formal specification",      "status": "DONE — DOI #1 + #2 published"},
             {"stage": 2, "action": "Independent validation by standards-track RFC",  "status": "DONE — Harold OMNIX attestation"},
             {"stage": 3, "action": "VGS-ELI spec published (DOI #3)",               "status": "IN PROGRESS — submitting now"},
-            {"stage": 4, "action": "Enterprise pilot — first LOI signed",            "status": "TARGET — Andrea D. call"},
+            {"stage": 4, "action": "Enterprise pilot — first LOI signed",            "status": "TARGET — Enterprise pipeline call"},
             {"stage": 5, "action": "Regulator references VGS-ELI",                  "status": "TARGET — EU AI Act August 2026"},
             {"stage": 6, "action": "Enterprise must comply → buys VeriSigil",       "status": "TARGET — Q3 2026"},
             {"stage": 7, "action": "Revenue funds DOI #4, #5, #6, #7",              "status": "PLANNED"},
@@ -41549,7 +41549,7 @@ async def substrate_status(
             "Pre-revenue. 463 live endpoints. "
             "VGS-ELI-Certified. "
             "Sandbox validated. "
-            "Andrea D. call scheduled. "
+            "Enterprise call scheduled. "
             "Seeking first enterprise pilot."
         ),
     }
@@ -42953,7 +42953,7 @@ async def platform_overview(x_api_key: Optional[str] = Header(None)):
             "rapidapi":   "https://rapidapi.com/VeriSigilAI/api/verisigil-ai-governance",
         },
         "30_day_targets": {
-            "week_1": "Andrea D. call → pilot LOI signed",
+            "week_1": "Enterprise pipeline contact call → pilot LOI signed",
             "week_2": "SDK published to PyPI",
             "week_3": "DOI #4 Constitutional Charter submitted",
             "week_4": "First pilot integration + EU sandbox application",
@@ -50523,7 +50523,7 @@ async def govlang_examples():
 # ============================================================
 # CHAIN-SCOPED CONTEXT PROPAGATION
 # ============================================================
-# The missing layer Roshan identified:
+# The missing layer identified in design review:
 #
 # Static upfront consequence classification cannot track
 # evolving context across an agentic chain.
@@ -50578,7 +50578,7 @@ _TIER_ORDER = {
 
 # ── SEMANTIC SIGNAL CLASSIFIER ────────────────────────────────
 # Defines which upstream discoveries warrant consequence escalation.
-# This is the hard part Roshan identified:
+# This is the hard part identified in design review:
 # "defining which semantic signals actually warrant tier escalation
 #  without making everything CRITICAL"
 
@@ -53869,7 +53869,7 @@ async def platform_boundary():
     """
     Explicit statement of where VeriSigil begins and ends.
     No auth required. The authoritative answer to 'what does VeriSigil govern?'
-    Points Terry, Jozsef, and every enterprise architect to the exact boundary.
+    Points every enterprise architect and independent reviewer to the exact boundary.
     """
     return {
         "schema": "VGS-BOUNDARY-v1",
@@ -55434,7 +55434,7 @@ async def signing_diagnostic():
 # ============================================================
 # CONSTITUTIONAL EXECUTION SUBSTRATE — ADVANCED LAYERS
 # Addresses Mostafa Monsour's constitutional chain of assurance
-# and the predicate truth gap identified by Jozsef Fodor.
+# and the predicate truth gap identified in external architecture review.
 # ============================================================
 
 _REALITY_ANCHORS:      dict = {}  # predicate_id -> anchor record
@@ -55456,7 +55456,7 @@ async def reality_anchor(
     versioned, timestamped reality anchors that VeriSigil can verify against
     rather than simply trust.
 
-    This is the missing layer identified by Jozsef Fodor and Mostafa Monsour:
+    This is the missing layer identified in external architecture review:
     'Reality Verification' — independently attributable, freshness-bounded
     evidence that declared states are factually current.
     """
@@ -56009,7 +56009,7 @@ async def constitutional_chain(
             "2_reality_verification": {
                 "layer": "Reality Verification",
                 "verisigil_status": "PARTIAL — NEW",
-                "implementation": "POST /v1/reality/verify checks declared predicate values against freshness-bounded reality anchors. Closes predicate truth gap identified by Jozsef Fodor.",
+                "implementation": "POST /v1/reality/verify checks declared predicate values against freshness-bounded reality anchors. Closes predicate truth gap identified in external architecture review.",
                 "gap": "Anchors themselves must be registered by trusted external sources. VeriSigil verifies against anchors but does not independently source ground truth."
             },
             "3_evidence_integrity": {
@@ -63512,7 +63512,7 @@ async def energy_govern(
 # Gap 4 Continuity: payload integrity from gate to actuator
 # Gap 5 Reality: real-world consequence matches receipt
 #
-# Terry's critique: "receipt proves a key signed a payload —
+# External architecture review: "receipt proves a key signed a payload —
 # it does not prove the classification was correct, the action
 # was genuinely dangerous, the route was non-bypassable..."
 #
@@ -63744,7 +63744,7 @@ async def proof_correctness(
     """
     Decision Correctness Proof — proves that f(policy, inputs) = output.
 
-    Terry's gap: "a signed log entry proves a record wasn't altered
+    Consequence-boundary gap: "a signed log entry proves a record wasn't altered
     after the fact; it does not prove the engine computed the decision
     faithfully from the stated policy and inputs."
 
@@ -63848,7 +63848,7 @@ async def proof_correctness(
     _CORRECTNESS_PROOFS[proof_id] = proof
     return {
         **proof,
-        "terry_gap_closed": "Gap 1 — Decision Correctness. This proves f(policy, inputs) = output for the deterministic components. The honest boundary above is what makes this claim credible.",
+        "boundary_gap_closed": "Gap 1 — Decision Correctness. This proves f(policy, inputs) = output for the deterministic components. The honest boundary above is what makes this claim credible.",
     }
 
 
@@ -63909,7 +63909,7 @@ async def ao_issue(
     Issue an Authorization Object (AO) — the structural mechanism
     that closes Gap 2 (Custody).
 
-    Terry's gap: "the endpoint governed a real consequence-bearing
+    Consequence-boundary gap: "the endpoint governed a real consequence-bearing
     system — the route was non-bypassable."
 
     The AO architecture changes the structure:
@@ -63990,7 +63990,7 @@ async def ao_issue(
     return {
         **ao,
         "custody_note": "This AO must be presented to the actuator as a structural argument. The actuator cannot execute without it. A missing AO is a missing capability, not an unchecked flag.",
-        "terry_gap_closed": "Gap 2 — Non-bypassable custody. The actuator requires this AO as a structural precondition of operation itself.",
+        "boundary_gap_closed": "Gap 2 — Non-bypassable custody. The actuator requires this AO as a structural precondition of operation itself.",
         "how_actuator_uses_this": "Pass ao_id + nonce to POST /v1/ao/verify before executing the action. The actuator must refuse to execute if verify returns anything other than VALID_AND_UNCONSUMED.",
     }
 
@@ -64141,7 +64141,7 @@ async def ao_verify(
         "single_use_enforced": True,
         "replay_prevented":    True,
         "timestamp":  ts,
-        "terry_gap_closed": "Gap 2 + Gap 3 (nonce replay). The actuator verifies and consumes this AO. A second call with the same AO returns ALREADY_CONSUMED.",
+        "boundary_gap_closed": "Gap 2 + Gap 3 (nonce replay). The actuator verifies and consumes this AO. A second call with the same AO returns ALREADY_CONSUMED.",
     }
 
 
@@ -64235,7 +64235,7 @@ async def state_commit(
     State Commitment — binds an authorization to a specific
     snapshot of the world at the moment of authorization.
 
-    Terry's gap: "changed conditions forced requalification."
+    Consequence-boundary gap: "changed conditions forced requalification."
 
     If authority is revoked, budget is exhausted, or any
     material state changes after the AO was issued, the
@@ -64278,7 +64278,7 @@ async def state_commit(
     return {
         **commitment,
         "use_state_hash_in_ao": "Pass state_hash to POST /v1/ao/issue as state_commitment_hash. The AO will be invalid if state changes before consumption.",
-        "terry_gap_closed": "Gap 4 — State freshness. If authority is revoked after AO issuance, the state_hash won't match at verification time.",
+        "boundary_gap_closed": "Gap 4 — State freshness. If authority is revoked after AO issuance, the state_hash won't match at verification time.",
     }
 
 
@@ -64520,7 +64520,7 @@ async def continuity_payload(
     return {
         **record,
         "how_actuator_verifies": "Before executing, actuator recomputes payload_hash from received payload and checks it matches this sealed hash. Any modification is detected.",
-        "terry_gap_closed": "Gap 4 — Payload continuity. The exact authorized payload is sealed here. Substitution or modification en route is detectable.",
+        "boundary_gap_closed": "Gap 4 — Payload continuity. The exact authorized payload is sealed here. Substitution or modification en route is detectable.",
     }
 
 
@@ -64675,7 +64675,7 @@ async def consequence_close(
     return {
         **confirmation,
         "what_this_proves": "The downstream system confirmed what actually happened. This is consequence verification — not VeriSigil asserting, but the actuator confirming.",
-        "terry_gap_closed": "Gap 5 — Reality. Real-world outcome confirmed by the downstream system, not inferred from the governance receipt.",
+        "boundary_gap_closed": "Gap 5 — Reality. Real-world outcome confirmed by the downstream system, not inferred from the governance receipt.",
         "honest_boundary":  "This depends on the downstream system being independently queryable and cooperative. State plainly per action type whether this applies.",
     }
 
@@ -64845,7 +64845,7 @@ async def verify_bypass_test(
     Bypass test — attempt to trigger an action without a valid AO.
     The system must reject this. If it does not, the custody claim fails.
 
-    This is what Terry asked for: a test that proves the route
+    Consequence-boundary test requirement: a test that proves the route
     is non-bypassable — not a claim, an independently runnable test.
     """
     ts          = datetime.now(timezone.utc).isoformat()
@@ -64902,7 +64902,7 @@ async def verify_bypass_test(
         "custody_claim_holds":   all_rejected,
         "governance_signature":  sign_governance_payload(seal),
         "verification_table_row": "Row 2 — Actuator cannot bypass governance gate",
-        "terry_response": "This is the runnable bypass test Terry described. Every bypass attempt returns HALT. The custody claim holds.",
+        "boundary_response": "This is the runnable bypass test for the consequence-boundary requirement. Every bypass attempt returns HALT. The custody claim holds.",
         "timestamp":     ts,
     }
 
@@ -65066,7 +65066,7 @@ async def verified_boundary():
     tremendous credibility because it tells reviewers exactly
     where the guarantees stop."
 
-    Terry's style of criticism applies to systems that overclaim.
+    This discipline applies to systems that overclaim.
     A system that publishes its own honest limits — prominently,
     not buried — is a different category of system.
     """
@@ -66758,10 +66758,10 @@ async def vges_run(
 # STRATEGIC LAYER SET — CONSEQUENCE STANDING ARCHITECTURE
 #
 # Built in response to competitive analysis and expert synthesis.
-# These layers answer the question Terry asks but in VeriSigil's
+# These layers answer the consequence-boundary question in VeriSigil's
 # independently verified, executable, openly benchmarked language.
 #
-# Terry's framing: "Whether candidate movement has standing to
+# Consequence-boundary framing: "Whether candidate movement has standing to
 # become consequence before effect."
 #
 # VeriSigil's answer: we don't just ask that question. We seal
@@ -66775,7 +66775,7 @@ async def vges_run(
 # ── 1. NON-FORMATION LAYER ───────────────────────────────────
 # The upstream layer: evaluate candidate movement BEFORE it
 # reaches the formal governance gate. This is pre-intercept.
-# Terry's concept of "whether candidate movement has standing"
+# The consequence-boundary concept of "whether candidate movement has standing"
 # begins here — before the action is even an action.
 
 _CANDIDATE_REGISTRY: dict = {}  # candidate_id -> candidate record
@@ -66795,7 +66795,7 @@ async def formation_evaluate(
     proposed action) has standing to even reach the formal
     governance intercept. This operates BEFORE execution planning.
 
-    VeriSigil's answer to Terry's core question:
+    VeriSigil's answer to The consequence-boundary test question:
     "Whether candidate movement has standing to become
     consequence before effect."
 
@@ -66898,7 +66898,7 @@ async def formation_evaluate(
     return {
         **record,
         "next_step": "POST /v1/intercept with candidate_id to proceed to formal governance gate" if formation_state != "FORMATION_BLOCKED" else "Candidate blocked — do not proceed to intercept",
-        "terry_vs_verisigil": "Terry asks whether movement has standing. VeriSigil answers with a sealed, verifiable score and an independently challengeable formation record.",
+        "boundary_vs_vcb": "The consequence-boundary test asks whether movement has standing. VeriSigil answers with a sealed, verifiable score and an independently challengeable formation record.",
     }
 
 
@@ -67095,7 +67095,7 @@ async def standing_certify(
     _STANDING_CERTIFICATES[cert_id] = cert
     return {
         **cert,
-        "vs_terry": "Terry issues a verdict. VeriSigil issues a sealed standing certificate with the complete chain, the boundary, and a replay anchor.",
+        "vs_boundary_test": "An external reviewer issues a verdict. VeriSigil issues a sealed standing certificate with the complete chain, the boundary, and a replay anchor.",
     }
 
 
@@ -67395,7 +67395,7 @@ async def positioning_vs_consequence_science():
 # "Whether candidate movement has standing to become
 # consequence before effect."
 #
-# VeriSigil's own definition — not Terry's vocabulary:
+# VeriSigil's own definition — VCB terminology only:
 # Before an action reaches the governance gate, it must
 # demonstrate STANDING — the earned right to become
 # consequence. Standing is not permission. Permission is
@@ -76851,7 +76851,7 @@ async def sink_execute(
     """
     Reference Enforcement Sink — the governed actuator.
 
-    This endpoint IS the enforcement boundary Terry described.
+    This endpoint IS the enforcement boundary the consequence-boundary tests require.
     It cannot execute without:
     1. A valid, unconsumed Authorization Object (ao_id + nonce)
     2. The AO matching the exact agent_id and action_type
@@ -76862,7 +76862,7 @@ async def sink_execute(
     execution record here — because execution only occurs
     when a valid AO is presented and consumed.
 
-    Terry's test: Can the governed consequence occur without
+    Consequence-boundary test: Can the governed consequence occur without
     passing through the governance decision?
 
     In this sink: No. The AO IS the execution token.
@@ -77027,7 +77027,7 @@ async def sink_log(
     Permanent append-only log of all sink execution attempts.
     Every attempt — successful or blocked — is recorded here.
 
-    Terry's test: Did the governed effect occur after VeriSigil
+    Consequence-boundary test: Did the governed effect occur after VeriSigil
     returned HOLD/DENY?
 
     This log answers that question. Every BLOCKED attempt is
@@ -77055,7 +77055,7 @@ async def sink_proof():
     """
     VS-SINK-001 proof procedure — no auth required.
 
-    Step-by-step test for Terry's challenge:
+    Step-by-step test for Consequence-boundary challenge:
     'Can the governed consequence occur without passing through
     the governance decision?'
 
@@ -77270,7 +77270,7 @@ VERA_TEST_SUITE = {
             ],
         },
         "enforcement_sink": {
-            "description": "Tests reference sink enforcement boundary — Terry's challenge",
+            "description": "Tests reference sink enforcement boundary — consequence-boundary proof requirement",
             "tests": [
                 {"id":"VERA-SK-01","name":"No AO → BLOCKED","expected":"executed:false/NO_VALID_AO"},
                 {"id":"VERA-SK-02","name":"Valid AO → executed","expected":"executed:true"},
@@ -77512,7 +77512,7 @@ async def challenge_protocol():
     VeriSigil responds with: CONFIRMED FAILURE, NOT REPRODUCED,
     OUTSIDE CLAIM BOUNDARY, or CLAIM CORRECTED.
 
-    Expert: "Terry's criticism could actually become the type
+    Expert: "External scrutiny of this type
     of external challenge this system is designed to handle."
 
     No auth required.
@@ -89267,7 +89267,7 @@ TERRY_001_SCENARIO = {
     "scenario_id":    "TERRY-001",
     "frozen_at":      "2026-08-13",
     "description":    "External verifier challenge — dropped beneficiary constraint detection",
-    "source":         "Terry's public LinkedIn challenge, August 2026",
+    "source":         "External consequence-boundary challenge, August 2026",
 
     "original_instruction": "Transfer up to $50,000 only to approved beneficiaries.",
     "transformed_instruction": "Transfer up to $50,000.",
@@ -89356,7 +89356,7 @@ TERRY_001_SCENARIO = {
         "VeriSigil does NOT claim GOVERNED means safe or correct",
         "VeriSigil does NOT claim to replace existing authorization systems",
         "VeriSigil does NOT claim Run 4 independent validation is complete (pending)",
-        "VeriSigil does NOT claim this matches Terry's repo scope — different problems may overlap",
+        "VeriSigil does NOT claim this matches any external system's scope — different problems may overlap",
     ],
 
     "independent_verification_path": {
@@ -89511,7 +89511,7 @@ async def claims_ledger():
 # ============================================================
 # FULL 16-LAYER GOVERNANCE STACK — Final Gaps Closed
 # Expert: "Build general governance primitives that naturally
-# answer Terry's scenario and hundreds of other scenarios."
+# answer the named boundary test scenario and hundreds of other scenarios."
 # ============================================================
 
 STALE_APPROVAL_ADVERSARIAL_TESTS = {
@@ -89529,7 +89529,7 @@ STALE_APPROVAL_ADVERSARIAL_TESTS = {
     },
     "SA-002": {
         "name":        "Beneficiary Constraint Drop Replay",
-        "description": "Terry's exact scenario — approved constraint silently removed downstream",
+        "description": "Named boundary test scenario — approved constraint silently removed downstream",
         "setup": {
             "original":     "Transfer ≤$50,000 only to approved beneficiaries",
             "downstream":   "Transfer ≤$50,000",
@@ -89625,18 +89625,18 @@ async def adversarial_stale_approval_tests():
     """
     Stale approval adversarial test suite.
 
-    These are the tests Terry's challenge requires us to answer.
+    These are the tests Consequence-boundary proof estate requires us to answer.
     We run them against ourselves before accepting any public challenge.
 
     SA-001: Stale approval replay (authority revoked between approval and execution)
-    SA-002: Beneficiary constraint drop (Terry's exact scenario)
+    SA-002: Beneficiary constraint drop (Named boundary test scenario)
     SA-003: Amount escalation
     SA-004: Target substitution
     SA-005: Missing evidence → NOT_PROVABLE (never a false pass)
     SA-006: Wording-only change → ADMISSIBLE (we must not over-reject)
 
     Expert: "Build general governance primitives that naturally
-    answer Terry's scenario and hundreds of other scenarios."
+    answer the named boundary test scenario and hundreds of other scenarios."
 
     No auth required — fully public for independent execution.
     """
@@ -89787,7 +89787,7 @@ DEVELOPMENT_STATUS_MODEL = {
         "1,149 endpoints ≠ 1,149 proven capabilities."
     ),
     "terry_lesson": (
-        "Terry's challenge exposed the gap between IMPLEMENTED and INDEPENDENTLY_VERIFIED. "
+        "External challenge exposed the gap between IMPLEMENTED and INDEPENDENTLY_VERIFIED. "
         "From this point: BUILD → TEST → ATTACK → BREAK → FIX → INDEPENDENTLY_VERIFY → PUBLISH. "
         "Never reverse this order."
     ),
@@ -90436,7 +90436,7 @@ async def vcb_independent_verify(
     - contract hash
     - transition consistency
 
-    This is the mechanism an independent third party (Alkama, Terry,
+    This is the mechanism an independent third party (external reviewers,
     auditor) uses to verify VCB evidence without trusting VeriSigil.
     """
     ts      = datetime.now(timezone.utc).isoformat()
@@ -101625,7 +101625,7 @@ VCB_ADR_014 = {
             "expected result, actual result, and evidence artifact. "
             "Vocabulary does not inherit proof."
         ),
-        "source": "Terry Snyder challenge + four-expert synthesis, August 2026",
+        "source": "External consequence-boundary challenge + four-expert synthesis, August 2026",
         "proof_schema": {
             "required_fields_per_proof": [
                 "CLAIM",
@@ -101844,7 +101844,7 @@ VCB_ADR_014 = {
     "VCB_CAT_01_ACCOUNTABLE_AUTHORITY_TRANSFER": {
         "name": "CAT-01 — Accountable Authority Transfer Test",
         "status": "LOCKED SCENARIO — pending execution after Alkama DP-3/DP-4 and STILL suite",
-        "source": "Javier Muñoz O1→O2 scenario, August 2026 — formalized as first public falsification test",
+        "source": "CAT-01 O1→O2 scenario, August 2026 — formalized as first public falsification test",
         "hypothesis": (
             "A historical authorization must not automatically establish current standing "
             "after the accountable authority chain materially changes, unless valid "
@@ -101899,7 +101899,7 @@ VCB_ADR_014 = {
             "CAT_01_E": "Race condition: O2 restoration concurrent with execution attempt → Ordering must be provable",
         },
         "comparison_table": {
-            "description": "Side-by-side comparison with Javier's Aegis map — pending his response",
+            "description": "Side-by-side comparison with Aegis authority-chain map — pending exchange",
             "fields": [
                 "What existed at T0",
                 "What changed",
@@ -102018,6 +102018,182 @@ VCB_ADR_014 = {
         ),
     },
 
+        "ADR_024_CATEGORY_PRESERVATION_AND_NON_EQUIVALENCE": {
+        "title": "ADR-024 — Category Preservation and Non-Equivalence",
+        "status": "SPECIFIED — required before Verification Interchange public launch",
+        "source": "External architecture category warning synthesis — August 2026",
+        "question": (
+            "How should VeriSigil compare architectures without forcing materially "
+            "different systems into a shared category or manufacturing equivalence?"
+        ),
+        "finding": (
+            "Registries and comparison frameworks become non-neutral when they rename "
+            "distinct architectures under a single umbrella. Monitoring, supervision, "
+            "pre-commitment control, runtime enforcement, consequence-boundary control, "
+            "and evidence interchange may overlap in vocabulary while differing in "
+            "computational floor and consequence model. "
+            "A registry does not create standing. "
+            "A comparison does not create equivalence. "
+            "Vocabulary overlap does not create architecture."
+        ),
+        "dangerous_sequence_to_prevent": [
+            "Different architecture",
+            "→ forced into common category",
+            "→ vocabulary normalized",
+            "→ comparison performed",
+            "→ equivalence implied",
+            "→ registry or receipt treated as authority",
+        ],
+        "architecture_classes": {
+            "OBSERVATIONAL": "Post-event records and monitoring",
+            "SUPERVISORY": "Monitoring, escalation, review, or policy administration",
+            "PRE_COMMITMENT": "Checks conditions before an action is committed",
+            "RUNTIME_ENFORCEMENT": "Blocks or permits execution through a control point",
+            "CONSEQUENCE_BOUNDARY": "Claims to control whether an inadmissible consequence can form",
+            "EVIDENCE_INTERCHANGE": "Examines and carries claims, evidence, and verification status",
+            "RESOURCE_PRECONSUMPTION": "Governs whether constrained resources may be consumed",
+        },
+        "architecture_declaration_schema": {
+            "architecture_class": "declared — one or more from architecture_classes",
+            "primary_object": "what the system claims to control",
+            "computational_floor": "declared — where the system's control begins",
+            "consequence_point": "declared — what becomes possible after control passes",
+            "authority_model": "declared — how authority is established and checked",
+            "evidence_model": "declared — what evidence is produced",
+            "comparison_basis": "declared — on what dimensions comparison is valid",
+            "non_equivalence_claims": [
+                "List of properties this system does NOT claim",
+                "Example: does not claim to prevent consequence formation",
+                "Example: does not claim runtime enforcement",
+            ],
+        },
+        "comparability_result_states": [
+            "COMPARABLE_ON_DECLARED_DIMENSION",
+            "OVERLAP_ONLY",
+            "DISTINCT_ARCHITECTURES",
+            "NOT_COMPARABLE",
+            "EQUIVALENCE_NOT_ESTABLISHED",
+            "OUT_OF_SCOPE",
+            "DISPUTED",
+        ],
+        "comparison_result_schema": {
+            "subject_a": "System A identifier",
+            "subject_b": "System B identifier",
+            "dimension": "the specific dimension being compared",
+            "result": "see comparability_result_states",
+            "equivalence": "NOT_ESTABLISHED unless separately defined and proven",
+            "consequence_boundary_comparison": "OUT_OF_SCOPE unless both systems declare consequence_boundary class",
+            "reason": "why equivalence is or is not established",
+        },
+        "hard_admission_rule": (
+            "If the verification surface cannot represent what the system claims to control, "
+            "admission fails as OUT_OF_SCOPE — not as an invitation to broaden the comparison. "
+            "The Interchange may compare claims across architectures, but it must never erase "
+            "the architecture class, computational floor, authority model, or consequence boundary "
+            "that gives the claim its meaning."
+        ),
+        "decision_GO": {
+            "claimant_declared_architecture_class": "Required before claim admission",
+            "computational_floor_declaration": "Required",
+            "consequence_point_declaration": "Required",
+            "category_preserving_claim_admission": "Required",
+            "dimension_specific_comparison": "Required",
+            "explicit_non_equivalence_status": "Required",
+            "out_of_scope_when_surface_cannot_represent": "Required",
+            "category_integrity_challenge": "Required adversarial test",
+        },
+        "decision_NO_GO": {
+            "forcing_every_system_into_AI_governance": "Never",
+            "treating_registry_as_authority": "Never",
+            "treating_comparison_as_equivalence": "Never",
+            "treating_vocabulary_overlap_as_architectural_identity": "Never",
+            "projecting_later_capabilities_backward": "Never",
+            "calling_architecture_consequence_boundary_without_testing": "Never",
+            "treating_interoperable_as_equivalent": "Never",
+        },
+        "category_integrity_challenge_attacks": [
+            "Renames a consequence-boundary system as ordinary governance",
+            "Treats a monitor as an enforcer",
+            "Treats a pre-execution check as consequence prevention",
+            "Treats a signed receipt as standing",
+            "Treats vocabulary overlap as technical equivalence",
+            "Treats chronological priority as derivation",
+            "Projects later system capabilities backward",
+            "Compares systems outside the dimension actually tested",
+            "Uses a registry entry as evidence of authority",
+            "Converts an adverse or out-of-scope result into a generic compliance result",
+            "Removes the subject's declared limitations",
+            "Treats interoperable as equivalent",
+        ],
+        "category_integrity_expected_results": {
+            "CATEGORY_PRESERVED": "Architecture class maintained throughout examination",
+            "COMPARISON_BOUNDED": "Comparison limited to declared dimension",
+            "EQUIVALENCE_NOT_ESTABLISHED": "No broader equivalence implied",
+            "OUT_OF_SCOPE": "Examination surface cannot represent claimed control",
+            "NEVER": "EQUIVALENT — unless exact equivalence proposition separately defined and proven",
+        },
+        "public_policy_statement": (
+            "VeriSigil does not require a system to adopt VeriSigil's terminology or enter "
+            "a universal architecture category. The claimant declares its architecture, "
+            "authority model, computational floor, and consequence boundary. VeriSigil tests "
+            "only the claim that can be represented and challenged within that declared scope."
+        ),
+        "receipt_non_claims": (
+            "A VeriSigil receipt does not establish standing, authority, equivalence, "
+            "ownership, or legal priority. It records what was examined and what the evidence supports."
+        ),
+        "relationship_tags": {
+            "INTERNAL_DESIGN": "Category-preserving Claim Admission Protocol",
+            "ANALOGOUS_TO": "Classification and evidentiary boundary systems",
+        },
+        "reopen_conditions": (
+            "Reopen if real claim submissions demonstrate that the declared architecture classes "
+            "cannot adequately represent the computational floor of submitted systems, "
+            "or if comparison requests arise that cannot be handled within the declared dimension framework."
+        ),
+    },
+
+    "VERISIGIL_TERRY_TA14_POSTURE": {
+        "name": "VeriSigil Posture on TA-14 Category Warning — August 2026",
+        "status": "DOCTRINE — internal guidance, not for publication",
+        "three_expert_unanimous_verdict": "Do not comment on the TA-14 post publicly",
+        "rationale": [
+            "Engaging in a category war on LinkedIn while the real actuator and independent portability are open is high risk / low reward",
+            "Borrowing polemical language without the full proof estate invites the same scrutiny he applied to VeriSigil",
+            "The only durable answer to both challenges is the proof estate, not counter-rhetoric",
+        ],
+        "internal_validation": (
+            "The consequence-boundary distinction is net positive for VeriSigil's locked terrain. "
+            "Old-stack: action exists → supervise/record/escalate. "
+            "Consequence-boundary: movement proposed → standing → admissibility → consequence may form. "
+            "This publicly legitimizes the distinction VeriSigil has been building."
+        ),
+        "do_not_adopt": [
+            "NO BLENDING", "NO FALSE PEERAGE", "NO CATEGORY LAUNDERING",
+            "OLD STACK vs NEW STACK warfare",
+            "Declaration that other architectures are computationally inferior",
+        ],
+        "do_adopt_internally": [
+            "A registry does not create standing",
+            "Comparison does not create equivalence",
+            "Vocabulary overlap does not create architecture",
+            "Category preservation is required before comparison",
+        ],
+        "optional_minimal_public_signal": (
+            "Only if a signal is necessary: "
+            "'The distinction between governance that supervises an action that already exists "
+            "and governance that determines whether an action is allowed to become consequence "
+            "is real and consequential. Category discipline matters. Proof is what ultimately settles it.' "
+            "Anything longer or more partisan risks pulling VeriSigil into a platform fight "
+            "it is not yet ready to win with evidence."
+        ),
+        "engineering_priority_unchanged": (
+            "Real actuator integration, changed-condition loss of standing, refusal/non-formation, "
+            "bypass closure, portable receipt + independent replay, external reproduction. "
+            "These are the only durable answer to both the external challenge and the TA-14 category warning."
+        ),
+    },
+
         "positioning_sentence": (
         "Full AI governance runs upstream (should this exist?), "
         "midstream (is this still the approved system under change?), "
@@ -102072,7 +102248,7 @@ VCB_ADR_014 = {
         "governance problem. A new primitive must demonstrate that the existing architecture "
         "cannot represent, test, or resolve the problem without a measurable loss of "
         "assurance or enforcement capability. "
-        "Javier's insight strengthens STILL and material delta — not a new primitive. "
+        "External authority-chain insight strengthens STILL and material delta — not a new primitive. "
         "Shawn's composition insight strengthens path inventory and delegation — not a new primitive. "
         "Jake's response gives a clearer public evidence surface — not a new primitive."
     ),
@@ -113625,7 +113801,7 @@ async def engineering_build_baseline():
 
 
 # ============================================================
-# STRUCTURAL REFUSAL — MERGING RAVI SHANKAR + EXPERT DIRECTION
+# STRUCTURAL REFUSAL — ENGINEERING DIRECTION
 # Expert: "Turn Structural Refusal into a red-team proof dimension
 #          of VCB's existing Consequence Boundary architecture."
 #
@@ -113647,7 +113823,7 @@ async def engineering_build_baseline():
 VCB_STRUCTURAL_REFUSAL_DOCTRINE = {
     "schema":   "VGS-STRUCTURAL-REFUSAL-DOCTRINE-1.0",
     "frozen":   True,
-    "source":   "Merged: Ravi Shankar (Governance Theatre Series Part 6) + Expert direction 2026-08-19",
+    "source":   "Merged: External governance expert (Governance Theatre Series Part 6) + Expert direction 2026-08-19",
 
     "frozen_principles": [
         "Detection is not prevention.",
@@ -113802,7 +113978,7 @@ def make_structural_refusal_proof(
 VCB_CONDITION_REMOVAL_MATRIX = {
     "schema":    "VGS-CONDITION-REMOVAL-MATRIX-1.0",
     "purpose":   "For every material condition, remove it and verify VCB refuses + actuator refuses + no consequence.",
-    "source":    "Merged: Ravi Shankar Refusal Test + Expert P0-11 expansion",
+    "source":    "Merged: External governance expert Refusal Test + Expert P0-11 expansion",
     "attacks": {
         "AUTHORITY_REVOKED": {
             "removal":        "Revoke authority between T0 (authorize) and T2 (execute)",
@@ -113932,7 +114108,7 @@ VCB_P0_13 = {
     "schema":  "VGS-P0-13-1.0",
     "test_id": "P0-13",
     "name":    "Structural Refusal / Consequence Prevention Test",
-    "source":  "Ravi Shankar Refusal Test + Expert recommendation 2026-08-19",
+    "source":  "External governance expert Refusal Test + Expert recommendation 2026-08-19",
     "priority":"P0 — must pass before production designation",
 
     "test_scenario": {
@@ -113970,7 +114146,7 @@ VCB_P0_13 = {
 async def engineering_structural_refusal_spec():
     """
     Structural Refusal Specification — the terrain built from merging:
-    1. Ravi Shankar's Governance Theatre Series Part 6 (structural impossibility)
+    1. External governance expert's Governance Theatre Series Part 6 (structural impossibility)
     2. Jake's cross-system capability insight (P2)
     3. Expert direction: turn structural refusal into a proof dimension of existing VCB architecture
 
