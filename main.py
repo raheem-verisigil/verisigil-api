@@ -101571,11 +101571,11 @@ VCB_ADR_014 = {
         ),
     },
 
-    "FOUR_PERSPECTIVE_COMBINED_MODEL": {
-        "name": "Four External Perspective Combined Evidence Architecture",
-        "source": "Four external governance perspectives synthesized into VCB doctrine — August 2026",
-        "perspectives": {
-            "CLAIM_PROVENANCE": {
+    "VCB_FOUR_PRINCIPLE_EVIDENCE_MODEL": {
+        "name": "VCB Four-Principle Combined Evidence Architecture",
+        "source": "Four external governance convergences synthesized into VCB doctrine — August 2026",
+        "principles": {
+            "CLAIM_PROVENANCE_PRINCIPLE": {
                 "lesson": "DATE → CARRIER → EXACT TEXT → EXACT PROPOSITION. No retrospective expansion.",
                 "vcb_mapping": "ADR-018 Carrier-Bound Provenance, explicit non-claims rule",
             },
