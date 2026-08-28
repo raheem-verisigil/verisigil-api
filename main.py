@@ -101277,6 +101277,171 @@ VCB_ADR_014 = {
         ),
     },
 
+        "THREE_EXPERT_CONSOLIDATED_VERDICT": {
+        "verdict": "VERDICT B — CORE ARCHITECTURE IMPLEMENTED, MATERIAL VERIFICATION GAPS REMAIN",
+        "accepted_by": ["Expert A (August 2026)", "Expert B (August 2026)", "Expert C (August 2026)"],
+        "correct_flags": {
+            "PRODUCTION_CLAIM_ALLOWED": False,
+            "LOCKED_CLAIM": "NOT_YET_DELIVERED",
+            "CLM-11": "NOT_YET_DELIVERED",
+            "CONSEQUENCE_BOUNDARY_PROVEN": False,
+            "FULL_VERTICAL_PROOF_COMPLETE": False,
+        },
+        "publishable_final_statement": (
+            "VeriSigil's cryptographic issuance-integrity layer has been independently "
+            "reproduced and challenged within its declared offline scope. "
+            "VCB contains a working nominal release path with live authority-source lookup, "
+            "atomic single-store consumption, stale-authority refusal, and a test-only "
+            "consequence actuator. "
+            "Material gaps remain in adversarial STILL verification, delegation lineage on "
+            "persistent state, commit-time parameter binding, multi-instance external-side-effect "
+            "safety, operational failure testing, and independent examiner governance. "
+            "No production authorization or public Verification Interchange claim is permitted "
+            "until those gaps are closed and independently evidenced."
+        ),
+        "what_is_authorized_to_say_publicly": [
+            "Independent parties verified integrity + signature of production passports; "
+            "offline verdict UNDETERMINED where current standing was not re-established.",
+            "On tested paths: revoked/expired/stale and basic replay did not reach the Paystack test API.",
+            "Alternate-path audit found 0 ungoverned routes in the inventoried set.",
+        ],
+        "what_is_forbidden_until_evidence_exists": [
+            "Locked claim delivered",
+            "Delegation lineage proven",
+            "STILL adversarially complete",
+            "Live money / production Paystack",
+            "Non-bypassable / guarantees / ensures",
+            "Consequence-formation floor proven",
+            "Complete delegation security",
+        ],
+        "three_expert_engineering_order": {
+            "1_PRIORITY_CRITICAL": (
+                "DP-3/DP-4 — Alkama re-run or internal equivalent with timeout. "
+                "Child cannot exceed persisted parent scope/ceiling/forbidden/validity. "
+                "Expert B extends to DP-01 through DP-09 (9 cases)."
+            ),
+            "2_PRIORITY_CRITICAL": (
+                "STILL-01 through STILL-08 as one named suite. "
+                "Especially: caller-forge, source-unavailable → NOT_PROVABLE, material delta. "
+                "Each test must produce: TEST_ID, DATE, CODE_COMMIT, ENVIRONMENT, "
+                "INPUT, EXPECTED_RESULT, ACTUAL_RESULT, EVIDENCE_HASH, LIMITATION."
+            ),
+            "3_PRIORITY_HIGH": (
+                "Audit every consequence-capable path for in-memory fallback. "
+                "Prefer fail-closed where release can reach an actuator. "
+                "Current audit: release_records routes have NO in-memory fallback. "
+                "Paystack class requires env var key — no key = SKIPPED (not ALLOW). "
+                "This must be formally declared as a threat boundary item."
+            ),
+            "4_PRIORITY_HIGH": (
+                "ConsequenceCommitment — implement and enforce in evaluate_release(). "
+                "Minimum: parameters_hash + authority_hash + nonce + TTL. "
+                "Invariant: IF parameters_current_hash != commitment.parameters_hash "
+                "THEN CONSEQUENCE MUST NOT FORM. "
+                "Also required: actuator bound to exact commitment — negative test mandatory: "
+                "approved $1,000 → actuator receives $10,000 → COMMITMENT_MISMATCH."
+            ),
+            "5_PRIORITY_HIGH": (
+                "CR-02 end-to-end: approve → revoke → execute attempt in one recorded flow. "
+                "Must follow ConsequenceCommitment implementation."
+            ),
+            "DO_NOT_TOUCH_UNTIL_1_5_CLOSED": [
+                "ACE (Authority Currentness Envelope)",
+                "Review cadence enforcement",
+                "On-demand Authority Evidence Package",
+                "Interchange launch (ADR-015b launch conditions still 0/6)",
+            ],
+        },
+    },
+
+    "VS_BASELINE_V1_7": {
+        "name": "VS-BASELINE-v1.7 — Formal Engineering Baseline Freeze",
+        "status": "REQUIRED BY ALL THREE EXPERTS — not yet created as a formal artifact",
+        "required_contents": {
+            "baseline_id": "VS-BASELINE-v1.7",
+            "created_at": "2026-08-27",
+            "git_commit": "most recent commit as of freeze",
+            "repository": "github.com/raheem-verisigil/verisigil-api",
+            "branch": "main",
+            "artifact_manifest": "list of all files with hashes",
+            "ADR_manifest": "ADR-001 through ADR-022 + ADR-015b + ADR-016",
+            "claim_registry_version": "CLM-01 through CLM-11",
+            "test_registry_version": "all /v1/engineering/* test endpoints",
+            "known_limitations": "C2 permanent, STILL adversarial pending, delegation pending",
+            "production_claim_allowed": False,
+            "signatures": "Ed25519 signed by VeriSigil AI",
+        },
+        "rule": (
+            "Every future demonstration must identify: BASELINE_ID + COMMIT_HASH + "
+            "TEST_VERSION + EVIDENCE_ARTIFACT. "
+            "No demonstration may claim more than that carrier supports. "
+            "No source character references (char 1795197) — use commit + function + line_range."
+        ),
+    },
+
+    "IN_MEMORY_FALLBACK_THREAT_BOUNDARY_DECLARATION": {
+        "name": "In-Memory Fallback — Formal Threat Boundary Declaration",
+        "status": "AUDIT FINDING — requires explicit declaration",
+        "audit_finding": {
+            "in_memory_patterns_found": 200,
+            "consequence_capable_routes_with_real_release_records": 2,
+            "in_memory_fallback_on_release_record_routes": False,
+            "paystack_handler_has_fallback": False,
+            "paystack_key_missing_behavior": "SKIPPED — returns error, does NOT silently allow",
+        },
+        "formal_declaration": (
+            "The two release_record consequence-capable routes "
+            "(/v1/engineering/test-multi-instance-atomicity, /v1/engineering/diag-insert-once) "
+            "do NOT use in-memory fallback. "
+            "The Paystack test actuator requires an environment variable key — "
+            "if missing, returns SKIPPED status, does NOT silently allow. "
+            "200 in-memory patterns exist in the codebase for non-consequence registries "
+            "(monitoring state, document registry, delegation chain cache, etc.). "
+            "These are correctly out-of-scope for the consequence boundary claim."
+        ),
+        "remaining_declaration_required": (
+            "The in-memory delegation chain registry and in-memory sigilmark registry "
+            "must be explicitly declared as out-of-scope for consequence authorization, "
+            "OR proven to fail-closed when Supabase is unavailable. "
+            "This must appear in the threat boundary document."
+        ),
+        "expert_rule": (
+            "CONSEQUENCE_CAPABLE_PATH + AUTHORITY_SOURCE_UNAVAILABLE = HARD FAIL-CLOSED. "
+            "Any exception requires explicit ADR and threat-boundary declaration. "
+            "Declared out-of-scope: Supabase superuser DDL bypass. "
+            "Declared in-scope residual: in-memory delegation chain registry must be "
+            "confirmed as non-consequence-authorizing."
+        ),
+    },
+
+    "MULTI_INSTANCE_CLAIM_CORRECTION": {
+        "name": "Multi-Instance Atomicity Claim Correction — Expert A",
+        "status": "CORRECTION REQUIRED",
+        "old_label": "Multi-instance atomicity — BUILT AND VERIFIED",
+        "correct_label": "Single-store concurrent atomic consumption — BUILT AND VERIFIED",
+        "correct_status": {
+            "implementation_status": "IMPLEMENTED",
+            "verification_status": "VERIFIED_FOR_SINGLE_LOGICAL_STORE",
+            "environment_status": "8_CONCURRENT_GOROUTINES_ONE_PROCESS",
+            "production_status": "MULTI_INSTANCE_DEPLOYMENT_UNPROVEN",
+            "independence_status": "EXTERNAL_REVIEW_PENDING",
+        },
+        "what_UNIQUE_constraint_proves": (
+            "Duplicate database insertion is blocked on the shared Supabase store. "
+            "It does NOT automatically prove: "
+            "race before insertion between two independent application instances, "
+            "external actuator call after consumption failure, "
+            "retry after timeout on external effect, "
+            "process crash between consumption and actuator call, "
+            "two replicas submitting the same action."
+        ),
+        "required_to_upgrade_claim": (
+            "Two independent Railway replicas running simultaneously against the same Supabase, "
+            "submitting the same release_id, with one confirmed as the single winner. "
+            "Currently labeled optional Gap 3 hardener."
+        ),
+    },
+
         "positioning_sentence": (
         "Full AI governance runs upstream (should this exist?), "
         "midstream (is this still the approved system under change?), "
