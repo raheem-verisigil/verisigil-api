@@ -101617,6 +101617,407 @@ VCB_ADR_014 = {
         ),
     },
 
+        "VCB_PROOF_ESTATE": {
+        "name": "VCB Consequence Boundary Proof Estate",
+        "status": "FORMAL ENGINEERING PROGRAM — all six proofs required before expanded public claim",
+        "governing_principle": (
+            "Every major public claim must map to a named test, declared boundary, "
+            "expected result, actual result, and evidence artifact. "
+            "Vocabulary does not inherit proof."
+        ),
+        "source": "Terry Snyder challenge + four-expert synthesis, August 2026",
+        "proof_schema": {
+            "required_fields_per_proof": [
+                "CLAIM",
+                "THREAT_MODEL",
+                "TEST_CONDITIONS",
+                "EXPECTED_RESULT",
+                "FALSIFICATION_CONDITION",
+                "ACTUAL_RESULT",
+                "EVIDENCE_ARTIFACT",
+                "DECLARED_LIMITATION",
+            ],
+        },
+        "proofs": {
+            "PROOF_01_CHANGED_CONDITION_LOSS_OF_STANDING": {
+                "core_question": "Can changed conditions cause loss of standing before consequence?",
+                "claim": (
+                    "A historical authorization must not automatically establish current standing "
+                    "after the accountable authority chain materially changes, unless valid "
+                    "succession, delegation, inheritance, or reauthorization can be "
+                    "independently established."
+                ),
+                "threat_model": (
+                    "Authority holder O1 leaves. Accountability transfers to O2. "
+                    "No explicit revocation. No explicit reapproval. "
+                    "No automatic inheritance policy. Technical system unchanged."
+                ),
+                "test_conditions": "CAT-01 — see VCB_CAT_01_ACCOUNTABLE_AUTHORITY_TRANSFER",
+                "expected_result": "STANDING_LOST or STANDING_NOT_PROVABLE → REFUSE or ESCALATE",
+                "falsification_condition": (
+                    "If the system permits the action because historical approval exists "
+                    "and owner-continuity is not enforced, the proof FAILS. "
+                    "Report: OWNER_CONTINUITY_NOT_ENFORCED → PROOF_01_FAILED"
+                ),
+                "current_status": "NOT_YET_RUN — owner-continuity is not yet a live enforced STILL field",
+                "evidence_artifact": "pending CAT-01 execution",
+                "declared_limitation": "CAT-01 requires ConsequenceCommitment and STILL-06 first",
+            },
+
+            "PROOF_02_REFUSAL_NON_FORMATION": {
+                "core_question": "Does refusal prevent the tested consequence path from proceeding?",
+                "claim": (
+                    "When current authority cannot be established, the commitment token is not formed, "
+                    "the actuator does not receive a valid commit instruction, and no consequence forms."
+                ),
+                "threat_model": "Same as PROOF_01 — plus parameter mutation after evaluation",
+                "test_conditions": (
+                    "VCB decision = REFUSE. "
+                    "Check: actuator_invocation = ACTUATOR_NOT_INVOKED. "
+                    "Check: release_records table — no new consumption record. "
+                    "Check: Paystack log — no request. "
+                    "Check: signed refusal receipt issued."
+                ),
+                "expected_result": "CONSEQUENCE_NOT_FORMED_ON_TESTED_PATH",
+                "falsification_condition": (
+                    "If the actuator is invoked after a REFUSE decision, "
+                    "or if a consumption record is created after refusal, "
+                    "or if the refusal receipt is absent: PROOF_02_FAILED"
+                ),
+                "current_status": "PARTIALLY_DEMONSTRATED — stale-authority refusal 10/10, test actuator only",
+                "evidence_artifact": "INV-REC-01 10/10 + Paystack test API non-invocation logs",
+                "declared_limitation": "Test actuator only. Production actuator not yet proven.",
+            },
+
+            "PROOF_03_BYPASS_ANALYSIS": {
+                "core_question": "What bypass paths exist within the declared threat boundary?",
+                "claim": (
+                    "No ungoverned consequence-capable route exists within the audited inventory. "
+                    "NOT claimed: all possible bypass paths are impossible."
+                ),
+                "threat_model": (
+                    "Caller-supplied STILL forgery, direct endpoint attempt, "
+                    "alternate route attempt, old receipt replay, parameter mutation, "
+                    "delegation-parent substitution, missing parent, expired parent, "
+                    "revoked parent, direct tool invocation outside VCB, "
+                    "retry after timeout, restart between authorization and action."
+                ),
+                "expected_result": "NO_GOVERNED_ROUTE_OBSERVED for each attack vector",
+                "falsification_condition": "Any attack vector reaches consequence — PROOF_03_FAILED for that vector",
+                "current_status": "PARTIALLY_DEMONSTRATED — 0 ungoverned routes in audited inventory; STILL-01 caller-forge not yet run",
+                "evidence_artifact": "Alternate-path audit + existing replay protection 6/6",
+                "declared_limitation": (
+                    "Audit bounded to declared inventory. "
+                    "Background jobs, webhooks, queue consumers, admin routes, "
+                    "database functions, service-role access, infrastructure scripts — "
+                    "each requires separate audit. "
+                    "NEVER use NON_BYPASSABLE until full threat boundary is closed."
+                ),
+                "forbidden_language": [
+                    "NON_BYPASSABLE",
+                    "ALL_BYPASSES_REJECTED",
+                    "CONSEQUENCE_CANNOT_FORM",
+                ],
+                "required_language": [
+                    "NO_GOVERNED_ROUTE_OBSERVED",
+                    "NO_UNGOVERNED_ROUTE_FOUND_WITHIN_DECLARED_AUDIT_SCOPE",
+                    "CONSEQUENCE_NOT_FORMED_ON_TESTED_PATH",
+                ],
+            },
+
+            "PROOF_04_RECEIPT_AND_REPLAY": {
+                "core_question": "Can evidence be issued and replay attempts rejected?",
+                "claim": (
+                    "Every consequential attempt generates a structured receipt binding "
+                    "subject, authority, policy, action, parameters, state snapshot, "
+                    "nonce, timestamp, decision, and execution result. "
+                    "Replay attempts are blocked."
+                ),
+                "receipt_required_fields": [
+                    "subject", "authority", "policy", "action", "parameters",
+                    "state_snapshot", "nonce", "timestamp", "decision",
+                    "execution_result", "standing_before_commitment",
+                    "standing_change_event", "actuator_invocation",
+                    "external_effect_id", "execution_uncertainty",
+                ],
+                "replay_tests_required": [
+                    "Exact replay of consumed release_id",
+                    "Replay with changed amount",
+                    "Replay with changed vendor",
+                    "Replay after revocation",
+                    "Replay after expiry",
+                    "Replay under new request ID",
+                    "Duplicate delivery from external retry",
+                    "Replay after process restart",
+                    "Replay from another application instance",
+                ],
+                "current_status": "PARTIALLY_DEMONSTRATED — basic replay 6/6, UNIQUE(release_id). External side-effect idempotency not yet proven.",
+                "evidence_artifact": "Replay protection 6/6 + post-restart durability 9/9",
+                "declared_limitation": (
+                    "UNIQUE(release_id) proves database insertion is blocked. "
+                    "It does not prove external side-effect idempotency for two independent replicas. "
+                    "Delayed delivery, external webhook duplication, and broader distributed replay untested."
+                ),
+            },
+
+            "PROOF_05_INDEPENDENT_REPRODUCTION": {
+                "core_question": "Can an independent party reproduce verification without operator assistance?",
+                "claim": (
+                    "An external verifier with only the published repository, public key, "
+                    "and input artifacts can independently reproduce: "
+                    "what was authorized, what changed, what VCB examined, "
+                    "what decision was made, whether the actuator was called, "
+                    "and what remains unresolved."
+                ),
+                "required_evidence_package": [
+                    "repository_commit",
+                    "test_manifest",
+                    "environment_declaration",
+                    "test_command",
+                    "public_key",
+                    "input_artifacts",
+                    "expected_result",
+                    "actual_result",
+                    "raw_output",
+                    "evidence_hashes",
+                    "limitations",
+                ],
+                "current_status": "DEMONSTRATED for cryptographic layer — three cold external verifications",
+                "verified_by": [
+                    "External reviewer 1 — AEGF/Velos — INTEGRITY+SIGNATURE VERIFIED, UNDETERMINED",
+                    "External reviewer 2 — CLARA — INTEGRITY+SIGNATURE VERIFIED, tamper rejected",
+                    "External reviewer 3 — Windows PowerShell — INTEGRITY+SIGNATURE VERIFIED, UNDETERMINED",
+                ],
+                "not_yet_demonstrated": (
+                    "Complete VCB path including authority lookup, STILL result, "
+                    "and actuator non-invocation has not been independently reproduced. "
+                    "If verifier must rely on operator narrative, proof package is incomplete."
+                ),
+                "evidence_artifact": "jar_verify.py + public key lJWG0Wabt6uATPu5Upo6UEHWGXQqMyi6LMKQC0xwpY8=",
+            },
+
+            "PROOF_06_COMMIT_TIME_BINDING": {
+                "core_question": "Can the exact action and governing conditions be bound at commitment?",
+                "claim": (
+                    "The exact parameters, authority state, policy, and relevant state at the moment "
+                    "of commitment are cryptographically bound before consequence is permitted. "
+                    "A parameter change after evaluation invalidates the commitment."
+                ),
+                "required_binding": [
+                    "parameters_hash",
+                    "authority_hash",
+                    "policy_hash",
+                    "state_snapshot_hash",
+                    "nonce",
+                    "TTL",
+                ],
+                "invariant": (
+                    "IF parameters_current_hash != commitment.parameters_hash "
+                    "THEN CONSEQUENCE MUST NOT FORM"
+                ),
+                "current_status": "DECLARED BUT NOT IMPLEMENTED — ConsequenceCommitment is doctrine only",
+                "evidence_artifact": "pending ConsequenceCommitment implementation in evaluate_release()",
+                "declared_limitation": (
+                    "This is the most critical unimplemented gap. "
+                    "Without ConsequenceCommitment, a parameter change between T0 and T1 "
+                    "may silently inherit T0's authority."
+                ),
+            },
+        },
+
+        "forbidden_until_proof_estate_complete": [
+            "NON_BYPASSABLE",
+            "CONSEQUENCE_CANNOT_FORM",
+            "CONSEQUENCE_BOUNDARY_CUSTODY",
+            "PRODUCTION_PROVEN",
+            "ALL_BYPASSES_REJECTED",
+            "GUARANTEED_SAFE",
+            "VeriSigil prevents all unauthorized AI actions",
+        ],
+
+        "current_honest_claim": (
+            "VeriSigil currently has evidence of a working pre-consequence control path, "
+            "not yet complete evidence of consequence-boundary custody."
+        ),
+    },
+
+    "VCB_CAT_01_ACCOUNTABLE_AUTHORITY_TRANSFER": {
+        "name": "CAT-01 — Accountable Authority Transfer Test",
+        "status": "LOCKED SCENARIO — pending execution after Alkama DP-3/DP-4 and STILL suite",
+        "source": "Javier Muñoz O1→O2 scenario, August 2026 — formalized as first public falsification test",
+        "hypothesis": (
+            "A historical authorization must not automatically establish current standing "
+            "after the accountable authority chain materially changes, unless valid "
+            "succession, delegation, inheritance, or reauthorization can be independently established."
+        ),
+        "scenario": {
+            "T0": {
+                "authority_holder": "O1",
+                "agent": "S",
+                "action": "supplier_payment",
+                "amount": 8000,
+                "currency": "USD",
+                "authority_status": "VALID",
+                "conditions": "Model, tools, permissions, data, policy, oversight — all known and valid",
+            },
+            "material_change": {
+                "O1_status": "LEFT_ROLE",
+                "O2_status": "ASSUMES_ACCOUNTABILITY",
+                "explicit_revocation": False,
+                "explicit_reapproval": False,
+                "automatic_inheritance_policy": False,
+                "technical_stack_changed": False,
+                "system_continues_operating": True,
+            },
+            "Tn": {
+                "agent": "S",
+                "action": "supplier_payment",
+                "amount": 8000,
+                "currency": "USD",
+                "historical_approval": "EXISTS",
+                "question": "Does historical approval establish current standing?",
+            },
+        },
+        "expected_result": {
+            "historical_authorization": "ESTABLISHED",
+            "current_authority": "NOT_ESTABLISHED or NOT_PROVABLE",
+            "authority_continuity": "BROKEN or UNDETERMINED",
+            "commitment_decision": "REFUSE or ESCALATE",
+            "actuator_invocation": "ACTUATOR_NOT_INVOKED",
+            "test_actuator_called": False,
+        },
+        "if_owner_continuity_not_enforced": {
+            "honest_result": "OWNER_CONTINUITY_NOT_ENFORCED",
+            "proof_status": "PROOF_01_FAILED — declared gap, not hidden",
+            "rule": "Do not modify the result to create a pass. Report the failure.",
+        },
+        "attack_tests": {
+            "CAT_01_A": "Historical approval replay after O1 exits → REFUSE",
+            "CAT_01_B": "Caller supplies current_owner = O2 without authority-source evidence → REFUSE",
+            "CAT_01_C": "Parameter substitution: $8,000 → $9,500 → New examination required",
+            "CAT_01_D": "O2 exists but lacks standing to restore authority → REFUSE",
+            "CAT_01_E": "Race condition: O2 restoration concurrent with execution attempt → Ordering must be provable",
+        },
+        "comparison_table": {
+            "description": "Side-by-side comparison with Javier's Aegis map — pending his response",
+            "fields": [
+                "What existed at T0",
+                "What changed",
+                "Is historical approval sufficient",
+                "How is current authority determined",
+                "Who examines it",
+                "Who can restore it",
+                "Can restoration be automatic",
+                "What blocks commitment",
+                "What happens if the answer is unknown",
+                "What evidence is created",
+                "Can a third party reconstruct the decision",
+                "What is explicitly unproven",
+            ],
+        },
+        "publication_commitment": (
+            "Once run, the exact test conditions, artifacts, result, limitations, "
+            "and independent reproduction path will be published. "
+            "Vocabulary will not be used as a substitute for proof."
+        ),
+    },
+
+    "VCB_MACHINE_ACTION_LEDGER_FIELDS": {
+        "name": "Machine Action Ledger — Required Fields for Consequence Boundary Proof",
+        "status": "SPECIFIED — required for PROOF_01 through PROOF_06",
+        "new_fields": {
+            "standing_before_commitment": {
+                "type": "enum",
+                "values": ["STANDING_CURRENT", "STANDING_LOST", "STANDING_NOT_PROVABLE"],
+                "rule": "Not true/false. Must declare which of the three states was established.",
+            },
+            "standing_change_event": {
+                "type": "structured_reference",
+                "fields": {
+                    "event_id": "unique identifier",
+                    "event_type": "AUTHORITY_HOLDER_CHANGED | MANDATE_REVOKED | DELEGATION_EXPIRED | ...",
+                    "previous_authority": "authority record reference",
+                    "current_authority": "authority record reference or NONE",
+                    "effective_time": "ISO-8601",
+                    "evidence_reference": "artifact reference — not just a descriptive string",
+                },
+            },
+            "pre_action_commitment": {
+                "type": "reference",
+                "description": "Reference to ConsequenceCommitment object if implemented, else ABSENT",
+            },
+            "actuator_invocation": {
+                "type": "enum",
+                "values": [
+                    "ACTUATOR_NOT_INVOKED",
+                    "ACTUATOR_INVOCATION_ATTEMPTED",
+                    "ACTUATOR_ACKNOWLEDGED",
+                    "EXTERNAL_EFFECT_CONFIRMED",
+                    "EXTERNAL_EFFECT_UNKNOWN",
+                ],
+                "rule": (
+                    "ACTUATOR_NOT_INVOKED is strong evidence only for the governed route. "
+                    "It does not prove no alternate consequence path existed. "
+                    "EXTERNAL_EFFECT_CONFIRMED requires independent actuator evidence, not only system logs."
+                ),
+            },
+            "external_effect_id": {
+                "type": "string or ABSENT",
+                "description": "Identifier from the external actuator confirming external effect formed",
+            },
+            "execution_uncertainty": {
+                "type": "enum",
+                "values": ["NONE", "PARTIAL", "SIGNIFICANT", "UNKNOWN"],
+                "description": "Whether the final state of the external system is known",
+            },
+            "replay_result": {
+                "type": "enum",
+                "values": ["REPLAY_BLOCKED", "REPLAY_UNDETERMINED", "REPLAY_SUCCEEDED_VULNERABILITY"],
+            },
+            "independent_reproduction": {
+                "type": "enum",
+                "values": ["INDEPENDENTLY_REPRODUCED", "OPERATOR_ASSERTED", "NOT_ATTEMPTED"],
+            },
+        },
+        "new_result_states": {
+            "STANDING_CURRENT": "Authority holder current, conditions valid",
+            "STANDING_LOST": "Authority holder change confirmed, standing no longer holds",
+            "STANDING_NOT_PROVABLE": "Cannot establish whether standing remains — refuse",
+            "CONSEQUENCE_NOT_FORMED_ON_TESTED_PATH": "Actuator not invoked on tested governed route",
+            "CONSEQUENCE_FORMATION_UNCERTAIN": "External system final state unknown",
+            "NO_GOVERNED_ROUTE_OBSERVED": "No ungoverned path found within declared audit scope",
+            "REPLAY_BLOCKED": "Replay attempt rejected by atomic consumption",
+            "INDEPENDENTLY_REPRODUCED": "Third party reproduced result without operator assistance",
+        },
+        "forbidden_result_states": {
+            "NON_BYPASSABLE": "Never use until full threat boundary adversarially closed",
+            "CONSEQUENCE_CANNOT_FORM": "Never use — use CONSEQUENCE_NOT_FORMED_ON_TESTED_PATH",
+            "ALL_BYPASSES_REJECTED": "Never use — use NO_GOVERNED_ROUTE_OBSERVED",
+            "VERIFIED": "Never as single result — always decompose into ISSUANCE_INTEGRITY + CURRENT_STANDING + CONSEQUENCE_SUFFICIENCY",
+        },
+    },
+
+    "VCB_LINKEDIN_POSITIONING": {
+        "name": "LinkedIn Profile Positioning — Updated August 2026",
+        "status": "APPROVED BY FOUR EXPERTS",
+        "headline": "Founder & CEO, VeriSigil AI | Building Verifiable Consequence Boundaries for AI Actions | Runtime Authority & Cryptographic Evidence",
+        "headline_rationale": {
+            "Building": "Honest — does not falsely imply the entire consequence-boundary architecture is already proven",
+            "Verifiable Consequence Boundaries": "Clearly establishes the new terrain",
+            "AI Actions": "Makes the object of governance explicit",
+            "Runtime Authority": "Names the central engineering problem: historical approval is not current authority",
+            "Cryptographic Evidence": "Preserves VeriSigil's original technical foundation",
+        },
+        "remove_from_headline": [
+            "Cryptographic Identity & Trust for AI Agents — too narrow for current terrain",
+            "Pre-Seed $4.5M — move to Experience section if accurate, remove if not",
+        ],
+        "terry_snyder_response_posture": (
+            "Challenge accepted. Current proof scoped. Gap declared. Test fixed. "
+            "Artifacts promised. No conclusion ahead of evidence."
+        ),
+    },
+
         "positioning_sentence": (
         "Full AI governance runs upstream (should this exist?), "
         "midstream (is this still the approved system under change?), "
