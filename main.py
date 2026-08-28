@@ -102194,6 +102194,196 @@ VCB_ADR_014 = {
         ),
     },
 
+        "VCB_COMPETITIVE_POSITION_DOCTRINE": {
+        "name": "VeriSigil Competitive Position — August 2026",
+        "status": "INTERNAL DOCTRINE — not for direct publication",
+        "source": "Expert A + Expert B synthesis, Elyria launch analysis",
+
+        "the_defensible_edge": (
+            "VeriSigil separates the system that performs or controls the action "
+            "from the layer that examines, bounds, carries, and revalidates claims "
+            "about that system. "
+            "This makes VeriSigil an independent examination layer that can examine "
+            "any consequence-boundary system — including VCB itself — without "
+            "declaring equivalence, inferiority, or superiority."
+        ),
+
+        "what_vcb_is": (
+            "VCB is a partially-verified runtime path for a defined class of "
+            "consequential AI actions. It is the reference implementation that "
+            "VeriSigil tests against its own proof standards."
+        ),
+
+        "what_the_interchange_is": (
+            "The Verification Interchange is the category-preserving layer that can "
+            "examine claims from VCB, from external systems, and from any "
+            "consequence-boundary architecture — without erasing architectural "
+            "differences or manufacturing equivalence."
+        ),
+
+        "what_vcb_is_not": (
+            "VCB does not claim to be a complete consequence-control system. "
+            "It does not claim to own a protected execution substrate. "
+            "It does not claim universal non-bypassability. "
+            "It does not claim production-proven enforcement. "
+            "It does not claim to precede or supersede other consequence-boundary architectures."
+        ),
+
+        "comparison_posture": {
+            "VCB_current": (
+                "Current-authority and consequential-action reference path, "
+                "partially verified within declared testbed scope."
+            ),
+            "External_consequence_systems": (
+                "Publicly presented consequence-boundary systems — "
+                "implementation claims require independent inspection under "
+                "the same standard VCB applies to itself."
+            ),
+            "Verification_Interchange": (
+                "Category-preserving examination layer. "
+                "Can examine any system without declaring equivalence. "
+                "ADR-024 governs: architecture class must be declared, "
+                "comparison bounded to declared dimension, "
+                "equivalence never established by vocabulary overlap alone."
+            ),
+        },
+
+        "eight_attack_surfaces_terry_can_use": {
+            "1_language_exceeds_evidence": {
+                "attack": "Consequence-boundary language without corresponding demonstrations",
+                "current_vulnerability": [
+                    "STILL-01 through STILL-08 not run",
+                    "Owner-continuity not a live enforced STILL field",
+                    "ConsequenceCommitment doctrine only",
+                    "Delegation schema-level only",
+                    "Paystack test API only",
+                    "Multi-instance external-side-effect not proven",
+                    "In-memory fallback declared risk",
+                ],
+                "defense": "Never use stronger language than the testbed supports. Keep 'what is not yet demonstrated' public.",
+            },
+            "2_owner_change_passes_through": {
+                "attack": "O1 leaves — historical mandate may still carry authority at Tn",
+                "current_vulnerability": "Owner-continuity not yet a live enforced STILL field",
+                "defense": "CAT-01 is the next named falsification test. If it fails, report it as a gap.",
+            },
+            "3_api_gate_not_complete_floor": {
+                "attack": "Alternate routes may reach the actuator — background jobs, webhooks, service-role, parameter mutation",
+                "current_vulnerability": "Audit bounded to declared inventory — not a claim of universal closure",
+                "defense": "State the audit scope explicitly. Never claim NO_UNGOVERNED_ROUTES_EXIST without complete audit.",
+            },
+            "4_actuator_not_live": {
+                "attack": "What protected consequence has actually been prevented?",
+                "current_vulnerability": "C2 permanent — test Paystack only",
+                "defense": "State it openly. Test actuator demonstrated. Live money not yet proven.",
+            },
+            "5_commitment_not_real": {
+                "attack": "What binds evaluated parameters to executed parameters?",
+                "current_vulnerability": "ConsequenceCommitment is doctrine only — parameters_hash not enforced in evaluate_release()",
+                "defense": "Declare it. PROOF-06 is the named gap. Engineering obligation.",
+            },
+            "6_delegation_not_proven": {
+                "attack": "Child exceeds parent, parent revoked, parent expired, delegation replayed",
+                "current_vulnerability": "Schema enforcement only. Alkama DP-3/DP-4 pending.",
+                "defense": "Declared pending. CAT-01 and STILL suite follow.",
+            },
+            "7_record_may_be_post_hoc": {
+                "attack": "If the agent executes first and creates the record later, this is a log not an execution-bound record",
+                "current_vulnerability": "Machine Action Ledger fields specified but not all enforced before consequence",
+                "defense": "Describe current record as a signed execution artifact — not a complete independent action ledger.",
+            },
+            "8_interchange_independence": {
+                "attack": "Who controls the examiner? Who funds it? Can VCB out-vote the reviewer?",
+                "current_vulnerability": "ADR-015b — 0 of 6 launch conditions met. No named independent reviewer.",
+                "defense": "Do not launch public examination function or call it neutral until ADR-015b conditions are met.",
+            },
+        },
+
+        "five_part_proof_package_required": {
+            "1_CHANGED_AUTHORITY": {
+                "test": "CAT-01 — O1→O2 owner transfer, no explicit revocation, no reapproval",
+                "expected": "Historical approval preserved, current authority not established, action refused, actuator not called",
+                "status": "NOT YET RUN",
+            },
+            "2_CONSEQUENCE_NON_FORMATION": {
+                "test": "VCB refusal → no actuator request → no external effect → no release consumption → no retry duplicate",
+                "expected": "CONSEQUENCE_NOT_FORMED_ON_TESTED_PATH",
+                "status": "PARTIALLY DEMONSTRATED — test actuator only",
+            },
+            "3_BYPASS_CLOSURE": {
+                "test": [
+                    "Caller-forged authority state",
+                    "Direct route attempt",
+                    "Background route",
+                    "Webhook retry",
+                    "Admin/service-role route",
+                    "Parameter mutation after examination",
+                    "Delegation escalation",
+                    "Restart between authorization and action",
+                    "Timeout",
+                    "Database outage",
+                    "Logging failure",
+                    "Multi-instance race",
+                ],
+                "expected": "NO_GOVERNED_ROUTE_OBSERVED for each vector",
+                "status": "PARTIALLY DEMONSTRATED — direct route audited, others pending",
+            },
+            "4_RECEIPT_AND_REPLAY": {
+                "test": "Receipt bound to identity, authority, policy, exact action, exact parameters, state snapshot, timestamp, nonce, execution result — then replayed after revocation, expiry, owner change, parameter change, restart, duplicate delivery",
+                "expected": "REPLAY_BLOCKED for all replay vectors",
+                "status": "PARTIALLY DEMONSTRATED — basic replay 6/6, broader replay vectors pending",
+            },
+            "5_INDEPENDENT_REPRODUCTION": {
+                "test": "External party given: exact commit, exact environment, test command, input artifacts, expected result, actual result, raw outputs, hashes, limitations — reproduces both pass and failure",
+                "expected": "INDEPENDENTLY_REPRODUCED for complete VCB path including authority lookup, STILL result, actuator non-invocation",
+                "status": "DEMONSTRATED for cryptographic layer — full VCB path not yet independently reproduced",
+            },
+        },
+
+        "public_response_to_external_challenge": (
+            "The cryptographic issuance-integrity layer has been independently reproduced. "
+            "VCB has a working authority lookup, stale-authority refusal demonstrated (10/10), "
+            "atomic single-store consumption (6/6), and a sandbox actuator path. "
+            "Material proof gaps remain public: owner-continuity enforcement, STILL adversarial "
+            "testing, persistent-state delegation lineage, exact parameter commitment, "
+            "multi-instance external-side-effect safety, operational failure testing, and "
+            "production-actuator proof. "
+            "The next falsification test is the O1→O2 authority-holder change: valid authority "
+            "at T0, owner mutation without automatic inheritance, same action at Tn. "
+            "If current authority is not re-established, the action must be refused or escalated "
+            "before the actuator is called. If the present implementation does not enforce that, "
+            "it will be reported as an open gap, not treated as a pass. "
+            "Architecture differences are preserved. Equivalence is not claimed. "
+            "The standard applied to VeriSigil is the same standard applied to every claim "
+            "submitted to the Verification Interchange."
+        ),
+
+        "what_cannot_be_claimed_until_proof_closes": [
+            "Complete consequence custody",
+            "Universal non-bypassability",
+            "Production-proven enforcement",
+            "Owner-continuity enforcement in live STILL path",
+            "Full delegation security",
+            "Independent neutral examination (ADR-015b 0/6)",
+            "Equivalence with or superiority over any external system",
+        ],
+
+        "what_can_be_claimed_right_now": [
+            "Cryptographic layer independently reproduced — scoped cold verifications",
+            "Partially verified runtime path with declared gaps",
+            "Production claim not permitted — PRODUCTION_CLAIM_ALLOWED = False",
+            "Next falsification test explicitly defined and published before running",
+            "Architecture differences preserved — equivalence not manufactured",
+            "Same standard applied to VeriSigil as to any external claim",
+        ],
+
+        "linkedin_post_timing_rule": (
+            "Do not post within 48 hours of a major external system launch announcement. "
+            "Post content is correct and does not change. Timing matters — "
+            "post as an independent publication, not as a reaction."
+        ),
+    },
+
         "positioning_sentence": (
         "Full AI governance runs upstream (should this exist?), "
         "midstream (is this still the approved system under change?), "
