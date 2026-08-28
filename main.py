@@ -67391,7 +67391,7 @@ async def positioning_vs_consequence_science():
 
 # ============================================================
 # CONSEQUENCE STANDING LAYER (CSL)
-# Inspired by Terry Snyder's True-Zero framing:
+# Inspired by ZERO-ASSERTION framing:
 # "Whether candidate movement has standing to become
 # consequence before effect."
 #
@@ -67434,7 +67434,7 @@ async def standing_evaluate(
     """
     Evaluate whether a candidate action has STANDING to become consequence.
 
-    VeriSigil's answer to Terry Snyder's core question:
+    VeriSigil's answer to EXTERNAL VERIFIER QUESTION:
     "Whether candidate movement has standing to become consequence
     before effect."
 
@@ -76602,7 +76602,7 @@ CLAIM_REGISTRY = {
         "proof_id":    None,
         "test":        "GET /v1/sink/proof — full test procedure published",
         "deployed_at": "2026-08-08",
-        "terry_note":  "Terry Snyder challenge 2026-08-08: 'HALT does not prove anything was prevented.' This sink is the direct engineering response.",
+        "terry_note":  "External verifier challenge (pre-claim test): 'HALT does not prove anything was prevented.' This sink is the direct engineering response.",
     },
     "VS-RES-001": {
         "claim":       "Unconsumed AO survives production process restart",
@@ -76820,7 +76820,7 @@ async def claim_detail(claim_id: str):
 # REVOKED → does not execute
 # EXPIRED → does not execute"
 #
-# Terry Snyder challenge (2026-08-08):
+# External verifier challenge (pre-claim test):
 # "HALT does not prove anything was prevented.
 #  A decision is not enforcement unless the governed
 #  boundary controls the effect."
@@ -89266,7 +89266,7 @@ async def vcb_sdk_quickstart():
 TERRY_001_SCENARIO = {
     "scenario_id":    "TERRY-001",
     "frozen_at":      "2026-08-13",
-    "description":    "Terry Snyder challenge — dropped beneficiary constraint detection",
+    "description":    "External verifier challenge — dropped beneficiary constraint detection",
     "source":         "Terry's public LinkedIn challenge, August 2026",
 
     "original_instruction": "Transfer up to $50,000 only to approved beneficiaries.",
@@ -95459,7 +95459,7 @@ def _run_gate_checks(content_ref: str = None) -> dict:
             "reference_actuator":    "PASS — payment actuator rejects no/invalid/expired/consumed VCC",
             "valid_vcc_executes":    "PASS — reference implementation",
             "invalid_vcc_rejected":  "PASS — A07 bypass test confirms",
-            "real_payment_system":   "PENDING — requires Naimatullah/Velos eBPF or payment gateway integration",
+            "real_payment_system":   "PENDING — requires eBPF integration or payment gateway integration",
         },
         "status": "PARTIAL — reference actuator PASS, real payment system PENDING",
     }
@@ -95927,7 +95927,7 @@ INDEPENDENT_REPRODUCTION_SPEC = {
     "gate_7_candidates": [
         "Alkama Eqbal — Run 4 verifies offline",
         "Harold Nunes / OMNIX — adversarial verifier (NDA-compliant private scope)",
-        "Jake Macdonald — formation conditions inspection",
+        "Independent cold-run reviewer — formation conditions inspection",
     ],
     "current_label":  "offline/self-contained verification capability",
     "gate_7_label":   "independently reproduced verification (Gate 7)",
@@ -97675,7 +97675,7 @@ VCB_UNIFIED_EVIDENCE_CHAIN = {
 # ═══════════════════════════════════════════════════════════════════════════════
 # ADR-011 — STILL Gate Caller-Supplied Bypass Risk
 # Date: 2026-08-26
-# Source: External reviewer challenge on Terry Snyder post + CAGE-1 (arXiv 2607.03510)
+# Source: External reviewer challenge on External governance post + CAGE-1 (arXiv 2607.03510)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 ADR_011 = {
@@ -97933,7 +97933,7 @@ VCB_ADR_REGISTRY = {
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # VCB INSURANCE-GRADE EVIDENCE DOCTRINE
-# Source: Mike McClain post analysis (August 2026)
+# Source: External authority-path governance analysis (August 2026)
 # "The decisive question an insurer asks after a loss is not 'Did you have a policy?'
 #  but: Did the controls you described at underwriting actually operate at the moment of loss?"
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -98208,7 +98208,7 @@ VCB_PROTECTED_CONSEQUENCE_DOMAIN_v1 = {
         "Risk Management Framework (Feb 2026), FSB 2026 AI governance consultation. "
         "Stripe sandbox provides real outcome observation (WHAT) via webhooks. "
         "Irreversibility is clear. Authority structure is well-understood. "
-        "Terry Snyder / Alkama / Harold will immediately understand the stakes."
+        "Independent examiners will immediately understand the stakes."
     ),
 
     "complete_evidence_chain": {
@@ -99863,7 +99863,7 @@ VCB_ADR_014 = {
             "It is a proof-and-enforcement boundary that distinguishes historical authorization "
             "from current standing and current consequence sufficiency."
         ),
-        "source": "Expert synthesis: Javier Muñoz + Jake Macdonald + ADR-014R, August 2026",
+        "source": "External convergence — commitment boundary vs current authorization, August 2026",
     },
     "refined_still_model": {
         "definition": (
@@ -101445,7 +101445,7 @@ VCB_ADR_014 = {
         "VCB_AC_01_AUTHORITY_CONTINUITY_INVARIANT": {
         "name": "VCB-AC-01 — Authority Continuity Invariant",
         "status": "DOCTRINE — must be enforced in ConsequenceCommitment implementation",
-        "source": "Expert B synthesis of Mike McClain 'Access is a point, authority is a path' — August 2026",
+        "source": "Synthesized from governance authority-path discipline — August 2026",
         "principle": (
             "Authority granted at one point in an action lifecycle must not be presumed "
             "to authorize every subsequent material transformation. "
@@ -101517,7 +101517,7 @@ VCB_ADR_014 = {
     "VCB_AUTHORITY_PATH_ADVERSARIAL_TESTS": {
         "name": "Authority Path / Drift Test Suite — AP-01 through AP-06",
         "status": "ACCEPTANCE_CRITERIA — add to adversarial test matrix, run after ConsequenceCommitment built",
-        "source": "Expert B synthesis of Mike McClain August 2026",
+        "source": "Authority path adversarial test suite — August 2026",
         "tests": {
             "AP-01_parameter_mutation": {
                 "description": "Legitimate start, unauthorized mutation",
@@ -101573,21 +101573,21 @@ VCB_ADR_014 = {
 
     "FOUR_PERSPECTIVE_COMBINED_MODEL": {
         "name": "Four External Perspective Combined Evidence Architecture",
-        "source": "Terry Snyder + Mohammad Hammad Ahmad + Paweł Bański + Mike McClain — August 2026",
+        "source": "Four external governance perspectives synthesized into VCB doctrine — August 2026",
         "perspectives": {
-            "Terry_Snyder_CLAIM_AUTHORITY": {
+            "CLAIM_PROVENANCE": {
                 "lesson": "DATE → CARRIER → EXACT TEXT → EXACT PROPOSITION. No retrospective expansion.",
                 "vcb_mapping": "ADR-018 Carrier-Bound Provenance, explicit non-claims rule",
             },
-            "Mohammad_Hammad_Ahmad_CONTROL_GOVERNANCE": {
-                "lesson": "Where can risk enter? Who owns the control? What evidence exists? When was it reviewed?",
+            "CONTROL_GOVERNANCE": {
+                "lesson": "Where can authority enter? Who owns the control? What evidence exists? When was it reviewed?",
                 "vcb_mapping": "ADR-019 Governance Evidence, Named Control Ownership, Review Cadence",
             },
-            "Pawel_Banski_RECORD_AUTHORITY": {
+            "RECORD_AUTHORITY": {
                 "lesson": "INTEGRITY OF RECORD ≠ AUTHORITY OF RECORD. Evidence must participate in execution structure.",
                 "vcb_mapping": "ConsequenceCommitment, Structural Proof Passport, SIGNED ≠ AUTHORIZED",
             },
-            "Mike_McClain_AUTHORITY_CONTINUITY": {
+            "AUTHORITY_CONTINUITY": {
                 "lesson": "ACCESS IS A POINT. AUTHORITY IS A PATH. Authority must survive transformations.",
                 "vcb_mapping": "VCB-AC-01 Authority Continuity Invariant, AP-01 through AP-06 adversarial tests",
             },
@@ -110629,7 +110629,7 @@ VCB_ENGINEERING_DIRECTION_FINAL = {
     },
 
     "attack_posture": {
-        "Terry_Snyder_test": "Before any public claim: can a technically capable outsider disprove this in 5 minutes?",
+        "EXTERNAL_VERIFIER_TEST": "Before any public claim: can a technically capable outsider disprove this in 5 minutes?",
         "false_proven_protection": "Zero false-PROVEN paths found. This is the red-line property. Maintain it.",
         "defensible_positioning": CONSEQUENCE_PROOF_CLAIM["claim"],
         "what_we_do_not_claim": CONSEQUENCE_PROOF_CLAIM["what_this_does_NOT_mean"],
@@ -110914,7 +110914,7 @@ PUBLIC_MESSAGING_LOCKED = {
         "distributed-instance and full re-audit validation."
     ),
 
-    "Terry_Snyder_test": (
+    "EXTERNAL_VERIFIER_TEST": (
         "Before publishing any claim: can a technically capable outsider disprove this in 5 minutes? "
         "If yes, rewrite before publishing."
     ),
