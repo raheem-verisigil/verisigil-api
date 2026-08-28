@@ -73431,7 +73431,7 @@ async def board_dashboard(
 
 # ============================================================
 # VERISIGIL PROOF ESTATE
-# Expert: "Create a public Proof Estate exactly like Elyria.
+# Expert: "Create a public Proof Estate.
 # Each proof: tiny, deterministic, replayable, independently
 # testable. That is the level of engineering maturity
 # enterprise buyers trust."
@@ -76602,7 +76602,7 @@ CLAIM_REGISTRY = {
         "proof_id":    None,
         "test":        "GET /v1/sink/proof — full test procedure published",
         "deployed_at": "2026-08-08",
-        "terry_note":  "External verifier challenge (pre-claim test): 'HALT does not prove anything was prevented.' This sink is the direct engineering response.",
+        "boundary_note":  "External verifier challenge (pre-claim test): 'HALT does not prove anything was prevented.' This sink is the direct engineering response.",
     },
     "VS-RES-001": {
         "claim":       "Unconsumed AO survives production process restart",
@@ -76890,7 +76890,7 @@ async def sink_execute(
             "executed":     False,
             "ruling":       "BLOCKED",
             "reason":       "NO_VALID_AO — no authorization object presented. Cannot execute without VeriSigil authorization.",
-            "terry_test":   "Consequence cannot form through this sink without a valid AO. This sink requires authorization structurally.",
+            "boundary_test":   "Consequence cannot form through this sink without a valid AO. This sink requires authorization structurally.",
         }
         _SINK_EXECUTION_LOG.append({"ts":ts,"ao_id":ao_id,"executed":False,"reason":"NO_VALID_AO"})
         seal = {"ao_id":ao_id,"executed":False,"reason":"NO_VALID_AO","timestamp":ts}
@@ -76903,7 +76903,7 @@ async def sink_execute(
             "executed":     False,
             "ruling":       "BLOCKED",
             "reason":       "AO_ALREADY_CONSUMED — this authorization was already used.",
-            "terry_test":   "Replay attempt blocked at this enforcement boundary. Same authorization cannot produce two execution records.",
+            "boundary_test":   "Replay attempt blocked at this enforcement boundary. Same authorization cannot produce two execution records.",
         }
         _SINK_EXECUTION_LOG.append({"ts":ts,"ao_id":ao_id,"executed":False,"reason":"AO_CONSUMED"})
         seal = {"ao_id":ao_id,"executed":False,"reason":"AO_CONSUMED","timestamp":ts}
@@ -76916,7 +76916,7 @@ async def sink_execute(
             "executed":     False,
             "ruling":       "BLOCKED",
             "reason":       "AO_REVOKED_BY_CHAIN — delegation chain was revoked after this AO was issued.",
-            "terry_test":   "Pre-revocation AO cannot produce an execution record in this sink.",
+            "boundary_test":   "Pre-revocation AO cannot produce an execution record in this sink.",
         }
         _SINK_EXECUTION_LOG.append({"ts":ts,"ao_id":ao_id,"executed":False,"reason":"REVOKED_BY_CHAIN"})
         seal = {"ao_id":ao_id,"executed":False,"reason":"REVOKED_BY_CHAIN","timestamp":ts}
@@ -76930,7 +76930,7 @@ async def sink_execute(
             "executed":     False,
             "ruling":       "BLOCKED",
             "reason":       f"AO_EXPIRED — authorization expired at {expiry}.",
-            "terry_test":   "Expired AO cannot produce an execution record in this sink.",
+            "boundary_test":   "Expired AO cannot produce an execution record in this sink.",
         }
         _SINK_EXECUTION_LOG.append({"ts":ts,"ao_id":ao_id,"executed":False,"reason":"AO_EXPIRED"})
         seal = {"ao_id":ao_id,"executed":False,"reason":"AO_EXPIRED","timestamp":ts}
@@ -76943,7 +76943,7 @@ async def sink_execute(
             "executed":     False,
             "ruling":       "BLOCKED",
             "reason":       f"AGENT_MISMATCH — AO issued to {ao.get('agent_id')} not {agent_id}.",
-            "terry_test":   "AO cannot be used by a different agent in this sink.",
+            "boundary_test":   "AO cannot be used by a different agent in this sink.",
         }
         _SINK_EXECUTION_LOG.append({"ts":ts,"ao_id":ao_id,"executed":False,"reason":"AGENT_MISMATCH"})
         seal = {"ao_id":ao_id,"executed":False,"reason":"AGENT_MISMATCH","timestamp":ts}
@@ -76955,7 +76955,7 @@ async def sink_execute(
             "executed":     False,
             "ruling":       "BLOCKED",
             "reason":       f"ACTION_MISMATCH — AO covers {ao.get('action_type')} not {action_type}.",
-            "terry_test":   "AO cannot authorize a different action in this sink.",
+            "boundary_test":   "AO cannot authorize a different action in this sink.",
         }
         _SINK_EXECUTION_LOG.append({"ts":ts,"ao_id":ao_id,"executed":False,"reason":"ACTION_MISMATCH"})
         seal = {"ao_id":ao_id,"executed":False,"reason":"ACTION_MISMATCH","timestamp":ts}
@@ -76968,7 +76968,7 @@ async def sink_execute(
             "executed":     False,
             "ruling":       "BLOCKED",
             "reason":       "NONCE_MISMATCH — presented nonce does not match issued nonce.",
-            "terry_test":   "Fabricated or mutated AO cannot produce an execution record in this sink.",
+            "boundary_test":   "Fabricated or mutated AO cannot produce an execution record in this sink.",
         }
         _SINK_EXECUTION_LOG.append({"ts":ts,"ao_id":ao_id,"executed":False,"reason":"NONCE_MISMATCH"})
         seal = {"ao_id":ao_id,"executed":False,"reason":"NONCE_MISMATCH","timestamp":ts}
@@ -95459,7 +95459,7 @@ def _run_gate_checks(content_ref: str = None) -> dict:
             "reference_actuator":    "PASS — payment actuator rejects no/invalid/expired/consumed VCC",
             "valid_vcc_executes":    "PASS — reference implementation",
             "invalid_vcc_rejected":  "PASS — A07 bypass test confirms",
-            "real_payment_system":   "PENDING — requires eBPF integration or payment gateway integration",
+            "real_payment_system":   "PENDING — requires kernel-level enforcement or payment gateway integration",
         },
         "status": "PARTIAL — reference actuator PASS, real payment system PENDING",
     }
@@ -95822,7 +95822,7 @@ REAL_ACTUATOR_INTEGRATION_SPEC = {
     "schema":    "VGS-REAL-ACTUATOR-INTEGRATION-SPEC-1.0",
     "target":    "Payment destination change via real enforcement adapter",
     "candidates": {
-        "Naimatullah_Velos": {
+        "eBPF_enforcement_candidate": {
             "technology":    "kernel-level eBPF enforcement",
             "vcb_role":      "Close C09-C12 (alternative API path, admin bypass, direct datastore, fail-open)",
             "integration":   "VCC → eBPF enforcement hook → actuator cannot be bypassed below kernel level",
@@ -95871,7 +95871,7 @@ REAL_ACTUATOR_INTEGRATION_SPEC = {
     },
     "acceptance_condition": (
         "NOT_TESTABLE_WITHOUT_REAL_ACTUATOR is temporary, not permanent. "
-        "A13-A17 become executable once Naimatullah/Velos integration is live. "
+        "A13-A17 become executable once kernel-level enforcement integration is live. "
         "They are prioritized after Gate 3 is reached."
     ),
 }
@@ -95880,7 +95880,7 @@ REAL_ACTUATOR_INTEGRATION_SPEC = {
 @app.get("/v1/actuator/integration-spec", tags=["Payment Actuator — Enforcement Boundary"])
 async def actuator_integration_spec():
     """
-    Real actuator integration path — Naimatullah/Velos eBPF + Alkama CLARA Run 4.
+    Real actuator integration path — kernel-level enforcement + Alkama CLARA Run 4.
     A13-A17 pending status is TEMPORARY not permanent.
     No auth required.
     """
@@ -95996,7 +95996,7 @@ PROOF_RUN_1_SPEC = {
         "GET /v1/engineering/behavioral-preflight → run now",
         "GET /v1/engineering/gates → review current gate status",
         "Commission Alkama Run 4 (VS-DEL-001, VS-RES-001, VS-RES-002, VS-GS-001)",
-        "Contact Naimatullah/Velos for eBPF actuator integration",
+        "Contact enforcement adapter team for eBPF actuator integration",
     ],
 }
 
@@ -96175,7 +96175,7 @@ async def proof_run_1_execute(
             "Gate 3 PARTIAL — reference actuator only, real actuator required",
             "Gate 7 PENDING — external reproduction required",
         ],
-        "next_action":  "Commission Alkama Run 4. Contact Naimatullah/Velos. Harold OMNIX adversarial challenge.",
+        "next_action":  "Commission Alkama Run 4. Contact enforcement adapter team. Harold OMNIX adversarial challenge.",
         "timestamp":    ts,
     }
     _PROOF_RUN_RECORDS.append({"run_id": run_id, "overall": run_record["overall"], "ts": ts})
@@ -100836,7 +100836,7 @@ VCB_ADR_014 = {
             "Phase 5": "PARTIALLY_DONE — PAYMENT_INSTRUCTION declared, Alkama DP-3/DP-4 pending",
             "Phase 6": "PARTIALLY_DONE — V1-V6 in interchange_v01.py; STILL-01...08 suite pending",
             "Phase 7": "PARTIALLY_DONE — jar_verify three-line summary done; full receipt upgrade pending",
-            "Phase 8": "PARTIALLY_DONE — Naimatullah, Alkama, Jake cold verifications done; composited challenge pending",
+            "Phase 8": "PARTIALLY_DONE — three independent cold verifications done; composited challenge pending",
         },
     },
 
@@ -102197,7 +102197,7 @@ VCB_ADR_014 = {
         "VCB_COMPETITIVE_POSITION_DOCTRINE": {
         "name": "VeriSigil Competitive Position — August 2026",
         "status": "INTERNAL DOCTRINE — not for direct publication",
-        "source": "Expert A + Expert B synthesis, Elyria launch analysis",
+        "source": "External competitive analysis synthesis, August 2026",
 
         "the_defensible_edge": (
             "VeriSigil separates the system that performs or controls the action "
@@ -102384,6 +102384,261 @@ VCB_ADR_014 = {
         ),
     },
 
+        "VCB_COMPLEMENTARITY_PRINCIPLE": {
+        "name": "VeriSigil Complementarity Principle",
+        "status": "GOVERNING DOCTRINE — permanent, applies to all architecture and positioning decisions",
+        "source": "Expert integration positioning synthesis, August 2026",
+        "principle": (
+            "VeriSigil does not assume that one control layer must replace another. "
+            "Identity establishes who or what is represented. "
+            "Authorization establishes permissions within a defined system. "
+            "Policy expresses constraints. "
+            "Monitoring observes behavior. "
+            "Human oversight introduces accountable intervention. "
+            "VeriSigil examines whether the declared conditions required for a specific "
+            "consequential release can be established at the relevant decision point, "
+            "and preserves evidence of the resulting decision within its declared boundary."
+        ),
+        "what_this_means_commercially": (
+            "Keep your model. Keep your agent framework. Keep your IAM. "
+            "Keep your policy engine. Keep your workflow. "
+            "Add a verifiable action checkpoint where consequences matter. "
+            "VeriSigil does not need to replace the customer's architecture. "
+            "It becomes an independent decision-and-evidence checkpoint "
+            "at a declared consequential interface."
+        ),
+        "the_soft_landing_rule": (
+            "VeriSigil does not ask the world to enter VeriSigil's universe. "
+            "VeriSigil is made usable inside the world's existing systems. "
+            "Do not attack upstream builders. "
+            "Give every existing builder a place to connect."
+        ),
+        "layer_relationships": {
+            "IAM_says": "This agent has permission",
+            "VeriSigil_asks": "Can the evidence supporting that permission still be established for this exact action now?",
+            "Policy_engine_says": "This action matches policy",
+            "VeriSigil_asks_2": "Was that policy evaluation still applicable to the exact committed action under current declared conditions?",
+            "Human_approval_says": "Someone approved this",
+            "VeriSigil_asks_3": "Does that approval still provide valid standing for this attempted action?",
+            "Observability_says": "Here is what happened",
+            "VeriSigil_establishes": "Here is what was examined before release, what result was reached, and what occurred on the declared path",
+        },
+        "forbidden_positioning": [
+            "We replace governance",
+            "We are the new computational floor",
+            "Everyone else is old stack",
+            "We have solved consequence-boundary custody",
+            "We require you to abandon your architecture",
+            "We are the universal AI governance platform",
+        ],
+        "correct_positioning": (
+            "VeriSigil is an integration layer for examining consequential AI actions "
+            "before release to a declared external effect. "
+            "It is designed to work alongside identity, authorization, policy, approval, "
+            "monitoring and existing governance systems — not require their replacement."
+        ),
+    },
+
+    "VCB_INTEGRATION_CORE": {
+        "name": "VeriSigil Integration Core",
+        "status": "ARCHITECTURE PATTERN — maps existing VCB components to commercial integration model",
+        "source": "Expert integration positioning synthesis, August 2026",
+        "purpose": (
+            "The Integration Core is how existing AI systems connect to VeriSigil "
+            "without abandoning their existing architecture. "
+            "It consists of three components that already exist under different names "
+            "in VCB — named here for commercial clarity."
+        ),
+        "component_1_action_checkpoint": {
+            "name": "VeriSigil Action Checkpoint",
+            "vcb_equivalent": "evaluate_release_with_still_adapter() + STILL gate + COULD gate",
+            "description": (
+                "The integration component. A declared consequential interface where "
+                "the proposed action is examined before release to the external actuator. "
+                "This is what developers integrate. Not a gateway. Not a proxy. "
+                "A checkpoint at the declared consequence boundary."
+            ),
+            "integration_pattern": {
+                "input": "Proposed consequential action + declared authority + declared policy",
+                "examination": "WHY + STILL + COULD",
+                "output": "RELEASE / REFUSE / NOT_PROVABLE + Evidence Record",
+            },
+            "diagram": (
+                "Existing Enterprise AI Stack → Proposed Action → "
+                "VeriSigil Action Checkpoint → RELEASE / REFUSE / NOT_PROVABLE → "
+                "External Actuator → Evidence Artifact"
+            ),
+        },
+        "component_2_evidence_record": {
+            "name": "VeriSigil Evidence Record",
+            "vcb_equivalent": "SigilMark + Proof Passport + Machine Action Ledger entry",
+            "description": (
+                "The portable artifact produced at every checkpoint decision. "
+                "Contains within the declared security model: "
+                "action identity, relevant authority reference, condition examination result, "
+                "decision, parameter binding, timing, integrity information, "
+                "actuator observation, verification material."
+            ),
+            "key_fields": [
+                "ACTION_ID", "ACTION_HASH", "AUTHORITY_HASH", "POLICY_HASH",
+                "MATERIAL_DELTA", "DECISION", "REASON_CODE", "ACTUATOR_STATUS",
+                "EVIDENCE_HASH", "SIGNATURE", "EXPLICIT_NON_CLAIMS",
+            ],
+        },
+        "component_3_verification_kit": {
+            "name": "VeriSigil Verification Kit",
+            "vcb_equivalent": "jar_verify.py + public key + QUICKSTART",
+            "description": (
+                "Independent verification tooling. Any party with the evidence record "
+                "and public key can verify: "
+                "integrity → signatures → referenced bindings → declared decision → "
+                "reproducible checks. "
+                "Open and inspectable. No runtime dependency for cryptographic verification."
+            ),
+            "current_status": "BUILT AND INDEPENDENTLY VERIFIED — 3 cold external runs",
+            "public_key": "lJWG0Wabt6uATPu5Upo6UEHWGXQqMyi6LMKQC0xwpY8=",
+            "reproduction_time": "Under 10 minutes from cold start",
+        },
+        "the_integration_opportunity": (
+            "The integration opportunity: how quickly can an existing AI system gain an inspectable, "
+            "testable release checkpoint for a consequential action? "
+            "VeriSigil does not ask builders to rebuild their world. "
+            "It gives them a place to connect."
+        ),
+    },
+
+    "VCB_PROTECTED_ACTION_CORRIDORS": {
+        "name": "VeriSigil Protected Action Corridors",
+        "status": "ARCHITECTURE PATTERN — corridors are integration patterns, not separate products",
+        "source": "Expert integration positioning synthesis, August 2026",
+        "principle": (
+            "A corridor is a named, bounded integration pattern connecting an existing "
+            "enterprise system to a VeriSigil Action Checkpoint for a defined class "
+            "of consequential actions. "
+            "Build one corridor completely before adding the next. "
+            "Each corridor requires: specification, test vectors, evidence package, "
+            "independent reproduction, and declared limitations."
+        ),
+        "corridors": {
+            "VS_CORRIDOR_01_PAYMENT": {
+                "name": "Payment Destination Change Corridor",
+                "status": "SPECIFIED AND PARTIALLY VERIFIED — VS-CORRIDOR-01.md published",
+                "integration_pattern": "AI Agent → Action Checkpoint → Payment Provider",
+                "test_vectors": ["VS-TEST-001 through VS-TEST-005 + CAT-01 pending"],
+                "actuator_status": "TEST API ONLY — C2 permanent limitation",
+                "specification": "VS-CORRIDOR-01_Pilot_Specification.md in repository",
+            },
+            "VS_CORRIDOR_02_ENTERPRISE_APPROVAL": {
+                "name": "Enterprise Approval Corridor",
+                "status": "SPEC_ONLY — build after VS-CORRIDOR-01 fully proven",
+                "integration_pattern": "AI Agent → Action Checkpoint → ERP / Procurement / Workflow",
+                "test_vectors": "Not yet defined",
+                "actuator_status": "Not yet built",
+            },
+            "VS_CORRIDOR_03_DATA_ACCESS": {
+                "name": "Sensitive Data Access Corridor",
+                "status": "SPEC_ONLY — future",
+                "integration_pattern": "AI Agent → Action Checkpoint → Sensitive Data Operation",
+                "test_vectors": "Not yet defined",
+                "actuator_status": "Not yet built",
+            },
+            "VS_CORRIDOR_04_INFRASTRUCTURE": {
+                "name": "Infrastructure Change Corridor",
+                "status": "SPEC_ONLY — future",
+                "integration_pattern": "AI System → Action Checkpoint → Cloud / DevOps Actuator",
+                "test_vectors": "Not yet defined",
+                "actuator_status": "Not yet built",
+            },
+            "VS_CORRIDOR_05_HIGH_RISK_API": {
+                "name": "High-Risk API Corridor",
+                "status": "SPEC_ONLY — future",
+                "integration_pattern": "Agent → Action Checkpoint → External API",
+                "test_vectors": "Not yet defined",
+                "actuator_status": "Not yet built",
+            },
+        },
+        "governing_rule": (
+            "Do not claim a corridor is proven until: "
+            "real actuator integration, independent reproduction of the full path, "
+            "changed-condition refusal demonstrated, and limitations declared. "
+            "VS-CORRIDOR-01 is the only corridor with any demonstrated evidence. "
+            "All others are SPEC_ONLY until the first corridor is fully proven."
+        ),
+    },
+
+    "VCB_LIVING_ATTESTATION": {
+        "name": "Living Attestation",
+        "status": "IMPLEMENTED IN INTERCHANGE — check_living_attestation() in interchange_v01.py",
+        "description": (
+            "A Living Attestation tracks whether the proof remains current after change. "
+            "A receipt that was VERIFIED at T0 may become EXPIRED or REVOKED at Tn. "
+            "The attestation lifecycle: CURRENT → PENDING_ATTESTATION → EXPIRED / REVOKED. "
+            "This is V4 in interchange_v01.py — demonstrated with 1-second TTL expiry."
+        ),
+        "states": ["CURRENT", "PENDING_ATTESTATION", "EXPIRED", "REVOKED", "UNKNOWN"],
+        "vcb_relevance": (
+            "The Living Attestation is the currentness layer that connects the "
+            "Verification Interchange to the ACE (Authority Currentness Envelope). "
+            "A claim verified at T0 must be re-examined if material conditions change. "
+            "This is the 'Change triggers revalidation' principle in the tagline."
+        ),
+        "current_status": "DEMONSTRATED in interchange_v01.py V4 — TTL expiry test passes",
+        "missing": "Integration into the main VCB release path — doctrine only there",
+    },
+
+    "VCB_INTEGRATION_POSITIONING": {
+        "name": "VeriSigil Integration Positioning Strategy",
+        "status": "GOVERNING POSITIONING — applies to all public and commercial messaging",
+        "source": "Expert synthesis, August 2026",
+        "the_integration_opportunity": (
+            "Do not compete on: who has the biggest architecture, who has the most terminology, "
+            "who has the most domains, who claims the newest computational floor, "
+            "who owns the category. "
+            "Compete on: how quickly can an existing AI system gain an inspectable, "
+            "testable release checkpoint for a consequential action?"
+        ),
+        "the_market_reality": (
+            "Most enterprises already have: AI model, agent framework, IAM, RBAC/ABAC, "
+            "policy engine, workflow engine, human approval, observability, audit logging, "
+            "payment/API/actuator. "
+            "They are not going to throw all of that away. "
+            "VeriSigil becomes valuable by connecting to what already exists, "
+            "not by requiring its replacement."
+        ),
+        "the_five_attack_surfaces_and_responses": {
+            "attack_side_path": {
+                "attack": "Agent bypasses VeriSigil and reaches actuator directly",
+                "correct_answer": "Within the declared integration boundary, all inventoried consequence-capable routes are forced through the controlled release interface.",
+                "wrong_answer": "No bypass exists anywhere — never claim this",
+            },
+            "attack_examined_not_executed": {
+                "attack": "You checked one action and executed another ($8k examined, $80k executed)",
+                "correct_answer": "ConsequenceCommitment binds exact parameters — pending implementation in evaluate_release()",
+                "status": "PROOF-06 — engineering obligation",
+            },
+            "attack_stale_state": {
+                "attack": "Authority established at T0, what caused re-examination at Tn?",
+                "correct_answer": "STILL gate re-queries live authority source at commitment time. CAT-01 is the owner-continuity falsification test.",
+                "status": "STILL gate implemented, CAT-01 pending",
+            },
+            "attack_software_behavior_only": {
+                "attack": "You returned REFUSED but that does not prove no external effect occurred",
+                "correct_answer": "No actuator invocation observed on tested route, no corresponding external effect observed within declared test environment.",
+                "wrong_answer": "No consequence formed — never claim this without complete observation boundary",
+            },
+            "attack_only_cryptographic": {
+                "attack": "Someone verified your receipt — did they reproduce the runtime decision?",
+                "correct_answer": "Cryptographic receipt verification and runtime decision reproduction are separate. Three cold verifications confirmed the cryptographic layer. Full runtime reproduction is PROOF-05 — engineering obligation.",
+            },
+        },
+        "the_one_sentence_positioning": (
+            "VeriSigil is an integration layer for examining consequential AI actions "
+            "before release to a declared external effect — designed to work alongside "
+            "identity, authorization, policy, approval, monitoring and existing governance "
+            "systems, not require their replacement."
+        ),
+    },
+
         "positioning_sentence": (
         "Full AI governance runs upstream (should this exist?), "
         "midstream (is this still the approved system under change?), "
@@ -102440,7 +102695,7 @@ VCB_ADR_014 = {
         "assurance or enforcement capability. "
         "External authority-chain insight strengthens STILL and material delta — not a new primitive. "
         "Shawn's composition insight strengthens path inventory and delegation — not a new primitive. "
-        "Jake's response gives a clearer public evidence surface — not a new primitive."
+        "External verifier feedback gives a clearer public evidence surface — not a new primitive."
     ),
     "continuity_of_authority_principle": (
         "A prior authorization, approval, or examination remains historical evidence of what "
@@ -105226,7 +105481,7 @@ async def adversarial_run_all_gates(
         "next_actions": [
             "Run POST /v1/proof-run/1/execute against real actuator",
             "Commission Alkama Run 4 (VS-DEL-001, VS-RES-001, VS-RES-002, VS-GS-001)",
-            "Contact Naimatullah/Velos for eBPF enforcement adapter",
+            "Contact enforcement adapter team for eBPF enforcement adapter",
             "Harold OMNIX adversarial challenge (NDA-compliant)",
         ],
         "timestamp":       ts,
@@ -105992,7 +106247,7 @@ VCB_PROOF_REPRODUCIBILITY_RELEASE = {
         "Phase 3 — Real actuator": {
             "status":  "PENDING",
             "items":   ["Controlled payment/ledger actuator","Actuator independently verifies SigilMark","Real state transition","Authoritative receipt","Observation/reconciliation"],
-            "contact": "Naimatullah/Velos eBPF + Alkama CLARA Run 4",
+            "contact": "eBPF enforcement team + Alkama CLARA Run 4",
         },
         "Phase 4 — Fault injection": {
             "status":  "IN_PROGRESS",
@@ -106009,7 +106264,7 @@ VCB_PROOF_REPRODUCIBILITY_RELEASE = {
         "Phase 6 — External reproduction": {
             "status":  "PENDING",
             "items":   ["Independent reviewer","Independent machine","Independent verification","Independent attack results"],
-            "parties": ["Alkama Eqbal — Run 4","Harold Nunes — OMNIX adversarial (NDA-compliant)","Jake Macdonald — formation conditions"],
+            "parties": ["Alkama Eqbal — Run 4","Harold Nunes — OMNIX adversarial (NDA-compliant)","External cold-run reviewer — formation conditions"],
             "endpoint":"GET /v1/adversarial/external-challenge-package",
         },
         "Phase 7 — Claim certification": {
@@ -106835,7 +107090,7 @@ async def adversarial_external_challenge_package(
             "Single-instance threading.Lock — multi-instance atomicity pending",
             "External reproduction not yet completed — this package enables Gate 8",
         ],
-        "candidates":        ["Alkama Eqbal (Run 4)","Harold Nunes OMNIX (NDA-compliant)","Jake Macdonald"],
+        "candidates":        ["Alkama Eqbal (Run 4)","Harold Nunes OMNIX (NDA-compliant)","External cold-run reviewer"],
         "expert_instruction":"Do not tell them the vulnerabilities you expect them to find. Let them attack it.",
         "timestamp":         ts,
     }
@@ -112525,7 +112780,7 @@ VCB_TEN_FROZEN_ENGINEERING_RULES = {
         "R-10": "The next commercial milestone is a demonstrable customer proof, not more routes.",
     },
     "context_for_R02": "Alex D.: 'What can it cause to happen?' Technical access creates the potential. Authority governs whether it is admissible.",
-    "context_for_R03": "Jake's insight: Agent A has access to customer data. System B can issue refunds. A→B connection does not automatically create refund-with-customer-data authority.",
+    "context_for_R03": "Cross-system insight: Agent A has access to customer data. System B can issue refunds. A→B connection does not automatically create refund-with-customer-data authority.",
     "context_for_R05": "Kevin Smith: evidence must be captured contemporaneously, not reconstructed. Historical truth must be preserved.",
     "context_for_P5":  "Proof must survive: process restart, infrastructure failure, distributed execution, delegation, authority changes, relationship changes, state changes, policy version changes, model changes, system composition, time, independent review.",
 }
@@ -112774,7 +113029,7 @@ VCB_NOT_TO_BUILD = {
         "Policy enforcement platforms (authority input to VCB)",
         "SIEM (audit log → evidence adapter input to VCB)",
         "Payment gateways (consequence actuator for VCB)",
-        "Naimatullah/Velos eBPF enforcement (enforcement evidence input to VCB)",
+        "eBPF enforcement adapter (enforcement evidence input to VCB)",
     ],
     "expert_line": "Those are adjacent markets. They can produce integrations for VCB. They should not become VCB.",
 }
@@ -114060,8 +114315,8 @@ VCB_STRUCTURAL_REFUSAL_DOCTRINE = {
         ],
     },
 
-    "Jake_plus_Ravi_plus_VCB": {
-        "Jake":  "Connections create new capabilities that nobody explicitly examined.",
+    "cross_system_capability_plus_VCB": {
+        "cross_system_insight": "Connections create new capabilities that nobody explicitly examined.",
         "Ravi":  "Controls must actually refuse the consequence, not merely detect the attempt.",
         "VCB":   "Can the entire action be independently proven admissible?",
         "combined": (
@@ -114337,7 +114592,7 @@ async def engineering_structural_refusal_spec():
     """
     Structural Refusal Specification — the terrain built from merging:
     1. External governance expert's Governance Theatre Series Part 6 (structural impossibility)
-    2. Jake's cross-system capability insight (P2)
+    2. Cross-system capability insight (P2)
     3. Expert direction: turn structural refusal into a proof dimension of existing VCB architecture
 
     Shows: frozen doctrine, COULD question expanded, condition removal matrix,
@@ -114373,7 +114628,7 @@ async def engineering_structural_refusal_spec():
         "sequencing": {
             "P0": "Prove VCB itself survives attack (including P0-11A-E, P0-13)",
             "P1": "Prove one real consequential workflow — VALID→COMMIT and INVALID→REFUSE",
-            "P2": "Cross-system relationships create no unexamined effective authority (Jake)",
+            "P2": "Cross-system relationships create no unexamined effective authority (cross-system insight)",
             "P3": "Independent external reproduction",
         },
         "NOT_to_build": "A separate Structural Impossibility Platform. This is a proof dimension, not a new product.",
@@ -119795,7 +120050,7 @@ async def vcb_claims_registry():
             {
                 "claim_id": "CLM-009",
                 "statement": "Cryptographic verification independently reproduced",
-                "evidence": "Naimatullah + Alkama: INTEGRITY_VERIFIED + SIGNATURE_VERIFIED",
+                "evidence": "External reviewers: INTEGRITY_VERIFIED + SIGNATURE_VERIFIED",
                 "ceiling": "independently reproduced",
                 "test_endpoint": "jar_verify.py (external)",
             },
@@ -120348,7 +120603,7 @@ async def claims_consistency(
                     "Key lifecycle durability",
                     "DP-3/DP-4 delegation lineage adversarial proof",
                     "INV-REC-01 production run",
-                    "Harold and Jake verification",
+                    "Harold OMNIX and external cold-run verification",
                 ],
             },
         ],
@@ -120742,9 +120997,9 @@ async def proof_matrix(
             "artifact": "Three cold external verifications: INTEGRITY_VERIFIED + SIGNATURE_VERIFIED + UNDETERMINED",
             "scope": "crypto layer only — does not prove consequence boundary",
             "reviewers": [
-                "Naimatullah (INDEPENDENTLY_REPRODUCED)",
+                "External reviewer 1 (INDEPENDENTLY_REPRODUCED)",
                 "Alkama (INDEPENDENTLY_CHALLENGED)",
-                "Jake Macdonald (INDEPENDENTLY_REPRODUCED)",
+                "External cold-run reviewer (INDEPENDENTLY_REPRODUCED)",
             ],
             "status": "INDEPENDENTLY_REPRODUCED",
             "ceiling": (
