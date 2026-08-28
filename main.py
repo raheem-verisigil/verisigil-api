@@ -102639,6 +102639,356 @@ VCB_ADR_014 = {
         ),
     },
 
+        "VCB_CROSS_DOMAIN_GOVERNANCE_DOCTRINE": {
+        "name": "Cross-Domain Pre-Execution Governance — Shared Principle, Distinct Objects",
+        "status": "DOCTRINE — locks the architectural relationship with adjacent governance domains",
+        "source": "External conceptual convergence — resource governance + consequential action governance, August 2026",
+
+        "shared_principle": (
+            "Governance before consequence → current conditions can still change the outcome → "
+            "the decision basis is preserved at decision time. "
+            "Timing is shared. The governed object and enforcement boundary are distinct."
+        ),
+
+        "governed_object_map": {
+            "RESOURCE_PRECONSUMPTION_GOVERNANCE": {
+                "question": "Should AI infrastructure consume constrained resources now?",
+                "governed_object": "Energy, water, carbon, compute capacity",
+                "decision_point": "Before infrastructure consumption",
+                "evidence_type": "Resource condition evidence",
+                "profile": "RESOURCE_CONSUMPTION_PROFILE",
+            },
+            "CONSEQUENTIAL_ACTION_GOVERNANCE": {
+                "question": "Should this consequential AI action proceed now?",
+                "governed_object": "AI agent consequential action",
+                "decision_point": "Before external actuator invocation",
+                "evidence_type": "Authority, identity, policy, condition evidence",
+                "profile": "CONSEQUENTIAL_ACTION_PROFILE",
+            },
+            "CROSS_ARCHITECTURE_EVIDENCE": {
+                "question": "What evidence proves either claim, and does it remain current?",
+                "governed_object": "Claims about either governance domain",
+                "decision_point": "At verification time",
+                "evidence_type": "Verification receipts, living attestation",
+                "profile": "EVIDENCE_INTERCHANGE_PROFILE",
+            },
+        },
+
+        "shared_receipt_fields": {
+            "governed_object": "exact thing being governed",
+            "decision_time": "ISO-8601 — when the decision was made",
+            "preconditions": "conditions that must hold for the action to proceed",
+            "current_conditions": "conditions as established at decision time",
+            "decision": "ALLOW / REFUSE / NOT_PROVABLE / ESCALATE",
+            "decision_authority": "what authorized the decision",
+            "evidence": "evidence artifacts supporting the decision",
+            "limitations": "what was not established",
+            "change_triggers": "what would require revalidation",
+        },
+
+        "governance_profiles": {
+            "RESOURCE_CONSUMPTION_PROFILE": {
+                "governed_object_class": "infrastructure resource",
+                "conditions_evaluated": "energy budget, water availability, carbon constraints, capacity",
+                "enforcement_boundary": "before infrastructure consumption",
+                "evidence_type": "resource condition certificates",
+                "not_in_scope_for_vcb": True,
+            },
+            "CONSEQUENTIAL_ACTION_PROFILE": {
+                "governed_object_class": "AI agent consequential action",
+                "conditions_evaluated": "identity, authority, policy, delegation, material state",
+                "enforcement_boundary": "before external actuator invocation",
+                "evidence_type": "authority evidence, STILL result, SigilMark",
+                "vcb_implements": True,
+            },
+        },
+
+        "external_conceptual_corroboration": {
+            "type": "EXTERNAL_CONCEPTUAL_CORROBORATION",
+            "what_is_established": [
+                "Timing of governance is material — decision-time controls are stronger than post-hoc reconstruction",
+                "Decision-time evidence is stronger than reconstructed evidence",
+                "Resource consumption and AI consequential action are distinct governed objects",
+                "The layers may complement one another without collapsing their distinct roles",
+            ],
+            "what_is_NOT_established": [
+                "Independent verification of VCB implementation",
+                "Independent verification of any adjacent system",
+                "Joint implementation or shared codebase",
+                "Formal partnership or regulatory approval",
+                "Equivalence between resource governance and action governance",
+            ],
+            "non_equivalence_preserved": (
+                "Combining resource governance and action governance too early would produce "
+                "the same category confusion deliberately avoided in ADR-024. "
+                "The profiles must remain separate until a formal interface is specified and proven."
+            ),
+        },
+
+        "the_final_relationship": {
+            "Pre_consumption_governance": "Governs whether infrastructure may consume resources",
+            "Pre_execution_consequential_governance": "Governs whether specific AI action may execute",
+            "Cross_architecture_evidence": "Examines what evidence proves either claim",
+            "Currentness_and_revalidation": "Tracks whether the proof remains current across change",
+            "rule": "Common principles, separate objects, clear boundaries, no forced equivalence.",
+        },
+    },
+
+    "ADR_028_EVIDENCE_TO_CLAIM_CALIBRATION": {
+        "title": "ADR-028 — Evidence-to-Claim Calibration and Parallel Assessment",
+        "status": "DOCTRINE — GO on all items",
+        "source": "Independent assessment discipline synthesis, August 2026",
+        "question": (
+            "How should VeriSigil prevent the same evidence from being used to support "
+            "claims stronger than the evidence permits?"
+        ),
+        "finding": (
+            "Observation and qualification are different operations. "
+            "The same behavior may be observed by multiple assessors while supporting "
+            "different claim strengths due to different thresholds, scopes, normative "
+            "interpretations, and generalization rules. "
+            "Independent assessment should preserve divergence rather than force artificial agreement. "
+            "A single counterexample can refute a universal claim. "
+            "A finite number of successful interactions cannot establish one universally."
+        ),
+
+        "object_freeze_requirement": {
+            "name": "OBJECT_FREEZE_REQUIRED",
+            "rule": "A claim should not be challenged until the object and evidence boundary are frozen.",
+            "required_fields_before_assessment": [
+                "SUBJECT",
+                "VERSION",
+                "ENVIRONMENT",
+                "SOURCE_MATERIAL",
+                "PROMPT_OR_INPUT",
+                "TOOLS",
+                "DATA",
+                "TEST_SCRIPT",
+                "EVALUATION_WINDOW",
+                "SUCCESS_THRESHOLD",
+                "EXCLUSIONS",
+            ],
+            "purpose": (
+                "Prevents an assessor from evaluating one system while the builder later "
+                "claims the result applies to a broader or different system."
+            ),
+        },
+
+        "observation_qualification_separation": {
+            "OBSERVATION": "What was directly observed?",
+            "QUALIFICATION": "What bounded property does that observation support?",
+            "GENERALIZATION": "Can the property be repeated or extended beyond the tested scope?",
+            "PUBLIC_CLAIM": "How broadly may the result be stated?",
+            "example": {
+                "observation": "The system refused an expired mandate 10/10 times",
+                "qualification": "The system refused an expired mandate on the tested production paths",
+                "generalization": "The system refused on all tested paths within the declared audit scope",
+                "public_claim": "'Prevents all unauthorized actions' remains UNSUPPORTED unless tested universally",
+            },
+        },
+
+        "normative_completeness_dimensions": {
+            "description": (
+                "Factual correctness is not the same as normative completeness. "
+                "An agent can give factually correct information while omitting "
+                "a required policy, obligation, entitlement, or safety instruction."
+            ),
+            "dimensions": {
+                "FACTUAL_ACCURACY": "Was the information correct?",
+                "UNSUPPORTED_CONTENT": "Did the system invent or imply unsupported facts?",
+                "NORMATIVE_COVERAGE": "Did it include the governing rule, restriction, or obligation?",
+                "TASK_RESOLUTION": "Did it actually resolve the user's required workflow?",
+            },
+            "applies_to": [
+                "Customer support agents",
+                "Procurement agents",
+                "Finance agents",
+                "Healthcare agents",
+                "Compliance agents",
+            ],
+            "production_evidence_profile_addition": (
+                "Normative completeness must be a declared evaluation dimension "
+                "in the Production Evidence Profile for enterprise agents."
+            ),
+        },
+
+        "claim_strength_ladder": {
+            "name": "VCB Claim Strength Ladder",
+            "levels": {
+                "SINGLE_OBSERVATION": "One instance observed — no generalization permitted",
+                "REPEATED_IN_SCOPE": "Multiple instances in declared scope — scope-bounded claim only",
+                "LOCALLY_SUPPORTED": "Consistent within tested environment — local property established",
+                "GENERAL_CLAIM_NOT_ESTABLISHED": "Pattern exists but broader generalization not yet supported",
+                "UNIVERSAL_CLAIM_UNSUPPORTED": "Universal claim not established by finite successes",
+            },
+            "the_asymmetry_rule": (
+                "One failed case may refute a universal claim. "
+                "One successful case cannot prove universal correctness. "
+                "Repeated success supports only the tested scope."
+            ),
+            "verification_receipt_fields": {
+                "claim_strength": "one of the five levels",
+                "generalization_status": "NOT_ESTABLISHED / ESTABLISHED_WITHIN_SCOPE / BROADLY_SUPPORTED",
+                "universal_claim_status": "UNSUPPORTED / REQUIRES_FURTHER_TESTING / ESTABLISHED",
+                "sample_scope": "declared",
+                "counterexample_search": "declared — was any counterexample actively sought?",
+            },
+        },
+
+        "parallel_assessment_protocol": {
+            "name": "VCB Parallel Assessment Protocol",
+            "description": (
+                "Freeze object and source boundary → separate assessors → "
+                "independent methods → freeze findings → compare afterward. "
+                "Do not require assessors to produce the same claim merely because "
+                "they saw the same evidence."
+            ),
+            "assessment_tracks": {
+                "Track_A": "frozen independently — own method, own threshold, own scope",
+                "Track_B": "frozen independently — own method, own threshold, own scope",
+                "Comparison": {
+                    "agreement": "same observation, same qualification",
+                    "evidence_interpretation_difference": "same observation, different qualification",
+                    "threshold_difference": "same evidence, different pass/fail standard",
+                    "scope_difference": "one assessor tested broader scope",
+                    "unresolved_divergence": "cannot be reconciled without additional evidence",
+                },
+            },
+            "assessment_divergence_record": {
+                "name": "ASSESSMENT_DIVERGENCE_RECORD",
+                "fields": {
+                    "subject": "what was assessed",
+                    "assessor_a_observation": "what A observed",
+                    "assessor_a_qualification": "what A concluded",
+                    "assessor_b_observation": "what B observed",
+                    "assessor_b_qualification": "what B concluded",
+                    "agreement_dimensions": "where they agree",
+                    "divergence_dimensions": "where they differ",
+                    "divergence_reason": "threshold / scope / normative interpretation",
+                    "resolution": "CONVERGENT_RESULT / DIFFERENT_SCOPE / DIFFERENT_THRESHOLD / DIFFERENT_NORMATIVE_INTERPRETATION / EVIDENCE_INSUFFICIENT / CLAIM_STRENGTH_DIVERGENCE / NO_FORCED_CONSENSUS",
+                    "unresolved": "what remains unresolved and why",
+                },
+            },
+            "possible_outcomes": [
+                "CONVERGENT_RESULT",
+                "DIFFERENT_SCOPE",
+                "DIFFERENT_THRESHOLD",
+                "DIFFERENT_NORMATIVE_INTERPRETATION",
+                "EVIDENCE_INSUFFICIENT",
+                "CLAIM_STRENGTH_DIVERGENCE",
+                "NO_FORCED_CONSENSUS",
+            ],
+            "rule": "Same evidence does not guarantee same claim. Preserve divergence.",
+        },
+
+        "vcb_sub_claim_decomposition": {
+            "description": (
+                "Broad claims must be decomposed into sub-claims before evaluation. "
+                "The broad claim cannot be stronger than its weakest material sub-claim."
+            ),
+            "example_decomposition": {
+                "broad_claim": "VCB governs consequential AI actions",
+                "sub_claims": {
+                    "C1": {
+                        "claim": "VCB evaluates authority before the actuator call",
+                        "status": "IMPLEMENTED — STILL gate queries live Supabase",
+                        "claim_strength": "LOCALLY_SUPPORTED",
+                    },
+                    "C2": {
+                        "claim": "VCB refuses an expired mandate",
+                        "status": "VERIFIED — INV-REC-01 10/10",
+                        "claim_strength": "REPEATED_IN_SCOPE",
+                    },
+                    "C3": {
+                        "claim": "VCB refuses a revoked mandate",
+                        "status": "VERIFIED — Postgres trigger + INV-REC-01",
+                        "claim_strength": "REPEATED_IN_SCOPE",
+                    },
+                    "C4": {
+                        "claim": "VCB detects owner-continuity change",
+                        "status": "NOT_YET_IMPLEMENTED — CAT-01 pending",
+                        "claim_strength": "SINGLE_OBSERVATION — not yet run",
+                    },
+                    "C5": {
+                        "claim": "VCB binds exact parameters to the evaluated action",
+                        "status": "NOT_YET_IMPLEMENTED — ConsequenceCommitment doctrine only",
+                        "claim_strength": "GENERAL_CLAIM_NOT_ESTABLISHED",
+                    },
+                    "C6": {
+                        "claim": "No alternate route reaches the actuator",
+                        "status": "PARTIALLY_VERIFIED — 0 ungoverned routes in audited inventory",
+                        "claim_strength": "LOCALLY_SUPPORTED — within declared audit scope only",
+                    },
+                    "C7": {
+                        "claim": "Result survives replay and restart",
+                        "status": "VERIFIED — replay 6/6, restart 9/9",
+                        "claim_strength": "REPEATED_IN_SCOPE",
+                    },
+                    "C8": {
+                        "claim": "An independent party can reproduce the result",
+                        "status": "PARTIALLY_VERIFIED — cryptographic layer 3 cold runs; full path reproduction pending",
+                        "claim_strength": "LOCALLY_SUPPORTED — cryptographic layer only",
+                    },
+                },
+                "governing_rule": (
+                    "The broad claim 'VCB governs consequential AI actions' is bounded by "
+                    "C4 and C5 — the weakest sub-claims. "
+                    "C4 (owner-continuity) is NOT_YET_IMPLEMENTED. "
+                    "C5 (parameter binding) is NOT_YET_IMPLEMENTED. "
+                    "Therefore the broad claim cannot be stated as fully established."
+                ),
+            },
+        },
+
+        "decision_GO": [
+            "Object and source-boundary freeze before assessment",
+            "Separate observation from qualification",
+            "Normative completeness as an evaluation dimension",
+            "Claim Strength Ladder",
+            "Parallel independent assessment before comparison",
+            "Assessment Divergence Record",
+            "Sub-claim decomposition before broad evaluation",
+            "Counterexample testing against universal claims",
+            "No forced consensus where scope or threshold differs",
+        ],
+
+        "decision_NO_GO": [
+            "Treating one observation as a general property",
+            "Treating repeated local success as universal proof",
+            "Treating factual correctness as normative completeness",
+            "Treating assessor agreement as proof of truth",
+            "Allowing a later summary to strengthen an earlier observation",
+        ],
+
+        "relationship_tags": {
+            "INSPIRED_BY": "Independent parallel assessment discipline",
+            "INTERNAL_DESIGN": "VeriSigil claim and evidence calibration",
+            "ANALOGOUS_TO": "Blind assessment and reproducibility protocols",
+        },
+
+        "final_process": [
+            "Object Freeze",
+            "Claim Decomposition",
+            "Evidence Freeze",
+            "Independent Assessment",
+            "Observation",
+            "Qualification",
+            "Challenge",
+            "Comparison",
+            "Claim Strength",
+            "Verification Receipt",
+            "Currentness via Living Attestation",
+        ],
+
+        "the_governing_rule": (
+            "VeriSigil does not produce the strongest conclusion someone wants to publish. "
+            "It records the strongest conclusion the evidence permits. "
+            "Same evidence does not guarantee same claim. "
+            "VeriSigil preserves the object, scope, method, observation, qualification, "
+            "divergence, and limitation before allowing a conclusion to travel."
+        ),
+    },
+
         "positioning_sentence": (
         "Full AI governance runs upstream (should this exist?), "
         "midstream (is this still the approved system under change?), "
@@ -112945,7 +113295,7 @@ VCB_RELATIONSHIP_BOUNDARY_TESTS_P2 = {
             "invariant": "Successful execution != admissibility of composed outcome",
         },
     },
-    "Jake_insight": (
+    "external cold-run reviewer_insight": (
         "When systems connect, what capability was actually exercised, and what evidence establishes "
         "that the authority extended to it? This is P2 — powerful, but don't interrupt P0/P1."
     ),
