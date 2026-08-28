@@ -102989,6 +102989,388 @@ VCB_ADR_014 = {
         ),
     },
 
+        "VCB_MASTER_ENGINEERING_RULE": {
+        "name": "VCB Master Engineering Rule — Top of Repository",
+        "status": "GOVERNING RULE — applies to every claim, every commit, every public statement",
+        "rule": (
+            "NO CLAIM MAY EXCEED: "
+            "THE ARTIFACT "
+            "+ THE DECLARED SCOPE "
+            "+ THE TESTED CONDITIONS "
+            "+ THE CURRENT STATE "
+            "+ THE OBSERVED RESULT "
+            "+ THE INDEPENDENTLY REPRODUCIBLE EVIDENCE"
+        ),
+        "application": (
+            "This rule applies to: engineering commits, API responses, swagger documentation, "
+            "website copy, LinkedIn posts, investor materials, design partner conversations, "
+            "AEGF forum contributions, and Verification Interchange claim admissions. "
+            "The system itself records where proof ends and uncertainty begins. "
+            "This prevents external critics from attacking VeriSigil for overclaiming "
+            "because the system declares its own limits before being asked."
+        ),
+        "corollary": (
+            "VeriSigil does not produce the strongest conclusion someone wants to publish. "
+            "It records the strongest conclusion the evidence permits."
+        ),
+    },
+
+    "VCB_TWO_LAYER_ARCHITECTURE": {
+        "name": "VCB Two-Layer Non-Collapsing Architecture",
+        "status": "HARD ENGINEERING BOUNDARY — must not be collapsed or merged",
+        "source": "Expert consolidated audit direction, August 2026",
+
+        "layer_A_VCB": {
+            "name": "VCB — Consequential Action Decision Layer",
+            "owns": [
+                "Who or what is acting",
+                "What authority is being relied upon",
+                "Whether that authority is current",
+                "Whether material conditions have changed",
+                "Whether the requested action remains within scope",
+                "Whether exact evaluated parameters still match the action approaching execution",
+                "ALLOW / REFUSE / ESCALATE / NOT_PROVABLE decision",
+            ],
+            "does_not_own": [
+                "Claim admission for external systems",
+                "Ecosystem-facing verification receipts for others' claims",
+                "Independent examination of external systems",
+                "General policy management",
+                "Identity lifecycle management",
+            ],
+        },
+
+        "layer_B_interchange": {
+            "name": "Verification Interchange — Evidence and Claim Examination Layer",
+            "owns": [
+                "Claim admission",
+                "Object freeze",
+                "Evidence boundaries",
+                "Challenge records",
+                "Claim-strength qualification",
+                "Provenance",
+                "Limitations",
+                "Lifecycle and currentness",
+                "Independent assessment",
+                "Portable verification",
+            ],
+            "does_not_own": [
+                "Authorization of live consequential actions",
+                "Enforcement of release permissions",
+                "Runtime ALLOW/REFUSE decisions",
+            ],
+        },
+
+        "architectural_firewall": {
+            "RECEIPT_NOT_PERMISSION": "Receipt ≠ release permission",
+            "ATTESTATION_NOT_ALLOW": "Attestation ≠ automatic allow",
+            "IDENTITY_NOT_AUTHORITY": "Identity ≠ current authority",
+            "FRAMEWORK_NOT_CERTIFICATION": "Framework mapping ≠ certification",
+            "EVIDENCE_NOT_UNLIMITED_CLAIM": "Evidence ≠ unlimited claim",
+            "rule": "These equalities must never be collapsed in code, documentation, or public claims",
+        },
+    },
+
+    "VCB_CANONICAL_PROOF_TO_CONSEQUENCE_CHAIN": {
+        "name": "Canonical Proof-to-Consequence Chain",
+        "status": "INTEGRATION MODEL — not a claim that every element is currently enforced",
+        "chain": [
+            "DATA",
+            "CONTEXT",
+            "INTELLIGENCE",
+            "IDENTITY",
+            "AUTHORITY",
+            "POLICY",
+            "TOOL",
+            "AGENT",
+            "→ VERISIGIL CONSEQUENCE BOUNDARY ←",
+            "CONSEQUENCE",
+            "EVIDENCE",
+            "OUTCOME",
+            "REVALIDATION",
+        ],
+        "important_note": (
+            "This is the canonical integration model. "
+            "For the first corridor, only the components necessary to prove "
+            "the specific consequence path are mandatory. "
+            "Do not expand into a generic governance suite."
+        ),
+        "currently_enforced": [
+            "IDENTITY — subject_id in mandate",
+            "AUTHORITY — treasury_mandates Supabase query",
+            "POLICY — scope, ceiling, vendor checks",
+            "AGENT — API key identifies caller",
+            "CONSEQUENCE — Paystack test actuator (C2)",
+            "EVIDENCE — SigilMark signed receipt",
+        ],
+        "not_yet_enforced": [
+            "CONTEXT — not a live STILL field",
+            "TOOL — not verified at commitment time",
+            "REVALIDATION — doctrine only, not automated",
+            "OUTCOME — EFFECT_UNKNOWN possible, not converted to SUCCESS",
+        ],
+    },
+
+    "VCB_ENGINEERING_WORK_PACKAGES": {
+        "name": "Engineering Work Packages — Priority Order",
+        "status": "FROZEN PRIORITY ORDER — consistent with Engineering Verification Audit Verdict B",
+        "source": "Expert consolidated audit direction, August 2026",
+
+        "P0_must_happen_before_stronger_claims": {
+            "WP_00_FALLBACK_ISOLATION": {
+                "name": "Fallback Isolation and Integrity",
+                "description": (
+                    "Search for and close: in-memory fallback, empty authority grants, "
+                    "silent exception paths, platform error fallthrough, degraded mode "
+                    "that accidentally allows execution, stale cached authority used as "
+                    "current authority, default allow."
+                ),
+                "rule": "Authority store unavailable → UNKNOWN ≠ ALLOW. Expected: REFUSE or ESCALATE.",
+                "status": "IN PROGRESS — 2 release_record routes confirmed no fallback; delegation registry audit pending",
+            },
+            "WP_01_STILL_ADVERSARIAL_SUITE": {
+                "name": "STILL-01 through STILL-08 Runtime Proof Program",
+                "tests": [
+                    "STILL-01: Caller cannot supply still_result — forge must be rejected",
+                    "STILL-02: Authority revoked between T0 and T1",
+                    "STILL-03: Source unavailable → NOT_PROVABLE (not FAILED)",
+                    "STILL-04: Material delta invalidates prior examination",
+                    "STILL-05: Stale examination replay",
+                    "STILL-06: Evidence identifies which source was examined",
+                    "STILL-07: Evidence binds examination to timestamp",
+                    "STILL-08: Source outage → fail-closed",
+                ],
+                "critical_test": (
+                    "Caller asserts STILL_PROVABLE = true → VCB must ignore caller assertion "
+                    "and independently query declared source. "
+                    "Caller-supplied currentness must never be accepted as authoritative."
+                ),
+                "status": "NOT YET RUN — adversarial suite defined, execution pending",
+            },
+            "WP_01A_OWNER_CONTINUITY_TEST": {
+                "name": "Owner-Continuity Falsification Test (CAT-01)",
+                "description": "O1→O2 authority transfer, no explicit revocation, no reapproval, no automatic inheritance",
+                "expected_result": "REFUSE or ESCALATE before actuator call",
+                "if_fails": "Report OWNER_CONTINUITY_NOT_ENFORCED — do not treat as pass",
+                "status": "NOT YET RUN — scenario locked in VCB_CAT_01",
+            },
+            "WP_02_REAL_ACTUATOR": {
+                "name": "Real Actuator Enforcement and Uncertain-Effect Handling",
+                "required_behaviors": [
+                    "REFUSE → NO_ACTUATOR_INVOCATION → NO_EXTERNAL_EFFECT",
+                    "ALLOW → COMMITMENT_VERIFIED → PRE_ACTION_LEDGER → ACTUATOR → EFFECT_CONFIRMED",
+                    "TIMEOUT → EFFECT_UNKNOWN (never silently EFFECT_CONFIRMED)",
+                ],
+                "status": "C2 PERMANENT — test actuator only until live proof",
+            },
+            "WP_03_CONSEQUENCE_COMMITMENT": {
+                "name": "ConsequenceCommitment — Move into Execution Path",
+                "minimum_binding": [
+                    "commitment_id", "subject_id",
+                    "parameters_hash", "authority_hash", "policy_hash",
+                    "state_snapshot_hash", "identity_hash", "tool_hash",
+                    "nonce", "ttl", "created_at", "expires_at", "pre_action_timestamp",
+                ],
+                "critical_test": (
+                    "Evaluate payment $500 → mutate to $5,000 → attempt execution → "
+                    "EXPECTED: COMMITMENT_MISMATCH → ACTUATOR_NOT_CALLED"
+                ),
+                "status": "DOCTRINE ONLY — not enforced in evaluate_release()",
+            },
+            "WP_04_DELEGATION_PERSISTENT_STATE": {
+                "name": "Delegation Lineage on Real Persistent State",
+                "required_tests": [
+                    "Child cannot widen authority",
+                    "Child cannot substitute another parent",
+                    "Child cannot survive parent revocation",
+                    "Child cannot survive parent expiry",
+                    "Child cannot exceed parent ceiling",
+                    "Delegation cannot be replayed",
+                ],
+                "status": "SCHEMA ENFORCEMENT ONLY — Alkama DP-3/DP-4 pending",
+            },
+            "WP_05_MACHINE_ACTION_LEDGER": {
+                "name": "Machine Action Ledger as First-Class Engineering Object",
+                "rule": "A consequential action should not appear for the first time after it has already happened",
+                "sections": {
+                    "before_action": ["intent", "identity", "authority", "currentness", "policy", "preconditions", "commitment_id", "decision", "timestamp"],
+                    "during_action": ["actuator", "invocation_id", "request_digest", "attempt_number"],
+                    "after_action": ["external_effect_id", "effect_status", "outcome", "uncertainty", "evidence", "receipt_reference"],
+                },
+                "status": "FIELDS SPECIFIED — pre-action enforcement in execution path pending",
+            },
+            "WP_06_OPERATIONAL_FAILURE_CAMPAIGN": {
+                "name": "Operational Failure Campaign",
+                "scenarios": [
+                    "restart", "timeout", "concurrency", "duplicate delivery",
+                    "multi-instance", "queue pressure", "dependency outage",
+                    "logging failure", "key rotation", "crash/retry",
+                ],
+                "status": "NOT YET RUN — scenarios defined in adversarial test matrix",
+            },
+        },
+
+        "P1_after_core_corridor_proven": {
+            "IDENTITY_GOVERNANCE_PROFILE": {
+                "name": "Identity Governance Profile",
+                "description": "Bounded integration of identity lifecycle signals into STILL gate",
+                "status": "SPEC_ONLY — do not build until P0 complete",
+            },
+            "DATA_AUTHORITY_PROFILE": {
+                "name": "Data Authority Profile",
+                "description": "Access to data is not authority for every downstream use",
+                "status": "SPEC_ONLY — do not build until P0 complete",
+            },
+            "RESOURCE_CONSEQUENCE_PROFILE": {
+                "name": "Resource Consequence Profile",
+                "description": "Optional resource conditions: energy_budget, cost_ceiling, latency_limit, resource_cap",
+                "rule": "TELEMETRY_UNKNOWN must not silently become RESOURCE_OK",
+                "status": "SPEC_ONLY — do not build until P0 complete",
+            },
+            "PRODUCTION_EVIDENCE_PROFILE": {
+                "name": "Production Evidence Profile",
+                "description": "Operational change and production evidence integration",
+                "status": "SPEC_ONLY per ADR-016 — build after P0",
+            },
+            "PROOF_GRAPH": {
+                "name": "Proof Graph",
+                "description": "Graph of claim→evidence→challenge→receipt→currentness relationships",
+                "status": "SPEC_ONLY — build after P0",
+            },
+            "CROSS_SYSTEM_CURRENTNESS_VECTOR": {
+                "name": "Cross-System Currentness Vector",
+                "description": "Tracking currentness across multiple architecture layers",
+                "status": "SPEC_ONLY — build after P0",
+            },
+        },
+
+        "P2_verification_interchange": {
+            "description": "Public ecosystem-facing Verification Interchange",
+            "gate_sequence": [
+                "G0: Security and state integrity",
+                "G1: Current authority proven",
+                "G2: Exact action binding proven",
+                "G3: Delegation persistence proven",
+                "G4: Operational failure proof",
+                "G5: Independent external reproduction",
+                "G6: Verification Interchange — only after G0-G5",
+            ],
+            "rule": "Do not reverse this sequence. Prove VCB's own consequential-action path before inviting ecosystem claims.",
+        },
+    },
+
+    "VCB_DATA_AUTHORITY_ENVELOPE": {
+        "name": "Data Authority Envelope — Bounded Profile",
+        "status": "SPEC_ONLY — P1 item, do not build until primary corridor proven",
+        "principle": (
+            "Access to data is not automatically authority for every downstream use. "
+            "A Data Authority Envelope governs whether a specific data-dependent action "
+            "is within the declared purpose and authority for that data."
+        ),
+        "minimum_fields": {
+            "data_id_or_hash": "unique identifier or content hash of the data",
+            "owner": "accountable data owner",
+            "purpose": "declared permitted purpose",
+            "permitted_actor": "who may act on this data",
+            "permitted_destination": "where the data may be sent",
+            "allowed_transformation": "what transformations are permitted",
+            "retention": "retention policy",
+            "downstream_obligations": "obligations that travel with the data",
+            "revocation_state": "NOT_REVOKED / REVOKED / UNKNOWN",
+        },
+        "required_tests": {
+            "unauthorized_destination": "AUTHORIZED_DOCUMENT → forwarded to unauthorized destination → REFUSE / ESCALATE",
+            "unauthorized_model": "AUTHORIZED_DATA → submitted to unauthorized model → REFUSE / ESCALATE",
+        },
+        "vcb_integration": "Data Authority Envelope as a STILL gate input — not a separate product",
+    },
+
+    "VCB_COLD_REPRODUCTION_PACKAGE": {
+        "name": "Cold Reproduction Package — Independent Verification Upgrade",
+        "status": "REQUIRED BEFORE G5 GATE — external reproduction gate",
+        "description": (
+            "An unaffiliated third party must be able to reproduce the declared result "
+            "from a pinned artifact set without relying on VeriSigil's live server."
+        ),
+        "package_structure": {
+            "artifact_version": "exact version identifier",
+            "source_commit": "git commit hash",
+            "test_fixture": "complete test input set",
+            "evidence_bundle": "all artifacts produced during the test",
+            "public_key": "lJWG0Wabt6uATPu5Upo6UEHWGXQqMyi6LMKQC0xwpY8=",
+            "verifier": "jar_verify.py at declared commit",
+            "expected_result": "exact expected outcome per sub-claim",
+            "limitations": "what was not tested, what cannot be established offline",
+            "reproduction_steps": "exact commands, no live service required",
+        },
+        "reproduction_outcomes": [
+            "REPRODUCED",
+            "NOT_REPRODUCED",
+            "INSUFFICIENT_EVIDENCE",
+            "ENVIRONMENT_MISMATCH",
+        ],
+        "current_status": (
+            "Cryptographic layer: three cold external verifications — REPRODUCED. "
+            "Full VCB path including authority lookup, STILL result, actuator non-invocation: "
+            "INDEPENDENT_REPRODUCTION_PENDING — PROOF-05 open obligation."
+        ),
+    },
+
+    "VCB_MATERIAL_CHANGE_MATRIX": {
+        "name": "Material Change Matrix — Full Coverage",
+        "status": "DOCTRINE — every change type must produce one of the declared outcomes",
+        "change_types": [
+            "IDENTITY", "OWNER", "DELEGATION", "SUPPLIER",
+            "MODEL", "PROMPT_OR_CONFIG", "TOOL", "DATA",
+            "POLICY", "JURISDICTION", "PERMISSION", "RISK_LEVEL",
+            "OVERSIGHT", "RESOURCE_CONDITION",
+        ],
+        "required_outcomes_per_change": [
+            "CURRENT",
+            "UNCHANGED_WITHIN_SCOPE",
+            "REVALIDATION_REQUIRED",
+            "EXPIRED",
+            "SUSPENDED",
+            "REVOKED",
+        ],
+        "forbidden_outcome": (
+            "Silent inheritance of old result. "
+            "A material change must never produce an implicit CURRENT status. "
+            "If the change cannot be evaluated, result must be NOT_PROVABLE → REFUSE."
+        ),
+        "owner_change_test": {
+            "scenario": "T0: O1 authorizes action → T1: accountability transfers to O2 → T2: same action attempted",
+            "expected": "Historical receipt PRESERVED, current standing NOT_ESTABLISHED automatically, decision REFUSE or ESCALATE, actuator NOT_CALLED",
+            "test_name": "OWNER-CONTINUITY TEST — first public falsification target",
+            "maps_to": "CAT-01 in VCB_CAT_01_ACCOUNTABLE_AUTHORITY_TRANSFER",
+        },
+    },
+
+    "VCB_RELEASE_GATES": {
+        "name": "Hard Release Gates — G0 through G7",
+        "status": "MANDATORY — no stronger public claim permitted until gate passes",
+        "gates": {
+            "G0": "No unsafe fallback or silent allow — WP-00 complete",
+            "G1": "Current authority and owner-change tests pass — WP-01 + WP-01A complete",
+            "G2": "Exact evaluated action equals exact committed action — WP-03 complete",
+            "G3": "Delegation cannot widen, substitute, or outlive parent — WP-04 complete",
+            "G4": "Operational failure does not silently create duplicate or unknown-success consequences — WP-06 complete",
+            "G5": "Unaffiliated third party reproduces declared result — Cold Reproduction Package complete",
+            "G6": "Verification Interchange examiner independence conditions satisfied — ADR-015b 6/6 conditions met",
+            "G7": "Stronger public/commercial positioning allowed only where evidence supports it",
+        },
+        "current_gate_status": {
+            "G0": "IN PROGRESS — fallback isolation partially audited",
+            "G1": "NOT PASSED — STILL suite not run, CAT-01 not run",
+            "G2": "NOT PASSED — ConsequenceCommitment doctrine only",
+            "G3": "NOT PASSED — delegation persistent-state proof pending",
+            "G4": "NOT PASSED — operational failure campaign not run",
+            "G5": "PARTIALLY PASSED — cryptographic layer only; full VCB path pending",
+            "G6": "NOT PASSED — ADR-015b 0/6 conditions met",
+            "G7": "BLOCKED — awaiting G0-G6",
+        },
+    },
+
         "positioning_sentence": (
         "Full AI governance runs upstream (should this exist?), "
         "midstream (is this still the approved system under change?), "
