@@ -97124,7 +97124,10 @@ def evaluate_release(
                     scope_failures = []
                     if proposed_amount is not None:
                         # F-24 FIX: negative amount bypass — -5000 <= 1000 is True without this guard
-                        if proposed_amount <= 0:
+                        if isinstance(proposed_amount, bool):
+                            scope_ok = False
+                            scope_failures.append("AMOUNT_INVALID_TYPE: boolean is not a valid monetary amount (True==1)")
+                        elif proposed_amount <= 0:
                             scope_ok = False
                             scope_failures.append(f"AMOUNT_OUT_OF_BOUNDS: amount must be > 0, got {proposed_amount}")
                         elif proposed_amount > mandate.get("amount_limit", 0):
@@ -99008,6 +99011,16 @@ async def query_authority_at_t1(
         additional_checks = {}
         if proposed_amount is not None:
             # F-24 + F-27 FIX: negative amount bypass — must check > 0 before ceiling check
+            # F-NEW: Boolean type guard — Python bool is subclass of int (True==1, False==0)
+            # amount=True would pass int check and return ALLOW at ceiling=1+
+            if isinstance(proposed_amount, bool):
+                return {
+                    "release": "REFUSED",
+                    "gate_failed": "AMOUNT_VALIDATION",
+                    "primary_code": "AMOUNT_INVALID_TYPE",
+                    "reason": "boolean is not a valid monetary amount (True==1, False==0 in Python)",
+                    "state_mutation": "NONE",
+                }
             if proposed_amount <= 0:
                 additional_checks["amount_out_of_bounds"] = True
                 additional_checks["amount_within_limit"] = False
