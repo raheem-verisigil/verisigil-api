@@ -81944,7 +81944,7 @@ async def regulatory_change_history(
 
 # ============================================================
 # GOVERNANCE REACHABILITY ASSESSMENT
-# Evelyne-Claudia Yantony (2026-08-11):
+# external correctability research-Claudia Yantony (2026-08-11):
 # "Assurance asks whether the required conditions held.
 # Governability asks whether changed evidence, authority,
 # state, or consequence can still reach legitimate intervention
@@ -82017,7 +82017,7 @@ async def reachability_assess(
     """
     Governance Reachability Assessment.
 
-    Formally models Evelyne-Claudia Yantony's distinction:
+    Formally models external correctability research-Claudia Yantony's distinction:
     ASSURANCE vs GOVERNABILITY.
 
     Assurance: Did governance hold when the action executed?
@@ -82105,7 +82105,7 @@ async def reachability_assess(
             f"Consequence boundary closed before governance signal could reach it."
         )
 
-    # Evelyne's key insight: inherited authority extinction
+    # external correctability research's key insight: inherited authority extinction
     inherited_authority_extinguished = req.get("inherited_authority_extinguished", False)
     dependent_paths_notified         = req.get("dependent_paths_notified", [])
 
@@ -101978,6 +101978,10 @@ VCB_ADR_014 = {
                 "type": "enum",
                 "values": ["INDEPENDENTLY_REPRODUCED", "OPERATOR_ASSERTED", "NOT_ATTEMPTED"],
             },
+            "decision_provenance_reference": {
+                "type": "reference",
+                "description": "Reference to Decision Provenance Record (DPR) for this action — links what was considered and rejected to the final decision",
+            },
         },
         "new_result_states": {
             "STANDING_CURRENT": "Authority holder current, conditions valid",
@@ -103723,6 +103727,1022 @@ VCB_ADR_014 = {
                 "AUDIT_19": "PARTIALLY VERIFIED — doctrine claims only; YAML pending",
                 "AUDIT_20": "PARTIALLY VERIFIED — two falsification tests demonstrated",
             },
+        },
+    },
+
+        "VCB_PROOF_HARDENING_PHASE": {
+        "name": "VeriSigil Proof Hardening Phase",
+        "status": "ACTIVE PHASE — stop expanding conceptual territory, make every claim mechanically answerable",
+        "source": "Expert consolidated proof hardening direction, August 2026",
+        "mission": (
+            "Before a consequential machine action is allowed to proceed, establish the identity, "
+            "authority, applicable conditions, accountable ownership, exact intended parameters, "
+            "and admissibility of that specific action — then preserve independently examinable "
+            "evidence of what happened. "
+            "Not: is the AI generally safe? Not: is the organization compliant? "
+            "Not: is the policy well written? Not: was the agent authenticated? "
+            "The question is narrower: what supports THIS specific machine action, "
+            "at THIS specific time, under THESE specific conditions — "
+            "and what evidence remains after the decision?"
+        ),
+    },
+
+    "VCB_PROOF_TO_ACTION_CHAIN": {
+        "name": "VeriSigil Proof-to-Action Chain — Updated Canonical Architecture",
+        "status": "INTEGRATION MODEL — not a claim that every element is currently enforced",
+        "source": "Expert consolidated proof hardening direction, August 2026",
+        "chain": [
+            "INTENT",
+            "DATA",
+            "CONTEXT",
+            "INTELLIGENCE",
+            "IDENTITY",
+            "AUTHORITY",
+            "ACCOUNTABLE_OWNER",
+            "POLICY_OR_OPERATING_RULE",
+            "CURRENT_CONDITIONS",
+            "INDEPENDENT_VERIFICATION",
+            "EXACT_ACTION_COMMITMENT",
+            "TOOL_OR_ACTUATOR",
+            "EXECUTION",
+            "EXTERNAL_EFFECT",
+            "EVIDENCE",
+            "OUTCOME",
+            "REVALIDATION",
+            "CONTINUOUS_ACCOUNTABILITY",
+        ],
+        "key_principle": (
+            "No consequential transition should become more trusted simply because "
+            "an AI generated it, an agent requested it, or another component repeated "
+            "the same conclusion."
+        ),
+        "additions_from_previous_chain": [
+            "INTENT — added at top: captures proposed purpose before action",
+            "ACCOUNTABLE_OWNER — added between AUTHORITY and POLICY",
+            "CURRENT_CONDITIONS — explicit revalidation step before commitment",
+            "EXACT_ACTION_COMMITMENT — parameter binding before actuator",
+            "CONTINUOUS_ACCOUNTABILITY — at the end: accountability persists after outcome",
+        ],
+        "currently_enforced": [
+            "IDENTITY — API key identifies caller",
+            "AUTHORITY — treasury_mandates Supabase query",
+            "POLICY_OR_OPERATING_RULE — scope, ceiling, vendor enforced",
+            "EXACT_ACTION_COMMITMENT — doctrine only, not yet runtime",
+            "EVIDENCE — SigilMark signed receipt",
+        ],
+        "not_yet_enforced": [
+            "INTENT — not captured as a named object",
+            "ACCOUNTABLE_OWNER — not bound to every consequential action record",
+            "CURRENT_CONDITIONS — STILL gate implemented, adversarial suite pending",
+            "INDEPENDENT_VERIFICATION — cryptographic layer only",
+            "CONTINUOUS_ACCOUNTABILITY — doctrine only",
+        ],
+    },
+
+    "VCB_ACCOUNTABILITY_BINDING": {
+        "name": "Accountability Binding — Required for Every Consequential Action Record",
+        "status": "SPECIFIED — not yet enforced in evaluate_release()",
+        "source": "Expert proof hardening direction — empty accountability chair problem, August 2026",
+        "principle": (
+            "Most technical systems can record agent, user, credential, policy, permission. "
+            "But the system often cannot answer: who owns the risk of this action? "
+            "VeriSigil does not solve organizational accountability for the enterprise. "
+            "But it requires accountability information as an explicit input to consequential execution. "
+            "The organization supplies the operating model. "
+            "VeriSigil binds that operating model to the machine action."
+        ),
+        "required_fields": {
+            "accountable_owner": "role or identity of the accountable decision owner",
+            "owner_role": "organizational role of the accountable owner",
+            "authority_source": "delegation or mandate reference",
+            "decision_right": "what decisions this owner may authorize",
+            "risk_owner": "who owns the risk if the action causes harm",
+            "escalation_owner": "who receives escalation if action is refused or uncertain",
+            "approval_owner": "who may grant override approval",
+            "exception_owner": "who handles exceptions and edge cases",
+            "escalation_target": "human approval queue or system endpoint",
+        },
+        "example": {
+            "action": "SUPPLIER_PAYMENT",
+            "agent": "procurement-agent-07",
+            "authority_source": "delegation-829",
+            "accountable_owner": "procurement_director",
+            "risk_owner": "chief_financial_officer",
+            "exception_owner": "finance_control",
+            "escalation_target": "human_approval_queue",
+        },
+        "distinction": (
+            "Architectural distinction: the organization defines the boundaries. "
+            "VeriSigil enforces and records the configured boundaries. "
+            "VeriSigil does not decide who these people should be."
+        ),
+        "engineering_status": "SPECIFIED — accountable_owner field required in action records; enforcement in evaluate_release() pending",
+    },
+
+    "VCB_DECISION_PROVENANCE_RECORD": {
+        "name": "Decision Provenance Record — DPR",
+        "status": "SPECIFIED — not yet implemented as a runtime object",
+        "source": "Expert insight — preserve paper trail of considered and rejected decisions, August 2026",
+        "principle": (
+            "Systems currently preserve what happened. "
+            "They fail to preserve what was considered and rejected before what happened. "
+            "The DPR is not a chat log. It is not a chain-of-thought record. "
+            "It must never attempt to store hidden model reasoning. "
+            "It stores externally observable decision inputs only."
+        ),
+        "required_fields": {
+            "decision_id": "unique identifier",
+            "proposed_action": "exact action proposed",
+            "alternatives_considered": "list of alternatives evaluated",
+            "rejected_alternatives": "alternatives explicitly rejected with reason",
+            "declared_reason_codes": "machine-readable reason codes for each rejection",
+            "evidence_references": "artifact references supporting the decision",
+            "authority_references": "authority documents relied upon",
+            "policy_references": "policy versions applicable",
+            "current_state_references": "state snapshots at decision time",
+            "owner": "accountable_owner at decision time",
+            "timestamp": "ISO-8601 decision time",
+            "superseded_by": "if this decision was later overridden",
+            "review_status": "PENDING / REVIEWED / CHALLENGED / CLOSED",
+        },
+        "example": {
+            "action": "Pay supplier",
+            "amount": 5000000,
+            "currency": "NGN",
+            "alternative_A": {"option": "Pay immediately", "rejected_reason": "CEILING_EXCEEDED"},
+            "alternative_B": {"option": "Split payment", "rejected_reason": "POLICY_PROHIBITS_SPLITTING"},
+            "alternative_C": {"option": "Escalate", "status": "SELECTED"},
+            "accountable_owner": "CFO",
+            "authority": "Delegation D-221",
+            "current_condition": "Supplier bank account changed after authorization",
+            "result": "REVALIDATION_REQUIRED",
+        },
+        "restriction": "Use DECLARED_REASON_CODE and EVIDENCE_REFERENCE — never pretend to expose model internals",
+    },
+
+    "VCB_PROOF_ESTATE_EXTENDED": {
+        "name": "VCB Extended Proof Estate — PROOF-07 through PROOF-12",
+        "status": "DEFINED — extends existing PROOF-01 through PROOF-06",
+        "source": "Expert proof hardening direction, August 2026",
+        "proofs": {
+            "PROOF_07_INDEPENDENT_AUTHORITY_PATH": {
+                "name": "Independent Authority Path",
+                "core_question": "Can the proposing component manufacture and consume its own authority?",
+                "principle": "PROPOSER ≠ SOLE_AUTHORITY_GRANTER",
+                "required_separation": [
+                    "Authority source",
+                    "Verification logic",
+                    "Action proposal",
+                    "Actuator path",
+                ],
+                "test": (
+                    "Agent proposes action → agent cannot certify itself → "
+                    "authority evaluated through separate control path → "
+                    "evidence source independently referenced → "
+                    "action may proceed or be refused"
+                ),
+                "rule": (
+                    "At minimum, one compromised decision component must not be able to "
+                    "create its own authority and immediately consume it."
+                ),
+                "current_status": "PARTIALLY IMPLEMENTED — treasury_mandates is a separate Supabase store from the agent; but formal separation proof not yet run",
+            },
+            "PROOF_08_PARAMETER_INTEGRITY": {
+                "name": "Exact Parameter Binding",
+                "core_question": "Can approved parameters be mutated before execution?",
+                "required_binding": ["ACTION_TYPE", "SUBJECT", "TARGET", "AMOUNT", "CURRENCY", "PARAMETERS", "AUTHORITY", "POLICY_VERSION", "STATE_VERSION", "OWNER", "NONCE", "TTL", "TOOL"],
+                "action_commitment_hash": "HASH(action + subject + target + parameters + authority + policy + state + owner + nonce + expiry)",
+                "critical_test": "Approved: amount=1000000, supplier=A → Attempted: amount=10000000, supplier=A → EXPECTED: COMMITMENT_MISMATCH → NO_EXECUTION → EVIDENCE_PRESERVED",
+                "current_status": "NOT YET IMPLEMENTED — ConsequenceCommitment is doctrine only",
+            },
+            "PROOF_09_OWNER_CONTINUITY": {
+                "name": "Owner Continuity",
+                "core_question": "Does a change in accountable ownership invalidate or require revalidation where configured?",
+                "maps_to": "CAT-01 in VCB_CAT_01_ACCOUNTABLE_AUTHORITY_TRANSFER",
+                "current_status": "NOT YET RUN — STILL-09 and CAT-01 pending",
+            },
+            "PROOF_10_DELEGATION_LINEAGE": {
+                "name": "Delegation Lineage",
+                "core_question": "Does parent authority constrain children across persistence, expiry, revocation, and restart?",
+                "maps_to": "DL-01 through DL-05 in VCB_DELEGATION_LINEAGE_STORE",
+                "current_status": "PARTIALLY IMPLEMENTED — schema enforcement; persistent-state adversarial proof pending",
+            },
+            "PROOF_11_EXTERNAL_EFFECT_UNCERTAINTY": {
+                "name": "External Effect Uncertainty",
+                "core_question": "Does the system honestly preserve unknown outcome states?",
+                "required_states": ["CONSEQUENCE_NOT_FORMED", "CONSEQUENCE_CONFIRMED", "CONSEQUENCE_FORMATION_UNCERTAIN"],
+                "rule": "TIMEOUT must never silently become CONSEQUENCE_CONFIRMED",
+                "current_status": "STATES DEFINED — CONSEQUENCE_FORMATION_UNCERTAIN in doctrine; timeout handling in production not yet adversarially tested",
+            },
+            "PROOF_12_EXCEPTION_ACCOUNTABILITY": {
+                "name": "Exception Accountability",
+                "core_question": "Can a blocked action be escalated to the correct owner with evidence and exact override binding?",
+                "maps_to": "VCB_EXCEPTION_AND_ESCALATION object and HI-01 test",
+                "current_status": "SPECIFIED — ESCALATE state exists; full escalation flow not yet implemented",
+            },
+        },
+    },
+
+    "VCB_STILL_EXTENDED": {
+        "name": "STILL Extended Suite — STILL-09 and STILL-10",
+        "status": "DEFINED — extends existing STILL-01 through STILL-08",
+        "source": "Expert proof hardening direction, August 2026",
+        "tests": {
+            "STILL_09_OWNER_CHANGE": {
+                "name": "Owner Change",
+                "scenario": "T0: Owner A authorizes action → T1: Owner A loses authority → T2: action arrives for execution",
+                "expected": "Current authority lookup detects loss of standing → ACTION_REFUSED → ACTUATOR_NOT_CALLED → RECEIPT_PRODUCED",
+                "maps_to": "CAT-01 and PROOF-09",
+                "current_status": "NOT YET RUN",
+            },
+            "STILL_10_MATERIAL_CONDITION_CHANGE": {
+                "name": "Material Condition Change",
+                "scenario": "T0: Action evaluated → T1: material condition changes (supplier account, amount, owner, delegation, policy, risk) → T2: execution attempted",
+                "examples_of_material_change": ["supplier account changes", "transaction amount changes", "owner changes", "delegation expires", "policy changes", "risk status changes"],
+                "expected": "Original evaluation cannot automatically continue → REVALIDATION_REQUIRED",
+                "current_status": "NOT YET RUN",
+            },
+        },
+    },
+
+    "VCB_DELEGATION_LINEAGE_STORE": {
+        "name": "Delegation Lineage Store — Required Schema and Tests",
+        "status": "SCHEMA SPECIFIED — persistent-state adversarial tests not yet run",
+        "source": "Expert proof hardening direction, August 2026",
+        "schema_fields": {
+            "delegation_id": "unique identifier",
+            "parent_authority": "reference to parent mandate or delegation",
+            "child_authority": "reference to child mandate",
+            "scope": "declared scope — must be subset of parent scope",
+            "limits": "ceiling, amount, vendor, purpose limits",
+            "issued_at": "ISO-8601",
+            "expires_at": "ISO-8601",
+            "revocation_status": "NOT_REVOKED / REVOKED / SUSPENDED",
+            "parent_version": "parent authority version at issuance",
+            "lineage_hash": "HASH(parent + child + scope + limits + nonce)",
+        },
+        "delegation_tests": {
+            "DL_01_PARENT_EXPIRY": {
+                "test": "Parent expires → child loses authority",
+                "expected": "Child attempt REFUSED",
+                "status": "NOT YET RUN",
+            },
+            "DL_02_PARENT_REVOCATION": {
+                "test": "Parent revoked → child cannot continue",
+                "expected": "Child attempt REFUSED",
+                "status": "NOT YET RUN",
+            },
+            "DL_03_CHILD_ESCALATION": {
+                "test": "Child attempts action outside delegated scope",
+                "expected": "REFUSED — scope violation",
+                "status": "PARTIALLY TESTED — schema enforcement demonstrated; persistent-state test pending",
+            },
+            "DL_04_SUBSTITUTION": {
+                "test": "Child delegation attached to different identity",
+                "expected": "REFUSED — identity binding violated",
+                "status": "NOT YET RUN",
+            },
+            "DL_05_PERSISTENCE": {
+                "test": "Restart system → delegation lineage must remain intact",
+                "expected": "All delegation records survive restart unchanged",
+                "status": "NOT YET RUN — restart durability tested for mandates; delegation-specific test pending",
+            },
+        },
+    },
+
+    "VCB_EXCEPTION_AND_ESCALATION": {
+        "name": "Exception and Escalation Object — Human Intervention Flow",
+        "status": "SPECIFIED — ESCALATE result state exists; full flow not yet implemented",
+        "source": "Expert insight — human intervention must be an engineering flow, August 2026",
+        "principle": (
+            "When the machine refuses, the engineering question is: "
+            "who receives it, who may override, what evidence do they receive, "
+            "how long can it wait, what happens at timeout?"
+        ),
+        "schema_fields": {
+            "exception_id": "unique identifier",
+            "blocked_action": "exact action that was refused",
+            "reason_code": "machine-readable reason for refusal",
+            "required_approver_role": "organizational role authorized to override",
+            "named_owner": "specific accountable owner reference",
+            "evidence_bundle": "all evidence available at time of escalation",
+            "expiry": "when the escalation expires",
+            "timeout_behavior": "what happens if no response by expiry — REFUSE or escalate further",
+            "override_authority": "what authority level is required to override",
+            "override_commitment": "binding of exact action being approved in override",
+            "override_receipt": "signed evidence of the human override decision",
+        },
+        "HI_01_TEST": {
+            "name": "HI-01 — Human Intervention Test",
+            "scenario": "Agent action exceeds authority → system blocks → escalation triggered",
+            "required_flow": [
+                "BLOCK",
+                "→ ESCALATE",
+                "→ PRESENT EVIDENCE to named owner",
+                "→ HUMAN DECISION",
+                "→ NEW COMMITMENT binding exact action",
+                "→ EXECUTE or REFUSE",
+            ],
+            "critical_rule": "A human approval must not merely say approved=true. It must bind to the exact action.",
+            "current_status": "NOT YET IMPLEMENTED — ESCALATE state exists in result enum; full flow not built",
+        },
+    },
+
+    "VCB_DECISION_HISTORY_REGISTRY": {
+        "name": "Decision History Registry",
+        "status": "SPECIFIED — extends Decision Provenance Record across the system lifecycle",
+        "principle": (
+            "The system should preserve: what was proposed, what was accepted, "
+            "what was rejected, why, under which declared rule, who owned the decision, "
+            "what evidence existed, what later superseded it."
+        ),
+        "restriction": (
+            "Do not fabricate AI reasoning. "
+            "Use DECLARED_REASON_CODE and EVIDENCE_REFERENCE only. "
+            "Never pretend to expose model internals."
+        ),
+        "fields": {
+            "WHAT_WAS_PROPOSED": "exact proposed action",
+            "WHAT_WAS_ACCEPTED": "accepted outcome",
+            "WHAT_WAS_REJECTED": "rejected alternatives",
+            "WHY": "DECLARED_REASON_CODE",
+            "UNDER_WHICH_RULE": "policy or operating rule reference",
+            "WHO_OWNED_THE_DECISION": "accountable_owner",
+            "WHAT_EVIDENCE_EXISTED": "evidence_references",
+            "WHAT_LATER_SUPERSEDED_IT": "superseded_by reference",
+        },
+    },
+
+    "VCB_ROUTE_INVENTORY": {
+        "name": "Consequence Route Inventory — Machine-Readable Schema",
+        "status": "PARTIALLY BUILT — 2 routes documented; machine-readable YAML pending",
+        "schema": {
+            "ROUTE_ID": "unique route identifier",
+            "INPUT": "entry point — endpoint, queue, job, webhook",
+            "AUTHORITY_CHECK": "function enforcing authority verification",
+            "CURRENTNESS_CHECK": "STILL gate or equivalent",
+            "COMMITMENT_CHECK": "ConsequenceCommitment verification — PENDING",
+            "ACTUATOR": "external actuator invoked",
+            "EXTERNAL_EFFECT": "what external effect may form",
+            "AUDIT_STATUS": "AUDITED / PENDING / OUT_OF_SCOPE",
+        },
+        "current_inventory": {
+            "VS_ROUTE_01": {
+                "input": "POST /v1/vcb/seal",
+                "authority_check": "evaluate_release_with_still_adapter()",
+                "currentness_check": "STILL gate — treasury_mandates",
+                "commitment_check": "NOT_IMPLEMENTED",
+                "actuator": "Paystack test API",
+                "audit_status": "AUDITED",
+            },
+            "VS_ROUTE_02": {
+                "input": "POST /v1/engineering/test-paystack-actuator",
+                "authority_check": "evaluate_release()",
+                "currentness_check": "STILL gate",
+                "commitment_check": "NOT_IMPLEMENTED",
+                "actuator": "Paystack test API",
+                "audit_status": "AUDITED",
+            },
+        },
+        "unaudited_paths": [
+            "Background jobs",
+            "Webhooks",
+            "Queue consumers",
+            "Admin routes",
+            "Service-role Supabase access",
+            "Database functions and triggers acting as actuators",
+        ],
+        "honest_claim": "0 ungoverned routes found within declared and audited inventory. Not a claim of universal non-bypassability.",
+    },
+
+    "VCB_RELEASE_GATES_EXTENDED": {
+        "name": "Extended Release Gates — G0 through G9",
+        "status": "MANDATORY — extends G0-G7 with accountability and corridor gates",
+        "source": "Expert proof hardening direction, August 2026",
+        "gates": {
+            "G0": "Integrity foundation: secrets, key handling, error semantics, no unsafe fallback",
+            "G1": "Currentness: STILL-01 through STILL-10, owner change, material condition change",
+            "G2": "Exact action binding: ConsequenceCommitment, parameter mutation, TTL, nonce",
+            "G3": "Delegation: persistent lineage, revocation, expiry, escalation, restart",
+            "G4": "Route integrity: declared route inventory, scoped bypass audit",
+            "G5": "Operational reality: timeout, duplicate delivery, restart, concurrency, queue pressure, dependency failure, logging failure, external uncertainty",
+            "G6": "Accountability: owner binding, risk owner, exception routing, override binding",
+            "G7": "Independent examination: cold verification, offline verification, independent reproduction",
+            "G8": "Narrow commercial corridor: one corridor, one consequence, one changed-condition test, one refusal test, one replay test, one independent reproduction",
+            "G9": "Verification Interchange Tier 1: only after foundational VCB evidence is mature and G0-G8 passed",
+        },
+        "current_status_extended": {
+            "G6": "NOT PASSED — accountability binding not yet enforced in evaluate_release()",
+            "G8": "IN PROGRESS — VS-CORRIDOR-01 specified and partially verified",
+            "G9": "BLOCKED — awaiting G0-G8",
+        },
+    },
+
+    "VCB_STATUS_LABELS": {
+        "name": "VeriSigil Claim Status Labels — Complete Set",
+        "status": "GOVERNING VOCABULARY — use exactly these labels, no others",
+        "permitted_labels": [
+            "BUILT",
+            "TESTED",
+            "VERIFIED_WITHIN_DECLARED_SCOPE",
+            "PARTIALLY_VERIFIED",
+            "SANDBOX_ONLY",
+            "CONDITIONALLY_OBSERVED",
+            "EXTERNAL_EFFECT_UNCERTAIN",
+            "NOT_YET_VERIFIED",
+            "NOT_YET_BUILT",
+            "SPEC_ONLY",
+        ],
+        "forbidden_labels": [
+            "UNIVERSAL",
+            "NON_BYPASSABLE",
+            "GUARANTEED",
+            "CERTIFIED",
+            "PRODUCTION_PROVEN",
+            "INDEPENDENTLY_VERIFIED (when only cryptographic layer reproduced)",
+            "SAFE",
+            "IMPOSSIBLE_TO_BYPASS",
+            "COMPLETE",
+        ],
+        "rule": "Never allow a forbidden label unless the proof estate supports the exact claim.",
+    },
+
+    "VCB_ENGINEERING_PRIORITY_ORDER_UPDATED": {
+        "name": "Updated Engineering Priority Order — 10 Steps",
+        "status": "FROZEN — do not reorder",
+        "source": "Expert proof hardening direction, August 2026",
+        "priority_order": {
+            "1": "CURRENTNESS — STILL-01 through STILL-10",
+            "2": "EXACT_ACTION_COMMITMENT — parameter binding, commit-time verification",
+            "3": "REAL_DELEGATION_LINEAGE — persistent state, revocation, expiry, escalation",
+            "4": "REFUSAL_PROOF — verify actuator non-invocation independently",
+            "5": "EXTERNAL_EFFECT_UNCERTAINTY — timeout ≠ failure; honest state model",
+            "6": "ACCOUNTABILITY_BINDING — owner, risk owner, exception owner",
+            "7": "DECISION_PROVENANCE — considered, rejected, selected, evidence",
+            "8": "OPERATIONAL_FAILURE_CAMPAIGN — WP-06 full execution",
+            "9": "INDEPENDENT_REPRODUCTION — cold verification, full VCB path",
+            "10": "FIRST_COMMERCIAL_CORRIDOR — one corridor, fully proven",
+        },
+        "first_commercial_corridor_spec": {
+            "corridor": "AI Procurement / Supplier Payment",
+            "proof_targets": [
+                "ONE CORRIDOR",
+                "ONE ACTION",
+                "ONE ACCOUNTABLE OWNER",
+                "ONE AUTHORITY CHAIN",
+                "ONE OWNER-CHANGE OR CONDITION-CHANGE EVENT",
+                "ONE PARAMETER-MUTATION ATTACK",
+                "ONE REFUSAL TEST",
+                "ONE REPLAY TEST",
+                "ONE TIMEOUT / UNKNOWN OUTCOME TEST",
+                "ONE EXTERNAL INDEPENDENT REPRODUCTION",
+            ],
+            "why_this_corridor": [
+                "Identity — agent must be identified",
+                "Delegation — procurement authority chain",
+                "Authority — mandate with ceiling and scope",
+                "Accountable ownership — procurement director or CFO",
+                "Changing conditions — supplier account change, owner change",
+                "Exact amount binding — fraud risk if amount mutates",
+                "Human escalation — exceeds ceiling → escalate",
+                "External effect uncertainty — payment timeout scenarios",
+                "Audit requirements — financial trail required",
+            ],
+            "status": "IN PROGRESS — VS-CORRIDOR-01 specified; adversarial tests pending",
+        },
+    },
+
+    "VCB_ACTION_COMMITMENT_HASH": {
+        "name": "Action Commitment Hash — Runtime Binding Specification",
+        "status": "SPECIFIED — not yet implemented in evaluate_release()",
+        "formula": "ACTION_COMMITMENT_HASH = HASH(action + subject + target + parameters + authority + policy + state + owner + nonce + expiry)",
+        "required_inputs": [
+            "ACTION_TYPE",
+            "SUBJECT_ID",
+            "TARGET",
+            "PARAMETERS (exact, frozen)",
+            "AUTHORITY_HASH",
+            "POLICY_VERSION_HASH",
+            "STATE_SNAPSHOT_HASH",
+            "ACCOUNTABLE_OWNER",
+            "NONCE",
+            "EXPIRY_TIMESTAMP",
+        ],
+        "enforcement_rule": "IF commitment_hash != hash(execution_parameters) THEN REFUSE — COMMITMENT_MISMATCH",
+        "critical_test": "Approve amount=1000000 supplier=A → mutate to amount=10000000 supplier=A → EXPECTED: COMMITMENT_MISMATCH → ACTUATOR_NOT_CALLED → EVIDENCE_PRESERVED",
+        "maps_to": "PROOF-08 Parameter Integrity",
+        "engineering_status": "NOT_YET_BUILT",
+    },
+
+        "VCB_PROOF_HARDENING_PHASE": {
+        "name": "VeriSigil Proof Hardening Phase",
+        "status": "ACTIVE ENGINEERING PHASE — replaces architecture expansion",
+        "source": "Expert A + Expert B consolidated synthesis, August 2026",
+        "governing_rule": (
+            "Stop expanding conceptual territory. "
+            "Start making every claim mechanically answerable. "
+            "Build → attack → observe → preserve evidence → independently reproduce → publish the bounded result."
+        ),
+        "the_one_question": (
+            "For a defined consequential AI action, can the system establish — at the point of commitment — "
+            "that the action is supported by the required current authority, conditions, policy and parameters, "
+            "and produce independently verifiable evidence of what was examined and what happened?"
+        ),
+        "five_dimensions_per_action": {
+            "1_AUTHORITY": "Who or what has standing?",
+            "2_CURRENTNESS": "Is that standing still valid now?",
+            "3_ADMISSIBILITY": "Do current conditions permit this action?",
+            "4_COMMITMENT": "Are the exact parameters being bound to the decision?",
+            "5_EFFECT_EVIDENCE": "What happened after the decision, including uncertainty?",
+        },
+        "two_cross_cutting_properties": {
+            "6_INTERRUPTION_REFUSAL": "If conditions fail, does the action actually stop before the protected effect?",
+            "7_REPRODUCTION": "Can an independent party verify the evidence and reproduce the decision without trusting the operator?",
+        },
+        "engineering_priority_order": {
+            "1": "CURRENTNESS — STILL-01 through STILL-10",
+            "2": "EXACT ACTION COMMITMENT — parameter binding, commit-time verification",
+            "3": "REAL DELEGATION LINEAGE — persistent state, revocation, expiry, escalation",
+            "4": "REFUSAL PROOF — verify actuator non-invocation",
+            "5": "EXTERNAL EFFECT UNCERTAINTY — timeout ≠ failure",
+            "6": "ACCOUNTABILITY BINDING — owner, risk owner, exception owner",
+            "7": "DECISION PROVENANCE — considered, rejected, selected, evidence",
+            "8": "OPERATIONAL FAILURE CAMPAIGN",
+            "9": "INDEPENDENT REPRODUCTION",
+            "10": "FIRST COMMERCIAL CORRIDOR",
+        },
+        "claim_status_vocabulary_9_states": [
+            "BUILT",
+            "TESTED",
+            "VERIFIED_WITHIN_DECLARED_SCOPE",
+            "PARTIALLY_VERIFIED",
+            "SANDBOX_ONLY",
+            "CONDITIONALLY_OBSERVED",
+            "EXTERNAL_EFFECT_UNCERTAIN",
+            "NOT_YET_VERIFIED",
+            "NOT_YET_BUILT",
+        ],
+        "forbidden_claim_words": [
+            "UNIVERSAL", "NON-BYPASSABLE", "GUARANTEED", "CERTIFIED",
+            "PRODUCTION-PROVEN", "INDEPENDENTLY_VERIFIED", "SAFE",
+            "IMPOSSIBLE_TO_BYPASS", "COMPLETE",
+        ],
+    },
+
+    "VCB_PROOF_TO_ACTION_CHAIN": {
+        "name": "VeriSigil Proof-to-Action Chain — Updated Canonical",
+        "status": "CANONICAL INTEGRATION MODEL — not a claim that every element is currently enforced",
+        "source": "Expert A synthesis incorporating accountability and correction, August 2026",
+        "chain": [
+            "INTENT",
+            "DATA",
+            "CONTEXT",
+            "INTELLIGENCE",
+            "IDENTITY",
+            "AUTHORITY",
+            "ACCOUNTABLE_OWNER",
+            "POLICY / OPERATING_RULE",
+            "CURRENT_CONDITIONS",
+            "INDEPENDENT_VERIFICATION",
+            "EXACT_ACTION_COMMITMENT",
+            "TOOL / ACTUATOR",
+            "EXECUTION",
+            "EXTERNAL_EFFECT",
+            "EVIDENCE",
+            "OUTCOME",
+            "REVALIDATION",
+            "CONTINUOUS_ACCOUNTABILITY",
+        ],
+        "key_principle": (
+            "No consequential transition should become more trusted simply because an AI generated it, "
+            "an agent requested it, or another component repeated the same conclusion. "
+            "Each step must be independently established — not inherited from the previous step."
+        ),
+        "currently_enforced": [
+            "IDENTITY — subject_id in mandate",
+            "AUTHORITY — treasury_mandates Supabase query",
+            "POLICY — scope, ceiling, vendor enforcement",
+            "EXECUTION — Paystack test actuator (C2)",
+            "EVIDENCE — SigilMark signed receipt",
+        ],
+        "not_yet_enforced": [
+            "INTENT — not a live field",
+            "ACCOUNTABLE_OWNER — doctrine only, not bound at commitment",
+            "INDEPENDENT_VERIFICATION — cryptographic layer only",
+            "EXACT_ACTION_COMMITMENT — ConsequenceCommitment doctrine only",
+            "CONTINUOUS_ACCOUNTABILITY — not yet implemented",
+        ],
+    },
+
+    "VCB_ACCOUNTABILITY_BINDING": {
+        "name": "Accountability Binding — Required for Every Consequential Action",
+        "status": "SPECIFIED — must be enforced in evaluate_release() before G6 gate",
+        "source": "Expert A synthesis, August 2026",
+        "principle": (
+            "VeriSigil does not decide who the accountable owner should be. "
+            "The organization supplies the operating model. "
+            "VeriSigil binds that operating model to the machine action record."
+        ),
+        "required_fields": {
+            "accountable_owner": "who owns the risk of this action",
+            "owner_role": "role of the accountable owner",
+            "authority_source": "delegation or mandate reference",
+            "decision_right": "what decision authority this owner holds",
+            "risk_owner": "who owns the risk consequence",
+            "escalation_owner": "who receives escalation if owner is unreachable",
+            "approval_owner": "who can approve exceptions",
+            "exception_owner": "who owns exception handling",
+        },
+        "example": {
+            "action": "SUPPLIER_PAYMENT",
+            "agent": "procurement-agent-07",
+            "authority_source": "delegation-829",
+            "accountable_owner": "procurement_director",
+            "risk_owner": "chief_financial_officer",
+            "exception_owner": "finance_control",
+            "escalation_target": "human_approval_queue",
+        },
+        "current_status": "accountable_owner field specified in ledger schema — not yet enforced at commitment time",
+    },
+
+    "VCB_DECISION_PROVENANCE_RECORD": {
+        "name": "Decision Provenance Record (DPR)",
+        "status": "SPECIFIED — required for Decision History Registry",
+        "source": "Expert A synthesis — decision paper trail, August 2026",
+        "principle": (
+            "Systems preserve what happened. "
+            "They often fail to preserve what was considered and rejected before what happened. "
+            "The DPR records externally observable decision inputs — not AI internal reasoning. "
+            "Do not fabricate model reasoning. Use DECLARED_REASON_CODE and EVIDENCE_REFERENCE."
+        ),
+        "fields": {
+            "DECISION_ID": "unique identifier",
+            "PROPOSED_ACTION": "exact action proposed",
+            "ALTERNATIVES_CONSIDERED": "list of alternatives evaluated",
+            "REJECTED_ALTERNATIVES": "alternatives rejected and why",
+            "DECLARED_REASON_CODES": "machine-readable reason codes for each rejection",
+            "EVIDENCE_REFERENCES": "artifacts supporting the decision",
+            "AUTHORITY_REFERENCES": "authority sources relied upon",
+            "POLICY_REFERENCES": "policy versions consulted",
+            "CURRENT_STATE_REFERENCES": "state snapshots at decision time",
+            "OWNER": "accountable owner at decision time",
+            "TIMESTAMP": "ISO-8601 decision timestamp",
+            "SUPERSEDED_BY": "if this decision was later superseded",
+            "REVIEW_STATUS": "FINAL / SUPERSEDED / PENDING_REVIEW",
+        },
+        "example": {
+            "ACTION": "Pay supplier ₦5,000,000",
+            "ALTERNATIVE_A": "Pay immediately — REJECTED: Amount exceeds delegated authority",
+            "ALTERNATIVE_B": "Split payment — REJECTED: Policy prohibits artificial transaction splitting",
+            "ALTERNATIVE_C": "Escalate — SELECTED",
+            "ACCOUNTABLE_OWNER": "CFO",
+            "AUTHORITY": "Delegation D-221",
+            "CURRENT_CONDITION": "Supplier bank account changed after authorization",
+            "RESULT": "REVALIDATION_REQUIRED",
+        },
+        "restriction": "Never attempt to store hidden model reasoning. Only externally observable inputs.",
+    },
+
+    "VCB_DECISION_HISTORY_REGISTRY": {
+        "name": "Decision History Registry",
+        "status": "SPECIFIED — builds on DPR",
+        "preserves": [
+            "WHAT WAS PROPOSED",
+            "WHAT WAS ACCEPTED",
+            "WHAT WAS REJECTED",
+            "WHY — DECLARED_REASON_CODE",
+            "UNDER WHICH DECLARED RULE",
+            "WHO OWNED THE DECISION",
+            "WHAT EVIDENCE EXISTED",
+            "WHAT LATER SUPERSEDED IT",
+        ],
+        "restriction": "Uses DECLARED_REASON_CODE and EVIDENCE_REFERENCE — never fabricated AI reasoning",
+    },
+
+    "VCB_STILL_09_10": {
+        "name": "STILL-09 and STILL-10 — Extended Material Change Tests",
+        "status": "DEFINED — pending execution after STILL-01 through STILL-08",
+        "STILL_09_OWNER_CHANGE": {
+            "name": "STILL-09 — Owner Change",
+            "scenario": "T0: Owner A authorizes action → T1: Owner A loses authority → T2: Action arrives for execution",
+            "expected": "Current authority lookup detects loss of standing → ACTION REFUSED → ACTUATOR NOT CALLED → RECEIPT PRODUCED",
+            "maps_to": "CAT-01 in VCB_CAT_01_ACCOUNTABLE_AUTHORITY_TRANSFER",
+            "status": "NOT YET RUN",
+        },
+        "STILL_10_MATERIAL_CONDITION_CHANGE": {
+            "name": "STILL-10 — Material Condition Change",
+            "scenario": "T0: Action evaluated → T1: Material condition changes (supplier account changes, amount changes, owner changes, delegation expires, policy changes, risk status changes) → T2: Execution attempted",
+            "expected": "Original evaluation cannot automatically continue → REVALIDATION_REQUIRED",
+            "material_changes_covered": [
+                "supplier_account_change", "transaction_amount_change", "owner_change",
+                "delegation_expiry", "policy_change", "risk_status_change",
+            ],
+            "status": "NOT YET RUN",
+        },
+    },
+
+    "VCB_PROOF_ESTATE_EXTENDED": {
+        "name": "VCB Proof Estate — Extended PROOF-07 through PROOF-12",
+        "status": "DEFINED — builds on PROOF-01 through PROOF-06",
+        "source": "Expert A synthesis, August 2026",
+        "proofs": {
+            "PROOF_07_INDEPENDENT_AUTHORITY_PATH": {
+                "name": "PROOF-07 — Independent Authority Path",
+                "core_question": "Can the proposing component manufacture and consume its own authority?",
+                "principle": "PROPOSER ≠ SOLE_AUTHORITY_GRANTER",
+                "test": (
+                    "Agent proposes action → Agent cannot certify itself → "
+                    "Authority evaluated through separate control path → "
+                    "Evidence source independently referenced → "
+                    "Authority resolution returned → Action may proceed or be refused"
+                ),
+                "required_separation": [
+                    "authority_source",
+                    "verification_logic",
+                    "action_proposal",
+                    "actuator_path",
+                ],
+                "rule": "At minimum, one compromised decision component must not be able to create its own authority and immediately consume it.",
+                "status": "PARTIALLY IMPLEMENTED — VCB queries separate Supabase store; self-authorization forge not yet adversarially tested",
+            },
+            "PROOF_08_PARAMETER_INTEGRITY": {
+                "name": "PROOF-08 — Exact Parameter Binding",
+                "core_question": "Can approved parameters be mutated before execution?",
+                "test": "Approve ₦1,000,000 → Supplier A → Attempt ₦10,000,000 → Supplier A → EXPECTED: COMMITMENT_MISMATCH → NO EXECUTION → EVIDENCE PRESERVED",
+                "required_hash": "HASH(action + subject + target + parameters + authority + policy + state + owner + nonce + expiry)",
+                "status": "NOT YET BUILT — ConsequenceCommitment doctrine only",
+            },
+            "PROOF_09_OWNER_CONTINUITY": {
+                "name": "PROOF-09 — Owner Continuity",
+                "core_question": "Does a change in accountable ownership invalidate or require revalidation where configured?",
+                "test": "STILL-09 / CAT-01 — O1→O2 transfer without reapproval",
+                "expected": "Historical approval not sufficient for current authority",
+                "status": "NOT YET RUN — CAT-01 pending",
+            },
+            "PROOF_10_DELEGATION_LINEAGE": {
+                "name": "PROOF-10 — Delegation Lineage",
+                "core_question": "Does parent authority constrain children across persistence, expiry, revocation, and restart?",
+                "tests": ["DL-01 Parent Expiry", "DL-02 Parent Revocation", "DL-03 Child Escalation", "DL-04 Identity Substitution", "DL-05 Persistence across restart"],
+                "status": "NOT YET RUN — Alkama DP-3/DP-4 pending",
+            },
+            "PROOF_11_EXTERNAL_EFFECT_UNCERTAINTY": {
+                "name": "PROOF-11 — External Effect Uncertainty",
+                "core_question": "Does the system honestly preserve unknown outcome states?",
+                "principle": "API timeout ≠ action failed. Never equate 'no confirmation received' with 'external effect did not occur'.",
+                "states": ["EFFECT_CONFIRMED", "EFFECT_REFUSED", "EFFECT_NOT_OBSERVED", "EFFECT_UNKNOWN"],
+                "test": "Send payment → Network timeout → System must record EFFECT_UNKNOWN not SUCCESS",
+                "status": "PARTIALLY IMPLEMENTED — EFFECT_UNKNOWN state declared; timeout handling not adversarially tested",
+            },
+            "PROOF_12_EXCEPTION_ACCOUNTABILITY": {
+                "name": "PROOF-12 — Exception Accountability",
+                "core_question": "Can a blocked action be escalated to the correct owner with evidence and exact override binding?",
+                "test": "HI-01 — Agent action exceeds authority → BLOCK → ESCALATE → PRESENT EVIDENCE → HUMAN DECISION → NEW COMMITMENT → EXECUTE OR REFUSE",
+                "rule": "A human approval must bind to the exact action — not merely return approved=true",
+                "status": "NOT YET BUILT — escalation path exists in doctrine; override commitment not implemented",
+            },
+        },
+    },
+
+    "VCB_DELEGATION_LINEAGE_STORE": {
+        "name": "Delegation Lineage Store",
+        "status": "SPECIFIED — persistent state required for PROOF-10",
+        "fields": {
+            "DELEGATION_ID": "unique identifier",
+            "PARENT_AUTHORITY": "reference to parent mandate or delegation",
+            "CHILD_AUTHORITY": "reference to child mandate",
+            "SCOPE": "permitted action types",
+            "LIMITS": "ceiling, vendor restrictions, time limits",
+            "ISSUED_AT": "ISO-8601",
+            "EXPIRES_AT": "ISO-8601",
+            "REVOCATION_STATUS": "NOT_REVOKED / REVOKED / SUSPENDED",
+            "PARENT_VERSION": "version of parent at time of delegation",
+            "LINEAGE_HASH": "cryptographic binding of full lineage",
+        },
+        "delegation_tests": {
+            "DL_01_PARENT_EXPIRY": "Parent expires → child loses authority immediately",
+            "DL_02_PARENT_REVOCATION": "Parent revoked → child cannot continue",
+            "DL_03_CHILD_ESCALATION": "Child attempts action outside delegated scope → REFUSED",
+            "DL_04_IDENTITY_SUBSTITUTION": "Child delegation cannot be attached to another identity",
+            "DL_05_PERSISTENCE": "Restart system → delegation lineage remains intact",
+        },
+    },
+
+    "VCB_EXCEPTION_AND_ESCALATION": {
+        "name": "Exception and Escalation Object",
+        "status": "SPECIFIED — required for PROOF-12 and human intervention path",
+        "fields": {
+            "exception_id": "unique identifier",
+            "blocked_action": "reference to the blocked consequential action",
+            "reason_code": "machine-readable reason for block",
+            "required_approver_role": "role required to approve exception",
+            "named_owner": "specific accountable owner",
+            "evidence_bundle": "artifacts available to the reviewer",
+            "expiry": "deadline for human decision",
+            "timeout_behavior": "what happens at deadline — REFUSE by default",
+            "override_authority": "what authority level can override",
+            "override_commitment": "exact binding of the override decision to the specific action",
+            "override_receipt": "signed evidence of the override decision",
+        },
+        "HI_01_HUMAN_INTERVENTION_TEST": {
+            "name": "HI-01 — Human Intervention Test",
+            "scenario": "Agent action exceeds authority → BLOCK → ESCALATE → evidence presented to owner → HUMAN DECISION → NEW COMMITMENT → EXECUTE OR REFUSE",
+            "rule": "Human approval must bind to the exact action via override_commitment — not merely return approved=true",
+            "escalation_rule": "ESCALATE must include a reachable correction path. If no reachable owner exists → REFUSE not ESCALATE.",
+            "timeout_rule": "If deadline expires with no response → DECLARATION_SILENT → REFUSE",
+            "status": "NOT YET BUILT",
+        },
+    },
+
+    "VCB_CORRECTION_CONTINUITY": {
+        "name": "Correction Continuity",
+        "status": "SPECIFIED — ADR-031 governing doctrine",
+        "source": "Expert B synthesis — correctability assessment, August 2026",
+        "principle": (
+            "A system is not adequately governed merely because a human supervises it. "
+            "It is governed when an authorized human can detect, reach, interrupt, correct, "
+            "and recover the governed action while the system's future remains changeable."
+        ),
+        "the_five_separate_conditions": {
+            "1": "Human oversight exists",
+            "2": "Human can reach the system",
+            "3": "Human can interrupt the action",
+            "4": "System accepts the correction",
+            "5": "Recovery is possible",
+            "rule": "Each must be independently proven. None implies the others.",
+        },
+        "correction_chain": [
+            "Detection",
+            "Notification",
+            "Authority confirmation",
+            "Control-path reachability",
+            "Interruption",
+            "State correction",
+            "Consequence prevention",
+            "Recovery",
+            "Evidence",
+        ],
+        "interruption_window": {
+            "opens_at": "timestamp when correction becomes possible",
+            "closes_at": "timestamp when correction is no longer possible",
+            "status": "OPEN / CLOSED / EXPIRED",
+        },
+        "correction_states": [
+            "PRE_COMMITMENT_CORRECTABLE",
+            "EXECUTION_IN_PROGRESS",
+            "EFFECT_FORMED",
+            "REVERSAL_REQUIRED",
+            "RECOVERY_COMPLETE",
+            "CORRECTION_UNAVAILABLE",
+        ],
+        "correction_continuity_profile": {
+            "action_id": "reference to consequential action",
+            "correction_owner": "who may correct",
+            "correction_authority": "what authority grants correction rights",
+            "detection_source": "how the problem was detected",
+            "notification_channel": "how the owner was notified",
+            "response_deadline": "ISO-8601 deadline",
+            "control_path": "VCB endpoint or interface",
+            "interruption_window": "opens_at + closes_at + status",
+            "interrupt_action": "REFUSE_PENDING_RELEASE / CANCEL / REDIRECT",
+            "correction_result": "APPLIED / FAILED / TIMEOUT / NOT_REACHED",
+            "external_effect": "EFFECT_CONFIRMED / EFFECT_NOT_FORMED / EFFECT_UNKNOWN",
+            "recovery_action": "NOT_REQUIRED / REQUIRED / COMPLETE / IMPOSSIBLE",
+            "evidence_hash": "cryptographic binding of the correction record",
+        },
+        "VCB_COR_01_PRE_COMMITMENT_CORRECTION": {
+            "name": "VCB-COR-01 — Pre-Commitment Correction Test",
+            "scenario": (
+                "T0: Authority + conditions = admissible → "
+                "Material condition changes → "
+                "T1: Previously admissible decision becomes stale → "
+                "Revalidation → "
+                "OLD COMMITMENT ≠ NEW ADMISSIBILITY → "
+                "REFUSE / RE-EVALUATE / REDIRECT → "
+                "NO UNJUSTIFIED PROTECTED EFFECT"
+            ),
+            "rule": "Correction must be demonstrated behaviorally — not claimed because an interrupt API exists.",
+            "repeat_under": ["concurrency", "delay", "queueing", "retry", "restart", "network interruption", "worker duplication", "stale cache", "dependency failure"],
+            "status": "NOT YET BUILT",
+        },
+        "decision_NO_GO": [
+            "Treating human oversight as proof of correctability",
+            "Treating a documented kill switch as an exercised control",
+            "Allowing ESCALATE to proceed without a reachable owner",
+            "Assuming correction is possible after consequence formation",
+            "Treating detection as interruption",
+            "Treating rollback capability as proof that rollback was successful",
+        ],
+    },
+
+    "ADR_031_CORRECTION_CONTINUITY": {
+        "title": "ADR-031 — Correction Continuity",
+        "status": "DOCTRINE",
+        "source": "Expert B synthesis, August 2026",
+        "question": "Can a legitimate authority still change the next system state before or during a consequential AI action?",
+        "finding": (
+            "Monitoring, documentation, human supervision, and logging do not prove correctability. "
+            "A system may detect a problem while the authorized person cannot reach the correct control path, "
+            "interrupt the action, change the state, or recover from a partial effect."
+        ),
+        "surviving_principle": (
+            "Human oversight is operationally meaningful only when legitimate correction "
+            "can reach the governed transition while the future remains changeable."
+        ),
+        "decision_GO": [
+            "Correction Continuity as a VCB and Interchange evidence profile",
+            "Named correction owner and correction authority",
+            "Correction channel and response deadline",
+            "Interruption window",
+            "Pending-action cancellation",
+            "Revocation and correction propagation",
+            "Recovery and reversal evidence",
+            "Tests for unreachable reviewers, broken channels, timeouts, restarts, partial effects, and uncertain outcomes",
+        ],
+        "decision_NO_GO": [
+            "Treating human oversight as proof of correctability",
+            "Treating a documented kill switch as an exercised control",
+            "Allowing ESCALATE to proceed without a reachable owner",
+            "Assuming correction is possible after consequence formation",
+            "Treating detection as interruption",
+            "Treating rollback capability as proof that rollback was successful",
+        ],
+        "relationship_tags": {
+            "INSPIRED_BY": "Correctability and human-reachability assessment discipline",
+            "INTERNAL_DESIGN": "VeriSigil Correction Continuity",
+            "ANALOGOUS_TO": "Control, interruption, and recovery systems",
+        },
+    },
+
+    "VCB_RELEASE_GATES_G8_G9": {
+        "name": "Release Gates G8 and G9 — Extended",
+        "status": "MANDATORY — extends VCB_RELEASE_GATES G0-G7",
+        "gates": {
+            "G8_NARROW_COMMERCIAL_CORRIDOR": {
+                "name": "G8 — Narrow Commercial Corridor",
+                "requirement": (
+                    "One corridor, one consequence, one changed-condition test, "
+                    "one refusal test, one replay test, one independent reproduction. "
+                    "VS-CORRIDOR-01 Payment must be fully proven before G8 can pass."
+                ),
+                "status": "NOT PASSED — VS-CORRIDOR-01 partially verified",
+            },
+            "G9_VERIFICATION_INTERCHANGE_TIER_1": {
+                "name": "G9 — Verification Interchange Tier 1",
+                "requirement": "Only after G0 through G8 are complete and foundational VCB evidence is mature.",
+                "rule": "Do not reverse this sequence. Prove VCB's own consequential-action path before inviting ecosystem claims.",
+                "status": "BLOCKED — awaiting G0 through G8",
+            },
+        },
+    },
+
+    "VCB_20_VERIFICATION_QUESTIONS_ENGINEER": {
+        "name": "20 Verification Questions for the Engineer",
+        "status": "MANDATORY — engineer must provide written answers and evidence before build complete",
+        "source": "Expert A synthesis, August 2026",
+        "rule": "If any answer is 'not yet', the public status must remain NOT_YET_DEMONSTRATED.",
+        "questions": {
+            "Q01": "Can a cryptographically valid credential lose current standing?",
+            "Q02": "Can revoked authority prevent the consequential action?",
+            "Q03": "Can expired authority prevent the consequential action?",
+            "Q04": "Can a material condition change force re-evaluation?",
+            "Q05": "Is the exact action cryptographically/structurally bound before commitment?",
+            "Q06": "Can a stale decision be reused after the conditions change?",
+            "Q07": "Can the actuator be reached without the required commitment?",
+            "Q08": "Have all declared consequence-capable routes been inventoried?",
+            "Q09": "Have fallback paths been tested?",
+            "Q10": "Have retry and queue paths been tested?",
+            "Q11": "Have restart and crash paths been tested?",
+            "Q12": "Have concurrent duplicate executions been tested?",
+            "Q13": "Can replay create a second unauthorized effect?",
+            "Q14": "Can delegation become stale without detection?",
+            "Q15": "Can a parent-authority change invalidate child authority?",
+            "Q16": "Can the system distinguish refusal from uncertain external execution?",
+            "Q17": "Does the Machine Action Ledger capture the evidence required to reconstruct the decision?",
+            "Q18": "Can a material correction before commitment invalidate the previous decision?",
+            "Q19": "Can an independent party verify the resulting evidence without trusting VeriSigil's operator?",
+            "Q20": "For every claimed property, can the engineer point to a specific test, artifact, boundary and reproducible result?",
+        },
+        "current_honest_answers": {
+            "Q01": "YES — demonstrated 10/10 (INV-REC-01)",
+            "Q02": "YES — Postgres trigger + STILL gate",
+            "Q03": "YES — mandate TTL enforced",
+            "Q04": "PARTIALLY — revocation/expiry yes; owner change, policy change, tool change not yet",
+            "Q05": "NO — ConsequenceCommitment doctrine only, not enforced",
+            "Q06": "PARTIALLY — replay blocked 6/6; stale decision reuse after condition change not fully tested",
+            "Q07": "UNKNOWN — 2 routes audited; other paths not yet inventoried",
+            "Q08": "PARTIALLY — 2 declared routes audited; background/webhooks/admin pending",
+            "Q09": "PARTIALLY — Supabase outage behavior tested; delegation registry under outage pending",
+            "Q10": "NOT YET — queue and retry paths not yet tested",
+            "Q11": "PARTIALLY — restart 9/9; crash mid-execution not tested",
+            "Q12": "PARTIALLY — 6/6 single store; two-replica race not tested",
+            "Q13": "PARTIALLY — same release_id blocked; external side-effect idempotency not proven",
+            "Q14": "NOT YET — delegation expiry detection adversarial test pending",
+            "Q15": "NOT YET — parent-authority change → child invalidation not run",
+            "Q16": "PARTIALLY — EFFECT_UNKNOWN state declared; timeout handling not adversarially tested",
+            "Q17": "PARTIALLY — fields specified; pre-action enforcement in execution path pending",
+            "Q18": "NOT YET — VCB-COR-01 not yet built",
+            "Q19": "PARTIALLY — cryptographic layer only; full path reproduction pending",
+            "Q20": "PARTIALLY — verified claims point to artifacts; doctrine claims do not yet",
         },
     },
 
