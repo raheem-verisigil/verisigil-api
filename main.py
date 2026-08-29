@@ -97081,7 +97081,11 @@ def evaluate_release(
                     scope_ok = True
                     scope_failures = []
                     if proposed_amount is not None:
-                        if proposed_amount > mandate.get("amount_limit", 0):
+                        # F-24 FIX: negative amount bypass — -5000 <= 1000 is True without this guard
+                        if proposed_amount <= 0:
+                            scope_ok = False
+                            scope_failures.append(f"AMOUNT_OUT_OF_BOUNDS: amount must be > 0, got {proposed_amount}")
+                        elif proposed_amount > mandate.get("amount_limit", 0):
                             scope_ok = False
                             scope_failures.append(
                                 f"SCOPE_EXCEEDED: {proposed_amount} > {mandate.get('amount_limit')}")
@@ -105335,6 +105339,210 @@ VCB_ADR_014 = {
         },
         "maps_to": "ADR_024_CATEGORY_PRESERVATION_AND_NON_EQUIVALENCE",
         "interchange_audit_status": "NOT_YET_DELIVERED — ADR-015b 0/6 launch conditions met",
+    },
+
+        "VCB_EXPERT_D_ATTACK_FINDINGS": {
+        "name": "Expert D Code-Level Attack Findings — F-16 through F-24",
+        "status": "REGRESSION CHECK + NEW FINDINGS — all confirmed against code inspection",
+        "source": "Expert D red-team audit, August 2026",
+        "governing_rule": (
+            "These are not theoretical concerns. Each finding has been verified against "
+            "the actual codebase. Findings marked CONFIRMED are real vulnerabilities or "
+            "gaps that must be closed before stronger claims are permitted."
+        ),
+
+        "regression_status_F16_to_F20": {
+            "F_16_CLIENT_SIDE_STILL_FORGERY": {
+                "status": "STILL OPEN",
+                "audit_ref": "AUDIT-02",
+                "description": "Client-supplied STILL_PROVABLE=true flag may bypass server-side query",
+                "code_reality": (
+                    "PARTIALLY MITIGATED. still_authority_adapter() queries Supabase when "
+                    "enforce_still=True (production path). However: enforce_still=False is used "
+                    "in 17 places including test paths. STILL-01 forge attack not yet adversarially tested."
+                ),
+                "risk": "Production path is safe. Test paths with enforce_still=False must not be callable from production routes.",
+                "required_test": "STILL-01 — submit STILL_PROVABLE=true with revoked authority, verify VCB ignores it",
+            },
+            "F_17_PARAMETER_SUBSTITUTION": {
+                "status": "CONFIRMED CRITICAL — OPEN",
+                "audit_ref": "AUDIT-04",
+                "maps_to": "F-21",
+                "description": "Approved parameters can be substituted before execution",
+                "code_reality": "ConsequenceCommitment is doctrine only. parameters_hash NOT in evaluate_release().",
+            },
+            "F_18_SERVICE_ROLE_SHADOW_ROUTES": {
+                "status": "CONFIRMED HIGH — OPEN",
+                "audit_ref": "AUDIT-01",
+                "maps_to": "F-23",
+                "description": "Service-role Supabase key bypasses RLS and evaluate_release()",
+                "code_reality": "4 service_role references exist. Background tasks present. Declared out of audit scope.",
+            },
+            "F_19_DELEGATION_STATE_DESYNC": {
+                "status": "STILL OPEN",
+                "audit_ref": "AUDIT-07",
+                "description": "Persistent-state adversarial tests for delegation lineage not run",
+                "code_reality": "Schema enforcement present at API level. DP-3/DP-4 pending.",
+            },
+            "F_20_WEBHOOK_DOUBLE_EXECUTION": {
+                "status": "STILL OPEN",
+                "audit_ref": "AUDIT-06",
+                "description": "External side-effect idempotency and duplicate webhook delivery not tested",
+                "code_reality": "UNIQUE(release_id) blocks duplicate consumption in the database. External actuator idempotency not proven.",
+            },
+        },
+
+        "new_findings_F21_to_F24": {
+            "F_21_PARAMETER_SUBSTITUTION_ATTACK": {
+                "finding_id": "F-21",
+                "severity": "CRITICAL",
+                "area": "AUDIT-04 — Consequence Commitment / evaluate_release()",
+                "attack": "Parameter substitution — ConsequenceCommitment not enforced at runtime",
+                "precondition": "parameters_hash binding defined in doctrine but NOT enforced as runtime object in evaluate_release()",
+                "attack_steps": [
+                    "Obtain valid SigilMark authorizing $500 to Supplier A",
+                    "Intercept execution request before it hits the actuator",
+                    "Alter JSON payload: amount=5000, vendor=Supplier_B",
+                    "Submit mutated request to consequence path",
+                ],
+                "expected": "evaluate_release() hashes execution payload, compares to authorized parameters_hash, returns COMMITMENT_MISMATCH → REFUSED",
+                "actual": "evaluate_release() only checks SigilMark validity and consumption state — does NOT verify bound parameters. Actuator executes $5,000 to Supplier B.",
+                "confirmed_by_code": True,
+                "type": "Architectural Gap / Implementation Bug",
+                "required_fix": (
+                    "Implement strict runtime enforcement of parameters_hash in evaluate_release(). "
+                    "Execution payload must be canonically hashed and compared against parameters_hash "
+                    "stored in SigilMark before releasing to actuator. "
+                    "MAPS TO: WP-03 ConsequenceCommitment — PROOF-06 and PROOF-08."
+                ),
+                "claims_falsified": [
+                    "EXACT_ACTION_BINDING: auth(Action_A) cannot authorize Action_B",
+                    "Any mutation invalidates verification",
+                ],
+                "status": "OPEN — highest priority fix after STILL suite",
+            },
+
+            "F_22_STILL_PROVABLE_FORGERY": {
+                "finding_id": "F-22",
+                "severity": "CRITICAL",
+                "area": "AUDIT-02 — Current Authority / STILL Gate",
+                "attack": "Client-side STILL_PROVABLE flag forgery",
+                "precondition": "enforce_still=False used in 17 code locations including test paths",
+                "attack_steps": [
+                    "Revoke underlying authority in Supabase",
+                    "Intercept legitimate execution request",
+                    "Inject STILL_PROVABLE=true or enforce_still=False trigger into payload",
+                    "Submit to consequence path",
+                ],
+                "expected": "System ignores client-supplied flags, queries Supabase treasury_mandates, detects revocation, returns REFUSED",
+                "actual_production_path": "SAFE — still_authority_adapter queries Supabase when enforce_still=True",
+                "actual_test_path_risk": (
+                    "enforce_still=False used in 17 locations. If any test path is reachable "
+                    "from production routes, the forge attack succeeds."
+                ),
+                "confirmed_by_code": "PARTIAL — production path safe; enforce_still=False test paths require audit",
+                "required_fix": (
+                    "Audit all 17 enforce_still=False usages to confirm none are reachable from production consequence routes. "
+                    "Run STILL-01: submit STILL_PROVABLE=true with revoked authority in production path — must be refused. "
+                    "Remove all client-supplied authority status flags from trusted input schema for production routes."
+                ),
+                "status": "PARTIALLY MITIGATED — STILL-01 test not yet run",
+            },
+
+            "F_23_SERVICE_ROLE_SHADOW_ROUTE": {
+                "finding_id": "F-23",
+                "severity": "HIGH",
+                "area": "AUDIT-01 — Consequence Path Inventory / Supabase Service-Role",
+                "attack": "Direct database mutation via unaudited service-role access",
+                "precondition": (
+                    "Background jobs or admin routes use Supabase service-role key "
+                    "which bypasses Row Level Security and API-level gates"
+                ),
+                "attack_steps": [
+                    "Identify background job or admin endpoint using service-role key",
+                    "Exploit vulnerability in that job to gain DB access",
+                    "Directly update vcb_sigilmarks row or insert forged release_record",
+                    "Trigger actuator",
+                ],
+                "expected": "Architecture prevents direct DB mutations from affecting consequence path without passing through STILL gate",
+                "actual": "Service-role key allows direct manipulation bypassing API boundary, STILL gate, and replay guard",
+                "confirmed_by_code": "4 service_role references confirmed — background tasks exist — RLS not enforced as consequence boundary",
+                "required_fix": (
+                    "Enforce that all state mutations, even from background jobs, pass through evaluate_release() "
+                    "or use strictly scoped, non-service-role DB credentials with RLS policies that mirror API logic. "
+                    "Add service-role access to the route inventory YAML as a declared gap."
+                ),
+                "claim_impact": "0 ungoverned routes found — FALSE if service-role access represents ungoverned shadow route",
+                "status": "OPEN — audit required before route inventory claim can be strengthened",
+            },
+
+            "F_24_NEGATIVE_AMOUNT_BYPASS": {
+                "finding_id": "F-24",
+                "severity": "HIGH",
+                "area": "AUDIT-14 — Policy Traceability / Ceiling Enforcement",
+                "attack": "Negative amount bypass in mandate ceiling check",
+                "precondition": "evaluate_release() checks amount <= mandate_ceiling without validating amount > 0",
+                "attack_steps": [
+                    "Obtain mandate with ceiling of $1,000",
+                    "Submit execution request with amount: -5000",
+                    "Python comparison: -5000 <= 1000 evaluates True",
+                    "Ceiling check passes — actuator processes negative payment (refund/credit to attacker)",
+                ],
+                "expected": "System rejects negative amounts as invalid financial parameters",
+                "actual": "Python comparison -5000 <= 1000 is True — ceiling check passes for negative amounts",
+                "confirmed_by_code": True,
+                "code_fixed": True,
+                "fix_applied": (
+                    "Added guard in still_authority_adapter() at line ~97084: "
+                    "if proposed_amount <= 0: scope_failures.append(AMOUNT_OUT_OF_BOUNDS) "
+                    "BEFORE the ceiling check. "
+                    "Must also be added to evaluate_release() direct path."
+                ),
+                "required_additional_fix": (
+                    "Verify fix is also present in evaluate_release() direct path "
+                    "and any other path that accepts amount as a financial parameter. "
+                    "Add AMOUNT_OUT_OF_BOUNDS as a named result code. "
+                    "Add amount type validation: must be numeric, positive, non-zero."
+                ),
+                "new_result_code": "AMOUNT_OUT_OF_BOUNDS",
+                "status": "PARTIALLY FIXED — guard added to adapter; direct path requires verification",
+            },
+        },
+
+        "enforce_still_false_audit_required": {
+            "description": (
+                "17 usages of enforce_still=False found in codebase. "
+                "These are intentional for test paths (ADR-011: Cedar tests use enforce_still=False). "
+                "However, each must be confirmed as unreachable from production consequence routes."
+            ),
+            "required_action": "Audit all 17 enforce_still=False call sites to confirm none reachable from production routes",
+            "risk_if_not_done": "A caller-supplied STILL bypass becomes possible via test path exposure",
+            "status": "AUDIT_REQUIRED — maps to WP-00 fallback isolation",
+        },
+
+        "amount_out_of_bounds_result_state": {
+            "name": "AMOUNT_OUT_OF_BOUNDS",
+            "description": "Amount is non-positive, non-numeric, or zero — invalid financial parameter",
+            "trigger": "amount <= 0 or amount is not numeric",
+            "decision": "REFUSE",
+            "actuator_invoked": False,
+            "fix_target": "evaluate_release() + still_authority_adapter() + all amount-checking paths",
+        },
+
+        "regression_summary": {
+            "F_16_to_F_20": "ALL STILL OPEN — confirmed in 20-audit record",
+            "F_21_parameter_substitution": "CONFIRMED CRITICAL — ConsequenceCommitment not in evaluate_release()",
+            "F_22_STILL_forgery": "PARTIALLY MITIGATED — production path safe, enforce_still=False audit needed",
+            "F_23_service_role": "CONFIRMED HIGH — service-role is undeclared shadow route",
+            "F_24_negative_amount": "CONFIRMED HIGH — fixed in adapter, direct path requires verification",
+            "overall_verdict": (
+                "Expert D findings are accurate. Three of five new findings confirmed by code inspection. "
+                "F-22 is partially mitigated by the Supabase adapter design. "
+                "F-24 has been partially fixed. "
+                "PRODUCTION_CLAIM_ALLOWED remains False. "
+                "The 20-audit record correctly represents the current state."
+            ),
+        },
     },
 
         "positioning_sentence": (
