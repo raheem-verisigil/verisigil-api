@@ -105545,6 +105545,329 @@ VCB_ADR_014 = {
         },
     },
 
+        "VCB_FOUR_OBJECTS_DOCTRINE": {
+        "name": "The Four Objects That Must Never Be Confused",
+        "status": "GOVERNING DOCTRINE — applies to every implementation and test",
+        "source": "Final expert consolidated audit directive",
+        "principle": (
+            "Every implementation and test must distinguish these four objects. "
+            "Confusing them is the source of most authority bypass vulnerabilities."
+        ),
+        "objects": {
+            "A_IDENTITY": {
+                "question": "Who or what is presenting the request?",
+                "establishes": "The subject — which agent, user, or system is acting",
+                "does_not_establish": "That the subject has current authority for this action",
+                "current_vcb_status": "API key identifies caller — PARTIALLY ENFORCED",
+            },
+            "B_AUTHORITY": {
+                "question": "What authority exists for that subject?",
+                "establishes": "That a mandate exists naming the subject with declared scope",
+                "does_not_establish": "That the authority is currently valid or applicable to this action",
+                "current_vcb_status": "treasury_mandates Supabase query — IMPLEMENTED",
+            },
+            "C_CURRENT_ADMISSIBILITY": {
+                "question": "Does that authority remain applicable under the conditions existing NOW?",
+                "establishes": "That standing is current at the moment of commitment",
+                "does_not_establish": "That the exact proposed parameters match the authorized parameters",
+                "current_vcb_status": "STILL gate queries Supabase — IMPLEMENTED; adversarial suite pending",
+            },
+            "D_EXACT_CONSEQUENCE": {
+                "question": "Does the authority actually correspond to THIS EXACT proposed effect?",
+                "establishes": "That the evaluated action is identical to the action being executed",
+                "does_not_establish": "Anything about identity, authority existence, or current standing",
+                "current_vcb_status": "ConsequenceCommitment — DOCTRINE ONLY, not enforced at runtime — F-21 CRITICAL GAP",
+            },
+        },
+        "the_critical_insight": (
+            "Cryptographic validity can become meaningless if exact parameters are not bound at runtime. "
+            "A valid identity with valid authority and current standing can still be used to execute "
+            "a materially different action if D (exact consequence binding) is not enforced. "
+            "F-21 confirms this gap exists in the current implementation."
+        ),
+        "all_four_required": (
+            "A consequential action requires ALL FOUR to be established: "
+            "Identity + Authority + Current Admissibility + Exact Consequence Binding. "
+            "Any one missing → REFUSE or NOT_PROVABLE."
+        ),
+    },
+
+    "VCB_MACHINE_ACTION_LEDGER_COMPLETE": {
+        "name": "Machine Action Ledger — Complete Field Specification",
+        "status": "DOCTRINE — all fields required; pre-action enforcement pending (WP-05)",
+        "rule": "The ledger records reality. It does not manufacture reality.",
+        "all_required_fields": {
+            "action_id": "Unique identifier for this consequential action attempt",
+            "request_id": "Identifier from the incoming request",
+            "subject": "Who or what is proposing the action",
+            "identity_reference": "Pointer to identity record",
+            "authority_id": "Which authority mandate is being relied upon",
+            "authority_version": "Version of the authority at examination time",
+            "owner_id": "Who owns this authority at examination time",
+            "owner_version": "Version of ownership — detects owner change between T0 and Tn",
+            "policy_id": "Which policy governs this action",
+            "policy_version": "Version of policy — policy change must trigger revalidation",
+            "action_type": "Class of action being proposed",
+            "canonical_action": "Canonically serialized exact proposed action — basis for parameters_hash",
+            "parameters_hash": "Cryptographic hash of canonical_action — ConsequenceCommitment binding",
+            "standing_before_commitment": "STANDING_CURRENT / STANDING_LOST / STANDING_NOT_PROVABLE",
+            "standing_change_event": "What changed, when, what authority reference",
+            "currentness_resolution": "How standing was established — source, timestamp, method",
+            "pre_action_commitment": "ConsequenceCommitment object reference — ABSENT until WP-03",
+            "decision": "ALLOW / REFUSE / ESCALATE / NOT_PROVABLE",
+            "decision_reason": "Specific reason code",
+            "actuator_invocation": "ACTUATOR_NOT_INVOKED / ACTUATOR_INVOCATION_ATTEMPTED / ACTUATOR_ACKNOWLEDGED / EXTERNAL_EFFECT_CONFIRMED / EXTERNAL_EFFECT_UNKNOWN",
+            "external_effect_id": "Identifier from external system confirming effect",
+            "execution_uncertainty": "NONE / PARTIAL / SIGNIFICANT / UNKNOWN",
+            "replay_result": "REPLAY_BLOCKED / REPLAY_ACCEPTED / REPLAY_UNCERTAIN",
+            "failure_state": "NOT_STARTED / DECIDED_NOT_EXECUTED / EXECUTION_ATTEMPTED / FORMATION_UNCERTAIN / CONFIRMED / REFUSED",
+            "timestamp": "ISO-8601 pre-action timestamp — must be set BEFORE actuator call",
+            "receipt_hash": "Hash of the generated SigilMark receipt",
+            "receipt_signature": "Ed25519 signature of receipt",
+            "independent_reproduction": "INDEPENDENTLY_REPRODUCED / OPERATOR_ASSERTED / NOT_ATTEMPTED",
+        },
+        "critical_rule": (
+            "A consequential action should not appear in the ledger for the first time "
+            "AFTER it has already happened. "
+            "The pre_action_commitment and timestamp fields must be written BEFORE the actuator call."
+        ),
+        "new_result_states": {
+            "REPLAY_ACCEPTED": "A replay attempt was accepted as a valid idempotent redelivery",
+            "REPLAY_BLOCKED": "A replay attempt was rejected by atomic consumption protection",
+            "REPLAY_UNCERTAIN": "Cannot establish whether replay succeeded or was blocked",
+            "CONSEQUENCE_FORMED": "External effect confirmed by actuator evidence",
+            "CONSEQUENCE_NOT_FORMED": "Actuator not invoked on tested governed path",
+            "CONSEQUENCE_FORMATION_UNCERTAIN": "External effect unknown — TIMEOUT must not become CONSEQUENCE_FORMED",
+        },
+        "forbidden_states": {
+            "CONSEQUENCE_CANNOT_FORM": "Never use — use CONSEQUENCE_NOT_FORMED_ON_TESTED_PATH",
+            "NON_BYPASSABLE": "Never use — use NO_GOVERNED_ROUTE_OBSERVED_IN_DECLARED_INVENTORY",
+            "FULLY_SAFE": "Never use — no evidence supports this universal claim",
+            "GUARANTEED": "Never use without full adversarial proof under declared threat model",
+        },
+    },
+
+    "VCB_40_QUESTION_ADVERSARIAL_MATRIX": {
+        "name": "40-Question Adversarial Verification Matrix",
+        "status": "MANDATORY — engineer must answer YES/NO/UNKNOWN to each before release",
+        "source": "Final expert consolidated audit directive Section 21",
+        "questions": {
+            "IDENTITY": {
+                "Q01": {"question": "Can an untrusted caller claim an authority state?", "status": "UNKNOWN — STILL-01 not run"},
+                "Q02": {"question": "Can a valid credential be used after revocation?", "status": "NO — demonstrated 10/10 INV-REC-01"},
+                "Q03": {"question": "Can an identity be substituted?", "status": "UNKNOWN — substitution test not run"},
+                "Q04": {"question": "Can identity and authority become disconnected?", "status": "UNKNOWN — CAT-01 pending"},
+            },
+            "CURRENTNESS": {
+                "Q05": {"question": "What happens after revocation?", "status": "YES REFUSED — demonstrated"},
+                "Q06": {"question": "What happens after expiry?", "status": "YES REFUSED — demonstrated"},
+                "Q07": {"question": "What happens after ownership changes?", "status": "UNKNOWN — CAT-01 not run"},
+                "Q08": {"question": "What happens if the authoritative source disappears?", "status": "UNKNOWN — STILL-08 not run"},
+                "Q09": {"question": "What happens if cached state is stale?", "status": "UNKNOWN — fallback isolation pending"},
+            },
+            "EXACT_ACTION": {
+                "Q10": {"question": "Can amount change after authorization?", "status": "UNKNOWN — F-21 OPEN, ConsequenceCommitment not enforced"},
+                "Q11": {"question": "Can destination change?", "status": "UNKNOWN — F-21 OPEN"},
+                "Q12": {"question": "Can action type change?", "status": "UNKNOWN — F-21 OPEN"},
+                "Q13": {"question": "Can currency change?", "status": "UNKNOWN — F-21 OPEN"},
+                "Q14": {"question": "Can policy version change?", "status": "UNKNOWN — STILL-04 not run"},
+                "Q15": {"question": "Can any consequence-bearing parameter change without invalidating the commitment?", "status": "UNKNOWN — F-21 OPEN — currently YES which is wrong"},
+            },
+            "ROUTES": {
+                "Q16": {"question": "Can a webhook bypass the boundary?", "status": "UNKNOWN — webhooks not audited"},
+                "Q17": {"question": "Can a worker bypass it?", "status": "UNKNOWN — workers not audited"},
+                "Q18": {"question": "Can a background job bypass it?", "status": "UNKNOWN — background jobs not audited"},
+                "Q19": {"question": "Can an administrator bypass it?", "status": "UNKNOWN — admin routes not audited"},
+                "Q20": {"question": "Can service-role database access bypass it?", "status": "UNKNOWN — F-23 OPEN"},
+                "Q21": {"question": "Can a database trigger create consequence independently?", "status": "UNKNOWN — database triggers not audited; Postgres vcb triggers prevent reinstatement but may not prevent creation"},
+            },
+            "CONCURRENCY": {
+                "Q22": {"question": "Can two instances consume the same authority?", "status": "UNKNOWN — multi-instance race not tested"},
+                "Q23": {"question": "Can retries create duplicate effects?", "status": "UNKNOWN — external actuator retry not tested"},
+                "Q24": {"question": "Can replay occur after restart?", "status": "NO — 9/9 post-restart durability demonstrated"},
+                "Q25": {"question": "Can delayed messages execute stale actions?", "status": "UNKNOWN — delayed delivery not tested"},
+            },
+            "DELEGATION": {
+                "Q26": {"question": "Does parent revocation invalidate children?", "status": "UNKNOWN — persistent-state proof pending (Alkama DP-3/DP-4)"},
+                "Q27": {"question": "Does parent expiry invalidate children?", "status": "UNKNOWN — DL-01 not run"},
+                "Q28": {"question": "Can child state become inconsistent with parent state?", "status": "UNKNOWN — DL-05 not run"},
+            },
+            "ACTUATOR": {
+                "Q29": {"question": "Does refusal result in zero actuator invocation?", "status": "YES within tested scope — test actuator only (C2)"},
+                "Q30": {"question": "What happens during timeout?", "status": "UNKNOWN — timeout test not run"},
+                "Q31": {"question": "What happens during network partition?", "status": "UNKNOWN — network partition test not run"},
+                "Q32": {"question": "What happens when actuator gives unknown result?", "status": "UNKNOWN — CONSEQUENCE_FORMATION_UNCERTAIN path not tested end-to-end"},
+                "Q33": {"question": "Can external effect occur without ledger event?", "status": "UNKNOWN — pre-action ledger enforcement not implemented"},
+            },
+            "EVIDENCE": {
+                "Q34": {"question": "Can another party verify the receipt independently?", "status": "YES — 3 cold external verifications"},
+                "Q35": {"question": "Can verifier reconstruct what was actually evaluated?", "status": "PARTIAL — cryptographic layer yes; runtime decision reproduction pending"},
+                "Q36": {"question": "Can evidence distinguish authorization from current admissibility?", "status": "YES — three-line model: ISSUANCE INTEGRITY / CURRENT STANDING / CONSEQUENCE SUFFICIENCY"},
+                "Q37": {"question": "Can evidence identify exact action parameters?", "status": "PARTIAL — action_type and amount in receipt; parameters_hash binding not enforced at runtime"},
+                "Q38": {"question": "Can evidence survive restart?", "status": "YES — 9/9 Supabase-backed post-restart durability"},
+            },
+            "CROSS_SYSTEM": {
+                "Q39": {"question": "Can separately valid permissions combine into unexamined consequence?", "status": "UNKNOWN — CAT-01 cross-system not run"},
+                "Q40": {"question": "Does material relationship change trigger re-evaluation?", "status": "UNKNOWN — material change matrix defined; enforcement pending"},
+            },
+        },
+        "score": {
+            "YES_demonstrated": ["Q02", "Q05", "Q06", "Q24", "Q29", "Q34", "Q36", "Q38"],
+            "PARTIAL": ["Q35", "Q37"],
+            "NO_wrong_answer": ["Q10 to Q15 — currently YES meaning parameter substitution possible"],
+            "UNKNOWN": "All others — 29 questions unanswered",
+        },
+        "release_criterion": "All 40 must be answered YES (or explicitly scoped) before production claim permitted",
+    },
+
+    "VCB_ENGINEER_GOLDEN_TEST": {
+        "name": "Engineer Golden Test — Every Consequential Corridor Must Pass This",
+        "status": "MANDATORY before commercial corridor claim",
+        "sequence": [
+            "CREATE — establish subject, authority, mandate, delegation chain",
+            "AUTHORIZE — obtain valid authority for specific action",
+            "VERIFY — confirm issuance integrity offline",
+            "CHANGE CONDITION — change owner, revoke authority, expire delegation, mutate policy",
+            "REVALIDATE — attempt action under changed conditions",
+            "MUTATE ACTION — alter parameters after authorization (amount, destination, vendor)",
+            "ATTEMPT EXECUTION — submit mutated action to consequence path",
+            "REPLAY — submit same release_id again",
+            "RESTART — restart process, attempt action again",
+            "CONCURRENT EXECUTION — two instances submit simultaneously",
+            "DEPENDENCY FAILURE — take authority source offline, attempt action",
+            "INDEPENDENT REPRODUCTION — external party reproduces result without operator",
+        ],
+        "for_each_step_answer": {
+            "Q1": "What did the system know?",
+            "Q2": "What did it decide?",
+            "Q3": "Why?",
+            "Q4": "What was actuated?",
+            "Q5": "What actually happened?",
+            "Q6": "What evidence proves it?",
+        },
+        "current_status": {
+            "CREATE": "DEMONSTRABLE",
+            "AUTHORIZE": "DEMONSTRABLE",
+            "VERIFY": "DEMONSTRATED — 3 cold verifications",
+            "CHANGE_CONDITION": "PARTIAL — revocation and expiry demonstrated; owner change pending",
+            "REVALIDATE": "PARTIAL — stale authority refused 10/10",
+            "MUTATE_ACTION": "OPEN — ConsequenceCommitment not enforced (F-21)",
+            "ATTEMPT_EXECUTION": "DEMONSTRABLE on tested paths",
+            "REPLAY": "DEMONSTRATED — 6/6",
+            "RESTART": "DEMONSTRATED — 9/9",
+            "CONCURRENT_EXECUTION": "PARTIAL — single store; multi-instance not tested",
+            "DEPENDENCY_FAILURE": "OPEN — STILL-08 not run",
+            "INDEPENDENT_REPRODUCTION": "PARTIAL — cryptographic layer only",
+        },
+        "pass_criterion": (
+            "Every step must produce independently verifiable evidence of the declared result. "
+            "UNKNOWN is not a pass. NOT_PROVABLE on a required step → corridor is not proven."
+        ),
+    },
+
+    "VCB_CLAIMS_REGISTRY_SCHEMA": {
+        "name": "Claims Registry — Machine-Readable Schema",
+        "status": "SCHEMA DEFINED — claims_registry.yaml artifact not yet created",
+        "purpose": (
+            "Prevents the website, LinkedIn, pitch deck and engineering team from drifting apart. "
+            "Every public claim must have an entry here before it is published."
+        ),
+        "schema": {
+            "CLAIM_ID": "Unique identifier e.g. R001",
+            "CLAIM": "Exact natural-language claim text",
+            "EVIDENCE_ID": "Pointer to evidence artifact e.g. PROOF-02, INV-REC-01",
+            "TEST_ID": "Pointer to test that produced evidence e.g. STILL-02, F-01",
+            "SCOPE": "Declared scope within which claim holds",
+            "STATUS": "VERIFIED_WITHIN_SCOPE / PARTIALLY_VERIFIED / NOT_YET_DELIVERED / FAILED",
+            "LAST_VERIFIED": "ISO-8601 date of last verification",
+            "LIMITATIONS": "List of what the claim does NOT cover",
+        },
+        "current_entries": {
+            "R001": {
+                "CLAIM_ID": "R001",
+                "CLAIM": "Exact action binding — auth(Action_A) cannot authorize Action_B",
+                "EVIDENCE_ID": "PROOF-06",
+                "TEST_ID": "F-21 (PENDING)",
+                "SCOPE": "Payment corridor — parameters_hash binding in evaluate_release()",
+                "STATUS": "NOT_YET_DELIVERED",
+                "LAST_VERIFIED": "NOT_YET_VERIFIED",
+                "LIMITATIONS": ["ConsequenceCommitment not yet enforced at runtime"],
+            },
+            "R002": {
+                "CLAIM_ID": "R002",
+                "CLAIM": "Stale authority is refused — SIGNATURE_VALID does not equal CURRENTLY_ADMISSIBLE",
+                "EVIDENCE_ID": "INV-REC-01",
+                "TEST_ID": "STILL-02 (partial)",
+                "SCOPE": "Declared test actuator paths — revocation and expiry",
+                "STATUS": "VERIFIED_WITHIN_SCOPE",
+                "LAST_VERIFIED": "2026-08-27",
+                "LIMITATIONS": ["Test actuator only", "Owner-continuity not enforced", "STILL-01 forge not tested"],
+            },
+            "R003": {
+                "CLAIM_ID": "R003",
+                "CLAIM": "Duplicate release_id consumption is blocked",
+                "EVIDENCE_ID": "REPLAY-6-6",
+                "TEST_ID": "AUDIT-06",
+                "SCOPE": "Single logical Supabase store",
+                "STATUS": "VERIFIED_WITHIN_SCOPE",
+                "LAST_VERIFIED": "2026-08-27",
+                "LIMITATIONS": ["Two independent replicas not tested", "Webhook duplication not tested"],
+            },
+            "R004": {
+                "CLAIM_ID": "R004",
+                "CLAIM": "Cryptographic receipt tamper is detected",
+                "EVIDENCE_ID": "COLD-VERIFY-3",
+                "TEST_ID": "AUDIT-10",
+                "SCOPE": "Ed25519 + RFC 8785 JCS cryptographic layer",
+                "STATUS": "VERIFIED_WITHIN_SCOPE",
+                "LAST_VERIFIED": "2026-08-27",
+                "LIMITATIONS": ["Cryptographic layer only — full runtime decision reproduction pending"],
+            },
+        },
+        "rule": (
+            "After a test passes, update STATUS to VERIFIED_WITHIN_SCOPE and set LAST_VERIFIED. "
+            "Do not publish a claim without a CLAIM_ID entry in this registry. "
+            "Do not allow VERIFIED_WITHIN_SCOPE to become PRODUCTION_PROVEN without G8 gate passing."
+        ),
+    },
+
+    "VCB_CURRENT_NO_GO_VERDICT": {
+        "name": "Current Engineering Status — NO-GO Verdict",
+        "status": "ACTIVE VERDICT — PRODUCTION_CLAIM_ALLOWED = False",
+        "source": "Final expert consolidated audit directive",
+        "verdict": "NO-GO FOR CONSEQUENCE-BOUNDARY PRODUCTION CLAIMS",
+        "reason": (
+            "F-21 through F-25 expose critical gaps. F-01 through F-20 remain open or partially closed. "
+            "The system has genuine strengths in cryptographic receipt integrity, replay protection, "
+            "and restart durability. These are real achievements. "
+            "But parameter substitution (F-21), caller-supplied authority forgery (F-22), "
+            "service-role shadow routes (F-23), and negative amount bypass (F-24, partially fixed) "
+            "prevent a production consequence-boundary claim."
+        ),
+        "genuine_strengths": [
+            "Radical transparency — gaps declared before being asked",
+            "Cryptographic receipt integrity — 3 independent cold verifications",
+            "Replay protection — 6/6 adversarial",
+            "Restart durability — 9/9",
+            "Stale authority refusal — 10/10",
+            "Explicit scope delimitation — no overclaiming",
+        ],
+        "what_NO_GO_means": (
+            "Do not convert the current architecture into a public claim of complete consequence protection. "
+            "Do not expand architecture. "
+            "Do not add domains or terminology. "
+            "Close F-21, F-22, F-23. Run STILL suite. Run CAT-01. "
+            "Then revisit."
+        ),
+        "strategic_instruction": (
+            "Build VeriSigil so that external challenges become useful test vectors. "
+            "Every challenge adds a test. Every test hardens the proof estate. "
+            "Eventually the product becomes a continuously adversarial proof system "
+            "rather than a static governance product. "
+            "That is much more defensible than any terminology claim."
+        ),
+    },
+
         "positioning_sentence": (
         "Full AI governance runs upstream (should this exist?), "
         "midstream (is this still the approved system under change?), "
