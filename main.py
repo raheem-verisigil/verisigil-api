@@ -104746,6 +104746,361 @@ VCB_ADR_014 = {
         },
     },
 
+        "VCB_STILL_ADVERSARIAL_SUITE_FULL_SPEC": {
+        "name": "STILL Adversarial Suite — Full Test Specifications STILL-01 through STILL-10",
+        "status": "DEFINED — none yet run as named closed tests",
+        "governing_rule": (
+            "The caller cannot supply STILL_PROVABLE=true and have it accepted. "
+            "VCB must independently establish standing from the declared source. "
+            "Caller-supplied currentness is never accepted as authoritative."
+        ),
+        "tests": {
+            "STILL_01": {
+                "name": "Caller-Forged Standing",
+                "attack": "Attacker submits STILL_PROVABLE=true or standing=CURRENT in the request payload without valid authority",
+                "setup": "Valid mandate exists but caller manually asserts currentness without querying source",
+                "expected": "VCB ignores caller assertion, independently queries treasury_mandates, returns real standing",
+                "pass_condition": "Forged assertion does not change VCB decision — VCB queries source independently",
+                "fail_condition": "VCB accepts caller-supplied STILL value as authoritative input",
+                "actuator_invoked": False,
+                "status": "NOT_YET_RUN",
+            },
+            "STILL_02": {
+                "name": "Revocation Between Examination and Execution",
+                "attack": "Authority is valid at T0 examination, revoked at T1, execution attempted at T2",
+                "setup": "Mandate issued, STILL check passes at T0, mandate revoked before T2 execution attempt",
+                "expected": "STILL re-checks at commitment time, detects revocation, returns STANDING_LOST → REFUSE",
+                "pass_condition": "Action refused after revocation — actuator not called",
+                "fail_condition": "Historical T0 pass permits T2 execution despite revocation",
+                "actuator_invoked": False,
+                "status": "NOT_YET_RUN",
+                "maps_to": "TOCTOU gap — CR-04",
+            },
+            "STILL_03": {
+                "name": "Authority Source Unavailable",
+                "attack": "Supabase unavailable when STILL gate queries treasury_mandates",
+                "setup": "Block or simulate Supabase outage, submit otherwise-valid action",
+                "expected": "STANDING_NOT_PROVABLE → REFUSE — not STANDING_CURRENT from cache",
+                "pass_condition": "Action refused with NOT_PROVABLE — actuator not called",
+                "fail_condition": "Stale cache or in-memory fallback permits execution",
+                "actuator_invoked": False,
+                "status": "NOT_YET_RUN",
+            },
+            "STILL_04": {
+                "name": "Material State Delta Invalidates Prior Examination",
+                "attack": "Material condition changes between authorization and commitment — system uses stale examination",
+                "setup": "Authorize action, change material condition (owner, delegation, policy), re-attempt execution",
+                "expected": "REVALIDATION_REQUIRED — prior examination result not silently inherited",
+                "pass_condition": "System detects delta, refuses or requires re-examination",
+                "fail_condition": "Prior examination result silently carries through despite material change",
+                "actuator_invoked": False,
+                "status": "NOT_YET_RUN",
+            },
+            "STILL_05": {
+                "name": "Stale Examination Replay",
+                "attack": "Previously passing examination result presented again after conditions change",
+                "setup": "Perform valid STILL check, change conditions, replay old examination result",
+                "expected": "Old examination result not accepted — VCB performs fresh query",
+                "pass_condition": "Fresh STILL query performed — stale result rejected",
+                "fail_condition": "Old passing result accepted without fresh query",
+                "actuator_invoked": False,
+                "status": "NOT_YET_RUN",
+            },
+            "STILL_06": {
+                "name": "Wrong or Ambiguous Authority Source",
+                "attack": "Caller references wrong authority source or one they do not control",
+                "setup": "Submit action with authority_source pointing to different mandate or non-existent record",
+                "expected": "Source mismatch detected — STANDING_NOT_PROVABLE or AUTHORITY_SOURCE_MISMATCH",
+                "pass_condition": "Wrong source rejected — action refused",
+                "fail_condition": "System accepts authority from wrong or uncontrolled source",
+                "actuator_invoked": False,
+                "status": "NOT_YET_RUN",
+            },
+            "STILL_07": {
+                "name": "Timestamp Validity",
+                "attack": "Examination timestamp is outside valid window or has been manipulated",
+                "setup": "Submit action with examination timestamp outside declared freshness window",
+                "expected": "Stale timestamp rejected — fresh examination required",
+                "pass_condition": "Timestamp outside window causes re-examination or refusal",
+                "fail_condition": "Stale timestamp accepted without freshness check",
+                "actuator_invoked": False,
+                "status": "NOT_YET_RUN",
+            },
+            "STILL_08": {
+                "name": "Authority-Source Outage Fail-Closed",
+                "attack": "Authority source fails completely — does any degraded path permit execution?",
+                "setup": "Take Supabase fully offline, attempt consequential action through all known routes",
+                "expected": "Every route returns STANDING_NOT_PROVABLE → REFUSE — no silent continuation",
+                "pass_condition": "System fails closed — no execution on any route",
+                "fail_condition": "Any route executes during authority-source outage",
+                "actuator_invoked": False,
+                "status": "NOT_YET_RUN",
+            },
+            "STILL_09": {
+                "name": "Owner Change — Standing Loss",
+                "attack": "O1 authorizes at T0, accountability transfers to O2 at T1, same action attempted at T2",
+                "setup": "O1 mandate valid, ownership record updated to O2 without reapproval, action re-attempted",
+                "expected": "STANDING_LOST or STANDING_NOT_PROVABLE → REFUSE or ESCALATE",
+                "pass_condition": "Historical O1 authorization does not carry through to O2 period",
+                "fail_condition": "Historical authorization silently carries through after ownership change",
+                "maps_to": "CAT-01",
+                "actuator_invoked": False,
+                "status": "NOT_YET_RUN",
+            },
+            "STILL_10": {
+                "name": "Material Condition Change — Revalidation Required",
+                "attack": "Material condition changes after evaluation — system proceeds with stale evaluation",
+                "examples": [
+                    "Supplier account changes after authorization",
+                    "Transaction amount changes",
+                    "Delegation expires mid-flow",
+                    "Policy version changes",
+                    "Risk status changes",
+                ],
+                "expected": "REVALIDATION_REQUIRED — original evaluation cannot automatically continue",
+                "pass_condition": "System detects change and requires fresh examination",
+                "fail_condition": "Execution proceeds on stale evaluation despite material change",
+                "actuator_invoked": False,
+                "status": "NOT_YET_RUN",
+            },
+        },
+    },
+
+    "VCB_ROUTE_INVENTORY_SCHEMA": {
+        "name": "Consequence Route Inventory — route_inventory.yaml Schema",
+        "status": "SCHEMA DEFINED — machine-readable YAML artifact not yet created",
+        "artifact_required": "route_inventory.yaml in repository root",
+        "purpose": (
+            "Every consequence-capable route must be declared, inventoried, and tested. "
+            "The honest claim is bounded to the declared audited inventory — "
+            "not a claim of universal non-bypassability."
+        ),
+        "schema": {
+            "route_id": "UNIQUE identifier e.g. VS-ROUTE-01",
+            "entry_point": "HTTP method + path e.g. POST /v1/vcb/seal",
+            "actor": "who can invoke this route e.g. API_KEY_HOLDER",
+            "credential": "what credential is required",
+            "authority_check": "function/module enforcing authority e.g. evaluate_release()",
+            "still_check": "function/module enforcing STILL e.g. still_authority_adapter()",
+            "commitment_check": "ConsequenceCommitment enforcement point — PENDING until WP-03",
+            "actuator": "what actuator this route can invoke",
+            "fallback": "what happens if authority source unavailable",
+            "logging": "what is logged and where",
+            "external_effect": "what external system is affected",
+            "protected": "YES / NO",
+            "tested": "FULLY / PARTIALLY / NOT_TESTED",
+            "audit_status": "VERIFIED / PARTIALLY_VERIFIED / NOT_YET_AUDITED",
+        },
+        "current_declared_inventory": {
+            "VS_ROUTE_01": {
+                "entry_point": "POST /v1/vcb/seal",
+                "authority_check": "evaluate_release_with_still_adapter()",
+                "still_check": "STILL gate queries treasury_mandates",
+                "commitment_check": "NOT_YET_ENFORCED",
+                "actuator": "Paystack test API (C2)",
+                "protected": "YES",
+                "tested": "PARTIALLY",
+                "audit_status": "PARTIALLY_VERIFIED",
+            },
+            "VS_ROUTE_02": {
+                "entry_point": "POST /v1/engineering/test-paystack-actuator",
+                "authority_check": "evaluate_release()",
+                "still_check": "STILL gate",
+                "commitment_check": "NOT_YET_ENFORCED",
+                "actuator": "Paystack test API",
+                "protected": "YES",
+                "tested": "PARTIALLY",
+                "audit_status": "PARTIALLY_VERIFIED",
+            },
+        },
+        "routes_requiring_audit": [
+            "Background workers — not yet inventoried",
+            "Queue consumers — not yet inventoried",
+            "Webhooks — not yet inventoried",
+            "Admin routes — not yet inventoried",
+            "Service-role Supabase access — declared out of scope pending audit",
+            "Database functions — not yet inventoried",
+            "Infrastructure scripts — not yet inventoried",
+        ],
+        "honest_claim": (
+            "Zero ungoverned routes found within the declared and audited route inventory (2 routes). "
+            "Not a claim of universal non-bypassability."
+        ),
+    },
+
+    "VCB_DELEGATION_RESULT_STATES": {
+        "name": "Delegation Lineage Result States",
+        "status": "DOCTRINE — all must be implemented as named result codes",
+        "states": {
+            "PARENT_NOT_FOUND": "Parent mandate does not exist in persistent state",
+            "PARENT_EXPIRED": "Parent mandate has passed its declared expiry",
+            "PARENT_REVOKED": "Parent mandate has been explicitly revoked",
+            "PARENT_OWNER_CHANGED": "Parent mandate's accountable owner has changed",
+            "SCOPE_EXCEEDED": "Child attempts action outside delegated scope",
+            "CEILING_EXCEEDED": "Child attempts action above delegated ceiling",
+            "DELEGATION_INVALID": "Child delegation is structurally invalid — malformed or missing required fields",
+            "DELEGATION_DEPTH_EXCEEDED": "Delegation chain exceeds declared maximum depth",
+            "DELEGATION_REPLAYED": "Child attempts to reuse a consumed delegation token",
+            "DELEGATION_SUBSTITUTED": "Child delegation has been attached to a different identity than originally issued",
+        },
+        "required_in_evaluate_release": True,
+        "currently_implemented": ["PARENT_NOT_FOUND", "PARENT_REVOKED", "SCOPE_EXCEEDED"],
+        "pending_implementation": ["PARENT_EXPIRED", "DELEGATION_INVALID", "DELEGATION_DEPTH_EXCEEDED", "DELEGATION_REPLAYED", "DELEGATION_SUBSTITUTED", "PARENT_OWNER_CHANGED"],
+    },
+
+    "VCB_ENGINEER_SIX_QUESTION_FORMAT": {
+        "name": "Engineer Six-Question Verification Format",
+        "status": "MANDATORY — every work package must be reported in this format",
+        "source": "Expert A consolidated audit direction",
+        "rule": (
+            "If any one of the six questions cannot be answered, "
+            "the item cannot be marked VERIFIED. "
+            "BUILT does not equal VERIFIED. "
+            "A test that was written does not equal a test that was run."
+        ),
+        "six_questions": {
+            "Q1": "What was supposed to be built?",
+            "Q2": "Where is it implemented? (repository path, module, function, commit)",
+            "Q3": "What exact attack or test was run against it?",
+            "Q4": "What exact result occurred?",
+            "Q5": "What artifact proves the result? (log, receipt, hash, test output, commit)",
+            "Q6": "What remains outside the proof boundary?",
+        },
+        "required_status_labels": [
+            "BUILT",
+            "TESTED",
+            "VERIFIED_WITHIN_SCOPE",
+            "PARTIALLY_VERIFIED",
+            "FAILED",
+            "NOT_YET_DELIVERED",
+            "UNKNOWN_INSUFFICIENT_EVIDENCE",
+        ],
+        "forbidden_conflation": [
+            "BUILT must not become VERIFIED",
+            "TESTED must not become VERIFIED_WITHIN_SCOPE without evidence artifact",
+            "PARTIALLY_VERIFIED must not become VERIFIED_WITHIN_SCOPE without closing the partial",
+            "SANDBOX_ONLY must not become PRODUCTION_PROVEN",
+        ],
+        "engineer_report_template": {
+            "AUDIT_ID": "AUDIT-XX",
+            "CLAIM": "What property is being claimed",
+            "Q1_WHAT_TO_BUILD": "Specification of what was supposed to be implemented",
+            "Q2_IMPLEMENTATION": {
+                "repository_path": "",
+                "module": "",
+                "function_or_service": "",
+                "commit_hash": "",
+            },
+            "Q3_ATTACK_OR_TEST": "Exact reproducible command or procedure",
+            "Q4_RESULT": "What exactly happened — pass or fail or partial",
+            "Q5_EVIDENCE": {
+                "test_output": "",
+                "receipt_or_artifact": "",
+                "log_or_hash": "",
+                "commit": "",
+            },
+            "Q6_PROOF_BOUNDARY": "What this test does NOT prove",
+            "ACTUATOR_INVOKED": "YES / NO / UNKNOWN",
+            "INDEPENDENT_VERIFICATION": "How another party can reproduce without operator assistance",
+            "STATUS": "one of the seven required status labels",
+            "ENGINEER_SIGN_OFF": "",
+        },
+    },
+
+    "VCB_PROOF_PROGRAM_SEQUENCE": {
+        "name": "VeriSigil Proof Program — Mandatory Sequence",
+        "status": "GOVERNING SEQUENCE — do not reorder or skip steps",
+        "source": "Expert A consolidated audit proof program",
+        "principle": (
+            "Every gate must be passed before the next gate opens. "
+            "A feature is complete only when its behavior has been tested under the conditions "
+            "that could falsify it, the result is recorded, and the evidence can be "
+            "independently reproduced."
+        ),
+        "sequence": {
+            "PHASE_1_STILL": {
+                "name": "STILL Adversarial Suite",
+                "tests": "STILL-01 through STILL-10",
+                "must_pass_before": "CAT-01",
+                "status": "NOT_YET_RUN",
+            },
+            "PHASE_2_CAT01": {
+                "name": "CAT-01 Owner Change Falsification",
+                "tests": "O1→O2 scenario — 5 attack variants",
+                "must_pass_before": "ConsequenceCommitment",
+                "status": "NOT_YET_RUN",
+            },
+            "PHASE_3_COMMITMENT": {
+                "name": "ConsequenceCommitment Exact Action Binding",
+                "tests": "Parameter mutation, TTL expiry, nonce consumption",
+                "must_pass_before": "Delegation lineage",
+                "status": "NOT_YET_BUILT in execute_release()",
+            },
+            "PHASE_4_DELEGATION": {
+                "name": "Delegation Lineage Persistent State",
+                "tests": "DL-01 through DL-05 — parent expiry, revocation, escalation, substitution, persistence",
+                "must_pass_before": "Fallback/Failure/Concurrency",
+                "status": "PARTIALLY — schema only; Alkama DP-3/DP-4 pending",
+            },
+            "PHASE_5_OPERATIONAL": {
+                "name": "Fallback Isolation + Operational Failure + Concurrency",
+                "tests": "WP-00 + WP-06 — crash, timeout, duplicate delivery, multi-instance race",
+                "must_pass_before": "Machine Action Ledger",
+                "status": "PARTIALLY — restart demonstrated; others pending",
+            },
+            "PHASE_6_LEDGER": {
+                "name": "Machine Action Ledger Pre-Action Enforcement",
+                "tests": "WP-05 — ledger entry created before consequence, not reconstructed after",
+                "must_pass_before": "Independent Reproduction",
+                "status": "FIELDS SPECIFIED — pre-action enforcement pending",
+            },
+            "PHASE_7_REPRODUCTION": {
+                "name": "Independent Reproduction — Full VCB Path",
+                "tests": "Cold reproduction package — external party reproduces full path without operator",
+                "must_pass_before": "Claims Registry",
+                "status": "Level A complete; Levels B and C pending",
+            },
+            "PHASE_8_CLAIMS": {
+                "name": "Claims Registry and Public Claim Ceiling",
+                "tests": "claims_registry.yaml created, every public claim traced to artifact",
+                "must_pass_before": "Public claim ceiling lifted",
+                "status": "Doctrine only — YAML not yet created",
+            },
+            "PHASE_9_CORRIDOR": {
+                "name": "First Commercial Corridor — VS-CORRIDOR-01",
+                "tests": "Full end-to-end: valid action, refused action, owner change, parameter mutation, replay, independent reproduction",
+                "must_pass_before": "G8 gate — narrow commercial positioning",
+                "status": "SPECIFIED — test vectors partially demonstrated",
+            },
+        },
+        "master_verification_matrix": {
+            "description": "A01-A20 per audit — engineer must maintain this table",
+            "columns": ["ID", "Control", "Code", "Attack", "Expected", "Actual", "Evidence", "Independent_test", "Status"],
+            "rows": {
+                "A01": {"control": "Route control", "code": "partial", "attack": "bypass route", "expected": "blocked", "status": "PARTIALLY_VERIFIED"},
+                "A02": {"control": "STILL", "code": "yes", "attack": "stale authority", "expected": "refuse", "status": "PARTIALLY_VERIFIED"},
+                "A03": {"control": "Owner continuity", "code": "pending", "attack": "O1→O2", "expected": "refuse", "status": "NOT_YET_DELIVERED"},
+                "A04": {"control": "Commitment", "code": "pending", "attack": "parameter substitution", "expected": "mismatch", "status": "NOT_YET_DELIVERED"},
+                "A05": {"control": "Refusal", "code": "yes", "attack": "failed standing", "expected": "no actuator", "status": "PARTIALLY_VERIFIED"},
+                "A06": {"control": "Replay", "code": "yes", "attack": "duplicate", "expected": "one success", "status": "VERIFIED_WITHIN_SCOPE"},
+                "A07": {"control": "Delegation", "code": "partial", "attack": "parent revoked", "expected": "refuse", "status": "PARTIALLY_VERIFIED"},
+                "A08": {"control": "Fallback", "code": "partial", "attack": "authority outage", "expected": "refuse", "status": "PARTIALLY_VERIFIED"},
+                "A09": {"control": "Ledger", "code": "partial", "attack": "post-hoc reconstruction", "expected": "impossible or identified", "status": "SPECIFIED"},
+                "A10": {"control": "Receipt", "code": "yes", "attack": "tampering", "expected": "invalid", "status": "VERIFIED_WITHIN_SCOPE"},
+                "A11": {"control": "Reproduction", "code": "partial", "attack": "cold verification", "expected": "reproduce", "status": "PARTIALLY_VERIFIED"},
+                "A12": {"control": "Failure", "code": "partial", "attack": "crash/timeout", "expected": "safe state", "status": "PARTIALLY_VERIFIED"},
+                "A13": {"control": "Race", "code": "partial", "attack": "two replicas", "expected": "one valid", "status": "PARTIALLY_VERIFIED"},
+                "A14": {"control": "Policy", "code": "partial", "attack": "policy bypass", "expected": "blocked", "status": "PARTIALLY_VERIFIED"},
+                "A15": {"control": "Identity", "code": "partial", "attack": "substitution", "expected": "refuse", "status": "PARTIALLY_VERIFIED"},
+                "A16": {"control": "Data authority", "code": "not built", "attack": "unauthorized use", "expected": "refuse", "status": "NOT_YET_DELIVERED"},
+                "A17": {"control": "Evidence", "code": "partial", "attack": "missing outcome", "expected": "explicit uncertainty", "status": "PARTIALLY_VERIFIED"},
+                "A18": {"control": "Currentness", "code": "partial", "attack": "material change", "expected": "re-evaluate", "status": "PARTIALLY_VERIFIED"},
+                "A19": {"control": "Claims", "code": "partial", "attack": "unsupported claim", "expected": "reject publication", "status": "PARTIALLY_VERIFIED"},
+                "A20": {"control": "Falsification", "code": "partial", "attack": "defined attack", "expected": "reproducible result", "status": "PARTIALLY_VERIFIED"},
+            },
+        },
+    },
+
         "positioning_sentence": (
         "Full AI governance runs upstream (should this exist?), "
         "midstream (is this still the approved system under change?), "
