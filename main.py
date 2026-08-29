@@ -125840,3 +125840,177 @@ VCB_ALKAMA_DP3_RESULT = {
     },
 }
 
+
+# ============================================================
+# ALKAMA EXPERT REQUIREMENTS — COMPLETE BUILD
+# All 10 missing items from expert recommendations
+# ============================================================
+
+VCB_PROOF_DISCIPLINE_RULES = {
+    "name": "Proof Discipline Rules — Expert Synthesis from Alkama Section",
+    "status": "GOVERNING DOCTRINE — applies to every engineering claim",
+
+    "rule_specification_not_evidence": (
+        "A specification of a security property is not evidence of the property. "
+        "A passing unit test is not automatically evidence of an end-to-end property. "
+        "An end-to-end result is not independently reproduced evidence until an external "
+        "verifier can reproduce it without being given the expected outcome. "
+        "This single rule protects against almost every future public challenge."
+    ),
+
+    "rule_bounded_proof_program": (
+        "The project has moved from architecture claims to a bounded proof program. "
+        "The remaining vulnerabilities and unknowns are now explicitly identified, "
+        "assigned tests, and connected to release gates. "
+        "No unresolved item is being counted as proof. "
+        "Use this instead of: 'we have a comprehensive engineering plan.'"
+    ),
+
+    "rule_actuator_security_boundary": (
+        "The actuator is now part of the security boundary, "
+        "rather than being treated as merely the final destination. "
+        "Even if every upstream layer says proceed: the actuator checks valid commitment, "
+        "match, validity, and authorization. No valid commitment → actuator refuses. "
+        "This is the Actuator Integrity Boundary — mandatory layer in the canonical chain."
+    ),
+
+    "proof_hierarchy": {
+        "SPECIFIED": "Architecture defined in doctrine — not evidence",
+        "IMPLEMENTED": "Code written — not yet tested — not evidence",
+        "TESTED": "Test written and run — not yet independently verified — not end-to-end evidence",
+        "VERIFIED_WITHIN_SCOPE": "Test passed under declared conditions with evidence artifact",
+        "INDEPENDENTLY_REPRODUCED": "External verifier reproduced result without being given expected outcome",
+        "END_TO_END_VERIFIED_WITHIN_DECLARED_THREAT_BOUNDARY": "All four proof layers demonstrated under adversarial conditions",
+    },
+}
+
+VCB_DP3_PROOF_REQUIREMENTS = {
+    "name": "DP-3A and DP-3B Proof Requirements from Alkama Result",
+    "status": "REQUIRED — both must be demonstrated before delegation authority claim",
+
+    "DP_3A_POSITIVE_LINEAGE_RESOLUTION": {
+        "name": "DP-3A — Positive Lineage Resolution",
+        "description": (
+            "We must demonstrate the positive control — not merely that missing/unknown "
+            "parents are rejected. The full positive path must succeed and return a "
+            "structured ruling before any escalation test becomes diagnostic."
+        ),
+        "required_sequence": [
+            "valid persistent parent",
+            "parent retrieved from durable state (storage=SUPABASE, durability_verified=True)",
+            "parent standing established",
+            "child lineage established (lineage_verified=True)",
+            "child scope evaluated against parent scope",
+            "structured ruling returned",
+        ],
+        "required_response_fields": {
+            "lineage_verified": "True — only when parent loaded from durable store",
+            "parent_sigilmark_id": "the actual parent ID",
+            "parent_scope": "list of parent authorized actions",
+            "parent_ceiling": "parent authority ceiling",
+            "storage": "SUPABASE — never IN_MEMORY for authority delegation",
+            "retrieval_source": "SUPABASE",
+            "durability_verified": "True",
+        },
+        "rule": (
+            "lineage_verified=True must NOT be returned unless the parent was "
+            "successfully loaded, validated, and bound from the authoritative durable store."
+        ),
+        "current_status": "NOT YET ESTABLISHED — parent lookup fixed, re-run required",
+    },
+
+    "DP_3B_DURABLE_STATE_PROVENANCE": {
+        "name": "DP-3B — Durable-State Provenance",
+        "description": (
+            "Four distinct states must never be collapsed. "
+            "Each requires separate evidence."
+        ),
+        "distinct_states": {
+            "OBJECT_EXISTS": "The object was found somewhere — memory, cache, or DB",
+            "DURABLE_STATE_CONFIRMED": "The object came from the authoritative durable store (Supabase)",
+            "CURRENT_AUTHORITY_CONFIRMED": "The authority is current as of the moment of examination",
+            "CONSEQUENCE_ADMISSIBLE": "All four objects established — action may proceed",
+        },
+        "forbidden_collapsing": [
+            "OBJECT_EXISTS must never imply DURABLE_STATE_CONFIRMED",
+            "DURABLE_STATE_CONFIRMED must never imply CURRENT_AUTHORITY_CONFIRMED",
+            "CURRENT_AUTHORITY_CONFIRMED must never imply CONSEQUENCE_ADMISSIBLE without exact binding",
+        ],
+        "alkama_finding": (
+            "Persist reported SUPABASE. Retrieve reported IN_MEMORY. "
+            "These are different states. The object existed but durable provenance was not confirmed. "
+            "Fixed: retrieve_sigilmark now queries Supabase first."
+        ),
+        "current_status": "PARTIALLY FIXED — re-run required to confirm",
+    },
+}
+
+VCB_DELEGATION_COMPLETE_RESULT_STATES = {
+    "name": "Delegation Complete Result State Vocabulary",
+    "status": "ALL STATES REQUIRED — structured body on every outcome, never plain 500",
+    "source": "Expert synthesis from Alkama DP-3 section",
+
+    "states": {
+        "MISSING_PARENT_BINDING": "No parent_sigilmark_id provided — VERIFIED by Alkama",
+        "PARENT_NOT_FOUND": "Parent sigilmark ID not found in durable store — VERIFIED by Alkama",
+        "PARENT_LOOKUP_UNAVAILABLE": "Parent lookup path failed due to service unavailability — now returns structured error",
+        "DELEGATION_PARENT_LOOKUP_FAILURE": "Parent sigilmark extraction failed with exception — returns structured error with type and detail",
+        "DELEGATION_INTERNAL_ERROR": "Internal error in delegation evaluation — returns structured body, never plain 500",
+        "PARENT_EXPIRED": "Parent mandate has passed expiry — structured refusal",
+        "PARENT_REVOKED": "Parent mandate has been revoked — structured refusal",
+        "PARENT_DURABILITY_UNCONFIRMED": "Parent retrieved from cache, not durable store — delegation cannot proceed",
+        "PARENT_SIGILMARK_EMPTY": "Parent found but payload is empty or malformed — structured refusal",
+        "DELEGATION_SCOPE_VIOLATION": "Child scope exceeds parent scope — structured refusal with violations list",
+        "DELEGATION_VALID": "Child within parent scope, ceiling, purpose — structured success with lineage_verified=True",
+        "LINEAGE_VERIFIED": "Full positive lineage resolution confirmed from durable store",
+        "DURABILITY_ORIGIN_UNCONFIRMED": "Object found but durable provenance not confirmed",
+        "DURABLE_STATE_CONFIRMED": "Object confirmed retrieved from authoritative durable store",
+    },
+
+    "rule_no_plain_500": (
+        "Every delegation path must return a structured JSON body with error, ruling, "
+        "and state_mutation fields. Plain-text HTTP 500 is the same class of defect "
+        "as RUN4-DP-001 (previously accepted on revoke path) — it has reappeared on "
+        "the delegation endpoint and is now fixed."
+    ),
+
+    "source_record_hash_requirement": {
+        "field_name": "source_record_hash",
+        "description": "sha256 hash of the raw record as retrieved from the durable store",
+        "purpose": "Independent verifier can confirm the exact record content without trusting the system's interpretation",
+        "format": "sha256:<hex>",
+        "required_in": ["durable retrieve responses", "lineage verification receipts"],
+        "current_status": "SPECIFIED — not yet implemented in retrieve_sigilmark response",
+    },
+
+    "F_25_DELEGATION_PARENT_LOOKUP_FAILURE_FINDING": {
+        "finding_id": "F-25",
+        "severity": "CRITICAL",
+        "area": "AUDIT-07 — Delegation Lineage / delegation_issue endpoint",
+        "confirmed_by": "Alkama independent verification, August 2026",
+        "description": (
+            "Any request carrying a valid freshly-persisted parent_sigilmark_id "
+            "returned HTTP 500, plain text, no structured body, no ruling. "
+            "Affected both the escalation probe AND the legitimate narrow child control. "
+            "Because the control case failed identically, this was NOT the escalation logic. "
+            "The parent lookup path crashed before reaching lineage evaluation."
+        ),
+        "root_cause": (
+            "parent_sm.get('consequence_envelope', {}).get('ceiling') raised TypeError "
+            "when consequence_envelope was absent from the persisted sigilmark structure. "
+            "No try/except wrapper — unhandled exception returned as plain-text 500."
+        ),
+        "fix_applied": (
+            "Entire parent extraction wrapped in try/except. "
+            "DELEGATION_PARENT_LOOKUP_FAILURE returned with structured body on any failure. "
+            "PARENT_DURABILITY_UNCONFIRMED check added before proceeding. "
+            "Safe parent_ceiling extraction with None check and alternate field fallback."
+        ),
+        "fix_status": "APPLIED — Alkama re-run required to confirm",
+        "claim_impact": (
+            "DELEGATION_SCOPE_VIOLATION and lineage_verified=True were both unreachable. "
+            "Schema enforcement verified. Authority path not yet proven."
+        ),
+    },
+}
+
