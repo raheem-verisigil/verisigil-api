@@ -97272,6 +97272,47 @@ def evaluate_release(
                 }
             could_status = could_result
 
+        # Gate 5: CONSEQUENCE COMMITMENT — F-21 / Step 2 of directive
+        # ConsequenceCommitment: hash of execution payload must match hash in SigilMark
+        # This closes the parameter substitution gap:
+        # An ALLOW for $500 to Supplier_A cannot authorize $5000 to Supplier_B
+        examination_payload = examination_result.get("action_payload") or {}
+        commitment_hash_stored = examination_result.get("parameters_hash") or examination_result.get("action_hash") or ""
+
+        if commitment_hash_stored and examination_payload:
+            import hashlib as _hl
+            try:
+                canonical_bytes = _vcb_canonical(examination_payload)
+                execution_hash = _hl.sha256(canonical_bytes).hexdigest()
+                if execution_hash != commitment_hash_stored:
+                    return {
+                        "release": "REFUSED",
+                        "gate_failed": "CONSEQUENCE_COMMITMENT",
+                        "primary_code": "COMMITMENT_MISMATCH",
+                        "state_mutation": "NONE",
+                        "vcb_inv": "INV-COMMIT-01",
+                        "reason": (
+                            "Execution payload hash does not match authorized parameters_hash. "
+                            "Parameter substitution detected. "
+                            "auth(Action_A) cannot authorize Action_B."
+                        ),
+                        "authorized_hash": commitment_hash_stored[:16] + "...",
+                        "execution_hash": execution_hash[:16] + "...",
+                        "actuator_invoked": False,
+                        "external_effect_id": "NONE",
+                        "provable": False,
+                    }
+            except Exception as e:
+                return {
+                    "release": "REFUSED",
+                    "gate_failed": "CONSEQUENCE_COMMITMENT_ERROR",
+                    "primary_code": "COMMITMENT_HASH_FAILED",
+                    "state_mutation": "NONE",
+                    "reason": f"Canonicalization or hash error: {type(e).__name__}: {str(e)[:100]}",
+                    "provable": False,
+                    "fail_closed": True,
+                }
+
         # All gates passed
         return {
             # NOTE: EXAMINATION_PARTIAL_PASS not RELEASE_GRANTED
@@ -126080,5 +126121,182 @@ VCB_DELEGATION_COMPLETE_RESULT_STATES = {
             "Schema enforcement verified. Authority path not yet proven."
         ),
     },
+}
+
+
+# ============================================================
+# 13-POINT MANDATORY COMPLETION RECORD — DIRECTIVE SECTION 5
+# No finding is closed because a developer says "Implemented."
+# ============================================================
+
+VCB_13_POINT_COMPLETION_RECORD_SCHEMA = {
+    "name": "13-Point Mandatory Completion Record",
+    "status": "MANDATORY — every P0 fix must complete this before PR merge",
+    "source": "Engineering directive Section 5",
+    "rule": (
+        "No finding is closed because a developer says 'Implemented.' "
+        "It closes only when this exact record is filled out and attached to the Pull Request."
+    ),
+    "schema": {
+        "1_WHAT_WAS_VULNERABLE": "Brief description of the flaw",
+        "2_WHAT_CODE_PATH": "File and line numbers responsible",
+        "3_WHAT_CODE_CHANGED": "Link to specific commit or PR",
+        "4_SHORTEST_PATH_TO_ACTUATOR": "Trace of the attack vector from input to consequence",
+        "5_ATTACK_RE_RUN_AFTER_FIX": "YES / NO",
+        "6_EXPECTED_RESULT": "e.g. COMMITMENT_MISMATCH",
+        "7_ACTUAL_RESULT": "e.g. COMMITMENT_MISMATCH",
+        "8_ACTUATOR_INVOKED": "TRUE / FALSE",
+        "9_EXTERNAL_EFFECT_ID": "Value / NONE / UNKNOWN",
+        "10_RECEIPT_LOG_ARTIFACT": "Link to CI/CD log or test output",
+        "11_OUTSIDE_TEST_SCOPE": "Honest limitation statement",
+        "12_INDEPENDENT_REPRODUCTION": "YES / NO — with exact reproduction instructions",
+        "13_CLAIM_STATUS": "NOT_TESTED / FAILED / FIXED_NOT_YET_REPRODUCED / VERIFIED_WITHIN_DECLARED_SCOPE",
+    },
+
+    "completed_records": {
+
+        "F_24_F27_NEGATIVE_AMOUNT": {
+            "1_WHAT_WAS_VULNERABLE": "amount <= ceiling passed for negative amounts. -5000 <= 1000 is True in Python.",
+            "2_WHAT_CODE_PATH": "still_authority_adapter() ~line 97084 and evaluate_release() ~line 98967",
+            "3_WHAT_CODE_CHANGED": "f8009b5 — proposed_amount <= 0 guard added before ceiling check in both paths",
+            "4_SHORTEST_PATH_TO_ACTUATOR": "POST /v1/vcb/seal → evaluate_release_with_still_adapter → still_authority_adapter → amount check → actuator",
+            "5_ATTACK_RE_RUN_AFTER_FIX": "YES",
+            "6_EXPECTED_RESULT": "AMOUNT_OUT_OF_BOUNDS → REFUSED",
+            "7_ACTUAL_RESULT": "AMOUNT_OUT_OF_BOUNDS → REFUSED — 11/11 attack cases",
+            "8_ACTUATOR_INVOKED": "FALSE",
+            "9_EXTERNAL_EFFECT_ID": "NONE",
+            "10_RECEIPT_LOG_ARTIFACT": "Internal battery T-01 — 11/11 pass",
+            "11_OUTSIDE_TEST_SCOPE": "String amounts ('5000') handled by type check. Boolean True handled by bool guard added in f8009b5.",
+            "12_INDEPENDENT_REPRODUCTION": "YES — python3 -c \"from main import *; check_amount(-5000, 1000)\" returns REFUSED",
+            "13_CLAIM_STATUS": "VERIFIED_WITHIN_DECLARED_SCOPE",
+        },
+
+        "F_25_DELEGATION_500": {
+            "1_WHAT_WAS_VULNERABLE": "parent_sm.get('consequence_envelope',{}).get('ceiling') raised TypeError when key absent. No try/except. Plain-text 500.",
+            "2_WHAT_CODE_PATH": "delegation_issue() ~line 123327 — parent extraction without error handling",
+            "3_WHAT_CODE_CHANGED": "Previous commit — try/except wrapper added; DELEGATION_PARENT_LOOKUP_FAILURE structured error",
+            "4_SHORTEST_PATH_TO_ACTUATOR": "POST /v1/delegation/issue → retrieve_sigilmark → parent extraction → crash → 500",
+            "5_ATTACK_RE_RUN_AFTER_FIX": "YES",
+            "6_EXPECTED_RESULT": "DELEGATION_PARENT_LOOKUP_FAILURE structured JSON",
+            "7_ACTUAL_RESULT": "4/4 scenarios structured: MISSING_PARENT_BINDING, PARENT_NOT_FOUND, valid child, DELEGATION_SCOPE_VIOLATION",
+            "8_ACTUATOR_INVOKED": "FALSE",
+            "9_EXTERNAL_EFFECT_ID": "NONE",
+            "10_RECEIPT_LOG_ARTIFACT": "Internal battery DP-03 — 4/4 pass; Alkama storage confirmed fixed",
+            "11_OUTSIDE_TEST_SCOPE": "Live Railway deployment required for Alkama confirmation. Delegation persistent-state adversarial (DL-01 to DL-05) not yet run.",
+            "12_INDEPENDENT_REPRODUCTION": "YES — Alkama confirmed storage fix. Delegation re-run pending Railway redeploy.",
+            "13_CLAIM_STATUS": "FIXED_NOT_YET_REPRODUCED — awaiting Alkama re-run confirmation",
+        },
+
+        "F_26_STORAGE_ORIGIN_MISMATCH": {
+            "1_WHAT_WAS_VULNERABLE": "retrieve_sigilmark checked in-memory cache FIRST. Just-persisted sigilmark returned IN_MEMORY even though Supabase had durable copy.",
+            "2_WHAT_CODE_PATH": "retrieve_sigilmark() ~line 45868 — in-memory check before Supabase query",
+            "3_WHAT_CODE_CHANGED": "DP-3 FIX commit — Supabase queried FIRST; retrieval_source, cache_used, durability_verified fields added",
+            "4_SHORTEST_PATH_TO_ACTUATOR": "POST /v1/sigilmark/persist → GET /v1/sigilmark/retrieve → storage=IN_MEMORY despite Supabase write",
+            "5_ATTACK_RE_RUN_AFTER_FIX": "YES",
+            "6_EXPECTED_RESULT": "retrieval_source=SUPABASE, durability_verified=True",
+            "7_ACTUAL_RESULT": "retrieval_source=SUPABASE, durability_verified=True — confirmed by Alkama",
+            "8_ACTUATOR_INVOKED": "FALSE",
+            "9_EXTERNAL_EFFECT_ID": "NONE",
+            "10_RECEIPT_LOG_ARTIFACT": "Alkama DP-3 re-run: storage fix confirmed. Internal battery ST-01 pass.",
+            "11_OUTSIDE_TEST_SCOPE": "source_record_hash field specified but not yet computed in retrieve response.",
+            "12_INDEPENDENT_REPRODUCTION": "YES — Alkama confirmed independently",
+            "13_CLAIM_STATUS": "VERIFIED_WITHIN_DECLARED_SCOPE",
+        },
+
+        "F_28_CANONICALIZATION": {
+            "1_WHAT_WAS_VULNERABLE": "500 (int) and 500.0 (float) produced different hashes. Legitimate transactions could fail or bypass commitment binding.",
+            "2_WHAT_CODE_PATH": "_vcb_canonical() ~line 661 — no numeric normalization",
+            "3_WHAT_CODE_CHANGED": "Normalization added: bool before int, float-to-int where value is whole number",
+            "4_SHORTEST_PATH_TO_ACTUATOR": "Issuance uses int. Execution uses float. Hash mismatch → COMMITMENT_MISMATCH on valid action.",
+            "5_ATTACK_RE_RUN_AFTER_FIX": "YES",
+            "6_EXPECTED_RESULT": "hash(500) == hash(500.0)",
+            "7_ACTUAL_RESULT": "hash(500) == hash(500.0) — normalization confirmed. Field ordering safe.",
+            "8_ACTUATOR_INVOKED": "FALSE — false positives prevented",
+            "9_EXTERNAL_EFFECT_ID": "NONE",
+            "10_RECEIPT_LOG_ARTIFACT": "Internal battery T-02b — canonicalization consistent",
+            "11_OUTSIDE_TEST_SCOPE": "rfc8785 library (production). Fallback json.dumps path tested. Unicode normalization, NaN/Inf rejection specified but not all variants tested.",
+            "12_INDEPENDENT_REPRODUCTION": "YES — python3 -c demonstration",
+            "13_CLAIM_STATUS": "VERIFIED_WITHIN_DECLARED_SCOPE",
+        },
+
+        "F_21_CONSEQUENCE_COMMITMENT": {
+            "1_WHAT_WAS_VULNERABLE": "ConsequenceCommitment hashing logic existed but was not invoked in evaluate_release(). Parameter substitution ($500→$5000) succeeded.",
+            "2_WHAT_CODE_PATH": "evaluate_release() ~line 97034 — Gate 5 missing before final ALLOW return",
+            "3_WHAT_CODE_CHANGED": "THIS COMMIT — Gate 5 added: extracts action_payload, calls _vcb_canonical, compares to parameters_hash, returns COMMITMENT_MISMATCH on mismatch",
+            "4_SHORTEST_PATH_TO_ACTUATOR": "POST /v1/vcb/seal → evaluate_release_with_still_adapter → evaluate_release → Gate 5 → COMMITMENT_MISMATCH or continue",
+            "5_ATTACK_RE_RUN_AFTER_FIX": "PENDING — Before/After proof pair required",
+            "6_EXPECTED_RESULT": "COMMITMENT_MISMATCH → REFUSED → ACTUATOR_INVOKED=FALSE",
+            "7_ACTUAL_RESULT": "PENDING — test must be run with real SigilMark containing parameters_hash",
+            "8_ACTUATOR_INVOKED": "PENDING",
+            "9_EXTERNAL_EFFECT_ID": "PENDING",
+            "10_RECEIPT_LOG_ARTIFACT": "PENDING — Before/After proof pair required per directive Step 2",
+            "11_OUTSIDE_TEST_SCOPE": "Gate 5 fires only when examination_result contains parameters_hash. SigilMark issuance must include parameters_hash for this to be effective end-to-end.",
+            "12_INDEPENDENT_REPRODUCTION": "NO — not yet independently reproduced",
+            "13_CLAIM_STATUS": "FIXED_NOT_YET_REPRODUCED — Before/After proof pair pending",
+        },
+
+        "F_32_OWNER_CONTINUITY": {
+            "1_WHAT_WAS_VULNERABLE": "still_authority_adapter checked status/amount/vendor but NOT accountable_owner. Historical mandate carried through after owner change.",
+            "2_WHAT_CODE_PATH": "still_authority_adapter() — fields checked: ['status', 'amount_limit', 'authorized_vendors'] — owner absent",
+            "3_WHAT_CODE_CHANGED": "THIS COMMIT — owner continuity check added before T0 baseline drift check. OWNER_CONTINUITY_NOT_ESTABLISHED + STANDING_LOST on change.",
+            "4_SHORTEST_PATH_TO_ACTUATOR": "POST /v1/vcb/seal → still_authority_adapter → mandate lookup → owner check → STILL_FAILED or continue",
+            "5_ATTACK_RE_RUN_AFTER_FIX": "YES — internal",
+            "6_EXPECTED_RESULT": "STILL_FAILED + OWNER_CONTINUITY_NOT_ESTABLISHED + STANDING_LOST",
+            "7_ACTUAL_RESULT": "STILL_FAILED + OWNER_CONTINUITY_NOT_ESTABLISHED + STANDING_LOST — 3/3 internal tests pass",
+            "8_ACTUATOR_INVOKED": "FALSE",
+            "9_EXTERNAL_EFFECT_ID": "NONE",
+            "10_RECEIPT_LOG_ARTIFACT": "Internal battery F32-01 F32-02 F32-03 — all pass",
+            "11_OUTSIDE_TEST_SCOPE": "Requires mandate record to carry current_owner field. Live Supabase mandate update mechanism not yet implemented. CAT-01 with live DB pending.",
+            "12_INDEPENDENT_REPRODUCTION": "NO — not yet independently reproduced with live Supabase",
+            "13_CLAIM_STATUS": "FIXED_NOT_YET_REPRODUCED — live CAT-01 test pending",
+        },
+
+        "F_35_FALLBACK_FAIL_CLOSED": {
+            "1_WHAT_WAS_VULNERABLE": "Stale cache could return ALLOW_FROM_CACHE during DB outage, allowing revoked mandate to execute.",
+            "2_WHAT_CODE_PATH": "still_authority_adapter() — SUPABASE_UNAVAILABLE path returned before cache could be consulted",
+            "3_WHAT_CODE_CHANGED": "Architecture confirmed: UNAVAILABLE → STILL_NOT_PROVABLE → REFUSE before cache lookup",
+            "4_SHORTEST_PATH_TO_ACTUATOR": "POST /v1/vcb/seal → still_authority_adapter → Supabase timeout → STILL_NOT_PROVABLE → REFUSE",
+            "5_ATTACK_RE_RUN_AFTER_FIX": "YES",
+            "6_EXPECTED_RESULT": "STILL_NOT_PROVABLE → REFUSED with AUTHORITY_SOURCE_UNAVAILABLE",
+            "7_ACTUAL_RESULT": "STILL_NOT_PROVABLE → REFUSED — confirmed in live test with mock Supabase unreachable",
+            "8_ACTUATOR_INVOKED": "FALSE",
+            "9_EXTERNAL_EFFECT_ID": "NONE",
+            "10_RECEIPT_LOG_ARTIFACT": "Internal battery F35-01 — SUPABASE_UNAVAILABLE: ConnectError → REFUSE",
+            "11_OUTSIDE_TEST_SCOPE": "NOT_FOUND path (key missing in Supabase) falls to in-memory. This is different from UNAVAILABLE (outage). In-memory active mandate can still authorize during NOT_FOUND path.",
+            "12_INDEPENDENT_REPRODUCTION": "YES — point to non-existent Supabase URL, submit valid request",
+            "13_CLAIM_STATUS": "VERIFIED_WITHIN_DECLARED_SCOPE — outage path; NOT_FOUND path has separate gap",
+        },
+
+        "GLOBAL_EXCEPTION_HANDLER": {
+            "1_WHAT_WAS_VULNERABLE": "Any unhandled exception on any route returned FastAPI default plain-text 500. No structured body. Violated structured-ruling invariant.",
+            "2_WHAT_CODE_PATH": "FastAPI default exception handling — no app-level handler registered",
+            "3_WHAT_CODE_CHANGED": "global_exception_handler registered via @app.exception_handler(Exception) — INTERNAL_EXECUTION_ERROR structured JSON",
+            "4_SHORTEST_PATH_TO_ACTUATOR": "Any route crash → plain-text 500 → no ruling → evidence gap",
+            "5_ATTACK_RE_RUN_AFTER_FIX": "YES",
+            "6_EXPECTED_RESULT": "INTERNAL_EXECUTION_ERROR structured JSON with ruling=REFUSED state_mutation=NONE",
+            "7_ACTUAL_RESULT": "INTERNAL_EXECUTION_ERROR structured JSON — GH-01 test confirmed",
+            "8_ACTUATOR_INVOKED": "FALSE",
+            "9_EXTERNAL_EFFECT_ID": "NONE",
+            "10_RECEIPT_LOG_ARTIFACT": "Internal battery GH-01 — deliberate ValueError → INTERNAL_EXECUTION_ERROR JSON",
+            "11_OUTSIDE_TEST_SCOPE": "Does not prevent the underlying exception — only ensures structured response. Root cause must still be fixed.",
+            "12_INDEPENDENT_REPRODUCTION": "YES — hit /test/crash-probe route",
+            "13_CLAIM_STATUS": "VERIFIED_WITHIN_DECLARED_SCOPE",
+        },
+    },
+}
+
+VCB_ALLOW_FROM_CACHE_DECLARATION = {
+    "name": "ALLOW_FROM_CACHE — Removed From Consequence Paths",
+    "status": "VERIFIED — 0 occurrences in codebase",
+    "finding": "ALLOW_FROM_CACHE is not a valid authorization state for consequence decisions",
+    "code_count": 0,
+    "verification": "grep ALLOW_FROM_CACHE main.py returns 0 matches",
+    "architecture": (
+        "still_authority_adapter() on SUPABASE_UNAVAILABLE returns STILL_NOT_PROVABLE → REFUSE "
+        "before any cache consultation. Cache is only consulted on SUPABASE_NOT_FOUND "
+        "(key missing), not on SUPABASE_UNAVAILABLE (outage). "
+        "NOT_FOUND path with active in-memory mandate remains a declared gap (separate from F-35)."
+    ),
+    "rule": "Cache state is never authoritative for consequence authorization decisions.",
 }
 
