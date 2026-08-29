@@ -105101,6 +105101,242 @@ VCB_ADR_014 = {
         },
     },
 
+        "VCB_AUDIT_COUNT_CORRECTION": {
+        "name": "Audit Count Correction — Expert C",
+        "status": "CORRECTION APPLIED",
+        "source": "Expert C structural review, August 2026",
+        "error_found": "Previous summary listed 21 total (3+14+1+3) for 20 audits — arithmetic error",
+        "correct_count": {
+            "VERIFIED_WITHIN_SCOPE": 3,
+            "PARTIALLY_VERIFIED": 13,
+            "SPECIFIED": 1,
+            "NOT_YET_DELIVERED": 3,
+            "TOTAL": 20,
+        },
+        "corrected_partially_verified_list": [1, 2, 5, 7, 8, 11, 12, 14, 15, 17, 18, 19, 20],
+        "audit_06_vs_13_distinction": {
+            "AUDIT_06": {
+                "question": "Single-store replay and duplicate-consumption resistance",
+                "test": "6 concurrent attempts → 1 succeeds → 5 refused (UNIQUE release_id)",
+                "status": "VERIFIED_WITHIN_SCOPE",
+                "scope": "Single logical Supabase store — duplicate release_id consumption",
+            },
+            "AUDIT_13": {
+                "question": "Concurrency across independent application instances",
+                "test": "Same test as AUDIT-06 — two independent Railway replicas NOT tested",
+                "status": "PARTIALLY_VERIFIED — single logical store only",
+                "scope": "NOT the same as AUDIT-06 — multi-instance race unproven",
+                "rule": "Do not describe as two independent proof achievements if the same test evidence is used",
+            },
+        },
+        "replay_types_not_proven_by_unique_release_id": [
+            "Delayed receipt replay",
+            "New request ID using old authority",
+            "Duplicate webhook delivery",
+            "External actuator retry",
+            "Replay after uncertain response",
+            "Replay from another application replica",
+            "Parameter mutation with old authorization",
+            "Replay after owner or policy change",
+        ],
+        "correct_audit_06_public_claim": (
+            "Duplicate release_id consumption is blocked within the tested single-store scope. "
+            "NOT: All replay is prevented."
+        ),
+    },
+
+    "VCB_AUDIT_STATUS_CORRECTIONS": {
+        "name": "Audit Status Corrections — Expert C Structural Review",
+        "status": "CORRECTIONS APPLIED TO AUDIT RECORD",
+
+        "audit_08_fallback_correction": {
+            "original_status": "PARTIALLY VERIFIED — consequence routes audited; delegation registry under outage not tested",
+            "corrected_status": "PARTIALLY VERIFIED — FALLBACK_CONSEQUENCE_IMPACT_UNPROVEN",
+            "reason": (
+                "The delegation and sigilmark registries still contain in-memory fallback patterns. "
+                "The decisive unresolved question: can fallback state influence an authority decision "
+                "that eventually reaches a consequence path?"
+            ),
+            "required_test": (
+                "Supabase unavailable → fallback activated → action requested → "
+                "no fallback authority can produce ALLOW → actuator not called"
+            ),
+            "FALLBACK_CONSEQUENCE_IMPACT_UNPROVEN": True,
+        },
+
+        "audit_14_policy_enforcement_labels": {
+            "three_enforcement_levels": {
+                "SCHEMA_ENFORCED": "API-level validation — field presence and type checks only",
+                "RUNTIME_ENFORCED": "Live database query enforces the policy at execution time",
+                "END_TO_END_ADVERSARIALLY_VERIFIED": "Adversarial test proves the policy cannot be bypassed end-to-end",
+            },
+            "current_status_per_policy": {
+                "ceiling_enforcement": "RUNTIME_ENFORCED — amount ≤ mandate ceiling checked in evaluate_release()",
+                "scope_enforcement": "SCHEMA_ENFORCED — delegated_scope subset validation at API level",
+                "expiry_enforcement": "RUNTIME_ENFORCED — mandate TTL checked at query time",
+                "revocation_enforcement": "RUNTIME_ENFORCED — Postgres trigger vcb_mandate_revocation_immutability",
+                "replay_enforcement": "RUNTIME_ENFORCED — UNIQUE(release_id) in release_records",
+                "consequence_commitment": "NOT_ENFORCED — doctrine only",
+                "owner_continuity": "NOT_ENFORCED — CAT-01 pending",
+                "tool_identity": "NOT_ENFORCED — not a STILL field",
+                "control_ownership": "NOT_ENFORCED — doctrine only",
+                "review_cadence": "NOT_ENFORCED — doctrine only",
+            },
+            "important_note": (
+                "Scope subset validation at API level is not equivalent to proving that "
+                "a persisted child delegation cannot later exceed the parent. "
+                "SCHEMA_ENFORCED is weaker than END_TO_END_ADVERSARIALLY_VERIFIED."
+            ),
+        },
+
+        "correct_three_line_summary": {
+            "ISSUANCE_INTEGRITY": "VERIFIED WITHIN DECLARED SCOPE",
+            "CURRENT_STANDING": "PARTIALLY VERIFIED",
+            "CONSEQUENCE_SUFFICIENCY": "PARTIALLY VERIFIED",
+            "rule": "This is the correct present state. Not three VERIFIED lines.",
+        },
+    },
+
+    "VCB_TWO_LINKED_AUDIT_RECORDS": {
+        "name": "Two Linked But Separate Audit Records",
+        "status": "ARCHITECTURE DECISION — do not mix VCB score with Interchange strategic audit",
+        "source": "Expert C structural review, August 2026",
+        "reason": (
+            "The 20-audit record audits VCB core engineering. "
+            "Strategic capabilities (Interchange, Claim Admission, Living Attestation, "
+            "Data Authority, Resource Governance, Production Evidence) have their own "
+            "evidence requirements and must not dilute or inflate the VCB core score."
+        ),
+
+        "record_1_vcb_engineering": {
+            "name": "VCB Engineering Verification Record",
+            "scope": "VCB core consequential action path",
+            "audits": "AUDIT-01 through AUDIT-20",
+            "current_verdict": "VERDICT B — CORE ARCHITECTURE IMPLEMENTED, MATERIAL VERIFICATION GAPS REMAIN",
+            "PRODUCTION_CLAIM_ALLOWED": False,
+        },
+
+        "record_2_interchange_strategic": {
+            "name": "Verification Interchange Strategic Audit",
+            "status": "REQUIRED — not yet created",
+            "scope": "Strategic capabilities beyond VCB core",
+            "items_to_audit": [
+                "Verification Interchange — Claim Admission Protocol",
+                "Architecture Declaration schema",
+                "Category Preservation (ADR-024)",
+                "Carrier Provenance (ADR-018)",
+                "Parallel Assessment Protocol (ADR-028)",
+                "Independent Examiner governance (ADR-015b)",
+                "Living Attestation lifecycle",
+                "Data Authority Envelope",
+                "Production Evidence Profile",
+                "Resource Consequence Profile",
+                "Accountability Mandate binding",
+                "Capital and Value Realization tracking",
+                "Machine Action Ledger — Financial Authority Profile",
+                "Correction Continuity — revalidation after material change",
+            ],
+            "rule": (
+                "Do not mix these into the VCB core score until they have "
+                "their own evidence, test runs, and status fields."
+            ),
+        },
+    },
+
+    "VCB_FINANCIAL_AUTHORITY_PROFILE": {
+        "name": "Machine Action Ledger — Financial Authority Profile",
+        "status": "SPEC_ONLY — P1 item after primary corridor proven",
+        "description": (
+            "A specific profile for consequential financial actions that requires "
+            "additional authority fields beyond the base consequential action profile. "
+            "Financial actions carry higher consequence risk — larger ceilings, "
+            "regulatory obligations, multi-party approval requirements."
+        ),
+        "additional_fields": {
+            "financial_authority": "Who has financial signing authority",
+            "approval_ceiling": "Maximum amount this authority can approve",
+            "dual_control_required": "Whether dual authorization is required above a threshold",
+            "regulatory_jurisdiction": "Which regulatory regime governs this action",
+            "reporting_obligation": "Whether external reporting is required",
+            "settlement_window": "When the external effect is final and irreversible",
+            "reversal_window": "How long reversal remains possible",
+        },
+        "rule": "A financial authority profile does not replace the base authority check — it extends it.",
+    },
+
+    "VCB_CAPITAL_AND_VALUE_REALIZATION": {
+        "name": "Capital and Value Realization Tracking",
+        "status": "SPEC_ONLY — strategic layer item",
+        "description": (
+            "Tracking whether consequential actions that are permitted actually produce "
+            "the declared value outcome. Not a governance check — a feedback loop. "
+            "Permitted actions that consistently fail to realize declared value should "
+            "trigger policy review, not automatic refusal."
+        ),
+        "fields": {
+            "declared_value": "What value the action was expected to realize",
+            "realized_value": "What value was actually realized",
+            "variance": "Declared minus realized",
+            "review_trigger": "Variance threshold that triggers policy review",
+        },
+        "not_a_consequence_boundary_control": (
+            "Capital and value realization is a post-consequence feedback signal, "
+            "not a pre-execution boundary control. "
+            "VCB does not use realized value to make release decisions."
+        ),
+    },
+
+    "VCB_ACCOUNTABILITY_MANDATE": {
+        "name": "Accountability Mandate — Technical Binding",
+        "status": "SPEC_ONLY — currently accountability fields are in Machine Action Ledger but not enforced",
+        "description": (
+            "An Accountability Mandate is the explicit binding between a consequential action "
+            "and the human or organizational role that owns the risk of that action. "
+            "VeriSigil does not decide who the accountable owner should be — "
+            "the organization supplies the operating model. "
+            "VeriSigil binds that operating model to the machine action record."
+        ),
+        "required_fields": {
+            "accountable_owner": "Who owns the risk of this action",
+            "owner_role": "What organizational role carries accountability",
+            "authority_source": "Where the accountable owner's authority comes from",
+            "decision_right": "What decision the accountable owner may make",
+            "risk_owner": "Who owns the risk if the action causes harm",
+            "escalation_owner": "Who receives escalation if action is blocked",
+            "approval_owner": "Who may grant approval if human approval required",
+            "exception_owner": "Who may grant exception to policy",
+        },
+        "current_status": (
+            "accountable_owner, risk_owner, escalation_target fields are declared "
+            "in Machine Action Ledger schema. Not yet enforced as required fields "
+            "in evaluate_release() — organization can omit them without blocking execution."
+        ),
+        "enforcement_target": "WP-05 Machine Action Ledger — make accountability fields required, not optional",
+    },
+
+    "VCB_CLAIM_ADMISSION_ARCHITECTURE_DECLARATION": {
+        "name": "Claim Admission Architecture Declaration — Interchange Strategic Layer",
+        "status": "DOCTRINE — required before Verification Interchange T1 launch",
+        "description": (
+            "Before any claim enters the Claim Admission Protocol, "
+            "the builder must declare the architecture of the system being examined. "
+            "This prevents the Interchange from forcing different architectures into "
+            "one category and calling the result a comparison."
+        ),
+        "required_declaration_fields": {
+            "architecture_class": "one or more from: OBSERVATIONAL, SUPERVISORY, PRE_COMMITMENT, RUNTIME_ENFORCEMENT, CONSEQUENCE_BOUNDARY, EVIDENCE_INTERCHANGE, RESOURCE_PRECONSUMPTION",
+            "primary_object": "what the system claims to control",
+            "computational_floor": "where the system's control begins",
+            "consequence_point": "what becomes possible after control passes",
+            "authority_model": "how authority is established and checked",
+            "evidence_model": "what evidence is produced",
+            "comparison_basis": "on what dimensions comparison is valid",
+            "non_equivalence_claims": "list of properties this system does NOT claim",
+        },
+        "maps_to": "ADR_024_CATEGORY_PRESERVATION_AND_NON_EQUIVALENCE",
+        "interchange_audit_status": "NOT_YET_DELIVERED — ADR-015b 0/6 launch conditions met",
+    },
+
         "positioning_sentence": (
         "Full AI governance runs upstream (should this exist?), "
         "midstream (is this still the approved system under change?), "
