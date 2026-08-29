@@ -125259,3 +125259,406 @@ if __name__ == "__main__":
 
 
 
+
+# ============================================================
+# VCB ADDITIONAL FINDINGS AND ARCHITECTURE — AUGUST 2026
+# All VCB terminology only — zero external personal names
+# ============================================================
+
+VCB_F31_THROUGH_F35_FINDINGS = {
+    "name": "Extended Attack Findings F-31 through F-35",
+    "status": "PROMOTED FROM TOP-10 — each is a first-class engineering test",
+    "source": "Expert synthesis August 2026 — not confirmed exploits until tests run",
+    "governing_rule": (
+        "Do not accept attack hypotheses as confirmed vulnerabilities. "
+        "Turn every claim into a falsifiable engineering test. "
+        "A hypothesis becomes a finding only when the test produces evidence."
+    ),
+
+    "F_31_MULTI_INSTANCE_TOCTOU": {
+        "finding_id": "F-31",
+        "severity": "HIGH",
+        "area": "AUDIT-13 — Concurrency / Multi-Instance Race",
+        "attack": "Two independent Railway replicas submit the same commitment simultaneously — both may succeed",
+        "setup": "Deploy two independent application instances. Submit same release_id from both simultaneously.",
+        "expected": "Exactly one consequence. All others REPLAY_BLOCKED.",
+        "actual": "UNKNOWN — single-store test only; multi-replica race not run",
+        "required_test": "Deployment-level test: Replica A and Replica B submit same commitment concurrently",
+        "status": "NOT_YET_RUN — promoted to P1 engineering queue",
+        "maps_to": "WP-06 operational failure campaign",
+    },
+
+    "F_32_OWNER_CONTINUITY": {
+        "finding_id": "F-32",
+        "severity": "CRITICAL",
+        "area": "AUDIT-03 — Owner Change / CAT-01",
+        "attack": "O1 valid at T0 → O1 changes or leaves → O2 becomes owner → old authorization presented → execution",
+        "expected": "STANDING_LOST — old authority does not automatically retain standing",
+        "actual": "UNKNOWN — CAT-01 not yet run; owner-continuity not enforced in live STILL field",
+        "critical_question": "Does the old authority automatically retain standing after owner change?",
+        "if_yes": "FAIL the test and fix it — no architecture language hides this result",
+        "status": "NOT_YET_RUN — P0 after ConsequenceCommitment",
+        "maps_to": "CAT-01, WP-01A",
+    },
+
+    "F_33_DELEGATION_LINEAGE": {
+        "finding_id": "F-33",
+        "severity": "HIGH",
+        "area": "AUDIT-07 — Delegation Lineage",
+        "attack_sequence": [
+            "Establish parent authority",
+            "Create child delegation under parent",
+            "Revoke or expire parent",
+            "Child attempts consequential action",
+        ],
+        "expected": "DELEGATION_INVALID → CONSEQUENCE_NOT_FORMED",
+        "actual": "UNKNOWN — persistent-state adversarial tests not run",
+        "additional_tests": [
+            "Substitution — child attached to different parent",
+            "Escalation — child exceeds parent scope",
+            "Expiry — child survives parent expiry",
+            "Restart — delegation state after process restart",
+        ],
+        "status": "NOT_YET_RUN — P1 after CAT-01",
+        "maps_to": "Alkama DP-3/DP-4, DL-01 through DL-05",
+    },
+
+    "F_34_WEBHOOK_RETRY_DOUBLE_EXECUTION": {
+        "finding_id": "F-34",
+        "severity": "HIGH",
+        "area": "AUDIT-06 — Replay Resistance / Webhook Idempotency",
+        "attack_sequence": [
+            "Submit commitment → actuator invoked → external effect occurs",
+            "Response lost in transit",
+            "Caller retries with same commitment",
+        ],
+        "expected": "Second attempt → REPLAY_BLOCKED — same commitment, external effect already formed",
+        "actual": "UNKNOWN — webhook retry simulation not run; external actuator idempotency not tested",
+        "required_evidence": "External effect identifier preserved in ledger — retry resolves idempotently",
+        "status": "NOT_YET_RUN — P1",
+        "maps_to": "WP-06 operational failure, Machine Action Ledger external_effect_id",
+    },
+
+    "F_35_FALLBACK_CACHE_POISONING": {
+        "finding_id": "F-35",
+        "severity": "CRITICAL",
+        "area": "AUDIT-08 — Fallback Isolation",
+        "attack": "Authoritative state = REVOKED, cache = CURRENT, database unavailable → attempt consequence",
+        "setup": "Revoke authority. Take Supabase offline. Cache contains stale CURRENT state. Submit action.",
+        "expected": "STANDING_NOT_PROVABLE → REFUSE — cache cannot authorize consequence during DB outage",
+        "actual": "UNKNOWN — FALLBACK_CONSEQUENCE_IMPACT_UNPROVEN declared in AUDIT-08",
+        "engineer_question": "Which information is permitted to authorize consequence during dependency degradation?",
+        "rule": "Cache saying CURRENT during DB outage is never sufficient to authorize consequence",
+        "status": "NOT_YET_RUN — P0 alongside STILL-08",
+        "maps_to": "WP-00 fallback isolation, STILL-08",
+    },
+}
+
+VCB_ACTUATOR_INTEGRITY_BOUNDARY = {
+    "name": "Actuator Integrity Boundary — Mandatory Architecture Layer",
+    "status": "REQUIRED ARCHITECTURE — actuator must reject uncommitted consequence requests",
+    "source": "Expert synthesis — defense in depth requirement",
+    "principle": (
+        "The actuator is no longer trusted merely because upstream code supposedly performed checks. "
+        "The actuator has its own admission requirement. "
+        "No valid commitment → actuator refuses. "
+        "This gives defense in depth: even if upstream controls fail, "
+        "the actuator itself cannot be invoked without a valid commitment."
+    ),
+    "canonical_chain": [
+        "DATA",
+        "CONTEXT",
+        "INTELLIGENCE",
+        "IDENTITY",
+        "AUTHORITY",
+        "POLICY",
+        "CURRENT-STANDING RESOLUTION",
+        "CONSEQUENCE COMMITMENT",
+        "ACTUATOR INTEGRITY BOUNDARY",  # NEW MANDATORY LAYER
+        "CONSEQUENCE",
+        "MACHINE ACTION LEDGER",
+        "EVIDENCE",
+        "OUTCOME",
+        "REVALIDATION",
+    ],
+    "actuator_admission_requirement": {
+        "valid_commitment_required": True,
+        "commitment_fields_must_match": ["parameters_hash", "authority_hash", "nonce", "TTL"],
+        "if_no_valid_commitment": "REFUSE — do not execute",
+        "if_commitment_expired": "REFUSE — TTL exceeded",
+        "if_commitment_consumed": "REFUSE — REPLAY_BLOCKED",
+        "if_parameters_mutated": "REFUSE — COMMITMENT_MISMATCH",
+    },
+    "architectural_rule": (
+        "No VeriSigil component gets credit for being secure merely because it is upstream of the consequence. "
+        "The complete path to the actuator must be demonstrated, "
+        "and the actuator must reject an inadmissible consequence even when called through an unexpected path."
+    ),
+    "current_status": "NOT_YET_IMPLEMENTED — actuator does not yet enforce commitment admission",
+    "maps_to": "WP-03 ConsequenceCommitment, WP-02 Real Actuator",
+}
+
+VCB_ACTUATOR_INVOCATION_INVENTORY = {
+    "name": "Actuator Invocation Inventory",
+    "status": "REQUIRED ARTIFACT — enumerate every path capable of reaching the actuator",
+    "source": "Expert synthesis — F-29 response requirement",
+    "purpose": (
+        "Stop asking: is this route in the audited route inventory? "
+        "Start asking: is it possible for anything to invoke a consequence actuator "
+        "without passing through the same consequence control boundary?"
+    ),
+    "inventory_schema": {
+        "actuator_id": "Unique identifier for this actuator",
+        "file_function": "Exact file and function where actuator is defined",
+        "caller_list": "Complete list of callers",
+        "can_be_called_directly": "YES / NO",
+        "requires_valid_commitment": "YES / NO / UNKNOWN",
+        "requires_current_standing": "YES / NO / UNKNOWN",
+        "enforces_idempotency": "YES / NO / UNKNOWN",
+        "records_ledger_event": "YES / NO / UNKNOWN",
+        "background_jobs_can_reach": "YES / NO / UNKNOWN",
+        "service_role_can_reach": "YES / NO / UNKNOWN",
+        "dependency_failure_behavior": "Exact result state",
+    },
+    "paths_to_audit": [
+        "HTTP/API routes",
+        "Background workers",
+        "Scheduled jobs",
+        "Webhooks",
+        "Queues and queue consumers",
+        "Retry workers",
+        "Admin functions",
+        "Migrations and scripts",
+        "Service-role processes",
+        "Internal APIs",
+        "Asynchronous workers",
+        "Direct function imports from test modules",
+        "Feature-flagged code paths",
+        "Environment-conditional code paths",
+    ],
+    "current_declared_status": {
+        "Paystack_test_API": {
+            "requires_valid_commitment": "NO — ConsequenceCommitment not yet enforced",
+            "requires_current_standing": "YES — STILL gate enforced on production path",
+            "background_jobs_can_reach": "UNKNOWN — not yet audited",
+            "service_role_can_reach": "UNKNOWN — declared out of audit scope (F-29, F-23)",
+        },
+    },
+}
+
+VCB_ENFORCE_STILL_FALSE_ELIMINATION = {
+    "name": "enforce_still=False Elimination Strategy",
+    "status": "P0 — preferred fix: eliminate from production-reachable code entirely",
+    "source": "Expert synthesis — F-26 strengthened response",
+    "preferred_approach": (
+        "Eliminate enforce_still=False from all production-reachable code. "
+        "Test-only bypasses must be isolated in test modules behind build flags "
+        "that are unavailable to production routes. "
+        "This is much stronger than trying to prove 17 exceptions can never leak."
+    ),
+    "options_ranked": {
+        "OPTION_A_PREFERRED": "Remove enforce_still parameter entirely from production code paths. Test isolation via test-only module boundary.",
+        "OPTION_B": "enforce_still=False only permitted in files matching pattern test_*.py or *_test.py — enforced by linter rule",
+        "OPTION_C": "Runtime assertion: if ENVIRONMENT==production and enforce_still==False: raise SecurityViolation",
+        "OPTION_D": "Build-time flag: ALLOW_STILL_BYPASS=false in production build",
+    },
+    "verification_required": {
+        "call_graph_analysis": "Complete caller-of-caller trace for all 17 call sites to route entry points",
+        "actuator_reachability": "For each call site: can it reach an actuator through any code path?",
+        "background_job_check": "Can any background job invoke enforce_still=False path?",
+        "feature_flag_check": "Can any feature flag enable enforce_still=False in production?",
+        "environment_check": "Can any environment condition enable enforce_still=False in production?",
+        "static_analysis": "Static call-graph result confirming isolation",
+        "runtime_trace": "Runtime trace for production consequence corridor confirming enforce_still=True throughout",
+    },
+    "acceptance_criterion": "No production build can invoke a consequence-capable path with enforce_still=False",
+    "note": "grep confirmation is insufficient — complete call stack trace required for each of the 17 sites",
+}
+
+VCB_CANONICALIZATION_INVARIANT = {
+    "name": "Canonicalization Invariant — F-28 Architecture Requirement",
+    "status": "MUST BE ESTABLISHED BEFORE ConsequenceCommitment IMPLEMENTATION",
+    "source": "Expert synthesis — F-28 requirement",
+    "invariant": (
+        "ISSUANCE: Action → _vcb_canonical() → hash → authorization. "
+        "EXECUTION: Action → _vcb_canonical() → hash → compare → MATCH/MISMATCH. "
+        "One implementation of canonicalization. Not two implementations that happen to agree today."
+    ),
+    "single_canonical_function": {
+        "name": "_vcb_canonical()",
+        "rule": "Used for BOTH issuance hash AND commitment hash — never two different functions",
+        "if_different_functions": "False positives (DoS on legitimate actions) or canonicalization collisions (bypass attack)",
+    },
+    "required_test_cases": [
+        "Field ordering differences",
+        "Whitespace variations",
+        "Integer vs decimal representation (500 vs 500.0 vs 5.0e2)",
+        "Unicode normalization variants",
+        "Null vs missing field handling",
+        "Omitted optional fields",
+        "Nested object serialization",
+        "Array ordering",
+        "Large number precision",
+        "Duplicate keys with different values",
+        "Additional unexpected fields in execution payload",
+        "Serialization library differences (json vs orjson vs simplejson)",
+        "Type coercion (string vs number)",
+    ],
+    "critical_property": (
+        "The action committed at authorization and the action presented for consequence "
+        "must have the same canonical representation and commitment hash. "
+        "This property must be tested, not assumed."
+    ),
+    "current_status": "NOT_YET_SPECIFIED — _vcb_canonical() must be defined before WP-03 implementation",
+}
+
+VCB_FORGE_VARIANT_INVARIANT = {
+    "name": "STILL Forge Variant Security Invariant — F-30 Expanded Requirement",
+    "status": "REQUIRED — testing one field name is insufficient",
+    "source": "Expert synthesis — F-30 invariant-based testing requirement",
+    "security_invariant": (
+        "Client-controlled input must never be authoritative evidence of current standing. "
+        "The production resolver must obtain standing from the authoritative source. "
+        "No caller-controlled representation may cause the production resolver to conclude "
+        "CURRENT when authoritative state says LOST."
+    ),
+    "forge_variant_test_cases": [
+        "STILL_PROVABLE=true",
+        "authority_current=true",
+        "mandate_valid=true",
+        "standing_current=true",
+        "Nested authority object with valid_at=current",
+        "Nested STILL object with result=PROVABLE",
+        "Array-contained standing assertion",
+        "Duplicate or conflicting fields (one valid, one forged)",
+        "Unknown fields that shadow internal state",
+        "Type confusion (string 'true' vs boolean true)",
+        "Null or boolean substitutions for expected objects",
+        "Signed historical assertion replayed as current",
+        "Stale receipt presented as current evidence",
+        "Replayed standing evidence from previous session",
+    ],
+    "the_real_test": (
+        "Not: Did STILL_PROVABLE=true fail? "
+        "But: Can any caller-controlled representation cause the production resolver "
+        "to conclude CURRENT when authoritative state says LOST?"
+    ),
+    "current_status": "NOT_YET_RUN — STILL-01 forge test not yet executed",
+    "maps_to": "STILL-01, VCB_STILL_ADVERSARIAL_SUITE_FULL_SPEC",
+}
+
+VCB_ENGINEER_20_QUESTION_PATH_DISCIPLINE = {
+    "name": "Engineer 20-Question Path Discipline",
+    "status": "MANDATORY — answer all 20 for every audit and every F-finding",
+    "source": "Expert synthesis — updated engineering test discipline",
+    "questions": {
+        "Q01": "What property are we claiming? (one sentence)",
+        "Q02": "What exact code enforces it? (file, function, line/commit)",
+        "Q03": "What is the authoritative state? (database, cryptographic evidence, policy state)",
+        "Q04": "What input does the attacker control? (be explicit)",
+        "Q05": "What is the shortest path to consequence? (not the intended path — the shortest discovered path)",
+        "Q06": "Does every discovered path encounter the control? (yes/no with evidence)",
+        "Q07": "Can the caller manufacture the control's evidence? (yes/no)",
+        "Q08": "Can stale evidence pass? (yes/no)",
+        "Q09": "Can changed authority pass? (yes/no)",
+        "Q10": "Can changed parameters pass? (yes/no)",
+        "Q11": "Can changed ownership pass? (yes/no)",
+        "Q12": "Can delegated authority pass after parent invalidation? (yes/no)",
+        "Q13": "Can retry cause a second effect? (yes/no)",
+        "Q14": "Can another replica cause a second effect? (yes/no)",
+        "Q15": "What happens when the authoritative dependency is unavailable? (exact state transition)",
+        "Q16": "Can a fallback or cache influence consequence authorization? (yes/no)",
+        "Q17": "Can service-role or background code bypass the control? (yes/no)",
+        "Q18": "Can the actuator itself reject an invalid or uncommitted request? (yes/no)",
+        "Q19": "Can an independent party reproduce the result? (exact command/artifact)",
+        "Q20": "What remains unproven? (no probably, should, or designed to — only VERIFIED/PARTIALLY_VERIFIED/SPECIFIED/NOT_YET_VERIFIED)",
+    },
+    "permitted_status_labels": [
+        "VERIFIED",
+        "PARTIALLY_VERIFIED",
+        "SPECIFIED",
+        "NOT_YET_VERIFIED",
+    ],
+    "forbidden_language": [
+        "probably",
+        "should prevent",
+        "designed to",
+        "intended to",
+        "expected to block",
+        "architecturally prevents",
+    ],
+}
+
+VCB_AMOUNT_CANONICAL_VALIDATION = {
+    "name": "Canonical Amount Validation — Single Boundary",
+    "status": "REQUIRED — one canonical validation boundary, not scattered arithmetic checks",
+    "source": "Expert synthesis — F-27 global fix requirement",
+    "invariant": (
+        "No consequence-capable execution path can accept an amount unless the canonical "
+        "validation layer has established: amount > 0, finite, correct type, correct precision, "
+        "correct currency, within declared ceiling."
+    ),
+    "paths_requiring_validation": [
+        "HTTP/API → route → controller → evaluate_release()",
+        "evaluate_release() → still_authority_adapter()",
+        "evaluate_release() → ConsequenceCommitment (when implemented)",
+        "ConsequenceCommitment → actuator handler",
+        "All alternate paths to actuator invocation",
+    ],
+    "current_fix_status": {
+        "still_authority_adapter": "FIXED — proposed_amount <= 0 guard added",
+        "evaluate_release_direct": "FIXED — proposed_amount <= 0 guard added with early return",
+        "consequence_commitment_handler": "NOT_YET_BUILT — must include validation",
+        "actuator_handler": "REQUIRES_AUDIT — not yet verified",
+    },
+    "complete_validation_test_matrix": [
+        "-5000 → AMOUNT_OUT_OF_BOUNDS → REFUSED",
+        "0 → AMOUNT_OUT_OF_BOUNDS → REFUSED",
+        "-0 → AMOUNT_OUT_OF_BOUNDS → REFUSED",
+        "NaN → AMOUNT_OUT_OF_BOUNDS → REFUSED",
+        "Infinity → AMOUNT_OUT_OF_BOUNDS → REFUSED",
+        "'5000' (string) → AMOUNT_OUT_OF_BOUNDS → REFUSED",
+        "5000.001 (excess precision) → depends on currency rules",
+        "wrong currency → AMOUNT_INVALID_CURRENCY → REFUSED",
+        "overflow → AMOUNT_OUT_OF_BOUNDS → REFUSED",
+        "None/null → AMOUNT_MISSING → REFUSED",
+        "0.01 → VALID if within ceiling",
+        "999.99 → VALID if within ceiling",
+        "1000.00 → VALID if at ceiling",
+        "1000.01 → AMOUNT_EXCEEDS_CEILING → REFUSED",
+    ],
+    "architectural_rule": "Never rely on only one layer for a financial invariant. All consequence-capable paths enforce the canonical validation.",
+}
+
+VCB_ENGINEERING_PRIORITY_UPDATED = {
+    "name": "Updated Engineering Priority — F-26 through F-35 Integrated",
+    "status": "CURRENT PRIORITY ORDER — freeze this",
+    "P0_before_any_stronger_claim": {
+        "F_26_enforce_still_elimination": "Eliminate or fully isolate enforce_still=False from production paths",
+        "F_27_amount_global_fix": "Apply canonical amount validation to ALL consequence paths",
+        "F_28_canonicalization": "Define and implement single _vcb_canonical() function before WP-03",
+        "F_29_actuator_invocation_inventory": "Enumerate every actuator invocation path including background jobs",
+        "F_35_fallback_fail_closed": "Prove fail-closed behavior during authority-source outage (STILL-08)",
+        "WP_00_fallback_isolation": "Complete fallback isolation audit",
+        "STILL_01_through_08": "Run full named adversarial suite",
+        "CAT_01_owner_continuity": "Run and publish — pass or fail",
+        "WP_03_consequence_commitment": "Implement using single _vcb_canonical(), test parameter mutation",
+    },
+    "P1_after_P0_complete": {
+        "F_31_multi_instance_TOCTOU": "Deploy multi-replica test",
+        "F_33_delegation_lineage": "Persistent-state adversarial tests DL-01 through DL-05",
+        "F_34_webhook_retry": "End-to-end idempotency with real actuator",
+        "WP_04_delegation_persistent": "Complete with Alkama DP-3/DP-4",
+        "WP_05_machine_action_ledger": "Pre-action enforcement",
+        "WP_06_operational_failure": "Full failure campaign",
+    },
+    "P2_after_P1": {
+        "F_32_owner_continuity": "Already P0 above as CAT-01",
+        "INDEPENDENT_REPRODUCTION": "Full VCB path not just cryptographic layer",
+        "CLAIMS_REGISTRY_YAML": "Create machine-readable artifact",
+        "FIRST_COMMERCIAL_CORRIDOR": "VS-CORRIDOR-01 fully proven",
+    },
+    "PRODUCTION_CLAIM_ALLOWED": False,
+    "current_verdict": "CONDITIONAL GO — seven conditions unmet",
+}
+
