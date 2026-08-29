@@ -126300,3 +126300,297 @@ VCB_ALLOW_FROM_CACHE_DECLARATION = {
     "rule": "Cache state is never authoritative for consequence authorization decisions.",
 }
 
+
+# ============================================================
+# RUNTIME SUBJECT ATTESTATION & ADR-033 — EXPERT B SYNTHESIS
+# All VCB terminology. Zero external personal or company names.
+# ============================================================
+
+VCB_RUNTIME_SUBJECT_ATTESTATION = {
+    "name": "Runtime Subject Attestation",
+    "status": "SPEC_ONLY — required before workload-identity claims can be made",
+    "source": "Expert B synthesis — agent label is not authenticated workload",
+    "principle": (
+        "agent_id label ≠ authenticated workload ≠ approved runtime ≠ authorized action. "
+        "The system must trust the attested workload, not the name attached to it. "
+        "Same agent label + different runtime identity must not inherit original authority."
+    ),
+    "schema": {
+        "subject_id": "agent-001 — the declared agent subject",
+        "runtime_id": "runtime-<uuid> — the specific runtime instance, not the agent class",
+        "workload_digest": "sha256:... — cryptographic hash of the workload build artifact",
+        "build_reference": "commit-<sha> — source reference for the workload",
+        "environment": "production / production-sandbox / staging — declared environment",
+        "cluster_or_host": "declared hosting context",
+        "issuer": "declared attestation issuer",
+        "attestation_method": "SPIFFE_SVID / OIDC_WORKLOAD / VCB_RUNTIME_ATTESTATION / DECLARED_ONLY",
+        "attested_at": "ISO-8601 timestamp of attestation",
+        "expires_at": "ISO-8601 expiry of attestation",
+        "human_or_process_principal": "principal-001 — the human or process that initiated the work",
+        "purpose": "supplier_payment — declared purpose binding",
+        "audience": "erp-payment-actuator — the specific tool or actuator this release targets",
+        "status": "CURRENT / EXPIRED / REVOKED / NOT_ATTESTED",
+    },
+    "critical_distinction": {
+        "agent_label": "A name or ID string — not independently verified",
+        "authenticated_workload": "Cryptographically proven software artifact",
+        "approved_runtime": "Verified execution environment",
+        "authorized_action": "Specific consequential transition with current conditions",
+        "rule": "Authentication does not automatically prove authorization for every action",
+    },
+    "what_this_enables_in_vcb": (
+        "When a runtime subject attestation is bound to a SigilMark, "
+        "the VCB can verify not just who is calling but which workload, "
+        "in which environment, for which principal, targeting which tool. "
+        "This closes the gap between API-key identity and workload identity."
+    ),
+    "current_vcb_identity_gap": (
+        "Current VCB identity = API key. This identifies the caller but not: "
+        "which workload artifact produced the request, which principal initiated it, "
+        "whether the runtime environment is the expected one, "
+        "whether the declared purpose matches the action being taken."
+    ),
+}
+
+VCB_ACTION_RELEASE_PROPERTIES = {
+    "name": "Action Release Credential Properties",
+    "status": "GOVERNING SPEC — every release must satisfy these properties",
+    "source": "Expert B synthesis — no standing privilege for autonomous agents",
+    "properties": {
+        "short_lived": {
+            "description": "Release expires within a declared TTL — no long-lived enterprise key",
+            "rule": "Do not give an agent a long-lived just-in-case enterprise key",
+        },
+        "action_specific": {
+            "description": "Release is bound to a specific consequential action — not a class of actions",
+            "rule": "A release for supplier payment cannot authorize deployment or data deletion",
+        },
+        "audience_bound": {
+            "description": "Release names the exact tool or actuator it is valid for",
+            "rule": "Release valid for payment-actuator cannot be used against deployment-actuator",
+        },
+        "subject_bound": {
+            "description": "Release names the exact workload and principal it was issued to",
+            "rule": "Release issued to agent-001 cannot be used by agent-002",
+        },
+        "principal_bound": {
+            "description": "Release binds the human or process principal that authorized it",
+            "rule": "Release cannot be reused after the authorizing principal changes",
+        },
+        "non_replayable": {
+            "description": "Release is single-use — consumption makes it invalid",
+            "rule": "UNIQUE(release_id) — already proven 6/6 in adversarial test",
+        },
+        "revocable": {
+            "description": "Release can be invalidated before expiry by authority revocation",
+            "rule": "Revocation of authority must invalidate all outstanding releases — STILL gate",
+        },
+    },
+    "unusable_after": [
+        "Another tool or actuator",
+        "Another environment",
+        "Another agent or workload",
+        "Another human or process principal",
+        "Another action type",
+        "Another vendor or destination",
+        "Another amount",
+        "TTL expiry",
+        "Authority revocation",
+        "Owner continuity loss",
+        "Workload digest change",
+        "Runtime restart with changed environment",
+    ],
+}
+
+VCB_STILL_RUNTIME_CONDITIONS = {
+    "name": "STILL Gate — Runtime Identity Conditions",
+    "status": "SPEC_ONLY — extends current STILL gate with workload binding",
+    "source": "Expert B synthesis — STILL must check runtime state, not just authority state",
+    "principle": (
+        "Current STILL gate checks: status, amount_limit, authorized_vendors, owner_continuity. "
+        "These are authority-side conditions. Runtime-side conditions must also be checked "
+        "to prevent a compromised or substituted workload from inheriting authority."
+    ),
+    "additional_conditions": {
+        "runtime_identity_current": {
+            "question": "Is the runtime subject attestation still current?",
+            "check": "attested_at + declared TTL > now",
+            "fail_result": "STILL_FAILED — runtime attestation expired",
+            "status": "NOT_YET_ENFORCED",
+        },
+        "workload_digest_current": {
+            "question": "Is the workload digest unchanged since attestation?",
+            "check": "current workload_digest == attested workload_digest",
+            "fail_result": "STILL_FAILED — workload has changed since attestation",
+            "status": "NOT_YET_ENFORCED",
+        },
+        "environment_current": {
+            "question": "Is the runtime environment the declared environment?",
+            "check": "runtime environment == declared environment in attestation",
+            "fail_result": "STILL_FAILED — environment mismatch",
+            "status": "NOT_YET_ENFORCED",
+        },
+        "principal_binding_current": {
+            "question": "Is the human or process principal still the authorizing principal?",
+            "check": "current principal == principal in attestation and authority",
+            "fail_result": "STILL_FAILED — principal has changed",
+            "status": "NOT_YET_ENFORCED",
+        },
+        "audience_matches_target": {
+            "question": "Does the credential audience match the actuator being invoked?",
+            "check": "attestation.audience == actuator.identity",
+            "fail_result": "STILL_FAILED — audience mismatch — credential targeting wrong tool",
+            "status": "NOT_YET_ENFORCED",
+        },
+        "purpose_matches_action": {
+            "question": "Does the declared purpose match the action being taken?",
+            "check": "attestation.purpose semantically covers action_type",
+            "fail_result": "STILL_FAILED — purpose mismatch — action outside declared scope",
+            "status": "NOT_YET_ENFORCED",
+        },
+        "delegation_current": {
+            "question": "Is the delegation chain from principal to agent still valid?",
+            "check": "All delegation links current — no expired or revoked parent",
+            "fail_result": "STILL_FAILED — DELEGATION_INVALID",
+            "status": "PARTIALLY_VERIFIED — schema enforcement only",
+        },
+        "credential_not_expired": {
+            "question": "Is the action release credential within its TTL?",
+            "check": "release.expires_at > now",
+            "fail_result": "STILL_FAILED — release TTL expired",
+            "status": "ENFORCED — mandate TTL check in still_authority_adapter()",
+        },
+        "credential_not_revoked": {
+            "question": "Has the underlying authority been revoked?",
+            "check": "mandate.status not in REVOKED, EXPIRED, SUSPENDED",
+            "fail_result": "STILL_FAILED — AUTHORITY_REVOKED",
+            "status": "ENFORCED — confirmed 10/10 in adversarial test",
+        },
+    },
+    "current_enforcement_honest_state": {
+        "enforced": [
+            "credential_not_expired — mandate TTL",
+            "credential_not_revoked — Supabase revocation",
+            "owner_continuity — accountable_owner vs current_owner",
+            "amount_ceiling — proposed_amount <= mandate ceiling",
+            "vendor_authorization — proposed_vendor in authorized_vendors",
+        ],
+        "not_yet_enforced": [
+            "runtime_identity_current",
+            "workload_digest_current",
+            "environment_current",
+            "principal_binding_current",
+            "audience_matches_target",
+            "purpose_matches_action",
+        ],
+        "status": "PARTIALLY_ENFORCED — authority-side conditions enforced; runtime-side pending",
+    },
+}
+
+VCB_ADR_033_RUNTIME_SUBJECT_PRINCIPAL_BINDING = {
+    "name": "ADR-033 — Runtime Subject and Principal Binding",
+    "status": "ACCEPTED — GO/NO-GO decisions locked",
+    "source": "Expert B synthesis",
+    "question": (
+        "How should VeriSigil distinguish an agent label from the attested workload, "
+        "human or process principal, delegated authority, and exact action "
+        "that may produce a consequence?"
+    ),
+    "finding": (
+        "A network gateway can inspect and block requests, but it cannot independently establish "
+        "that the software calling it is the approved workload, operating in the expected environment, "
+        "acting for the correct principal, or authorized for the specific action. "
+        "Broad API keys create standing privilege for actions that were not explicitly predicted. "
+        "Same agent label + different runtime identity must not inherit the original authority."
+    ),
+    "decisions": {
+        "GO": [
+            "Runtime Subject Attestation — bind workload digest, environment, principal",
+            "Human or process principal binding — authority traces to a human or process",
+            "Workload digest and environment binding — exact build artifact verified",
+            "Audience-bound, short-lived action releases — release expires and targets exact tool",
+            "Action-specific Authorization Objects — one release per one consequential action",
+            "Runtime identity conditions in STILL and COULD — workload state checked at commitment",
+            "Runtime restart and digest-change revalidation — previous releases invalid after change",
+            "Independent workload and delegation challenge tests — named adversarial battery",
+            "Gateway interoperability — workload identity systems feed attestation to VeriSigil",
+        ],
+        "NO_GO": [
+            "Trusting agent_id labels as sufficient identity",
+            "Using long-lived broad API keys for autonomous agents",
+            "Treating gateway passage as proof of authority",
+            "Allowing the agent to create its own authority — PROPOSER != SOLE_AUTHORITY_GRANTER",
+            "Building a generic gateway or workload-IAM replacement",
+            "Treating authentication as permission for every action",
+        ],
+    },
+    "relationship_tags": {
+        "COMPLEMENTARY_TO": "Workload identity and access-management systems",
+        "INSPIRED_BY": "Agent runtime attestation patterns",
+        "INTERNAL_DESIGN": "VeriSigil Runtime Subject Attestation",
+        "POSITIONING": "Downstream evidence layer — not a replacement for upstream identity",
+    },
+    "complete_vcb_chain": [
+        "Human or process principal",
+        "Runtime Subject Attestation",
+        "Agent identity",
+        "Delegated authority",
+        "Current policy",
+        "Action-specific release",
+        "VCB — STILL + ConsequenceCommitment + Actuator Integrity Boundary",
+        "Gateway or tool or actuator",
+        "Consequence",
+        "Machine Action Ledger",
+        "Verification Receipt",
+        "Independent Reproduction",
+    ],
+    "final_rule": (
+        "Do not trust the agent label, the API key, or the gateway alone. "
+        "Establish which workload is acting, for whom, under which authority, "
+        "toward which exact action, with which current conditions, "
+        "and bind that proof to the consequence before it happens."
+    ),
+}
+
+VCB_GATEWAY_INTEROPERABILITY = {
+    "name": "Gateway and Workload Identity Interoperability",
+    "status": "ARCHITECTURAL POSITION — VeriSigil is downstream evidence layer",
+    "source": "Expert A and B synthesis",
+    "positioning": (
+        "VeriSigil does not compete with gateway or workload-identity systems. "
+        "VeriSigil receives relevant assertions from those systems and examines "
+        "whether the consequential transition is actually supported by the evidence "
+        "available at the boundary."
+    ),
+    "comparison_table": {
+        "Gateway_or_workload_identity_layer": {
+            "authenticates_workload": True,
+            "applies_access_policy": True,
+            "issues_or_brokers_credentials": True,
+            "blocks_requests": True,
+            "logs_traffic": True,
+            "monitors_identity": True,
+            "protects_APIs": True,
+        },
+        "VeriSigil_VCB_layer": {
+            "verifies_identity_claim_and_evidence_scope": "Checks attestation, not just key",
+            "binds_authority_to_specific_consequential_action": "ConsequenceCommitment",
+            "verifies_purpose_audience_expiry_currentness": "STILL gate runtime conditions",
+            "produces_bounded_refusal_or_escalation_record": "Structured ruling + SigilMark",
+            "creates_pre_and_post_action_Machine_Action_Ledger": "Machine Action Ledger",
+            "revalidates_authority_after_material_change": "STILL-09/STILL-10",
+            "proves_what_protected_action_path_establishes": "Independently reproducible receipt",
+        },
+    },
+    "upstream_evidence_flow": (
+        "Workload identity provider → Runtime Subject Attestation → "
+        "VeriSigil VCB → action-specific release → gateway or actuator. "
+        "VeriSigil is interoperable with upstream systems rather than replacing them."
+    ),
+    "the_unanswered_question": (
+        "Identity answers WHO. Authority answers MAY. "
+        "VeriSigil answers: what proves THIS EXACT CONSEQUENCE, NOW, "
+        "under the conditions that exist at this moment?"
+    ),
+}
+
