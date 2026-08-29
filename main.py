@@ -45725,6 +45725,30 @@ async def still_authority_adapter(
             "evidence": evidence,
         }
 
+    # F-32 / CAT-01: Owner continuity check
+    # If the mandate records an accountable_owner and the caller supplies
+    # a current_owner that differs, standing is LOST — not merely degraded.
+    # This closes the gap where O1 authorized, O1 leaves, O2 becomes owner,
+    # and the historical mandate still carries authority.
+    accountable_owner = mandate.get("accountable_owner", "")
+    current_owner = mandate.get("current_owner", accountable_owner)
+    if accountable_owner and current_owner and accountable_owner != current_owner:
+        evidence["outcome"] = "STILL_FAILED"
+        evidence["reason"] = (
+            f"Accountable owner has changed: mandate issued under {accountable_owner}, "
+            f"current owner is {current_owner}. Historical mandate does not carry standing."
+        )
+        evidence["owner_at_issuance"] = accountable_owner
+        evidence["current_owner"] = current_owner
+        evidence["standing_change_event"] = "OWNER_CHANGE_DETECTED"
+        return {
+            "still_outcome": "STILL_FAILED",
+            "reason": "OWNER_CONTINUITY_NOT_ESTABLISHED",
+            "gate_action": "REFUSE",
+            "standing": "STANDING_LOST",
+            "evidence": evidence,
+        }
+
     # T0 baseline drift check
     if t0_baseline_hash:
         current_hash = _hl.sha256(
