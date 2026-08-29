@@ -412,6 +412,37 @@ app = FastAPI(
 )
 
 
+# Global exception handler — no route returns plain-text 500
+from fastapi.responses import JSONResponse
+from fastapi.requests import Request as FastAPIRequest
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: FastAPIRequest, exc: Exception):
+    """
+    Catches ALL unhandled exceptions across every route.
+    Returns structured JSON instead of FastAPI plain-text 500.
+    Required by: Alkama DP-3 finding — plain-text 500 violates structured-ruling invariant.
+    Rule: every consequence-relevant route must return a structured body on failure.
+    """
+    import traceback as _tb
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error": "INTERNAL_EXECUTION_ERROR",
+            "ruling": "REFUSED",
+            "decision": "REFUSED",
+            "state_mutation": "NONE",
+            "message": (
+                "An internal error occurred. The consequence boundary was not crossed. "
+                "No actuator was invoked. This error has been logged."
+            ),
+            "exception_type": type(exc).__name__,
+            "detail": str(exc)[:300],
+            "vcb_rule": "Structured ruling required on all failure paths — no plain-text 500.",
+        }
+    )
+
+
 # ── SWAGGER SECURITY SCHEME ──────────────────────────────────
 # Makes Swagger UI "Authorize" button send x-api-key header
 # correctly instead of Authorization: Bearer token
