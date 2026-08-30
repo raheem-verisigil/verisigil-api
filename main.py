@@ -127046,3 +127046,482 @@ VCB_RUNTIME_SUBJECT_CHALLENGE_BATTERY = {
     "highest_priority_test": "RSC_15 — same label, different runtime. This is the architectural claim.",
 }
 
+
+# ============================================================
+# EXPERT A/B/C/D SYNTHESIS — PUBLIC CHALLENGE DOCTRINE
+# Anti-embarrassment engineering. Challenge as operating function.
+# All VCB terminology. Zero external personal names.
+# ============================================================
+
+VCB_ANTI_EMBARRASSMENT_ENGINEERING_DOCTRINE = {
+    "name": "Anti-Embarrassment Engineering Doctrine",
+    "status": "GOVERNING — applies to every public claim, post, and conversation",
+    "source": "Expert A/B/C/D synthesis on public challenge standard",
+    "core_principle": (
+        "Our biggest protection against public embarrassment is not arguing better. "
+        "It is designing the system so that a technically serious person can attack our "
+        "strongest claim, inspect the exact carrier, reproduce the result, find the boundary, "
+        "and still conclude that our wording is narrower than — or exactly matched to — the evidence."
+    ),
+    "objective": (
+        "Make expert challenge a normal operating function of VeriSigil "
+        "rather than an external threat. "
+        "Challenge → Test → Failure or Pass → Evidence → Remediation → Re-test → Claim update."
+    ),
+    "master_claim_integrity_principle": (
+        "No VeriSigil claim may be stronger than the strongest independently reproducible "
+        "proposition supported by its frozen implementation, defined test conditions, "
+        "observed result, evidence artifact, current state, and declared scope."
+    ),
+    "companion_engineering_rule": (
+        "Every consequential claim must have a known carrier, a frozen version, "
+        "an explicit invariant, a positive test, a negative test, a failure condition, "
+        "a replay test, a dependency-failure test, an independent reproduction path, "
+        "and a declared limitation."
+    ),
+    "public_rule": (
+        "If an examiner can reasonably ask: "
+        "'Where is the evidence?', 'Which version?', 'What exactly was tested?', "
+        "'What happens when the condition changes?', 'Can I reproduce it?', "
+        "'What does this NOT prove?' — "
+        "we should already have the answer before they ask it."
+    ),
+    "out_of_scope_rule": {
+        "WRONG": "OUT_OF_SCOPE = SAFE",
+        "CORRECT": "OUT_OF_SCOPE + PROVEN_NON_REACHABLE = ACCEPTABLE_SCOPE_BOUNDARY",
+        "rule": (
+            "A path may be outside the verification scope only after we prove "
+            "that it cannot influence the protected consequence boundary. "
+            "Declaring something out of scope does not make it safe."
+        ),
+    },
+    "absolute_language_ban": {
+        "banned_words": ["universally", "completely", "always", "perfectly", "guaranteed",
+                         "non-bypassable", "impossible to bypass", "fully safe"],
+        "required_replacements": [
+            "within the declared scope",
+            "for the tested parameters",
+            "cryptographically bound within declared conditions",
+            "demonstrated on tested paths",
+        ],
+    },
+    "build_sequence": "BUILD → BIND → TEST → ATTACK → BREAK → FIX → RE-TEST → REPRODUCE → SCOPE → CLAIM",
+    "NOT_THIS": "BUILD → ANNOUNCE → DEFEND",
+}
+
+VCB_CLAIM_ADMISSION_GATE = {
+    "name": "Claim Admission Gate",
+    "status": "MANDATORY — every public claim must pass this before publication",
+    "source": "Expert A synthesis — claims must graduate through evidence",
+    "rule": "If one gate is missing, the claim cannot graduate to public status",
+    "gates": {
+        "GATE_1": "CLAIM — exact one-sentence statement of what is being asserted",
+        "GATE_2": "EXACT_OBJECT — which component, function, route, or artifact",
+        "GATE_3": "EXACT_VERSION — repository + commit hash or dated baseline ID",
+        "GATE_4": "IMPLEMENTATION_CARRIER — actual code path, not diagram or description",
+        "GATE_5": "THREAT_AND_FAILURE_MODEL — what would falsify this claim",
+        "GATE_6": "POSITIVE_TEST — legitimate control case passes",
+        "GATE_7": "NEGATIVE_TEST — attack case is refused by the claimed control",
+        "GATE_8": "REPLAY — same attack replayed returns same result",
+        "GATE_9": "DEPENDENCY_FAILURE — claim holds when authority source is unavailable",
+        "GATE_10": "INDEPENDENT_REPRODUCTION — external party reproduces without guidance",
+        "GATE_11": "SCOPE_AND_LIMITATIONS — explicit declaration of what this does NOT prove",
+        "GATE_12": "CLAIM_STRENGTH — one of the six strength ladder levels",
+    },
+    "if_gate_missing": "PUBLIC CLAIM: HOLD — not: PUBLISH WITH CONFIDENCE",
+    "maps_to": "ADR-028 Evidence-to-Claim Calibration, Claim Strength Ladder",
+}
+
+VCB_VERIFICATION_MATURITY_LADDER = {
+    "name": "Verification Maturity Ladder",
+    "status": "GOVERNING — no claim may use a higher level than demonstrated",
+    "source": "Expert A synthesis — five levels must never be collapsed",
+    "levels": {
+        "V0_IDEA": "Concept only. Not yet formally specified.",
+        "V1_SPECIFIED": "Formal mechanism and acceptance criteria exist. Not implemented.",
+        "V2_IMPLEMENTED": "Code exists and is integrated. Not yet tested.",
+        "V3_INTERNAL_TESTED": "Tests pass internally. Not adversarially verified.",
+        "V4_ADVERSARIALLY_VERIFIED": (
+            "Negative tests, bypass attempts, and failure conditions have been executed. "
+            "Not independently reproduced."
+        ),
+        "V5_INDEPENDENTLY_REPRODUCED": (
+            "An external examiner reproduces the result from a frozen artifact "
+            "without being given the expected outcome. Not yet operationally verified."
+        ),
+        "V6_OPERATIONALLY_VERIFIED": (
+            "The property survives realistic deployment conditions including: "
+            "restart, concurrency, dependency failure, retries, key rotation, "
+            "configuration changes, owner changes, state changes, degraded conditions."
+        ),
+        "V7_CLAIMABLE_WITHIN_DECLARED_SCOPE": (
+            "Only after V6 does the public claim graduate. "
+            "Claim is bounded by exact scope, version, and conditions tested."
+        ),
+    },
+    "current_vcb_status": {
+        "Receipt_integrity": "V5 — independently reproduced by 3 cold external verifications",
+        "Replay_resistance_single_store": "V4 — adversarially tested 6/6; not multi-replica",
+        "Stale_authority_refusal": "V4 — 10/10 on tested paths; STILL suite not complete",
+        "ConsequenceCommitment_Gate_5": "V3 — internal tested; not independently reproduced",
+        "Owner_continuity_F32": "V3 — internal tested; live CAT-01 not yet run",
+        "Delegation_lineage": "V2 — schema implemented; adversarial tests pending",
+        "Runtime_subject_attestation": "V1 — specified; not yet implemented",
+        "Fallback_fail_closed_F35": "V4 — adversarially tested; NOT_FOUND path gap remains",
+    },
+}
+
+VCB_CLAIM_STRENGTH_LADDER = {
+    "name": "Claim Strength Ladder",
+    "status": "GOVERNING — wording must match the level of evidence",
+    "source": "Expert A synthesis — never jump from tested to guaranteed",
+    "levels": {
+        "LEVEL_1": "We specify that... (V1 only)",
+        "LEVEL_2": "We implemented... (V2)",
+        "LEVEL_3": "We tested... (V3)",
+        "LEVEL_4": "We verified within [exact scope]... (V4)",
+        "LEVEL_5": "Independently reproduced within [exact scope]... (V5)",
+        "LEVEL_6": "Operationally demonstrated under [defined conditions]... (V6+)",
+    },
+    "forbidden_upgrades": [
+        "LEVEL_3 → 'guarantees' (requires V7)",
+        "LEVEL_4 → 'universally' (never permitted)",
+        "LEVEL_5 → 'production-proven' (requires V6 in production)",
+        "LEVEL_2 → 'verified' (requires V4 minimum)",
+    ],
+}
+
+VCB_EXAMINER_MODE = {
+    "name": "Examiner Mode — Attack Package for Every Claim",
+    "status": "REQUIRED — every public claim must have a published attack package",
+    "source": "Expert A synthesis — make the claim deliberately attackable",
+    "principle": (
+        "Every claim should have an Attack Package. "
+        "An expert does not have to argue with us. We hand them the attack surface."
+    ),
+    "attack_package_schema": {
+        "claim": "One exact sentence",
+        "carrier": "Exact component or artifact",
+        "version": "Commit hash or baseline ID",
+        "claim_id": "e.g. R001",
+        "input": "What was submitted",
+        "authorized": "What was approved",
+        "mutation": "What the attack changed",
+        "expected": "e.g. COMMITMENT_MISMATCH",
+        "expected_actuator_invoked": "FALSE",
+        "observed": "_____  (to be filled by examiner)",
+        "evidence": "receipt / ledger / hash",
+        "replay": "_____",
+        "independent_reproduction": "_____",
+        "known_limitations": "_____",
+    },
+    "current_attack_packages": {
+        "R001_exact_action_binding": {
+            "claim": "An agent authorized for Action A cannot execute materially different Action B",
+            "carrier": "evaluate_release() Gate 5 — ConsequenceCommitment",
+            "version": "f8009b5+",
+            "claim_id": "R001",
+            "authorized": "$500 to Supplier_A",
+            "mutation": "$4,999 to Supplier_B (within mandate ceiling)",
+            "expected": "COMMITMENT_MISMATCH → REFUSED → ACTUATOR_INVOKED=FALSE",
+            "status": "V3_INTERNAL_TESTED — before/after proof pair complete",
+            "limitations": ["parameters_hash must be in SigilMark", "test actuator only"],
+        },
+        "R002_stale_authority": {
+            "claim": "Revoked authority is refused at commitment time",
+            "carrier": "still_authority_adapter() → evaluate_release_with_still_adapter()",
+            "version": "f8009b5+",
+            "authorized": "Valid mandate at T0",
+            "mutation": "Mandate revoked before Tn execution",
+            "expected": "STILL_FAILED → REFUSED → ACTUATOR_INVOKED=FALSE",
+            "status": "V4_ADVERSARIALLY_VERIFIED — 10/10",
+            "limitations": ["STILL-01 forge variant not yet run"],
+        },
+        "R003_replay_blocked": {
+            "claim": "Same release_id cannot be consumed twice",
+            "carrier": "UNIQUE(release_id) constraint in Supabase release_records",
+            "version": "f8009b5+",
+            "mutation": "6 concurrent submissions of same release_id",
+            "expected": "1 CONSUMED, 5 REPLAY_BLOCKED",
+            "status": "V4_ADVERSARIALLY_VERIFIED — 6/6",
+            "limitations": ["single logical Supabase store", "multi-replica not tested"],
+        },
+        "R004_receipt_tamper": {
+            "claim": "Receipt tamper is detected independently",
+            "carrier": "Ed25519 + RFC 8785 JCS — jar_verify.py",
+            "version": "f8009b5+",
+            "mutation": "Modify any field in receipt",
+            "expected": "INVALID — exit code 3",
+            "status": "V5_INDEPENDENTLY_REPRODUCED — 3 cold external verifications",
+            "limitations": ["offline cryptographic layer only"],
+        },
+    },
+}
+
+VCB_NO_SURPRISES_RULE = {
+    "name": "No Surprises Rule",
+    "status": "GOVERNING — publish limitations before they are discovered externally",
+    "source": "Expert A synthesis",
+    "rule": (
+        "Before public release: if a technically competent external examiner could reasonably "
+        "discover a limitation from our own published architecture, "
+        "we should publish it ourselves first."
+    ),
+    "examples": {
+        "owner_continuity": (
+            "OWNER CONTINUITY: NOT YET VERIFIED — CAT-01 pending. "
+            "We say this before being asked."
+        ),
+        "fallback_not_found_path": (
+            "FALLBACK CONSEQUENCE IMPACT: NOT_FOUND path with active in-memory mandate "
+            "can still authorize. Declared gap separate from F-35 outage path."
+        ),
+        "service_role": (
+            "ACTUATOR INVOCATION INVENTORY: incomplete. "
+            "Service-role paths pending reachability analysis. "
+            "Route inventory bounded to declared audited routes only."
+        ),
+        "enforce_still_false": (
+            "50 enforce_still=False call sites exist. "
+            "Static call-graph analysis not yet complete. "
+            "UNPROVEN_SAFE — not: CONFIRMED_SAFE."
+        ),
+    },
+    "the_distinction": (
+        "Instead of: examiner discovers our owner-change scenario is untested. "
+        "We say first: OWNER CONTINUITY: NOT YET VERIFIED — CAT-01 pending. "
+        "That completely changes the public conversation."
+    ),
+}
+
+VCB_CLAIM_EVIDENCE_MANIFEST = {
+    "name": "Claim Evidence Manifest",
+    "status": "REQUIRED ARTIFACT — public source of truth for every external claim",
+    "source": "Expert B synthesis",
+    "schema": {
+        "claim_id": "Unique identifier e.g. R-001",
+        "exact_claim": "One precise sentence — no paraphrase",
+        "claim_owner": "Who is responsible for this claim",
+        "carrier": "Component or artifact making the claim",
+        "subject": "What property is being claimed",
+        "version": "Commit hash or baseline ID — frozen",
+        "commit": "Exact git SHA",
+        "scope": "Declared scope within which claim holds",
+        "test_id": "Pointer to test evidence e.g. F-21",
+        "test_method": "Exact command or procedure",
+        "expected_result": "What a pass looks like",
+        "actual_result": "What actually happened — honest",
+        "artifact_hash": "sha256 of test output or receipt",
+        "independence_level": "INTERNAL / EXTERNALLY_REPRODUCED / GUIDED / COLD",
+        "currentness_basis": "How currentness was established",
+        "limitations": ["List of what this does NOT prove"],
+        "status": "NOT_YET_DELIVERED / FAILED / FIXED_NOT_YET_REPRODUCED / VERIFIED_WITHIN_SCOPE",
+        "reopen_condition": "What would invalidate this claim",
+    },
+}
+
+VCB_CHALLENGE_RESULT_RECORD = {
+    "name": "Challenge Result Record",
+    "status": "MANDATORY — every challenge produces a permanent record",
+    "source": "Expert B synthesis",
+    "rule": "A failed result must never be silently overwritten. Preserve before AND after.",
+    "schema": {
+        "challenge_id": "CH-001",
+        "claim_id": "R-001",
+        "challenger": "Internal / Alkama / External",
+        "control_case": "PASS / FAIL / UNDETERMINED / NOT_DIAGNOSTIC",
+        "attack_case": "PASS / FAIL / UNDETERMINED / NOT_DIAGNOSTIC",
+        "diagnostic": "TRUE / FALSE — critical: if FALSE, result says nothing about the property",
+        "result": "PASS / FAIL / UNDETERMINED / NOT_DIAGNOSTIC",
+        "root_cause": "Confirmed or unknown",
+        "actuator_invoked": "TRUE / FALSE / UNKNOWN",
+        "state_mutation": "NONE / PARTIAL / FULL / UNKNOWN",
+        "evidence_hash": "sha256:...",
+        "independent_reproduction": "CONFIRMED / PENDING / FAILED",
+        "resolution": "See resolution_lifecycle",
+    },
+    "resolution_lifecycle": [
+        "CLAIMED",
+        "ADMITTED",
+        "TESTED",
+        "PASS / FAIL / UNDETERMINED / NOT_DIAGNOSTIC",
+        "REMEDIATION_REQUIRED",
+        "FIXED",
+        "REGRESSION_VERIFIED",
+        "INDEPENDENTLY_REPRODUCED",
+        "CURRENT",
+    ],
+    "not_diagnostic_rule": (
+        "If the control case and attack case fail identically before reaching the tested property, "
+        "the result is NOT_DIAGNOSTIC — not a pass and not proof of refusal. "
+        "Alkama example: float('inf') crash before lineage evaluation = NOT_DIAGNOSTIC for lineage."
+    ),
+    "current_records": {
+        "CH_001_F25_DELEGATION_500": {
+            "claim_id": "F-25",
+            "control_case": "NOT_DIAGNOSTIC — crashed before lineage evaluation",
+            "diagnostic": False,
+            "result": "NOT_DIAGNOSTIC",
+            "root_cause": "float('inf') not JSON serializable — ValueError",
+            "state_mutation": "NONE",
+            "resolution": "FIXED — re-run pending Alkama confirmation",
+        },
+        "CH_002_F26_STORAGE_ORIGIN": {
+            "claim_id": "F-26",
+            "control_case": "PASS",
+            "diagnostic": True,
+            "result": "PASS",
+            "root_cause": "retrieve_sigilmark checked in-memory first — now Supabase first",
+            "state_mutation": "NONE",
+            "resolution": "INDEPENDENTLY_REPRODUCED — Alkama confirmed",
+        },
+    },
+}
+
+VCB_JUSTIFICATION_SUFFICIENCY_BOUNDARY = {
+    "name": "Permission Governance vs Justification Sufficiency",
+    "status": "GOVERNING DISTINCTION — VeriSigil must never conflate these",
+    "source": "Expert A/B/C/D synthesis from authority-vs-justification challenge",
+    "distinction": {
+        "PERMISSION_GOVERNANCE": (
+            "Did the right attested workload, acting for the right principal, "
+            "with valid authority, execute the exact authorized parameters "
+            "under current conditions? "
+            "VeriSigil evaluates and enforces this. "
+            "This is what the VCB, STILL gate, and ConsequenceCommitment prove."
+        ),
+        "JUSTIFICATION_SUFFICIENCY": (
+            "Was the underlying business decision substantively wise, ethical, or "
+            "factually well-supported by available evidence? "
+            "VeriSigil does NOT evaluate this. "
+            "This requires domain expertise, human review, and organizational accountability."
+        ),
+    },
+    "justification_status_field": {
+        "name": "JUSTIFICATION_STATUS",
+        "values": [
+            "NOT_ASSESSED — VeriSigil did not evaluate justification",
+            "CLAIMANT_DECLARED — agent declared justification; not independently verified",
+            "EVIDENCE_SUPPORTED — evidence object references supporting evidence",
+            "DOMAIN_REVIEW_REQUIRED — human domain expert review required",
+            "UNDETERMINED — insufficient evidence to assess",
+        ],
+        "default": "NOT_ASSESSED",
+    },
+    "public_disclaimer": (
+        "VeriSigil enforces Permission Governance: cryptographic proof that the authorized "
+        "agent, with valid credentials, executed the exact authorized parameters at the "
+        "authorized time. We explicitly do NOT evaluate Justification Sufficiency: "
+        "whether the underlying business decision was wise, ethical, or factually true. "
+        "That remains the human principal's responsibility."
+    ),
+}
+
+VCB_DEFENSIBLE_CLAIM_TEMPLATE = {
+    "name": "Defensible Claim Template",
+    "status": "MANDATORY FORMAT — use for all public posts and documentation",
+    "source": "Expert D synthesis",
+    "template": {
+        "CLAIM": "Exact one-sentence statement",
+        "WHAT_THIS_MEANS": "Precise positive scope",
+        "WHAT_THIS_DOES_NOT_MEAN": [
+            "Not a claim of justification sufficiency",
+            "Not universal safety",
+            "Not coverage of untested paths",
+        ],
+        "CURRENT_STATUS": {
+            "component_A": "✅ VERIFIED (Commit [HASH])",
+            "component_B": "🟡 IN PROGRESS (P0 Remediation)",
+        },
+        "HOW_TO_CHALLENGE": [
+            "Clone repo at commit [HASH]",
+            "Run mutation test script [LINK]",
+            "If actuator invoked with mutated payload: valid failure found",
+            "We will publish failure, deploy fix, rerun publicly",
+        ],
+    },
+    "current_locked_public_claim": (
+        "VeriSigil produces a cryptographically signed, independently verifiable evidence "
+        "object (SigilMark / Proof Passport) that records the authority basis, admissibility "
+        "decision, and execution outcome of a consequential action under the conditions that "
+        "were checked at evaluation time. "
+        "Current standing of authority and full consequence sufficiency are not re-established "
+        "offline. Full adversarial proof of delegation lineage and commit-time revalidation "
+        "is not yet complete."
+    ),
+    "what_broader_claims_are_currently_attackable": [
+        "Working evaluate_release() gate ≠ complete consequence custody",
+        "Schema enforcement of parent binding ≠ proven non-escalation on persistent state",
+        "Test-API actuator path ≠ live-money consequence boundary",
+        "Independent signature verification ≠ independent verification of current authority",
+    ],
+}
+
+VCB_CHALLENGE_MD_CONCEPT = {
+    "name": "CHALLENGE.md — Public Challenge Protocol",
+    "status": "SPEC — to be created in repository root",
+    "source": "Expert D synthesis — invite attack on declared terms",
+    "content": {
+        "purpose": (
+            "VeriSigil welcomes adversarial testing. "
+            "Submit a reproducible test case that breaks an invariant. "
+            "If you succeed, we will publish the failure, the fix, and credit you in our changelog."
+        ),
+        "protocol": [
+            "1. Identify the exact claim from claims_registry.yaml (CLAIM_ID)",
+            "2. Clone the repository at the frozen commit for that claim",
+            "3. Run the exact test specified in the claim manifest",
+            "4. Submit your result with: carrier, commit, test output, actuator status",
+            "5. If the control case and attack case fail identically: report NOT_DIAGNOSTIC",
+            "6. If the attack succeeds: valid finding — we will record and remediate",
+        ],
+        "our_commitment": [
+            "Every finding is recorded in the Challenge Result Record",
+            "We never erase a failed result — we preserve before AND after",
+            "Remediation is documented and regression-tested",
+            "Independent reproduction is required before VERIFIED status",
+        ],
+        "what_we_do_not_accept": [
+            "Claims without a carrier and version",
+            "Attacks on claims we have already declared NOT_YET_VERIFIED",
+            "Architecture arguments without test artifacts",
+            "Category equivalence disputes",
+        ],
+        "response_to_valid_finding": (
+            "Thank you. Finding recorded. Remediation opened. Re-run will follow. "
+            "We will not argue about whether our architecture was intended to be secure. "
+            "We will show you the fix and the re-test."
+        ),
+        "response_to_invalid_claim": (
+            "Please identify the carrier, commit, test, observed result, "
+            "or classification you believe is incorrect. "
+            "We respond to evidence, not assertions."
+        ),
+    },
+}
+
+VCB_PRE_PUBLICATION_14_QUESTION_GATE = {
+    "name": "Pre-Publication 14-Question Gate",
+    "status": "MANDATORY — all 14 must be answered before any public claim",
+    "source": "Expert B synthesis",
+    "rule": "If any answer is missing: PUBLIC CLAIM: HOLD — not: PUBLISH WITH CONFIDENCE",
+    "questions": {
+        "Q01": "Can we state the claim in one exact sentence?",
+        "Q02": "Is the subject and version frozen?",
+        "Q03": "Is the carrier or artifact identified?",
+        "Q04": "What exact behavior would falsify the claim?",
+        "Q05": "What is the positive control?",
+        "Q06": "What is the negative control?",
+        "Q07": "What happens if the test fails before reaching the property?",
+        "Q08": "What does the result not prove?",
+        "Q09": "Can an independent person reproduce it cold?",
+        "Q10": "Is the currentness basis stated?",
+        "Q11": "Is the claim broader than the test?",
+        "Q12": "Who has authority to correct or withdraw it?",
+        "Q13": "Has the claim survived a material-change test?",
+        "Q14": "Has the public wording been checked against the claims registry?",
+    },
+    "if_any_missing": "PUBLIC CLAIM: HOLD",
+    "not_this": "PUBLISH WITH CONFIDENCE",
+}
+
