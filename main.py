@@ -33640,11 +33640,19 @@ async def health():
     Fastest possible response — no external calls.
     """
     return {
-        "status":      "ok",
-        "service":     SERVICE_NAME,
-        "timestamp":   datetime.now(timezone.utc).isoformat(),
-        "environment": ENVIRONMENT,
-        "version":     BUILD_VERSION,
+        "status":           "ok",
+        "service":          SERVICE_NAME,
+        "timestamp":        datetime.now(timezone.utc).isoformat(),
+        "environment":      ENVIRONMENT,
+        "version":          BUILD_VERSION,
+        # ALKAMA PART 2 FIX: process start marker — enables self-evidencing restart proof
+        # After restart, process_started_at changes — retrieve of persisted sigilmark
+        # with cache_used=false proves durability independent of operator coordination
+        "process_started_at": datetime.fromtimestamp(
+            _metrics["start_time"], tz=timezone.utc
+        ).isoformat(),
+        "build_id": _seed[:16] if "_seed" in dir() else BUILD_VERSION,
+        "uptime": get_uptime(),
     }
 
 
@@ -88668,8 +88676,11 @@ def _check_authority_narrowing(parent_boundary: dict, child_boundary: dict) -> t
 
     Returns (is_valid, reason)
     """
-    parent_max = float(parent_boundary.get("maximum",{}).get("amount", float('inf')))
-    child_max  = float(child_boundary.get("maximum",{}).get("amount", float('inf')))
+    # ALKAMA-BUG-FIX: float('inf') is not JSON serializable
+    # Use a large but finite sentinel (10^18 NGN >> any realistic mandate ceiling)
+    _UNCONSTRAINED_CEILING = 10 ** 18
+    parent_max = float(parent_boundary.get("maximum",{}).get("amount", _UNCONSTRAINED_CEILING))
+    child_max  = float(child_boundary.get("maximum",{}).get("amount", _UNCONSTRAINED_CEILING))
 
     if child_max > parent_max:
         return False, f"AUTHORITY_AMPLIFICATION: child maximum {child_max} exceeds parent maximum {parent_max}"
@@ -123466,7 +123477,10 @@ async def delegation_issue(
         parent_ceiling = envelope.get("ceiling", None)
         if parent_ceiling is None:
             # Try alternate field names
-            parent_ceiling = parent_sm.get("amount_limit") or parent_sm.get("ceiling") or float("inf")
+            parent_ceiling = parent_sm.get("amount_limit") or parent_sm.get("ceiling") or None
+            # ALKAMA-BUG-FIX: float('inf') is not JSON serializable — ValueError on response
+            # When no ceiling field exists in parent, treat as UNCONSTRAINED (None), not inf
+            # Comparisons handle None correctly: child_ceiling > None raises TypeError → caught
 
         parent_scope = envelope.get("authorized_actions") or parent_sm.get("authorized_scope") or []
 
@@ -123485,8 +123499,11 @@ async def delegation_issue(
     child_scope = req.get("delegated_scope", [])
     forbidden = (parent_sm.get("consequence_envelope") or {}).get("forbidden_actions", [])
 
+    # Sanitize parent_ceiling — None means parent has no declared ceiling (unconstrained)
+    parent_ceiling_display = parent_ceiling if parent_ceiling is not None else "UNCONSTRAINED"
+
     violations = []
-    if isinstance(parent_ceiling, (int, float)) and child_ceiling > parent_ceiling:
+    if parent_ceiling is not None and isinstance(parent_ceiling, (int, float)) and child_ceiling > parent_ceiling:
         violations.append(f"CEILING_EXCEEDED: child {child_ceiling} > parent {parent_ceiling}")
     for action in child_scope:
         if action in forbidden:
@@ -123499,7 +123516,7 @@ async def delegation_issue(
             "ruling": "REFUSED",
             "vcb_invariant": "INV-DELEGATION-01: child scope ⊆ parent scope",
             "parent_sigilmark_id": parent_id,
-            "parent_ceiling": parent_ceiling,
+            "parent_ceiling": parent_ceiling_display,
             "child_ceiling": child_ceiling,
             "retrieval_source": parent.get("retrieval_source", "UNKNOWN"),
             "state_mutation": "NONE",
@@ -123516,7 +123533,7 @@ async def delegation_issue(
         "parent_decision": parent_decision,
         "delegated_scope": child_scope,
         "delegated_ceiling": child_ceiling,
-        "parent_ceiling": parent_ceiling,
+        "parent_ceiling": parent_ceiling_display,
         "issued_at": ts,
         "lineage_verified": True,
         "violations_checked": True,
@@ -123530,7 +123547,7 @@ async def delegation_issue(
         "issued": True,
         "delegation": delegation,
         "lineage_verified": True,
-        "parent_ceiling": parent_ceiling,
+        "parent_ceiling": parent_ceiling_display,
         "parent_decision": parent_decision,
         "parent_retrieval_source": parent.get("retrieval_source", "UNKNOWN"),
         "parent_durability_verified": parent.get("durability_verified", False),
