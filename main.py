@@ -126852,3 +126852,197 @@ VCB_ALKAMA_DP3_PROOF_STATUS_UPDATED = {
     ],
 }
 
+
+# ============================================================
+# KEN POST RESPONSE — REMAINING TWO ITEMS
+# Gateway as Policy Enforcement Point + Runtime Subject Challenge
+# All VCB terminology. Zero external personal or company names.
+# ============================================================
+
+VCB_GATEWAY_AS_PEP_POSITIONING = {
+    "name": "Gateway as Policy Enforcement Point — VeriSigil as Downstream Evidence Layer",
+    "status": "GOVERNING POSITIONING — how VeriSigil relates to gateway architecture",
+    "source": "Expert synthesis responding to agent security architecture post",
+    "principle": (
+        "Keep the gateway. Give it the right job. "
+        "The gateway is the Policy Enforcement Point. "
+        "The identity and policy layer establishes the evidence that makes the gateway's "
+        "allow-or-deny decision defensible. "
+        "VeriSigil sits downstream of the gateway — examining whether the specific "
+        "consequential transition is still supported by current evidence."
+    ),
+    "ken_chain_vs_vcb_extension": {
+        "upstream_identity_chain": [
+            "Human or process principal",
+            "Attested agent workload",
+            "Delegated authority",
+            "Policy decision",
+            "Short-lived credential",
+            "Gateway (Policy Enforcement Point)",
+            "Resource",
+        ],
+        "vcb_extends_at": "Between Gateway and Resource — before the consequential effect",
+        "vcb_chain_extension": [
+            "...Gateway (Policy Enforcement Point)...",
+            "VCB — STILL gate (current conditions)",
+            "VCB — ConsequenceCommitment (exact action binding)",
+            "VCB — Actuator Integrity Boundary",
+            "Consequence",
+            "Machine Action Ledger",
+            "Verification Receipt",
+            "Independent Reproduction",
+        ],
+    },
+    "what_gateway_proves": [
+        "The request passed network and API policy",
+        "The credential was valid at the time of the request",
+        "The route was authorized",
+        "The prompt or payload passed DLP",
+    ],
+    "what_gateway_does_not_prove": [
+        "Which workload is calling (label ≠ attested runtime)",
+        "Which human or process initiated the work",
+        "Whether the runtime is the expected runtime",
+        "Whether the authority covers this exact action right now",
+        "Whether the credential is audience-bound to the specific tool",
+        "Whether the exact action is still admissible under current conditions",
+    ],
+    "vcb_question_beyond_gateway": (
+        "Once identity, attestation, delegation, policy, and gateway have done their work — "
+        "what proves that the exact consequential transition presented for execution "
+        "is still supported by the authority, policy, and conditions that justified it?"
+    ),
+    "upstream_evidence_flow": (
+        "Workload identity provider → Runtime Subject Attestation → "
+        "VCB examines attestation + authority + current conditions → "
+        "action-specific release → gateway or actuator. "
+        "VeriSigil consumes upstream evidence rather than replacing upstream systems."
+    ),
+    "not_competing_with": [
+        "Workload identity systems",
+        "Attestation systems",
+        "IAM and policy engines",
+        "AI gateways",
+        "Governance frameworks",
+        "Delegation systems",
+    ],
+    "complementarity_statement": (
+        "Bring your architecture. Bring your terminology. Bring your control model. "
+        "VeriSigil will test the specific claim at the point where it matters, "
+        "preserve the evidence, expose the boundary, and state exactly what the evidence "
+        "does and does not establish."
+    ),
+}
+
+VCB_RUNTIME_SUBJECT_CHALLENGE_BATTERY = {
+    "name": "Runtime Subject Challenge Adversarial Battery",
+    "status": "SPEC — tests defined; none yet run against live system",
+    "source": "Expert B synthesis from agent security architecture analysis",
+    "principle": (
+        "The most important test: same agent label + different runtime identity "
+        "must not inherit the original authority. "
+        "This proves the system trusts the attested workload, not the name attached to it."
+    ),
+    "tests": {
+        "RSC_01": {
+            "test": "Valid agent_id, unapproved workload digest",
+            "attack": "agent_id=expense-bot but workload_digest differs from attested digest",
+            "expected": "REFUSED — workload_digest_current STILL condition fails",
+            "status": "NOT_YET_RUN",
+        },
+        "RSC_02": {
+            "test": "Valid API key from wrong runtime environment",
+            "attack": "Credential valid but environment=staging, request from production",
+            "expected": "REFUSED — environment_current STILL condition fails",
+            "status": "NOT_YET_RUN",
+        },
+        "RSC_03": {
+            "test": "Approved workload digest in wrong environment",
+            "attack": "Correct workload_digest but environment mismatch",
+            "expected": "REFUSED or REVALIDATION_REQUIRED",
+            "status": "NOT_YET_RUN",
+        },
+        "RSC_04": {
+            "test": "Human principal does not match delegated authority",
+            "attack": "principal=user_A but delegation issued to user_B",
+            "expected": "REFUSED — principal_binding_current STILL condition fails",
+            "status": "NOT_YET_RUN",
+        },
+        "RSC_05": {
+            "test": "Credential audience targets wrong tool",
+            "attack": "Release credential audience=payment-actuator used against deployment-actuator",
+            "expected": "REFUSED — audience_matches_target STILL condition fails",
+            "status": "NOT_YET_RUN",
+        },
+        "RSC_06": {
+            "test": "Credential TTL expired",
+            "attack": "Release credential past declared expiry",
+            "expected": "REFUSED — credential_not_expired STILL condition fails",
+            "status": "ENFORCED — mandate TTL check in still_authority_adapter()",
+        },
+        "RSC_07": {
+            "test": "Credential replayed",
+            "attack": "Submit same release_id twice",
+            "expected": "REPLAY_BLOCKED — second attempt refused",
+            "status": "VERIFIED_WITHIN_SCOPE — 6/6 concurrent adversarial test",
+        },
+        "RSC_08": {
+            "test": "Model changes after runtime attestation",
+            "attack": "Attestation for model-v1, action executed under model-v2",
+            "expected": "REVALIDATION_REQUIRED — workload_digest_current fails",
+            "status": "NOT_YET_RUN",
+        },
+        "RSC_09": {
+            "test": "Agent calls tool outside declared scope",
+            "attack": "agent declared for PAYMENT attempts FILE_DELETION",
+            "expected": "REFUSED — purpose_matches_action STILL condition fails",
+            "status": "NOT_YET_RUN",
+        },
+        "RSC_10": {
+            "test": "Child agent acts beyond parent authority",
+            "attack": "Child delegation ceiling=500 attempts action requiring ceiling=2000",
+            "expected": "REFUSED — DELEGATION_SCOPE_VIOLATION",
+            "status": "PARTIALLY_VERIFIED — logic correct in internal test; Alkama re-run pending",
+        },
+        "RSC_11": {
+            "test": "Direct actuator call bypasses VCB entirely",
+            "attack": "Caller invokes actuator without passing through evaluate_release()",
+            "expected": "DETECT — route inventory shows gap; Actuator Integrity Boundary closes it",
+            "status": "OPEN — service-role shadow route audit pending (F-23, F-29)",
+        },
+        "RSC_12": {
+            "test": "Gateway available but authority source unavailable",
+            "attack": "Request passes gateway but Supabase is offline at STILL check",
+            "expected": "REFUSED — STILL_NOT_PROVABLE — fail-closed",
+            "status": "VERIFIED_WITHIN_SCOPE — F-35 test passed",
+        },
+        "RSC_13": {
+            "test": "Long-lived credential presented instead of action-specific release",
+            "attack": "Caller presents a broad API key with no mandate binding",
+            "expected": "REFUSED — evaluate_release() requires mandate authority_id",
+            "status": "PARTIALLY_VERIFIED — mandate required in evaluate_release()",
+        },
+        "RSC_14": {
+            "test": "Runtime restarts with changed workload digest — previous release invalid",
+            "attack": "Release issued before restart, presented after restart with new digest",
+            "expected": "REFUSED — workload_digest_current STILL condition fails",
+            "status": "NOT_YET_RUN",
+        },
+        "RSC_15": {
+            "test": "Same agent label, different runtime identity — must not inherit authority",
+            "attack": "agent_id=expense-bot with different workload_digest, environment, or principal",
+            "expected": "REFUSED — identity label alone is insufficient",
+            "status": "NOT_YET_RUN — THE MOST IMPORTANT TEST",
+            "note": "Proves the system trusts the attested workload, not the name attached to it",
+        },
+    },
+    "current_summary": {
+        "VERIFIED_WITHIN_SCOPE": ["RSC_07 replay", "RSC_12 authority source unavailable"],
+        "ENFORCED": ["RSC_06 TTL expired"],
+        "PARTIALLY_VERIFIED": ["RSC_10 child agent scope", "RSC_13 broad key rejected"],
+        "NOT_YET_RUN": ["RSC_01 through RSC_05", "RSC_08 RSC_09", "RSC_14 RSC_15"],
+        "OPEN": ["RSC_11 direct actuator bypass"],
+    },
+    "highest_priority_test": "RSC_15 — same label, different runtime. This is the architectural claim.",
+}
+
