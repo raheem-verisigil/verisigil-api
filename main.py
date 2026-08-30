@@ -106445,7 +106445,7 @@ VCB_ADR_014 = {
         "cannot represent, test, or resolve the problem without a measurable loss of "
         "assurance or enforcement capability. "
         "External authority-chain insight strengthens STILL and material delta — not a new primitive. "
-        "Shawn's composition insight strengthens path inventory and delegation — not a new primitive. "
+        "Composition insight strengthens path inventory and delegation — not a new primitive. "
         "External verifier feedback gives a clearer public evidence surface — not a new primitive."
     ),
     "continuity_of_authority_principle": (
