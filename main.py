@@ -128029,3 +128029,307 @@ VCB_ADR_034_RUNTIME_TRUST_AND_JUSTIFICATION = {
     ],
 }
 
+
+# ============================================================
+# ENGINEERING AUDIT & PROOF DIRECTION — AUG 31 / SEP 1 2026
+# Integration of external governance signals.
+# Result: explicit non-claims + scoped proof language + process.
+# NO new VCB Core primitive. NO new module. NO Interchange build.
+# All VCB terminology. Zero external personal or company names.
+# ============================================================
+
+VCB_CLM_SCOPE_NON_CLAIMS = {
+    "name": "CLM-SCOPE Non-Claims Registry",
+    "status": "MANDATORY — these statements must never be used as evidence of gate success",
+    "source": "Engineering Audit & Proof Direction Aug 31 / Sep 1 2026",
+    "governing_rule": (
+        "These are explicit scope boundaries. Any public text that asserts one side "
+        "as evidence of the other side is a claim violation. "
+        "Integration of external posts adds language discipline only — no new VCB primitive."
+    ),
+    "non_claims": {
+        "CLM_SCOPE_01": {
+            "statement": "WITHIN_DECLARED_PERMISSIONS ≠ ADMISSIBLE_AT_COMMITMENT",
+            "source_signal": "S1 — Authorization scope vs commitment-time check",
+            "meaning": (
+                "An agent acting within declared permissions may still be executing "
+                "a consequential transition that is not admissible at the moment of commitment. "
+                "Permission scope passing is not a substitute for STILL gate + ConsequenceCommitment."
+            ),
+            "forbidden_language": [
+                "permissions were fine",
+                "permissions were green",
+                "within permissions so authorized",
+                "policy passed therefore admissible",
+            ],
+            "correct_language": (
+                "Permissions check passed. Admissibility at commitment time requires "
+                "separate STILL gate evaluation and ConsequenceCommitment binding."
+            ),
+            "mandatory_registry_entry": "WITHIN_DECLARED_PERMISSIONS ≠ ADMISSIBLE_AT_COMMITMENT",
+        },
+        "CLM_SCOPE_02": {
+            "statement": "CORRECT_OUTCOME ≠ AUTHORIZED_PATH",
+            "source_signal": "S3 — Result correctness does not prove authorized path",
+            "meaning": (
+                "A correct or expected outcome does not prove that the execution path "
+                "was authorized, that the inputs were admissible, or that policy was not violated. "
+                "The path matters independently of the result."
+            ),
+            "forbidden_language": [
+                "decision was correct",
+                "result was right so the action was authorized",
+                "policy was fair",
+                "outcome proves authorization",
+            ],
+            "correct_language": (
+                "Test artifacts must state the property measured — e.g. "
+                "'API not called when REFUSED' — never 'decision was correct' or 'policy was fair.'"
+            ),
+        },
+        "CLM_SCOPE_03": {
+            "statement": "HISTORICAL_APPROVAL ≠ CURRENT_AUTHORITY",
+            "source_signal": "Already in doctrine — confirmed by audit",
+            "meaning": (
+                "A historical approval, authorization, or examination does not automatically "
+                "remain valid when conditions change. STILL gate re-establishes current standing."
+            ),
+            "already_in_doctrine": True,
+            "mandatory_registry_entry": "HISTORICAL_APPROVAL ≠ CURRENT_AUTHORITY",
+        },
+        "CLM_SCOPE_04": {
+            "statement": "REGISTRATION_OR_DOI ≠ CERTIFICATION",
+            "source_signal": "S5 — Registration and demonstration terms",
+            "meaning": (
+                "A Zenodo DOI, third-party registry entry, or publication record "
+                "establishes a publication date and content snapshot. "
+                "It does not constitute certification, PRODUCTION_CLAIM_ALLOWED=True, "
+                "or evidence that locked claims are delivered."
+            ),
+            "forbidden_language": [
+                "certified by registry",
+                "DOI proves production readiness",
+                "Zenodo entry confirms production claim",
+                "registered therefore certified",
+            ],
+            "correct_language": "Zenodo DOI = publication date + content snapshot. Not a locked claim.",
+        },
+        "CLM_SCOPE_05": {
+            "statement": "CONTAINMENT_INCIDENT_CLASS ≠ VCB_LOCKED_CLAIM_EVIDENCE",
+            "source_signal": "S4 — Evaluation containment incidents are a different failure class",
+            "meaning": (
+                "Evaluation harness containment failures, multi-agent coordination incidents, "
+                "and sandbox escape events are primarily harness and isolation failure classes. "
+                "Current Paystack/STILL evidence does not prove VCB prevents these incident classes. "
+                "Do not cite such incidents as evidence that VCB invariants are delivered."
+            ),
+            "out_of_scope_explicit": [
+                "CONTAINMENT_ESCAPE_EVAL_HARNESS",
+                "MULTI_AGENT_SWARM_COORDINATION_BLOCKING",
+                "ZERO_DAY_SANDBOX_ESCAPE",
+            ],
+            "what_vcb_does_claim": (
+                "On audited governed enterprise paths: authority is checked, "
+                "parameters are bound, refusal is structured, evidence is preserved. "
+                "Not: containment of evaluation harness escapes or swarm coordination."
+            ),
+        },
+        "CLM_SCOPE_06": {
+            "statement": "TECHNICAL_REFUSAL_PATH ≠ INSTITUTIONAL_DISSENT_CAPACITY",
+            "source_signal": "S2 — Practical weight of authority vs formal override capability",
+            "meaning": (
+                "VCB providing a technical path to refuse or escalate does not guarantee "
+                "that the humans on the escalation path have the institutional capacity "
+                "to exercise that override in practice. "
+                "Technical ability to refuse ≠ institutional ability to refuse."
+            ),
+            "not_to_build": [
+                "Dissent-cost metrics in runtime gate",
+                "Human behavioral psychology product",
+                "UX lab for institutional authority",
+            ],
+            "what_vcb_does": (
+                "VCB ensures refusals are signed, recorded, and attributable "
+                "where the architecture already supports refusal records. "
+                "Institutional authority to use that path is an organizational design question."
+            ),
+        },
+    },
+}
+
+VCB_INTEGRATION_NON_GOALS = {
+    "name": "External Signal Integration Non-Goals",
+    "status": "LOCKED — do not build these from external post integration",
+    "source": "Engineering Audit Section 4 and Section 9",
+    "governing_rule": (
+        "Build nothing new from these posts except explicit non-claims, "
+        "scoped proof language, and freeze/provenance process. "
+        "Keep all code priority on STILL adversarial proof and delegation lineage."
+    ),
+    "do_not_build": {
+        "MONITORING_COST_ANALYTICS": "Monitoring-cost board or analytics product",
+        "HUMAN_DISSENT_COST_PRODUCT": "Human behavioral or dissent-cost product",
+        "MODEL_PATH_PROVENANCE_ENGINE": "Model path or banned-feature provenance engine",
+        "CONTAINMENT_SANDBOX_PLATFORM": "Containment or sandbox escape prevention platform",
+        "AAICECF_VCB_SUBSYSTEM": (
+            "Any external framework imported as a VCB subsystem. "
+            "VCB architecture is governed by ADR-014 Necessity Test only."
+        ),
+        "REGISTRY_INTEGRATION_AS_CORE": "Third-party registry integration as VCB Core",
+        "INTERCHANGE_BEFORE_STILL_PROOF": (
+            "Verification Interchange implementation before Phase 1 STILL adversarial proof. "
+            "STILL suite and DP-3/DP-4 are the next code gates — not Interchange."
+        ),
+        "CONTAINMENT_INCIDENT_CLAIMS": (
+            "Any claim that evaluation harness containment incidents are 'solved' "
+            "by current Paystack/STILL evidence."
+        ),
+    },
+    "risk_if_ignored": "Overclaim: permissions = safe; result = authorized; DOI = certified; containment incident = VCB proof",
+    "risk_if_over_integrated": "Scope explosion; product theater; loss of terrain",
+}
+
+VCB_INTEGRATION_ACCEPTANCE_CRITERIA = {
+    "name": "Integration Acceptance Criteria — Aug 31 / Sep 1 2026 Pass",
+    "status": "INTEGRATION COMPLETE when all criteria satisfied",
+    "source": "Engineering Audit Section 7",
+    "criteria": {
+        "1_CLM_SCOPE_registry": "CLM-SCOPE-01 through CLM-SCOPE-06 in claims registry",
+        "2_containment_out_of_scope": "CONTAINMENT_ESCAPE_EVAL_HARNESS, MULTI_AGENT_SWARM_COORDINATION_BLOCKING, ZERO_DAY_SANDBOX_ESCAPE listed OUT_OF_SCOPE for locked claim",
+        "3_no_new_core_module": "No new Core module, framework import, or Interchange build started from these posts",
+        "4_proposition_freeze_runbook": "Engineer runbook includes proposition freeze before external demo/registration",
+        "5_commitment_time_language": "Public language uses commitment-time + fail-closed without claiming containment victory",
+        "6_STILL_next_code_gate": "STILL suite and DP-3/DP-4 remain the next code gates — confirmed",
+    },
+    "current_status": {
+        "1_CLM_SCOPE_registry": "COMPLETE — CLM-SCOPE-01 through CLM-SCOPE-06 built above",
+        "2_containment_out_of_scope": "COMPLETE — named in CLM_SCOPE_05",
+        "3_no_new_core_module": "CONFIRMED — no new VCB primitive added from this integration",
+        "4_proposition_freeze_runbook": "PROCESS — documented in VCB_INTEGRATION_NON_GOALS",
+        "5_commitment_time_language": "CONFIRMED — WITHIN_DECLARED_PERMISSIONS ≠ ADMISSIBLE_AT_COMMITMENT locked",
+        "6_STILL_next_code_gate": "CONFIRMED — VCB_PROOF_PROGRAM_SEQUENCE PHASE_1_STILL unchanged as next gate",
+    },
+}
+
+VCB_PROPOSITION_FREEZE_CHECKLIST = {
+    "name": "Proposition Freeze Checklist — Before Any External Demo or Registration",
+    "status": "PROCESS GATE — must complete before any external demo, publication, or registration",
+    "source": "Engineering Audit S5 and S6 — freeze before demo; provenance before deep review",
+    "checklist": {
+        "FREEZE_1_PROPOSITION": "State the exact proposition being demonstrated in one sentence",
+        "FREEZE_2_VERSION": "Record the exact commit hash or artifact version",
+        "FREEZE_3_NON_CLAIMS": "List explicitly what is NOT being claimed in this demo",
+        "FREEZE_4_EVIDENCE_BOUNDARY": "State what evidence exists and what remains unproven",
+        "FREEZE_5_ACCEPTANCE_CRITERIA": "Define what pass/fail looks like before the demo runs",
+        "FREEZE_6_PUBLICATION_TREATMENT": "Agree how results will be published — before, not after",
+        "FREEZE_7_IP_BOUNDARY": "Written boundary before any deep terminology or architecture exchange",
+        "FREEZE_8_ADVERSE_EVIDENCE": "Commit to preserving adverse and inconvenient results",
+    },
+    "registration_rule": (
+        "A Zenodo DOI or third-party registry entry = publication date + content freeze. "
+        "Website and posts must never equate DOI/registry with PRODUCTION_CLAIM_ALLOWED. "
+        "TA-14 style: freeze proposition → find ceiling → BOUNDED findings only."
+    ),
+    "review_provenance_protocol": {
+        "before": "Written sovereignty boundary + frozen proposition before deep exchange",
+        "finding": "Commit hash, DOI, correspondence hash, audit PDF — dated",
+        "after": "SUPPORTED — BOUNDED verdict language only",
+        "rule": "Keep all adverse evidence. Never delete awkward history. Preserve UNDETERMINED cold runs.",
+    },
+}
+
+
+# ============================================================
+# ENGINEERING AUDIT & PROOF DIRECTION — AUG 31 / SEP 1 2026
+# Integration of external governance signals — claim discipline only
+# No new VCB Core primitive. No new product layer.
+# ============================================================
+
+VCB_CLM_SCOPE_WITHIN_PERMISSIONS_VS_ADMISSIBLE = {
+    "name": "CLM-SCOPE-01 Explicit Non-Claim: WITHIN_PERMISSIONS != ADMISSIBLE_AT_COMMITMENT",
+    "status": "MANDATORY CLAIM BOUNDARY — must appear in all claims registry entries",
+    "source": "Engineering audit direction S1 — authorization-scope vs commitment-time",
+    "non_claim": "WITHIN_DECLARED_PERMISSIONS != ADMISSIBLE_AT_COMMITMENT",
+    "meaning": (
+        "An agent operating within declared permissions may still be wrong for a specific "
+        "consequential transition at commitment time. "
+        "Permissions green does not equal gate success. "
+        "Any public text that says 'permissions were fine' must not be used as evidence "
+        "that evaluate_release() passed."
+    ),
+    "permitted_wording": (
+        "Authority was evaluated against current conditions at commitment time. "
+        "The STILL gate re-establishes standing — it does not inherit prior permission grants."
+    ),
+    "forbidden_wording": [
+        "Permissions were fine therefore the action was authorized",
+        "The agent stayed within permissions therefore the boundary held",
+        "Green policy = admissible consequence",
+    ],
+    "proof_obligation": (
+        "STILL-01 through STILL-08 remain the proof path for re-establishment. "
+        "No alternate 'permissions flag only' allow path is permitted."
+    ),
+    "maps_to": "S1 signal — authorization-scope failure; commitment-time check",
+}
+
+VCB_CONSOLIDATED_NON_GOALS = {
+    "name": "Consolidated Non-Goals — Do Not Build From External Signals",
+    "status": "PERMANENT — expansion only under Necessity Test (ADR-014)",
+    "source": "Engineering audit direction Section 4",
+    "rule": (
+        "External posts and governance signals may strengthen proof and claim discipline. "
+        "They must not be used to justify building new VCB Core modules, framework imports, "
+        "or Interchange before Phase 1 STILL adversarial proof is complete. "
+        "Restraint: Repair → enforce → attack → independently reproduce → then expand."
+    ),
+    "do_not_build": {
+        "MONITORING_COST_BOARD_ANALYTICS": "Human dissent cost metrics are not a runtime gate",
+        "HUMAN_BEHAVIORAL_DISSENT_PRODUCT": "Psychology product is outside VCB terrain",
+        "MODEL_PATH_PROVENANCE_ENGINE": "Banned-feature provenance is not a committed-action proof",
+        "CONTAINMENT_SANDBOX_ESCAPE_PLATFORM": "Eval harness isolation is not commitment-boundary proof",
+        "PEER_FRAMEWORK_AS_VCB_SUBSYSTEM": "No external governance framework imported as Core",
+        "TA14_REGISTRY_AS_CORE": "Registration does not constitute production claim evidence",
+        "INTERCHANGE_BEFORE_PHASE1_STILL": "Interchange build blocked until STILL suite adversarially proven",
+        "HF_INCIDENT_AS_PRODUCTION_PROOF": (
+            "HF-class incidents (containment escape, multi-agent coordination, record interference) "
+            "are not evidence that current Paystack/STILL invariants are delivered. "
+            "Do not cite these incidents as proof of VCB locked claims."
+        ),
+    },
+    "audit_verdict": {
+        "do_these_posts_require_new_VCB_primitives": "NO",
+        "do_they_strengthen_proof_and_claim_discipline": "YES",
+        "risk_if_ignored": "Overclaim: permissions=safe; result=authorized; DOI=certified; HF=our proof",
+        "risk_if_over_integrated": "Scope explosion; product theater; loss of terrain",
+    },
+    "one_sentence_engineering_instruction": (
+        "Build nothing new from these posts except explicit non-claims, scoped proof language, "
+        "and freeze/provenance process; keep all code priority on STILL adversarial proof "
+        "and delegation lineage so the commitment boundary can eventually support a locked claim "
+        "without borrowing containment incidents or peer registries as false evidence."
+    ),
+    "acceptance_criteria_for_integration_complete": {
+        "criterion_1": "Claims registry contains explicit != statements (CLM-SCOPE-01 through 06)",
+        "criterion_2": "HF/containment class listed OUT_OF_SCOPE for locked claim",
+        "criterion_3": "No new Core module, framework import, or Interchange build started",
+        "criterion_4": "Engineer runbook includes proposition freeze before external demo/registration",
+        "criterion_5": "Public language uses commitment-time + fail-closed without containment victory claim",
+        "criterion_6": "STILL suite and DP-3/DP-4 remain the next code gates",
+    },
+    "proof_direction_spine": {
+        "step_1": "Alkama DP-3/DP-4 — delegation lineage on persistent state",
+        "step_2": "Phase 1: STILL-01 through STILL-08 — caller cannot supply STILL; revocation; source down → refuse",
+        "step_3": "External checkpoint on STILL",
+        "step_4": "Phase 2: narrow reversible COULD path + external checkpoint",
+        "step_5": "Composed invariant adversarial test",
+        "step_6": "Only then: locked claim delivery evaluation",
+        "step_7": "Zenodo/public promotion of proof, not only doctrine",
+    },
+    "parallel_process_not_blocking_code": [
+        "Freeze checklist for any external demo",
+        "Claims registry updates (CLM-SCOPE-01 through 06)",
+        "Website status rows must match Verdict B — no registration theater",
+    ],
+}
+
