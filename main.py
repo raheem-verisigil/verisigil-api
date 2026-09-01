@@ -127525,3 +127525,507 @@ VCB_PRE_PUBLICATION_14_QUESTION_GATE = {
     "not_this": "PUBLISH WITH CONFIDENCE",
 }
 
+
+# ============================================================
+# EXPERT A/B/C/D — POSTS SYNTHESIS
+# Claim Attack Protocol, Runtime Trust Profile, ADR-034,
+# No-Surprise Attack Gate, Proof Level Registry, and more.
+# All VCB terminology. Zero external personal names.
+# ============================================================
+
+VCB_CLAIM_ATTACK_PROTOCOL = {
+    "name": "Claim Attack Protocol (CAP)",
+    "status": "MANDATORY — every significant public claim must have a CAP before publication",
+    "source": "Expert A synthesis — internal adversarial cycle before publication",
+    "principle": (
+        "Stop asking: how do we make VeriSigil difficult to attack? "
+        "Start asking: how do we make every important VeriSigil claim attackable before we publish it?"
+    ),
+    "cap_schema": {
+        "CAP_ID": "Unique identifier e.g. CAP-001",
+        "CLAIM": "Exact one-sentence proposition",
+        "EXACT_PROPOSITION": "Formal statement of the invariant being claimed",
+        "SCOPE": "Declared scope within which the claim holds",
+        "ASSUMPTIONS": [
+            "Authority source available",
+            "Canonicalization version = declared",
+            "Actuator enrolled",
+            "Commitment valid",
+            "Policy version = declared",
+            "Identity state = CURRENT",
+            "No fallback active",
+            "Route belongs to declared inventory",
+        ],
+        "DEPENDENCIES": "What must be true for this claim to hold",
+        "THREAT_ACTORS": "Who or what could falsify this claim",
+        "SHORTEST_PATH_TO_CONSEQUENCE": "Not the intended path — the shortest reachable path",
+        "ATTACK_VARIANTS": "All representations that could produce the same falsification",
+        "EXPECTED_RESULT": "What a pass looks like",
+        "ACTUAL_RESULT": "What actually happened — honest",
+        "EVIDENCE": "Artifact hash, receipt, test output",
+        "INDEPENDENT_REPRODUCTION": "External party reproduced without guidance",
+        "KNOWN_LIMITATIONS": "What this CAP does NOT prove",
+        "PUBLIC_WORDING_PERMITTED": "Exact claim strength level permitted",
+    },
+    "internal_lifecycle": [
+        "CLAIM",
+        "FORMAL PROPOSITION",
+        "ASSUMPTIONS",
+        "THREAT MODEL",
+        "SHORTEST PATH TO CONSEQUENCE",
+        "ADVERSARIAL TEST",
+        "IMPLEMENTATION",
+        "FAILURE TEST",
+        "INDEPENDENT REPRODUCTION",
+        "EVIDENCE BUNDLE",
+        "CLAIM STATUS",
+        "PUBLIC STATEMENT",
+    ],
+    "never_this": [
+        "Architecture",
+        "Marketing claim",
+        "Someone attacks it",
+        "We discover what should have been tested",
+    ],
+    "six_word_claim_test": {
+        "WHO": "Who has authority?",
+        "WHAT": "What exact action is authorized?",
+        "NOW": "Is authority still current at execution time?",
+        "WHY": "What governance condition caused the decision?",
+        "HOW": "What technical mechanism enforced it?",
+        "PROOF": "What independent evidence demonstrates that?",
+        "rule": "If one of these six is missing, the claim must be downgraded",
+    },
+    "current_caps": {
+        "CAP_001_COMMITMENT_MISMATCH": {
+            "claim": "An authorization for Action A cannot execute as Action B",
+            "proposition": "hash(canonical(execution_payload)) != parameters_hash → REFUSED",
+            "shortest_path": "POST /v1/vcb/seal → evaluate_release() Gate 5 → COMMITMENT_MISMATCH",
+            "attack_variant": "Mutate amount or vendor within mandate ceiling (bypasses STILL gate)",
+            "status": "V3_INTERNAL_TESTED — before/after proof pair complete",
+        },
+        "CAP_002_STALE_AUTHORITY": {
+            "claim": "Revoked authority is refused at the STILL gate",
+            "proposition": "mandate.status == REVOKED → STILL_FAILED → REFUSED",
+            "shortest_path": "POST /v1/vcb/seal → still_authority_adapter() → STILL_FAILED",
+            "attack_variant": "Supply STILL_PROVABLE=true in payload (STILL-01 not yet run)",
+            "status": "V4_ADVERSARIALLY_VERIFIED — 10/10 on tested paths",
+        },
+    },
+}
+
+VCB_CLAIM_DEPENDENCY_DOWNGRADE_ENGINE = {
+    "name": "Claim Dependency and Downgrade Engine",
+    "status": "GOVERNING — claims automatically downgrade when assumptions fail",
+    "source": "Expert A synthesis — claims must not exceed their evidence base",
+    "principle": (
+        "When an assumption or dependency fails, every claim that depends on it "
+        "must automatically downgrade. The system cannot pretend the claim holds "
+        "when its foundation has been invalidated."
+    ),
+    "downgrade_examples": {
+        "receipt_integrity_alone": {
+            "proven": "Ed25519 receipt integrity — V5 independently reproduced",
+            "NOT_permitted": "Consequences are cryptographically protected",
+            "PERMITTED": "Receipt integrity is cryptographically verified within declared scope",
+        },
+        "stale_authority_without_owner_continuity": {
+            "proven": "Revocation and expiry cause refusal — 10/10",
+            "NOT_permitted": "Current authority is fully enforced",
+            "PERMITTED": "Revocation and expiry are refused on tested paths; owner-continuity pending CAT-01",
+        },
+        "single_store_replay": {
+            "proven": "6/6 concurrent — single Supabase store",
+            "NOT_permitted": "All replay is prevented",
+            "PERMITTED": "Duplicate release_id consumption blocked within single logical store",
+        },
+        "schema_delegation": {
+            "proven": "MISSING_PARENT_BINDING and PARENT_NOT_FOUND refused — Alkama confirmed",
+            "NOT_permitted": "Delegation lineage is enforced",
+            "PERMITTED": "Schema-level parent binding refused; persistent-state lineage pending Alkama re-run",
+        },
+    },
+    "cascade_rule": (
+        "Owner continuity untested → "
+        "claim 'current authority' automatically downgraded to "
+        "'revocation and expiry verified; owner change not yet proven'"
+    ),
+    "identity_chain_equalities": {
+        "forbidden_collapses": [
+            "IDENTITY != AUTHORITY",
+            "AUTHORITY != PERMISSION",
+            "PERMISSION != DECISION",
+            "DECISION != COMMITMENT",
+            "COMMITMENT != EXECUTION",
+            "EXECUTION != OUTCOME",
+            "OUTCOME != SAFETY",
+        ],
+        "rule": "None of these may be used as synonyms. Each requires separate evidence.",
+    },
+}
+
+VCB_EXPERT_ATTACK_MATRIX = {
+    "name": "Expert Attack Matrix",
+    "status": "MAINTAINED — updated after each expert challenge",
+    "source": "Expert A synthesis — external challenges mapped to engineering tests",
+    "principle": (
+        "External challenges should not be seen as threats. "
+        "They should be mapped to permanent product requirements. "
+        "Every challenge becomes a test vector."
+    ),
+    "challenge_to_test_mapping": {
+        "FROZEN_CARRIER_VERSION_CLAIM": {
+            "challenge": "Name the exact carrier. Freeze the version. State the claim.",
+            "test": "Every CAP requires: CAP_ID + version + claim + test + result + artifact",
+            "maps_to": "Claim Attack Protocol (CAP)",
+        },
+        "CLAIM_INFLATION": {
+            "challenge": "Bounded harness != universal consequence custody",
+            "test": "Claim Dependency Downgrade Engine prevents inflation",
+            "maps_to": "VCB_CLAIM_DEPENDENCY_DOWNGRADE_ENGINE",
+        },
+        "STALE_EVIDENCE": {
+            "challenge": "What happens when conditions change after authorization?",
+            "test": "STILL-01 through STILL-10 adversarial suite",
+            "maps_to": "VCB_STILL_ADVERSARIAL_SUITE_FULL_SPEC",
+        },
+        "SHORTEST_PATH": {
+            "challenge": "Show me the shortest reachable path to the actuator",
+            "test": "Q05 in 20-question path discipline",
+            "maps_to": "VCB_ENGINEER_20_QUESTION_PATH_DISCIPLINE",
+        },
+        "INDEPENDENT_REPRODUCTION": {
+            "challenge": "Can another party reproduce without guidance?",
+            "test": "Level C reproduction — full VCB path, not just cryptographic",
+            "maps_to": "V5 in VERIFICATION_MATURITY_LADDER",
+        },
+        "CAPABILITY_VS_AUTHORITY": {
+            "challenge": "Does capability equal authority at moment of execution?",
+            "test": "STILL gate + ConsequenceCommitment Gate 5",
+            "maps_to": "Four Objects Doctrine Object D",
+        },
+        "ACCOUNTABILITY_CHAIR": {
+            "challenge": "Who owns the risk when the system escalates or allows?",
+            "test": "ACCOUNTABILITY_NOT_ESTABLISHED result state; Accountability Mandate",
+            "maps_to": "VCB_ACCOUNTABILITY_MANDATE",
+        },
+        "REJECTED_PATHS": {
+            "challenge": "Show what was considered and rejected before the decision",
+            "test": "Decision Provenance Record with REJECTED_ALTERNATIVES",
+            "maps_to": "VCB_DP3_PROOF_REQUIREMENTS DP-3B",
+        },
+        "GOVERNANCE_IS_PHYSICS": {
+            "challenge": "Enforcement must happen at the substrate level",
+            "test": "Actuator Integrity Boundary — actuator itself verifies commitment",
+            "maps_to": "VCB_ACTUATOR_INTEGRITY_BOUNDARY",
+        },
+        "NOT_DIAGNOSTIC_RESULT": {
+            "challenge": "Your control case and attack case fail identically",
+            "test": "GATE_REACHABILITY_RULE — crash before property != property refused",
+            "maps_to": "VCB_GATE_REACHABILITY_RULE",
+        },
+    },
+}
+
+VCB_PROOF_LEVEL_REGISTRY = {
+    "name": "Proof Level Registry",
+    "status": "PUBLIC LANGUAGE — claim wording must match the proof level",
+    "source": "Expert A synthesis — never say VERIFIED without specifying the level",
+    "levels": {
+        "L0_SPECIFIED": {
+            "meaning": "We have defined what should happen",
+            "permitted_wording": "We specify that...",
+            "forbidden_wording": ["implemented", "tested", "verified"],
+        },
+        "L1_DECISION_PROVEN": {
+            "meaning": "The decision logic has been code-reviewed and internally tested",
+            "permitted_wording": "We implemented...",
+            "forbidden_wording": ["verified", "independently reproduced"],
+        },
+        "L2_STATE_PROVEN": {
+            "meaning": "State transitions behave as declared under internal tests",
+            "permitted_wording": "We tested...",
+            "forbidden_wording": ["adversarially verified", "independently reproduced"],
+        },
+        "L3_EVIDENCE_PROVEN": {
+            "meaning": "Evidence artifacts are produced and internally verifiable",
+            "permitted_wording": "We verified within [exact scope]...",
+            "forbidden_wording": ["independently reproduced", "operationally validated"],
+        },
+        "L4_REPRODUCTION_PROVEN": {
+            "meaning": "External party reproduced result without being given expected outcome",
+            "permitted_wording": "Independently reproduced within [exact scope]...",
+            "forbidden_wording": ["universally", "production-proven"],
+        },
+        "L5_ENFORCEMENT_PROVEN": {
+            "meaning": "Property survives adversarial conditions on realistic paths",
+            "permitted_wording": "Adversarially verified within [declared threat model]...",
+            "forbidden_wording": ["universally", "non-bypassable", "all paths"],
+        },
+        "L6_OPERATIONALLY_VALIDATED": {
+            "meaning": "Property survives restart, concurrency, key rotation, state change, degraded conditions",
+            "permitted_wording": "Operationally demonstrated under [defined conditions]...",
+            "forbidden_wording": ["guaranteed", "complete"],
+        },
+    },
+    "current_vcb_proof_levels": {
+        "Receipt_integrity": "L4 — independently reproduced 3 cold external verifications",
+        "Replay_resistance": "L3/L4 — adversarial 6/6; multi-replica not tested",
+        "Stale_authority_refusal": "L3 — 10/10 on tested paths; STILL suite not complete",
+        "ConsequenceCommitment": "L2 — internal tested Gate 5; before/after proof pair complete",
+        "Owner_continuity": "L2 — internal tested; live CAT-01 not run",
+        "Delegation_lineage": "L1 — schema implemented; adversarial pending",
+        "Runtime_subject_attestation": "L0 — specified",
+        "Fallback_fail_closed_outage": "L3 — outage path tested; NOT_FOUND path gap",
+    },
+    "rule": "Never say simply 'VERIFIED'. Always say 'VERIFIED AT LEVEL [N] WITHIN [SCOPE]'.",
+}
+
+VCB_PRE_PUBLICATION_EVIDENCE_GATE = {
+    "name": "Pre-Publication Evidence Gate",
+    "status": "MANDATORY — must pass before any public claim or public post",
+    "source": "Expert A synthesis",
+    "the_no_surprise_attack_20_questions": {
+        "Q01": "What is the strongest interpretation of our claim?",
+        "Q02": "What is the weakest implementation that would still appear to satisfy the claim?",
+        "Q03": "What is the shortest path from that weakness to consequence?",
+        "Q04": "What happens if the database disappears?",
+        "Q05": "What happens if the cache is stale?",
+        "Q06": "What happens if the process restarts?",
+        "Q07": "What happens if two instances execute simultaneously?",
+        "Q08": "What happens if the webhook retries?",
+        "Q09": "What happens if the owner changes?",
+        "Q10": "What happens if the parent authority disappears?",
+        "Q11": "What happens if parameters mutate?",
+        "Q12": "What happens if canonicalization differs?",
+        "Q13": "What happens if the caller lies?",
+        "Q14": "What happens if a background job calls the actuator?",
+        "Q15": "What happens if the actuator itself receives an invalid request?",
+        "Q16": "What happens if the verifier disagrees?",
+        "Q17": "What happens if evidence is missing?",
+        "Q18": "What happens if a legitimate human needs to intervene?",
+        "Q19": "What happens if nobody responds?",
+        "Q20": "Can an independent party reproduce the result without trusting us?",
+    },
+    "fail_condition": "If any answer is 'We assume that cannot happen' → claim must not graduate",
+    "engineering_non_surprise_rule": (
+        "Before a claim is published, the team must attempt to falsify the strongest "
+        "reasonable interpretation of that claim through the shortest path to consequence. "
+        "If the team discovers a limitation, the limitation becomes part of the claim "
+        "rather than something hidden behind the architecture."
+    ),
+}
+
+VCB_CORRECTABILITY_TEST = {
+    "name": "Correctability Test — Can Legitimate Authority Intervene Before Consequence?",
+    "status": "REQUIRED TEST — every consequential corridor must pass this",
+    "source": "Expert A synthesis — reachability, detection, interruptibility, recovery",
+    "principle": (
+        "Not just: Can we detect the problem? "
+        "But: Can a legitimate authority still change what happens next before consequence?"
+    ),
+    "test_sequence": {
+        "AUTHORITY": "Is there a designated human or process with override capability?",
+        "REACHABILITY": "Can that authority actually receive the escalation in time?",
+        "DETECTION": "Does the system detect the condition requiring intervention?",
+        "INTERRUPTIBILITY": "Can the system pause or refuse while awaiting human decision?",
+        "RECOVERY": "What is the defined state after human intervention?",
+    },
+    "failure_condition": (
+        "If legitimate authority cannot intervene before consequence, "
+        "the governance system has a correctability gap."
+    ),
+    "vcb_current_status": {
+        "AUTHORITY": "Accountability Mandate fields specify exception_owner and escalation_target",
+        "REACHABILITY": "NOT_YET_IMPLEMENTED — HI-01 test not run",
+        "DETECTION": "PARTIALLY — STILL gate detects authority change; owner change pending",
+        "INTERRUPTIBILITY": "PARTIALLY — REFUSED state prevents consequence; timeout behavior unclear",
+        "RECOVERY": "SPECIFIED — Decision Provenance Record captures override",
+    },
+}
+
+VCB_ACCOUNTABILITY_NOT_ESTABLISHED = {
+    "name": "ACCOUNTABILITY_NOT_ESTABLISHED — New Result State",
+    "status": "REQUIRED — when no accountable owner can be confirmed",
+    "source": "Expert A synthesis — accountability as required field not optional",
+    "definition": (
+        "When a consequential action cannot be traced to a declared accountable owner, "
+        "risk owner, or escalation authority, the system must return "
+        "ACCOUNTABILITY_NOT_ESTABLISHED rather than proceeding as if someone owns the decision. "
+        "Software cannot own the decision. Somebody human must."
+    ),
+    "trigger_conditions": [
+        "accountability_mandate field is absent from the action record",
+        "accountable_owner field is empty or None",
+        "Owner chain lookup fails — no owner found",
+        "Escalation chain is broken — no reachable exception authority",
+    ],
+    "result": {
+        "code": "ACCOUNTABILITY_NOT_ESTABLISHED",
+        "decision": "ESCALATE or REFUSE",
+        "actuator_invoked": False,
+        "state_mutation": "NONE",
+        "message": (
+            "No accountable owner could be confirmed for this consequential action. "
+            "VeriSigil does not own the decision. A human principal must be designated."
+        ),
+    },
+    "rule": (
+        "VeriSigil must never be the owner of organizational risk, ethics, or accountability. "
+        "It verifies and enforces the authority and conditions the organization has established. "
+        "When no organization-established accountability exists, consequence is refused or escalated."
+    ),
+}
+
+VCB_RUNTIME_TRUST_PROFILE = {
+    "name": "Runtime Trust Profile",
+    "status": "SPEC_ONLY — required before runtime identity claims can be made",
+    "source": "Expert B synthesis from physical-layer and workload identity posts",
+    "principle": (
+        "Hardware identity != Organizational authority != Action permission != Moral justification. "
+        "Runtime trust must be established separately from authority and separately from justification."
+    ),
+    "schema": {
+        "workload_id": "agent-001 — the declared workload identifier",
+        "build_digest": "sha256:... — cryptographic hash of the exact build artifact",
+        "runtime_identity": "declared runtime identity (SPIFFE SVID, OIDC token, etc.)",
+        "environment": "production / production-sandbox / staging",
+        "secure_boot_state": "VERIFIED / UNVERIFIED / NOT_APPLICABLE",
+        "attestation_source": "declared attestation issuer",
+        "model_version": "exact model version used in this execution",
+        "prompt_version": "exact prompt template version",
+        "tool_set": ["list of tools this workload is permitted to invoke"],
+        "principal_binding": "principal-001 — human or process that initiated the work",
+        "authority_object": "ao-001 — the authority object being relied upon",
+        "audience": "erp-payment-actuator — the exact tool this release targets",
+        "attested_at": "ISO-8601 timestamp of attestation",
+        "expires_at": "ISO-8601 expiry",
+        "status": "CURRENT / EXPIRED / REVOKED / NOT_ATTESTED / UNKNOWN",
+    },
+    "three_trust_layers": {
+        "ORGANIZATIONAL_TRUST": {
+            "question": "Who is allowed to define the rule, accept the risk, and authorize exceptions?",
+            "owner": "Organization and accountable leadership",
+            "vcb_object": "Accountability Mandate + Operating Mandate",
+        },
+        "RUNTIME_TRUST": {
+            "question": "Is this the approved workload, environment, build, model, and execution path?",
+            "owner": "Platform and security engineering",
+            "vcb_object": "Runtime Trust Profile — this object",
+        },
+        "ACTION_TRUST": {
+            "question": "Is this exact action permitted now, under current authority and conditions?",
+            "owner": "VCB gate",
+            "vcb_object": "STILL gate + ConsequenceCommitment + Actuator Integrity Boundary",
+        },
+    },
+    "what_hardware_attestation_does_not_prove": [
+        "The purpose is legitimate",
+        "The human authority is current",
+        "The action is ethically justified",
+        "The policy is correct",
+        "The consequence is acceptable",
+    ],
+    "vcb_evaluation_with_runtime_trust": (
+        "approved_runtime AND approved_environment AND current_principal AND "
+        "current_authority AND approved_tool AND action_specific_policy → "
+        "STILL gate may proceed to ConsequenceCommitment"
+    ),
+    "not_claimed": (
+        "We do not claim this constitutes an unbreakable physical lock. "
+        "We claim that runtime identity conditions are verifiable evidence inputs "
+        "to the authority evaluation — not substitutes for it."
+    ),
+}
+
+VCB_DECISION_JUSTIFICATION_RECORD = {
+    "name": "Decision Justification Record",
+    "status": "SPEC_ONLY — separate from VCB action permission",
+    "source": "Expert B synthesis — technical permission != ethical or business justification",
+    "principle": (
+        "VCB determines: may the action proceed under current authority? "
+        "Decision Justification determines: is the decision itself sufficiently supported, "
+        "reasonable, and acceptable under the organization's declared ethical and domain rules? "
+        "A technically permitted action may still require human or domain review "
+        "because the justification is weak."
+    ),
+    "schema": {
+        "decision_id": "Unique identifier",
+        "action": "Declared action being decided",
+        "purpose": "Declared purpose of the action",
+        "evidence_basis": ["List of evidence objects supporting the decision"],
+        "governing_policy": "Policy reference",
+        "affected_parties": ["Parties who may be affected by this decision"],
+        "tradeoffs": ["Known tradeoffs in this decision"],
+        "uncertainties": ["Known unknowns at time of decision"],
+        "human_decision_owner": "Who owns the decision if challenged",
+        "exception_authority": "Who may grant exception to the declared policy",
+        "status": "DOMAIN_REVIEW_REQUIRED / EVIDENCE_SUPPORTED / NOT_ASSESSED / UNDETERMINED",
+    },
+    "separation_from_vcb": {
+        "VCB_question": "May the action proceed under current authority?",
+        "JUSTIFICATION_question": "Is the decision itself sufficiently supported and acceptable?",
+        "rule": "A technically valid action may still be DOMAIN_REVIEW_REQUIRED",
+    },
+}
+
+VCB_ADR_034_RUNTIME_TRUST_AND_JUSTIFICATION = {
+    "name": "ADR-034 — Runtime Trust and Decision Justification",
+    "status": "ACCEPTED — GO/NO-GO decisions locked",
+    "source": "Expert B synthesis from physical-layer and capability-vs-authority posts",
+    "question": (
+        "How should VeriSigil combine trusted runtime identity, current authority, "
+        "action enforcement, and human/domain justification without treating any one layer "
+        "as sufficient?"
+    ),
+    "finding": (
+        "A trusted runtime or hardware root can establish properties of the execution "
+        "environment, but it does not independently establish organizational authority, "
+        "ethical legitimacy, or sufficient justification for a particular action. "
+        "Conversely, human oversight without a reachable technical enforcement path "
+        "cannot reliably prevent a consequence."
+    ),
+    "decisions": {
+        "GO": [
+            "Runtime Trust Profile — workload, build, environment, model, prompt, tool, principal, audience binding",
+            "Action-specific short-lived release",
+            "Decision Justification Record",
+            "Separate technical permission from domain justification",
+            "VCB refusal when runtime identity or authority is unknown",
+            "Domain review when justification is unresolved",
+            "Physical or hardware attestation for selected high-risk profiles — without overclaiming",
+            "Adversarial testing of runtime trust and human-correction paths",
+        ],
+        "NO_GO": [
+            "Calling governance literally physics without hardware evidence",
+            "Treating hardware identity as organizational authority",
+            "Treating technical policy compliance as ethical legitimacy",
+            "Allowing an agent to generate its own exception authority",
+            "Assuming a secure runtime cannot be bypassed without testing",
+            "Making VCB the owner of organizational values or risk appetite",
+        ],
+    },
+    "stronger_vcb_formulation": (
+        "Governance becomes enforceable only when organizational authority, "
+        "trusted runtime identity, action-specific policy, human or domain justification, "
+        "and the actual consequence path remain connected."
+    ),
+    "complete_high_consequence_chain": [
+        "Operating Mandate",
+        "Human or process principal",
+        "Runtime Trust Profile",
+        "Agent identity",
+        "Current authority",
+        "Decision Justification Record",
+        "Policy",
+        "Tool",
+        "ConsequenceCommitment",
+        "VCB decision",
+        "Actuator Integrity Boundary",
+        "Consequence",
+        "Machine Action Ledger",
+        "Outcome",
+        "Revalidation",
+    ],
+}
+
