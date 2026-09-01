@@ -128503,3 +128503,99 @@ VCB_CONSOLIDATED_NON_GOALS_EXTENDED = {
     },
 }
 
+
+# ============================================================
+# VOCABULARY & POSITIONING SIGNALS — NO BUILD TICKET
+# CLM-SCOPE-16, 17, 18 — language discipline only
+# No new VCB Core primitive. No architecture change.
+# ============================================================
+
+VCB_CLM_SCOPE_16_17_18 = {
+    "name": "CLM-SCOPE-16 through 18 — Positioning Non-Claims",
+    "status": "LANGUAGE DISCIPLINE — no engineer code action required",
+    "source": "Vocabulary and positioning analysis of adjacent category",
+    "non_claims": {
+        "CLM_SCOPE_16": {
+            "statement": "RESPONSIBLE_AI_PRINCIPLES != COMMITMENT_BOUNDARY",
+            "meaning": (
+                "VeriSigil is not a Responsible AI principles platform. "
+                "RAI covers principle-based lifecycle duties: fairness, safety, transparency. "
+                "VCB is one enforcement control inside governance that implements those principles — "
+                "not the principles themselves."
+            ),
+            "do_not_call_VeriSigil": [
+                "Responsible AI platform",
+                "Complete AI governance",
+                "Principles framework",
+            ],
+            "correct_positioning": (
+                "A governed-execution control that governance programs can use "
+                "when action becomes real."
+            ),
+        },
+        "CLM_SCOPE_17": {
+            "statement": "FULL_AI_GOVERNANCE_SYSTEM != VCB",
+            "meaning": (
+                "VeriSigil is not a full AI governance operating system. "
+                "Governance = org system of frameworks, policies, roles, risk registers, "
+                "standards, controls, guardrails across the lifecycle. "
+                "VCB = one control inside that system: commitment-time admissibility "
+                "and scoped evidence for consequential transitions."
+            ),
+            "layer_map": {
+                "Responsible_AI": "Upstream values and principles (fairness, safety, transparency)",
+                "AI_Governance_broad": "Org system: policies, roles, risk registers, standards, tools",
+                "VCB": "One control inside governance: commitment-time admissibility + scoped evidence",
+            },
+            "chain": (
+                "RAI principles → Governance system → (among many controls) → "
+                "VCB gate at consequence"
+            ),
+        },
+        "CLM_SCOPE_18": {
+            "statement": "PEER_CONSEQUENCE_ASSURANCE_POSITIONING != VCB_LOCKED_CLAIM",
+            "meaning": (
+                "Adjacent market positioning using consequence-time language does not establish "
+                "equivalence with VCB locked claims. Architecture, enforcement path, crypto evidence "
+                "model, fail-closed rules, adversarial test status, and production claims are "
+                "not proven equivalent by vocabulary overlap."
+            ),
+            "what_peer_framing_validates": [
+                "Market is converging on before/at/after consequence as the right split",
+                "Exact consequence anti-drift language reinforces existing INV-P3/COMMIT-02 class",
+                "Independent reconstruction without sole reliance on acting system reinforces jar_verify",
+            ],
+            "what_peer_framing_does_not_do": [
+                "Prove VCB architecture is equivalent to peer architecture",
+                "Accelerate PRODUCTION_CLAIM_ALLOWED to True",
+                "Justify expanding into full decision-integrity platform branding",
+                "Justify public architecture comparison that exposes internals",
+            ],
+            "correct_response_to_peer_pressure": (
+                "Finish proof on the narrow gate. "
+                "Peer clarity is a reason to accelerate honesty and STILL adversarial work, "
+                "not to adopt their roadmap or rebrand."
+            ),
+        },
+    },
+    "do_not_build": [
+        "Principles frameworks or training products",
+        "ISO 42001 consulting in Core",
+        "All guardrails across the lifecycle",
+        "Full decision-integrity platform",
+        "Consequence Assurance as product rename",
+    ],
+    "terrain_ownership_rule": (
+        "Terrain ownership is demonstrated bounds, not trademark adjacency. "
+        "Do not rename VCB to match market vocabulary. "
+        "Do not match marketing certainty of peers."
+    ),
+    "engineer_impact": "None on Phase spine. Language and positioning only.",
+    "proof_priority_unchanged": [
+        "DP-3/DP-4 — delegation lineage",
+        "STILL-01 through STILL-08 — adversarial suite",
+        "Narrow reversible COULD path",
+        "Composed invariant adversarial test",
+    ],
+}
+
