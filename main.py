@@ -128599,3 +128599,242 @@ VCB_CLM_SCOPE_16_17_18 = {
     ],
 }
 
+
+# ============================================================
+# PROOF RELEASE ENGINEERING — FIRST PUBLIC POST DOCTRINE
+# Engineering directive: freeze feature expansion.
+# Objective: strongest independently reproducible claims.
+# PRODUCTION_CLAIM_ALLOWED: False
+# ============================================================
+
+VCB_PROOF_RELEASE_DIRECTIVE = {
+    "name": "Proof Release Engineering Directive",
+    "status": "ACTIVE — feature expansion frozen; proof work only",
+    "production_claim_allowed": False,
+    "locked_claim": "NOT_YET_DELIVERED",
+    "objective": (
+        "Not to demonstrate that VeriSigil has a sophisticated architecture. "
+        "To establish the strongest independently reproducible claims supported "
+        "by the current implementation."
+    ),
+    "every_control_requires": [
+        "claim",
+        "implementation",
+        "reachable path",
+        "adversarial test",
+        "observed result",
+        "preserved artifact",
+        "independent reproduction",
+        "claim ceiling",
+    ],
+    "hard_rules": {
+        "rule_1": "No control may be marked VERIFIED merely because the code exists",
+        "rule_2": "No test may be treated as evidence unless it demonstrably reaches the control",
+        "rule_3": "Any failure before the control is reached must be classified NOT_DIAGNOSTIC",
+        "rule_4": "No production claim permitted until the evidence package is complete",
+        "rule_5": "Do not add terminology to compete with other projects",
+        "rule_6": "Do not expand scope unless required to prove the existing claim",
+    },
+    "the_question": (
+        "Can we finish one narrow consequential execution path to a level where "
+        "an independent engineer can reproduce the evidence and cannot honestly "
+        "dismiss it as terminology?"
+    ),
+    "answer": (
+        "Yes — but only inside a hard claim ceiling. "
+        "Post now as demonstrated status. Not as locked claim flip. "
+        "PRODUCTION_CLAIM_ALLOWED = False still holds."
+    ),
+}
+
+VCB_PRE_POST_PUBLICATION_CHECKLIST = {
+    "name": "Pre-Post Publication Checklist — 7 Required Confirmations",
+    "status": "MANDATORY — engineer confirms each before any public post",
+    "source": "Expert A synthesis — one overclaim costs more than waiting a week",
+    "rule": "If any of 1-7 fails, cut that sentence. Do not 'hope'.",
+    "checklist": {
+        "1": {
+            "check": "Every demo bullet has a named test or external stdout",
+            "required": "YES",
+            "current_status": "YES — internal battery and Alkama external runs documented",
+        },
+        "2": {
+            "check": "No 'guarantee / prevent / impossible' language",
+            "required": "YES",
+            "current_status": "YES — absolute language ban enforced in doctrine",
+        },
+        "3": {
+            "check": "C2 / test-key / mock scope stated if payment is mentioned",
+            "required": "YES",
+            "current_status": "YES — C2 test actuator limitation documented",
+        },
+        "4": {
+            "check": "UNDETERMINED explained as disciplined outcome, not as pass",
+            "required": "YES",
+            "current_status": "YES — UNDETERMINED/NOT_PROVABLE = fail-closed, not fail-open",
+        },
+        "5": {
+            "check": "DOI not framed as proof the system works",
+            "required": "YES",
+            "current_status": "YES — CLM-SCOPE-04: REGISTRATION_OR_DOI != CERTIFICATION",
+        },
+        "6": {
+            "check": "Website status rows match the post — no registration theater",
+            "required": "YES",
+            "current_status": "YES — Verdict B honesty required; no PoGR/FedRAMP implied",
+        },
+        "7": {
+            "check": "STILL full suite / locked claim not implied complete",
+            "required": "YES",
+            "current_status": "YES — STILL-01 through STILL-08 defined; not yet adversarially run",
+        },
+    },
+}
+
+VCB_SAFE_TO_POST_CLAIMS = {
+    "name": "Safe-to-Post Claims — Confirmed Against Evidence",
+    "status": "VERIFIED — every item has named test or external stdout",
+    "production_claim_allowed": False,
+    "all_items_require_qualifier": "in the tested boundary / in tested paths / as tested",
+    "safe_claims": {
+        "offline_verification": {
+            "claim": "Independently reproducible issuance integrity and signature verification",
+            "evidence": "Ed25519 + RFC 8785 JCS; jar_verify with published public key",
+            "proof_level": "V5 — 3 cold external reproductions",
+            "how_attacker_checks": "jar_verify + published public key",
+        },
+        "undetermined_not_fail_open": {
+            "claim": "Verifier does not invent authority when conditions cannot be re-established",
+            "evidence": "UNDETERMINED / NOT_PROVABLE returned on cold runs with live conditions",
+            "proof_level": "V4 — adversarially tested",
+            "how_attacker_checks": "Reviewer stdout from cold external runs",
+        },
+        "actuator_blocked_without_release": {
+            "claim": "In the tested payment path, requests without a valid release did not invoke the payment API",
+            "evidence": "Internal invariant tests; ACTUATOR_NOT_CALLED confirmed",
+            "proof_level": "V3 — internal tested; test actuator only (C2 scope)",
+            "scope_qualifier": "Test actuator / mock path only — not live money",
+        },
+        "parameter_binding": {
+            "claim": "Modified parameters were not accepted under an old release in binding tests",
+            "evidence": "INV-P3 class; COMMITMENT_MISMATCH Gate 5 before/after proof pair",
+            "proof_level": "V3 — internal tested; not independently reproduced",
+        },
+        "negative_amount_9_of_9": {
+            "claim": "Tested execution paths reject non-positive amounts; 9/9 adversarial cases refused",
+            "evidence": "T-01 battery including boolean, NaN, Inf, negative, zero",
+            "proof_level": "V4 — all type variants tested",
+        },
+        "replay_6_concurrent": {
+            "claim": "Six concurrent replay attempts against same authorization produced 1 success and 5 replay blocks",
+            "evidence": "Concurrent test battery; REPLAY_BLOCKED confirmed",
+            "proof_level": "V4 — adversarial; single logical store only",
+            "scope_qualifier": "Single Supabase store — multi-replica not tested",
+        },
+        "stale_authority_5_of_5": {
+            "claim": "Live tests demonstrate refusal when previously valid authority is no longer provable under tested scenarios",
+            "evidence": "10/10 stale-authority adversarial tests; STILL_FAILED confirmed",
+            "proof_level": "V4 — on tested paths; STILL-01 through STILL-08 full suite not yet run",
+        },
+        "receipt_tamper_4_of_4": {
+            "claim": "Tampered verification receipts were detected in 4/4 adversarial cases",
+            "evidence": "Ed25519 tamper battery; exit-code-3 on any modification",
+            "proof_level": "V5 — independently reproduced",
+        },
+        "delegation_4_scenarios": {
+            "claim": "Four delegation scenarios behaved as specified in tested cases",
+            "evidence": "MISSING_PARENT_BINDING, PARENT_NOT_FOUND, valid lineage, DELEGATION_SCOPE_VIOLATION",
+            "proof_level": "V4 — Alkama confirmed schema refusals; persistent-state lineage pending",
+        },
+        "four_objects_5_of_5": {
+            "claim": "Identity alone does not grant authority in 5/5 tested combinations",
+            "evidence": "Four Objects Doctrine adversarial test",
+            "proof_level": "V3 — internal tested",
+        },
+        "production_still_no_caller_supply": {
+            "claim": "Tested production STILL path does not accept caller-supplied STILL_PROVABLE as authoritative",
+            "evidence": "Production path queries authoritative store independently",
+            "proof_level": "V3 — tested; 50 enforce_still=False sites require reachability audit",
+            "scope_qualifier": "50 enforce_still=False sites still require static call-graph analysis",
+        },
+        "not_diagnostic_engineering_discipline": {
+            "claim": "When a test fails before reaching the control, result is classified NOT_DIAGNOSTIC not PASS",
+            "evidence": "Alkama float-inf crash classified NOT_DIAGNOSTIC; VCB_GATE_REACHABILITY_RULE doctrine",
+            "proof_level": "V5 — demonstrated publicly in live external challenge",
+        },
+        "doctrine_published": {
+            "claim": "Governance doctrine published with DOI — publication is timestamp only, not operational proof",
+            "evidence": "Zenodo DOI: doi.org/10.5281/zenodo.20627386",
+            "proof_level": "Publication confirmed; CLM-SCOPE-04 = REGISTRATION_OR_DOI != CERTIFICATION",
+        },
+    },
+    "what_must_NOT_be_claimed": {
+        "forbidden": [
+            "VeriSigil guarantees authorized AI execution",
+            "Agents cannot perform unauthorized actions",
+            "The system is production secure",
+            "All actuator paths are governed",
+            "STILL cannot be forged",
+            "Delegation is fully verified",
+            "Owner continuity is enforced",
+            "The system fails closed under all infrastructure failures",
+            "All 50 enforce_still=False paths are unreachable",
+            "ConsequenceCommitment is fully enforced end-to-end",
+            "EU AI Act / ISO / FedRAMP certified",
+            "Same as enterprise agent control suites",
+            "HF-style containment solved",
+            "STILL-01 through STILL-08 adversarially complete",
+        ],
+        "why": {
+            "F_21": "Gate 5 wired; before/after pair complete; not independently reproduced",
+            "F_32": "Internal tested; live CAT-01 not yet run",
+            "F_35": "Outage path fixed; NOT_FOUND path gap remains",
+            "F_22_F26": "enforce_still=False reachability audit at 50 sites still open",
+            "F_31": "Multi-instance TOCTOU not tested",
+            "F_34": "Webhook retry not tested",
+            "delegation_lineage": "Alkama re-run pending; persistent-state not yet proven",
+        },
+    },
+}
+
+VCB_FIRST_PUBLIC_POST_POSITIONING = {
+    "name": "First Public Post Positioning — Recommended Strategy",
+    "status": "READY — bounded post is safe now",
+    "source": "Expert A and B synthesis",
+    "recommended_frame": (
+        "We are building VeriSigil under a different rule: "
+        "if we cannot independently reproduce the claim, we do not publish the claim. "
+        "That is a claim we can defend right now."
+    ),
+    "post_structure": [
+        "1. Problem — one tight paragraph about consequence-time governance gap",
+        "2. What we built — narrow consequence boundary",
+        "3. What we demonstrated — bullets with 'tested boundary' qualifier",
+        "4. What we are not claiming — bullets",
+        "5. Next proof work — honest",
+        "6. Optional: DOI as doctrine timestamp only",
+    ],
+    "post_confidence": {
+        "bounded_demonstrated_status": "HIGH — appropriate now",
+        "thought_leadership_no_product_proof": "HIGH",
+        "locked_claim_parity_with_enterprise": "NONE — do not post",
+        "independently_verified_governance_without_scope": "LOW — will be attacked",
+    },
+    "what_changes_attacker_job": (
+        "A critic cannot say 'they claim to have solved AI governance' "
+        "because we are not saying that. "
+        "They can only say 'your 9/9 test is not sufficient to prove X.' "
+        "Our answer: 'Correct. We never claimed it proved X.' "
+        "The expert becomes the examiner, not the enemy."
+    ),
+    "do_not_mention_in_first_post": [
+        "Specific external names",
+        "Competitor names",
+        "Defensive framing responding to industry",
+    ],
+    "lead_with": (
+        "We are building a system in which the strength of the public claim "
+        "is constrained by independently reproducible evidence."
+    ),
+}
+
