@@ -128333,3 +128333,173 @@ VCB_CONSOLIDATED_NON_GOALS = {
     ],
 }
 
+
+# ============================================================
+# CONSOLIDATED ENGINEERING AUDIT — PACK A+B INTEGRATION
+# External Signal Pack through 1 Sep 2026
+# CLM-SCOPE-07 through CLM-SCOPE-15 + expanded non-goals
+# No new VCB Core primitive. Claim discipline only.
+# ============================================================
+
+VCB_CLM_SCOPE_REGISTRY_COMPLETE = {
+    "name": "Claims Non-Scope Registry — Complete (CLM-SCOPE-01 through CLM-SCOPE-15)",
+    "status": "MANDATORY — machine-readable non-claims; all 15 confirmed in registry",
+    "source": "Engineering Audit Pack A+B consolidated direction",
+    "rule": (
+        "No public post, demo, partner conversation, or website text may imply "
+        "any of these equalities. If found in existing copy, it must be corrected."
+    ),
+    "non_claims": {
+        "CLM_SCOPE_01": {
+            "statement": "WITHIN_DECLARED_PERMISSIONS != ADMISSIBLE_AT_COMMITMENT",
+            "meaning": "Permissions green at approval time does not equal gate success at commitment time",
+            "source_signal": "A1 — authorization-scope failure; commitment-time check",
+        },
+        "CLM_SCOPE_02": {
+            "statement": "CORRECT_OUTCOME != AUTHORIZED_PATH",
+            "meaning": "Same correct output via different path does not prove the path was authorized",
+            "source_signal": "A3 — correct result != process/path",
+        },
+        "CLM_SCOPE_03": {
+            "statement": "HISTORICAL_APPROVAL != CURRENT_AUTHORITY",
+            "meaning": "Prior authorization does not establish current standing",
+            "source_signal": "A1, B5 — static assessment is historical belief",
+        },
+        "CLM_SCOPE_04": {
+            "statement": "REGISTRATION_OR_DOI != CERTIFICATION",
+            "meaning": "Zenodo DOI or any registry entry is publication date and content only, not locked claim",
+            "source_signal": "A5 — registration != certification",
+        },
+        "CLM_SCOPE_05": {
+            "statement": "CONTAINMENT_INCIDENT_CLASS != VCB_LOCKED_CLAIM_EVIDENCE",
+            "meaning": "HF-class containment escape, swarm coordination, eval-harness failure are outside locked claim scope",
+            "source_signal": "A4 — containment != commitment gate",
+        },
+        "CLM_SCOPE_06": {
+            "statement": "TECHNICAL_REFUSAL_PATH != INSTITUTIONAL_DISSENT_CAPACITY",
+            "meaning": "API ability to refuse does not establish that humans have institutional room to refuse",
+            "source_signal": "A2 — formal authority != practical weight",
+        },
+        "CLM_SCOPE_07": {
+            "statement": "AGENTIC_GOVERNANCE_PROGRAM != VCB_COMMITMENT_BOUNDARY",
+            "meaning": "An enterprise agentic governance program is not the same as a consequence-time commitment gate",
+            "source_signal": "B1 B2 — policy is 10 percent of the iceberg",
+        },
+        "CLM_SCOPE_08": {
+            "statement": "AUDIT_TRAIL_OR_IAM != PRE_CONSEQUENCE_ADMISSIBILITY_PROOF",
+            "meaning": "Identity audit trails and IAM records do not prove commitment-time admissibility",
+            "source_signal": "B1 B2 — least privilege and identity != commitment gate",
+        },
+        "CLM_SCOPE_09": {
+            "statement": "ENTERPRISE_AGENT_CONTROL_SUITE != VCB_COMMITMENT_BOUNDARY",
+            "meaning": "Presence-class agent control, ACS, observability platforms do not constitute a commitment boundary",
+            "source_signal": "B2 — enterprise race = control systems; VCB is narrower slice",
+        },
+        "CLM_SCOPE_10": {
+            "statement": "POLICY_HOOKS_OR_OBSERVABILITY != COMMITMENT_TIME_REESTABLISHMENT",
+            "meaning": "Policy hooks and observability data do not re-establish authority at commitment time",
+            "source_signal": "B2 B3 — policy theater; boundaries + evidence required",
+        },
+        "CLM_SCOPE_11": {
+            "statement": "POLICY_DOCUMENT != ACTION_GOVERNANCE",
+            "meaning": "Having a policy document does not prove that consequential actions are governed at execution",
+            "source_signal": "B3 — policy theater; ~10 min reconstruction test",
+        },
+        "CLM_SCOPE_12": {
+            "statement": "FULL_DECISION_RECONSTRUCTION != COMMITMENT_BOUNDARY_PROOF",
+            "meaning": "Being able to reconstruct what happened after the fact is not the same as governing the boundary before consequence",
+            "source_signal": "B3 — 10 min reconstruction test is retrospective not pre-consequence",
+        },
+        "CLM_SCOPE_13": {
+            "statement": "INITIAL_RISK_ASSESSMENT != CURRENT_AUTHORITY",
+            "meaning": "Static initial risk assessment reflects historical belief not current standing at execution",
+            "source_signal": "B5 — living risk register; static assessment = historical belief",
+        },
+        "CLM_SCOPE_14": {
+            "statement": "LIVING_RISK_REGISTER != COMMITMENT_TIME_GATE",
+            "meaning": "A continuously updated risk register, however current, is not equivalent to a commitment-time authority gate",
+            "source_signal": "B5 — reassessment triggers != runtime gate",
+        },
+        "CLM_SCOPE_15": {
+            "statement": "FIELD_OR_ADAPTIVE_ARCHITECTURE != COMMITMENT_BOUNDARY",
+            "meaning": "Field, adaptive, or recursive reality-return architectures are not VCB commitment boundaries",
+            "source_signal": "B4 — speed of consequence; field ontology is separate terrain",
+        },
+    },
+}
+
+VCB_CONSOLIDATED_NON_GOALS_EXTENDED = {
+    "name": "Consolidated Non-Goals Extended — Pack A+B",
+    "status": "PERMANENT EXTENSION — adds Pack B items to original non-goals list",
+    "source": "Engineering Audit Pack A+B Section 3",
+    "pack_b_additions": {
+        "SHADOW_AGENT_DISCOVERY_ML": "Behavioral drift ML and shadow agent discovery are outside VCB terrain",
+        "FULL_AUTONOMOUS_IR_SUITE": "Incident response orchestration is outside VCB terrain",
+        "ENTERPRISE_AGENT_CONTROL_SUITE_PRESENCE_CLASS": "Presence-class agent control platforms are not VCB",
+        "FULL_ACS_REIMPLEMENTATION": "Access control system reimplementation is not VCB Core",
+        "OBSERVABILITY_DATA_LAKE_AGENT_SIEM": "Agent SIEM and observability data lakes are not VCB",
+        "LIVING_GRC_RISK_REGISTER_SAAS": "GRC risk register product is not VCB",
+        "NOVA_STYLE_FIELD_RECURSION": "Field recursion or adaptive reality-return loops are not VCB Core",
+        "HYPERSCALER_SUITE_FEATURE_PARITY": "Parity with enterprise agent control suites is not the goal",
+    },
+    "correct_market_position": (
+        "VeriSigil is a complementary slice: commitment re-check + portable bounded proof. "
+        "Not: Presence / ACS / full agent IAM / observability platform. "
+        "The market shift to runtime control validates the category. "
+        "It does not expand VeriSigil's backlog to match the enterprise iceberg. "
+        "Acquisition-optional only after adversarial proof is complete."
+    ),
+    "audit_verdict_pack_ab": {
+        "do_pack_ab_require_new_VCB_primitives": "NO",
+        "do_they_strengthen_claim_discipline_and_positioning": "YES",
+        "correct_relationship_to_enterprise_control_race": (
+            "Same category, narrower finishing line. "
+            "Complement possible later. Parity is not the goal."
+        ),
+        "risk_of_over_integration": "Scope death",
+        "risk_of_under_integration": (
+            "Overclaim: permissions=safe; suite=us; HF=our proof"
+        ),
+    },
+    "one_page_engineer_instruction": {
+        "UPDATE_from_external_posts": [
+            "Claims non-scope (CLM-SCOPE-01 through CLM-SCOPE-15)",
+            "Freeze/provenance process for demos and registration",
+            "Honest public language matching Verdict B",
+        ],
+        "KEEP": [
+            "Commitment gate at evaluate_release()",
+            "Fail-closed on STILL_NOT_PROVABLE",
+            "Three inequalities visible to examiners",
+            "Alternate-path discipline on governed enterprise routes",
+        ],
+        "IGNORE": [
+            "Full agentic OS",
+            "Observability platform",
+            "IAM platform",
+            "Risk-register SaaS",
+            "Field architectures",
+            "Containment race with frontier eval incidents",
+        ],
+        "BUILD_ORDER": [
+            "Delegation persistent lineage (Alkama DP-3/DP-4)",
+            "STILL adversarial suite (STILL-01 through STILL-08)",
+            "COULD narrow reversible path",
+            "Composed invariant adversarial test",
+        ],
+        "NEVER": [
+            "Expand scope because enterprise icebergs listed more features",
+            "Use registration, DOI, or peer agreement as PRODUCTION_CLAIM_ALLOWED",
+            "Claim locked claim until adversarial composition passes",
+        ],
+    },
+    "acceptance_criteria": {
+        "1": "Registry holds CLM-SCOPE-01 through CLM-SCOPE-15",
+        "2": "HF/containment/full agent suite listed out of locked-claim evidence",
+        "3": "No new Core module started from Pack A or B",
+        "4": "External demo/registration requires written freeze of proposition and non-claims",
+        "5": "Public language may cite control race only as category context — never as delivered parity",
+        "6": "Next engineering session still opens on DP-3/DP-4 or STILL suite — not iceberg features",
+    },
+}
+
