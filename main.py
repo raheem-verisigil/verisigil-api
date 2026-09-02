@@ -128942,3 +128942,106 @@ VCB_HAROLD_INDEPENDENT_VERIFICATION = {
     },
 }
 
+
+# ============================================================
+# HAROLD VERIFICATION — EXPERT SYNTHESIS & CONFIDENCE UPDATE
+# The most important result is UNDETERMINED, not the 12 OK checks.
+# ============================================================
+
+VCB_HAROLD_VERIFICATION_LESSON = {
+    "name": "Harold Verification — Expert Synthesis and Confidence Update",
+    "status": "PERMANENT RECORD — do not modify",
+    "source": "Expert synthesis on Harold independent verification result",
+
+    "before_harold": (
+        "We believe our verifier can be independently reproduced."
+    ),
+    "after_harold": (
+        "An external engineer independently reproduced the published verification "
+        "procedure and obtained the expected bounded behavior, including an UNDETERMINED "
+        "verdict where evidence was insufficient. "
+        "This is a genuine step upward — not because someone praised VeriSigil, "
+        "but because someone independent tested it and refused to give us credit we had not earned."
+    ),
+
+    "most_important_result": (
+        "The most valuable result is VERDICT: UNDETERMINED. "
+        "Not the 12 OK checks. "
+        "UNDETERMINED proves the verifier is behaving conservatively — "
+        "it refuses to manufacture authority where evidence is insufficient. "
+        "Harold could verify the cryptographic and integrity portions independently "
+        "but correctly received UNDETERMINED where current standing and consequence "
+        "sufficiency could not be established offline."
+    ),
+
+    "architectural_position_now_evidenced": (
+        "VeriSigil does not treat cryptographic validity as proof of authority. "
+        "A receipt can be authentic, intact, and correctly signed while still being "
+        "UNDETERMINED with respect to current authority or consequence sufficiency. "
+        "The verifier preserves that distinction rather than converting missing evidence "
+        "into an allow decision. "
+        "This is a sophisticated architectural position — now externally evidenced."
+    ),
+
+    "what_NOT_to_say": "Independent verification proved VeriSigil works.",
+    "what_to_say": (
+        "An independent engineer reproduced the published verification procedure and "
+        "independently verified the receipt's schema, integrity, signature, closure, "
+        "actor chain, replay, custody-digest continuity, and policy-digest consistency. "
+        "The verifier correctly returned UNDETERMINED where current standing and "
+        "consequence sufficiency could not be independently established."
+    ),
+
+    "maturity_position_table": {
+        "Receipt_schema_integrity": "INDEPENDENTLY_VERIFIED",
+        "Cryptographic_signature": "INDEPENDENTLY_VERIFIED",
+        "Closure_semantics": "INDEPENDENTLY_VERIFIED",
+        "Actor_chain_representation": "INDEPENDENTLY_VERIFIED",
+        "Replay_availability": "INDEPENDENTLY_VERIFIED",
+        "Custody_digest_continuity": "INDEPENDENTLY_VERIFIED",
+        "Policy_digest_consistency": "INDEPENDENTLY_VERIFIED",
+        "Scope_declaration": "INDEPENDENTLY_VERIFIED",
+        "Current_standing_STILL": "NOT_ESTABLISHED",
+        "Consequence_sufficiency_COULD": "NOT_ESTABLISHED",
+        "Production_actuator": "NOT_PROVEN",
+        "General_AI_safety": "NOT_CLAIMED",
+        "Regulatory_compliance": "NOT_CLAIMED",
+    },
+
+    "remaining_proof_boundary_now_concrete": {
+        "1_STILL": "Can current authority be independently re-established?",
+        "2_COULD": "Can consequence sufficiency be independently established?",
+        "3_Production_actuator": (
+            "Can we demonstrate the actual production actuator path "
+            "rather than only the test API?"
+        ),
+        "rule": (
+            "These are now very concrete engineering targets. "
+            "The remaining problem is no longer vague. "
+            "Do not change the verifier to make the verdict stronger. "
+            "Address the evidence gaps the verifier identified."
+        ),
+    },
+
+    "engineer_next_actions": {
+        "1": "Establish an independently observable path for current STILL standing",
+        "2": "Establish independently reproducible COULD / consequence sufficiency",
+        "3": "Demonstrate the production actuator boundary",
+        "4": "Re-run the complete verifier",
+        "5": "Obtain independent reproduction again",
+        "rule": "No claim upgrade until the corresponding evidence exists.",
+    },
+
+    "relationship_model_confirmed": (
+        "Our goal is not to build something nobody can criticize. That is impossible. "
+        "Our goal is to build something where a serious critic can say: 'Here is the boundary.' "
+        "And we can answer: 'Yes. That is the boundary we declared.' "
+        "Harold's report confirms this relationship is beginning to work in the real world. "
+        "He did not say 'this is nonsense.' He said: here is exactly what your system proves, "
+        "and here is exactly where it stops proving."
+    ),
+
+    "PRODUCTION_CLAIM_ALLOWED": False,
+    "locked_claim": "NOT_YET_DELIVERED",
+}
+
