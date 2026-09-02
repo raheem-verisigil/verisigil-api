@@ -125178,10 +125178,14 @@ async def test_still_adapter(
         "Test 10: STILL_PROVABLE → gate proceeds to next check",
         f"release={r10.get('release')} still={r10.get('still_outcome','adapter')}")
 
+    _passed = sum(1 for t in tests if t["status"] == "PASS")
+    _failed = sum(1 for t in tests if t["status"] == "FAIL")
     return {
         "invariant": "ADR-014 §13-§15 STILL Authority Source Adapter",
         "status": "PASS" if all_pass else "FAIL",
-        "passed": sum(1 for t in tests if t["status"] == "PASS"),
+        "all_pass": all_pass,
+        "passed": _passed,
+        "failed": _failed,
         "total": len(tests),
         "tests": tests,
         "critical_property": (
