@@ -423,7 +423,7 @@ def check_rate_limit(client_ip: str) -> bool:
 print("[STARTUP] reaching app creation", file=_sys.stderr, flush=True)
 app = FastAPI(
     title="VeriSigil AI — Constitutional Execution Substrate",
-    description="Constitutional execution substrate for autonomous AI systems. Governs the formation, legitimacy, authority, cognition, and execution continuity of autonomous AI before actions become reality. 608 live endpoints. VGS-ELI-Certified. EU AI Act compliant.",
+    description="Consequence-boundary verification for AI-governed actions. Evidence-first engineering. Proof scope: see /health and endpoint_proof_matrix for current evidence status.",
     version="1.0.0",
     docs_url="/docs",
 )
@@ -129582,5 +129582,87 @@ VCB_P1C_FINAL_CONFIRMED = {
     "T_P2_reporting_fix_confirmed": True,
     "PRODUCTION_CLAIM_ALLOWED": False,
     "one_gate_remaining": "P1-A — Alkama live delegation rerun",
+}
+
+
+# ============================================================
+# ENDPOINT PROOFABILITY FRAMEWORK — PHASE E1 INVENTORY
+# Generated from live FastAPI route table Sep 2 2026
+# PRODUCTION_CLAIM_ALLOWED: False
+# ============================================================
+
+VCB_ENDPOINT_PROOF_FRAMEWORK = {
+    "name": "Endpoint Proofability Framework",
+    "status": "PHASE E1 COMPLETE — inventory generated",
+    "generated": "2026-09-02",
+    "PRODUCTION_CLAIM_ALLOWED": False,
+
+    "inventory_summary": {
+        "total_endpoints": 1286,
+        "by_class": {
+            "A_Informational": 958,
+            "B_Cryptographic_Integrity": 93,
+            "C_Authority_State": 55,
+            "D_Governance_Decision": 155,
+            "E_Execution_Actuator": 25,
+        },
+        "by_proof_status": {
+            "LIVE_VERIFIED": 6,
+            "FUNCTIONALLY_VERIFIED": 1,
+            "STRUCTURALLY_VERIFIED": 1,
+            "NOT_ASSESSED": 1278,
+        },
+    },
+
+    "live_verified_endpoints": [
+        "GET /health",
+        "POST /v1/vcb/seal",
+        "POST /v1/vcb/sigilmark/verify",
+        "POST /v1/sigilmark/persist",
+        "GET /v1/sigilmark/retrieve",
+        "POST /v1/engineering/test-still-adapter",
+    ],
+
+    "app_description_fix": (
+        "Removed overclaim '608 live endpoints. VGS-ELI-Certified. EU AI Act compliant.' "
+        "Replaced with honest scope statement referencing endpoint_proof_matrix. "
+        "Claim discrepancy report required before any compliance language is restored."
+    ),
+
+    "phase_sequence": {
+        "E1": "COMPLETE — endpoint_inventory.json generated from live FastAPI route table",
+        "E2": "PENDING — proof classification assigned per class A-E",
+        "E3": "PENDING — endpoint_proof_contracts.yaml",
+        "E4": "PENDING — VGS-ENDPOINT-PROOF-1.0 universal proof envelope",
+        "E5": "PENDING — endpoint_proof_runner.py automated discovery",
+        "E6": "PENDING — critical path proof (Class D+E consequence chain first)",
+        "E7": "PENDING — gate reachability discipline applied to runner",
+        "E8": "PENDING — claim discipline: no automatic claim upgrade from endpoint proof",
+    },
+
+    "permanent_rules": [
+        "An endpoint is not proven because it returns HTTP 200",
+        "An endpoint is not proven because it passes its own unit tests",
+        "An endpoint is proofable when: proposition + conditions + falsification + evidence + reproduction are defined",
+        "NOT_ASSESSED != unproven; it means not yet examined",
+        "Endpoint count is interface surface, not proof",
+        "PRODUCTION_CLAIM_ALLOWED remains False until claim admission gates pass",
+        "If a test fails before reaching the control: NOT_DIAGNOSTIC, not FAIL",
+        "No endpoint proof may automatically upgrade a public claim",
+    ],
+
+    "claim_discrepancy_items": [
+        "App description removed '608 live endpoints' — actual count 1286, none universally proven",
+        "App description removed 'VGS-ELI-Certified' — no external certification exists",
+        "App description removed 'EU AI Act compliant' — compliance not established",
+        "Audit: /docs and OpenAPI may still surface overclaim language",
+    ],
+
+    "critical_path_endpoints": {
+        "count": 180,
+        "classes": "D (Governance/Decision) + E (Execution/Actuator)",
+        "priority": "Prove Class D+E consequence chain before broader coverage",
+        "reference_model": "P1-C v3: seal → verify → persist → retrieve → tamper",
+    },
 }
 
