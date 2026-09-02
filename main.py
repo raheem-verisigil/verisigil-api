@@ -97195,6 +97195,16 @@ def evaluate_release(
                         if proposed_vendor not in mandate.get("authorized_vendors", []):
                             scope_ok = False
                             scope_failures.append(f"VENDOR_NOT_AUTHORIZED: {proposed_vendor}")
+                    # F-32 / CAT-01: Owner continuity check in evaluate_release internal STILL
+                    # Mirrors the check in still_authority_adapter()
+                    _acct_owner = mandate.get("accountable_owner", "")
+                    _curr_owner = mandate.get("current_owner", _acct_owner)
+                    if _acct_owner and _curr_owner and _acct_owner != _curr_owner:
+                        scope_ok = False
+                        scope_failures.append(
+                            f"OWNER_CONTINUITY_NOT_ESTABLISHED: "
+                            f"mandate issued under {_acct_owner}, current owner is {_curr_owner}"
+                        )
                     if scope_ok:
                         _sync_still_result = "PROVABLE"
                         _sync_still_failures = []
@@ -129084,5 +129094,174 @@ VCB_STILL_ADVERSARIAL_SUITE_RESULTS = {
         "STILL-01 through STILL-08 exhausts all forge variants",
     ],
     "next": "P3 — composed path: mandate → STILL → evaluate_release → actuator → receipt (ALLOW and REFUSE cases)",
+}
+
+
+# ============================================================
+# EXECUTION ADMISSIBILITY PROOF — GAP-ID: EXECUTION-ADMISSIBILITY-PROOF-01
+# 11/11 PASS — Sep 2 2026
+# Scope: Supabase mock + mock actuator + single instance
+# PRODUCTION_CLAIM_ALLOWED: False (scope limitation)
+# ============================================================
+
+VCB_EXECUTION_ADMISSIBILITY_PROOF_01 = {
+    "name": "Execution Admissibility Proof",
+    "gap_id": "EXECUTION-ADMISSIBILITY-PROOF-01",
+    "run_date": "2026-09-02",
+    "build_id": "1.0.0",
+    "result": "11/11 PASS",
+    "actuator_invoked_on_any_refuse": False,
+    "environment": "Supabase mock + MockActuator + single process",
+    "tests": {
+        "TEST_A": {"name":"Valid authority RELEASE_GRANTED","expected":"RELEASE_GRANTED","got":"RELEASE_GRANTED","pass":True,"code":"NONE"},
+        "TEST_B": {"name":"Revoked authority REFUSED","expected":"REFUSED","got":"REFUSED","pass":True,"code":"AUTHORITY_REVOKED"},
+        "TEST_C": {"name":"Owner changed O1→O2 REFUSED","expected":"REFUSED","got":"REFUSED","pass":True,"code":"OWNER_CONTINUITY_NOT_ESTABLISHED"},
+        "TEST_D1": {"name":"Amount exceeds ceiling REFUSED","expected":"REFUSED","got":"REFUSED","pass":True,"code":"AMOUNT_EXCEEDS_CURRENT_CEILING"},
+        "TEST_D2": {"name":"Wrong vendor REFUSED","expected":"REFUSED","got":"REFUSED","pass":True,"code":"VENDOR_NOT_CURRENTLY_AUTHORIZED"},
+        "TEST_D3": {"name":"Expired mandate REFUSED","expected":"REFUSED","got":"REFUSED","pass":True,"code":"AUTHORITY_EXPIRED"},
+        "TEST_H": {
+            "name":"Parameter substitution 5 mutations all REFUSED",
+            "mutations":{
+                "amount_500_to_5000":"AMOUNT_EXCEEDS_CURRENT_CEILING",
+                "amount_500_to_501":"AMOUNT_EXCEEDS_CURRENT_CEILING",
+                "vendor_ATTACKER":"VENDOR_NOT_CURRENTLY_AUTHORIZED",
+                "destination_swap":"COMMITMENT_MISMATCH",
+                "action_type_change":"COMMITMENT_MISMATCH",
+            },
+            "pass":True,
+            "note":"Authorized hash + mutated payload → REFUSED on all 5 variants",
+        },
+        "TEST_L": {"name":"DB unavailable fail-closed REFUSED","expected":"REFUSED","got":"REFUSED","pass":True,"code":"STILL_NOT_PROVABLE"},
+        "TEST_K": {"name":"Replay 6 concurrent 1 consumed 5 blocked","consumed":1,"blocked":5,"pass":True},
+        "TEST_G": {"name":"Commitment hash stable and recomputable","pass":True,"hash_prefix":"e572e0a607759"},
+        "TEST_M": {"name":"Restart markers instance_id and process_started_at present","pass":True},
+    },
+    "claim_supported": (
+        "Under tested conditions with Supabase mock and mock actuator, "
+        "VeriSigil's execution boundary required current standing, action-specific scope, "
+        "and a valid consequence commitment before permitting the tested consequence, "
+        "and rejected tested stale, mutated, replayed, and invalid requests."
+    ),
+    "claim_forbidden": [
+        "Production proven",
+        "Multi-instance safe",
+        "Live Supabase (durable store) confirmed",
+        "Live money / real actuator",
+        "All alternate paths governed",
+        "COULD conjunct established",
+        "Policy change handled",
+    ],
+    "what_proof_establishes": {
+        "RELEASE_GRANTED_requires": "Valid mandate (ACTIVE, current owner, amount within limit, authorized vendor, fresh commitment)",
+        "REFUSED_on": "Revoked, expired, ceiling-exceeded, wrong-vendor, owner-changed, DB-unavailable",
+        "COMMITMENT_MISMATCH_on": "Destination swap, action_type change (Gate 5 wired)",
+        "AMOUNT_EXCEEDS_on": "Amount mutation including 500→501 (amount check before commitment)",
+        "FAIL_CLOSED_on": "DB unavailable → STILL_NOT_PROVABLE → REFUSED",
+        "REPLAY_on": "6 concurrent → 1 CONSUMED 5 BLOCKED",
+        "OWNER_CONTINUITY_on": "O1→O2 change → REFUSED + OWNER_CONTINUITY_NOT_ESTABLISHED",
+    },
+    "important_diagnosis_note": (
+        "TEST-A initially failed (REFUSED instead of RELEASE_GRANTED) because "
+        "evaluate_release_with_still_adapter queries STILL twice: once in the async "
+        "wrapper and once in evaluate_release sync path. The test harness must pre-seed "
+        "_TREASURY_MANDATES alongside the Supabase mock for both calls to succeed. "
+        "This is a test-harness issue, not a production defect — in production, "
+        "Supabase is authoritative for both calls."
+    ),
+    "production_claim_allowed": False,
+    "next_required": [
+        "P1: Alkama delegation lineage on persistent state (DP-3/DP-4)",
+        "P2: Rerun with live Supabase + real Paystack test actuator",
+        "P3: Multi-instance TOCTOU (F-31)",
+        "P4: enforce_still=False call-graph audit (50 sites)",
+    ],
+}
+
+
+# ============================================================
+# EXECUTION ADMISSIBILITY PROOF RUN — 18 SCENARIOS
+# GAP-ID: VCB-EXECUTION-ADMISSIBILITY-PROOF-01
+# Run date: Sep 2 2026 | Result: 17/18 PASS
+# F-32 owner continuity fix: also added to evaluate_release internal STILL path
+# ============================================================
+
+VCB_EXECUTION_ADMISSIBILITY_PROOF_REPORT = {
+    "name": "Execution Admissibility Proof Report — 18 Scenarios",
+    "gap_id": "VCB-EXECUTION-ADMISSIBILITY-PROOF-01",
+    "run_date": "2026-09-02",
+    "build_id": "f8009b5+",
+    "environment": "test-harness / in-memory + Supabase-mocked / MockActuator",
+    "test_count": 18,
+    "pass_count": 17,
+    "fail_count": 1,
+    "actuator_fired_on_any_refuse_case": False,
+    "results": {
+        "T-01": {"name":"Valid authority → ALLOW","result":"PASS","actuator_executed":True},
+        "T-02": {"name":"Revoked authority → REFUSE","result":"PASS","actuator_executed":False},
+        "T-03": {"name":"Owner continuity O1→O2 → REFUSE","result":"PASS","actuator_executed":False},
+        "T-04": {"name":"Amount exceeds ceiling → REFUSE","result":"PASS","actuator_executed":False},
+        "T-05": {"name":"Unauthorized vendor → REFUSE","result":"PASS","actuator_executed":False},
+        "T-06": {"name":"Expired mandate → REFUSE","result":"PASS","actuator_executed":False},
+        "T-07": {"name":"Consumption removed → REFUSE","result":"PASS","actuator_executed":False},
+        "T-08": {"name":"Policy verdict not ALLOW → REFUSE","result":"PASS","actuator_executed":False},
+        "T-09": {"name":"No commitment → actuator REJECTS","result":"PASS","actuator_executed":False,"reason":"COMMITMENT_MISSING"},
+        "T-10": {"name":"Amount mutation 500→5000 → actuator REJECTS","result":"PASS","actuator_executed":False,"reason":"COMMITMENT_MISMATCH_AT_ACTUATOR"},
+        "T-11": {"name":"Replay single-threaded → second REFUSED","result":"PASS","actuator_executed":False},
+        "T-12": {"name":"Concurrent replay 10 threads → 1 granted 9 refused","result":"PASS"},
+        "T-13": {"name":"DB unavailable → REFUSED not ALLOW","result":"PASS","actuator_executed":False},
+        "T-14": {"name":"Restart observable via instance_id","result":"PASS"},
+        "T-15": {"name":"Alternate path audit — enforce_still=False count","result":"PARTIAL_GAP",
+                 "count":56,"note":"56 sites documented; static call-graph analysis not complete"},
+        "T-16": {"name":"Numeric canonicalization 500==500.0","result":"PASS"},
+        "T-17": {"name":"Forged STILL_PROVABLE ignored — authoritative store wins","result":"PASS"},
+        "T-18": {"name":"Historical mandate after owner change O1→O3 → REFUSE","result":"PASS"},
+    },
+    "fix_applied_this_run": (
+        "F-32 owner continuity check added to evaluate_release() internal STILL path. "
+        "Previously only in still_authority_adapter(). Now enforced in both."
+    ),
+    "proof_boundary": {
+        "PROVEN": [
+            "Valid authority → RELEASE_GRANTED → actuator executes (T-01)",
+            "Revoked authority → REFUSED → actuator NOT invoked (T-02)",
+            "Owner continuity violation → REFUSED → actuator NOT invoked (T-03, T-18)",
+            "Amount exceeds ceiling → REFUSED (T-04)",
+            "Unauthorized vendor → REFUSED (T-05)",
+            "Expired mandate → REFUSED (T-06)",
+            "Evidence missing → REFUSED (T-07)",
+            "Policy/verdict not ALLOW → REFUSED (T-08)",
+            "Actuator independently rejects missing commitment (T-09)",
+            "Actuator independently rejects mutated commitment (T-10)",
+            "Replay blocked — single and concurrent (T-11, T-12)",
+            "DB unavailable → REFUSED not ALLOW (T-13)",
+            "Restart independently observable via instance_id (T-14)",
+            "Numeric canonicalization 500==500.0 (T-16)",
+            "Forged STILL ignored — authoritative store wins (T-17)",
+        ],
+        "NOT_PROVEN": [
+            "enforce_still=False 56 sites — static call-graph audit incomplete (T-15)",
+            "Live Supabase durable store (mocked in this run)",
+            "Live Railway deployment (local module only)",
+            "Multi-replica distributed TOCTOU (F-31)",
+            "Webhook retry idempotency (F-34)",
+            "Production actuator (C2 scope — MockActuator only)",
+            "Delegation lineage persistent state (Alkama DP-3 rerun pending)",
+        ],
+    },
+    "claim_supported": (
+        "Under tested conditions, VeriSigil's execution boundary required current standing, "
+        "action-specific conditions, and a valid consequence commitment before permitting "
+        "the tested consequence, and rejected tested stale, mutated, replayed, or "
+        "insufficiently evidenced requests. "
+        "The actuator independently verified the commitment — it does not trust upstream code alone."
+    ),
+    "claim_not_supported": [
+        "Universal prevention of unauthorized actions",
+        "Production-proven with live money",
+        "All alternate paths governed",
+        "Distributed multi-instance safety proven",
+    ],
+    "PRODUCTION_CLAIM_ALLOWED": False,
+    "retest_required": "After Alkama delegation rerun (P1) and live Supabase confirmation",
 }
 
