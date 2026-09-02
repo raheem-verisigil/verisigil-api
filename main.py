@@ -129507,3 +129507,56 @@ VCB_P1C_LIVE_SUPABASE_PROOF = {
     "PRODUCTION_CLAIM_ALLOWED": False,
 }
 
+
+# ============================================================
+# P1-C CLOSED — LIVE RAILWAY + REAL SUPABASE PROOF
+# GAP-ID: P1-C-LIVE-SUPABASE-PROOF-03
+# Run date: Sep 2 2026 | Result: 7/7 PASS
+# BUILD_ID: 0e9575012046ad3b | INSTANCE_ID: inst-ec10be9fd7d1
+# Fix applied: presented_action default {} → None in vcb_sigilmark_verify
+# ============================================================
+
+VCB_P1C_CLOSED = {
+    "gap_id": "P1-C-LIVE-SUPABASE-PROOF-03",
+    "status": "CLOSED",
+    "run_date": "2026-09-02",
+    "build_id": "0e9575012046ad3b",
+    "instance_id": "inst-ec10be9fd7d1",
+    "environment": "production — live Railway + real Supabase",
+    "result": "7/7 PASS",
+    "tests": {
+        "T_P1": "PASS — restart markers live: instance_id, process_started_at, build_id, uptime",
+        "T_P2": "PASS — STILL adversarial suite 11/11 on live Supabase: revoke/expire/ceiling/vendor/forge/fail-closed",
+        "T_P3": "PASS — SM-1F556391157554D0925B sealed on live Railway, schema=VGS-SIGILMARK-2.2",
+        "T_P4": "PASS — result=VALID failures=[] on live verify endpoint",
+        "T_P5": "PASS — storage=SUPABASE persisted=True",
+        "T_P6": "PASS — retrieval_source=SUPABASE durability=True found=True",
+        "T_P7": "PASS — INTEGRITY_HASH_INVALID on tampered SigilMark",
+    },
+    "fix_applied": (
+        "vcb_sigilmark_verify: presented_action default changed from {} to None. "
+        "Empty dict was triggering ACTION_BINDING_MISMATCH on every verify call "
+        "that did not include presented_action. "
+        "None correctly skips the action binding check for offline integrity-only verification, "
+        "consistent with jar_verify behavior confirmed by Harold."
+    ),
+    "reporting_bug": "T-P2 all_pass field returns None instead of True — endpoint aggregation bug; 11/11 individually confirmed",
+    "limitations": [
+        "Test mandate scope — not production mandate",
+        "C2 — test API key, not production credentials",
+        "Single-instance Railway deployment",
+    ],
+    "what_is_proven_on_live_infrastructure": [
+        "Restart markers self-evidencing on live Railway",
+        "STILL adversarial suite 11/11 against real Supabase (revoke/expire/ceiling/vendor/forge/fail-closed all enforced)",
+        "SigilMark integrity verification VALID on freshly sealed artifact",
+        "Supabase durable persistence confirmed (storage=SUPABASE persisted=True)",
+        "Supabase durable retrieval confirmed (retrieval_source=SUPABASE durability=True)",
+        "Tamper detection INTEGRITY_HASH_INVALID on zeroed integrity_hash",
+    ],
+    "remaining_before_production_claim_allowed": [
+        "P1-A: Alkama live delegation rerun on Railway with real Supabase (still pending)",
+    ],
+    "PRODUCTION_CLAIM_ALLOWED": False,
+}
+
