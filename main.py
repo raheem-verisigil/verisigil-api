@@ -129342,3 +129342,64 @@ VCB_ENFORCE_STILL_FALSE_REACHABILITY_AUDIT = {
     "T15_update": "T-15 PARTIAL → CLOSED. 58 sites audited. 0 production consequence-capable paths.",
 }
 
+
+# ============================================================
+# OWNER ACCEPT RECORD — PROOF-RUN-2026-09-02
+# Expert synthesis confirms: 17/18 conditional, T-15 now CLOSED
+# ============================================================
+
+VCB_OWNER_ACCEPT_PROOF_RUN_20260902 = {
+    "gap_id": "PROOF-RUN-2026-09-02",
+    "tests": "T-01 through T-14, T-16 through T-18 PASS; T-15 PARTIAL → subsequently CLOSED by P1-B audit",
+    "pass_fail": "17/18 conditional at time of run; T-15 closed by reachability audit same session",
+    "limitations": [
+        "Suite run against in-memory mandate store and MockActuator — not live Supabase or real actuator",
+        "C2 scope — test actuator only; live money not tested",
+        "Alkama delegation on live Railway still pending (P1-A)",
+        "Live Supabase parity confirmation still pending (P1-C)",
+    ],
+    "claim_allowed": (
+        "Under tested conditions, the execution boundary required current standing, "
+        "action-specific conditions, and a valid consequence commitment before permitting "
+        "the tested consequence, and rejected tested stale, mutated, replayed, or "
+        "insufficiently evidenced requests. The actuator independently verified the "
+        "commitment and did not rely on upstream trust alone. "
+        "Independent offline verification of a production passport confirmed issuance "
+        "integrity and signature, and correctly returned UNDETERMINED for current standing "
+        "and consequence sufficiency."
+    ),
+    "claim_forbidden": [
+        "PRODUCTION_CLAIM_ALLOWED = True",
+        "Guarantees / cannot / all paths / production-proven",
+        "Independently verified that actions are admissible",
+        "Universal path coverage proven",
+        "Live money consequence proven",
+    ],
+    "three_gates_remaining": {
+        "P1_A": "Alkama live Railway delegation rerun (narrow child → escalation) — pending",
+        "P1_B": "enforce_still=False reachability audit — CLOSED (audit completed Sep 2 2026)",
+        "P1_C": "Live Supabase persistence/retrieval/restart parity — pending",
+    },
+    "PRODUCTION_CLAIM_ALLOWED": False,
+    "accepted_by": "Owner — Sep 2 2026",
+    "evidence_pack_files": [
+        "internal/proof-run-2026-09-02-stdout.txt",
+        "external/harold-2026-09-02.txt",
+        "internal/still-adversarial-suite-01-stdout.txt",
+        "internal/enforce_still_false_audit-01.txt",
+    ],
+    "what_harold_confirmed": (
+        "ISSUANCE INTEGRITY: VERIFIED — schema, JCS integrity, Ed25519 signature hold offline. "
+        "CURRENT STANDING: NOT_RE-ESTABLISHED — offline receipt != live authority. "
+        "CONSEQUENCE SUFFICIENCY: NOT_ESTABLISHED — no live STILL+COULD from artifact alone. "
+        "VERDICT: UNDETERMINED — correct fail-closed posture. "
+        "Use: independent reproduction of receipt honesty, not of the full runtime suite."
+    ),
+    "expert_bottom_line": (
+        "Is the proof run real progress? YES — strong on tested refuse/grant/actuator independence. "
+        "Does external verification unlock production claims? NO — unlocks honest offline receipt narrative. "
+        "Flip PRODUCTION_CLAIM_ALLOWED? NOT YET. "
+        "Next thing: evidence pack filing → Alkama live Railway → live Supabase confirm."
+    ),
+}
+
