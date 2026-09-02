@@ -108419,7 +108419,7 @@ async def vcb_sigilmark_verify(req: dict):
     """
     return verify_sigilmark_independent(
         req.get("sigilmark", {}),
-        presented_action            = req.get("presented_action", {}),
+        presented_action            = req.get("presented_action", None),
         presented_enforcement_point = req.get("enforcement_point", ""),
     )
 
