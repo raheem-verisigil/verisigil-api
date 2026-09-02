@@ -128838,3 +128838,107 @@ VCB_FIRST_PUBLIC_POST_POSITIONING = {
     ),
 }
 
+
+# ============================================================
+# HAROLD INDEPENDENT VERIFICATION — OMNIX QUANTUM LTD
+# Raw verifier output accepted exactly as reported
+# jar-verify-0.2.0 against production endpoint
+# No expected result was given. QUICKSTART followed.
+# ============================================================
+
+VCB_HAROLD_INDEPENDENT_VERIFICATION = {
+    "name": "Harold Independent Verification — OMNIX QUANTUM LTD",
+    "verifier": "jar-verify-0.2.0",
+    "verifier_org": "OMNIX QUANTUM LTD",
+    "nda_status": "Signed Mutual Technical Review NDA",
+    "independence": "COLD — no expected result disclosed; QUICKSTART followed without private guidance",
+    "result_accepted": "Exactly as reported",
+    "raw_verdict": "UNDETERMINED",
+    "checks": {
+        "schema_version": "OK — SCHEMA_V2.2: VGS-SIGILMARK-2.2",
+        "integrity_hash": "OK — INTEGRITY_VERIFIED (rfc8785-jcs-v1)",
+        "signature": "OK — SIGNATURE_VERIFIED (rfc8785-jcs-v1)",
+        "closure_terminated": "OK — CLOSURE_AT_DECLARED_ROOT depth=1/3",
+        "root_provable_false": "OK — ROOT_PROVABLE_CORRECT: kind=ORGANIZATIONAL_FIAT",
+        "why_edges_enum": "OK — WHY_EDGES_VALID: 5 edges, all in closed enum",
+        "actor_chain": "OK — ACTOR_CHAIN_PRESENT",
+        "still_unknown": "SOFT_WARN — STILL_UNKNOWN_STATUS: UNKNOWN is not GOOD (INV-STILL-03)",
+        "replay": "OK — REPLAY_AVAILABLE: engine=VCB-2.2 status=REPLAY_AVAILABLE",
+        "assurance_custody": "SOFT_WARN — CUSTODY_GAP_UNKNOWN: conjunct UNDETERMINED (INV-EV-02)",
+        "custody_continuity": "OK — CUSTODY_DIGEST_CONTINUOUS: 2 entries, all digests chain",
+        "could": "SOFT_WARN — UNDETERMINED.COULD_NOT_MODELLED",
+        "replay_cross_check": "OK — REPLAY_POLICY_DIGEST_VERIFIED: matches evidence_references.policy_hash",
+        "scope_ledger": "OK — SCOPE_LEDGER_PRESENT: 5 declared limits",
+        "word_ban": "OK — WORD_BAN_CLEAN: no banned words in signed fields",
+    },
+    "score": "12 OK / 3 SOFT_WARN / 0 HARD_FAIL",
+    "soft_warn_interpretation": {
+        "still_unknown_INV_STILL_03": (
+            "STILL gate was not re-established offline. "
+            "CORRECT behavior — the verifier cannot check live authority from a static artifact. "
+            "UNDETERMINED is the honest answer when live conditions are unknown. "
+            "This is designed behavior, not a defect."
+        ),
+        "assurance_custody_INV_EV_02": (
+            "Custody conjunct is UNDETERMINED. "
+            "Same reason: custody requires live verification. "
+            "The verifier correctly refuses to invent custody proof from static artifact."
+        ),
+        "could_COULD_NOT_MODELLED": (
+            "COULD conjunct not modelled — within declared C2 test scope. "
+            "Scope ledger already declares this limit. "
+            "Not a new finding."
+        ),
+    },
+    "verdict_interpretation": (
+        "UNDETERMINED = honest result when live conditions cannot be re-established offline. "
+        "This is NOT a failure. This is the verifier enforcing the discipline: "
+        "it does not fail-open, it does not invent authority, it produces UNDETERMINED "
+        "when evidence is insufficient to establish current standing."
+    ),
+    "what_harold_independently_confirmed": [
+        "Schema v2.2 structure is valid",
+        "Integrity hash VERIFIED using rfc8785-jcs-v1 — independently computed",
+        "Ed25519 signature VERIFIED — independently computed",
+        "Closure at declared root — depth tracking works (depth=1/3)",
+        "Root provenance correct — ORGANIZATIONAL_FIAT",
+        "WHY edges valid — 5 edges all in closed enum",
+        "Actor chain present",
+        "Replay availability confirmed — VCB-2.2 engine REPLAY_AVAILABLE",
+        "Replay policy digest matches evidence_references.policy_hash — independently verified",
+        "Scope ledger present with 5 declared limits",
+        "Word ban clean — no banned words in signed fields",
+        "Custody digest chain continuous — 2 entries, all digests chain",
+    ],
+    "proof_level_updates": {
+        "receipt_integrity_ed25519": "V5 — independently reproduced by Harold (OMNIX QUANTUM LTD) following QUICKSTART without guidance",
+        "replay_policy_digest": "V5 — newly confirmed by Harold independently",
+        "scope_ledger": "V5 — confirmed present and readable by independent verifier",
+        "undetermined_discipline": "V5 — confirmed: verifier does not fail-open on unknown live conditions",
+    },
+    "what_remains_unchanged": {
+        "STILL_current_standing": "NOT_RE-ESTABLISHED — this is correct; live STILL gate not proven offline",
+        "CONSEQUENCE_SUFFICIENCY": "NOT_ESTABLISHED — correct; requires live gate",
+        "PRODUCTION_CLAIM_ALLOWED": False,
+        "locked_claim": "NOT_YET_DELIVERED",
+    },
+    "claim_update": {
+        "NOW_SAFE_TO_SAY": (
+            "An independent external engineer from OMNIX QUANTUM LTD verified the "
+            "VeriSigil production artifact following the published QUICKSTART without "
+            "being told the expected result. "
+            "12/15 checks passed. 3 soft warnings were produced for conditions "
+            "(STILL, custody, COULD) that require live verification and cannot be "
+            "established from a static artifact — consistent with declared scope. "
+            "The verifier produced UNDETERMINED — the correct honest result when "
+            "live conditions cannot be re-established offline."
+        ),
+        "STILL_FORBIDDEN": [
+            "UNDETERMINED means the system failed",
+            "Current authority is independently verified",
+            "The system is production-ready",
+            "Harold endorsed the full VeriSigil architecture",
+        ],
+    },
+}
+
