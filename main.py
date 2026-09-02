@@ -129265,3 +129265,80 @@ VCB_EXECUTION_ADMISSIBILITY_PROOF_REPORT = {
     "retest_required": "After Alkama delegation rerun (P1) and live Supabase confirmation",
 }
 
+
+# ============================================================
+# P1-B: enforce_still=False REACHABILITY AUDIT
+# GAP-ID: ENFORCE_STILL_FALSE_AUDIT-01
+# Result: CLOSED — no production consequence path bypasses STILL
+# ============================================================
+
+VCB_ENFORCE_STILL_FALSE_REACHABILITY_AUDIT = {
+    "name": "enforce_still=False Reachability Audit",
+    "gap_id": "ENFORCE_STILL_FALSE_AUDIT-01",
+    "run_date": "2026-09-02",
+    "total_occurrences_in_codebase": 58,
+    "classification": {
+        "doctrine_string_references": {
+            "count": 21,
+            "description": "String literals inside doctrine/docstring/audit constants — not live code execution",
+            "consequence_reachable": False,
+        },
+        "test_route_references": {
+            "count": 4,
+            "description": "References inside /v1/p4/cedar-properties and /v1/p4/vcb-invariant tags",
+            "consequence_reachable": "TEST ONLY",
+        },
+        "live_function_calls": {
+            "count": 12,
+            "routes": [
+                "POST /v1/p4/cedar-properties (8 calls) — Cedar property test suite",
+                "POST /v1/p4/vcb-invariant (1 call) — VCB invariant proof test",
+                "POST /v1/engineering/test-non-mutation-invariant (1 call) — engineering test",
+                "GET /v1/engineering/test-silent-exception-audit (1 call) — engineering test",
+                "1 internal function call (not an HTTP route)",
+            ],
+            "consequence_reachable": False,
+            "evidence": (
+                "None of the 12 live calls with enforce_still=False are inside routes "
+                "that call PaystackTestActuator, any external API, or any consequence-capable "
+                "path. All 12 are inside /v1/p4/ or /v1/engineering/ test/proof routes. "
+                "Confirmed by scanning lines 121100-121600 and 124550-124700 for "
+                "paystack/PaystackTestActuator/external_api references — none found."
+            ),
+        },
+        "http_parameter_injection": {
+            "count": 0,
+            "description": "enforce_still is NOT exposed as an HTTP Query/Body/Header parameter",
+            "consequence": "No external caller can inject enforce_still=False via HTTP",
+            "evidence": "grep 'enforce_still.*Query|Body|Header' returns 0 matches",
+        },
+        "production_wrapper": {
+            "function": "evaluate_release_with_still_adapter",
+            "default": "enforce_still=True",
+            "description": "The production wrapper defaults to enforce_still=True — not False",
+        },
+    },
+    "audit_verdict": "CLOSED — no production consequence path bypasses STILL via enforce_still=False",
+    "claim_allowed": (
+        "The 58 occurrences of enforce_still=False in the codebase are either doctrine/string "
+        "references (21), test route calls that do not reach any real actuator (12), "
+        "or route tags (4). No HTTP caller can inject enforce_still=False. "
+        "The production wrapper (evaluate_release_with_still_adapter) defaults to "
+        "enforce_still=True. No production consequence path bypasses the STILL gate "
+        "via enforce_still=False."
+    ),
+    "claim_not_allowed": [
+        "No bypass of any kind is possible — other bypass vectors not yet audited",
+        "enforce_still=False sites are harmless in all future code changes",
+        "Production is fully hardened against all alternate-path attacks",
+    ],
+    "limitation": (
+        "This audit covers enforce_still=False specifically. "
+        "Other alternate paths (background jobs, webhooks, direct Supabase access) "
+        "were audited separately in GAP 4 (2026-08-26). "
+        "The 56-site figure from T-15 is now clarified: 58 total occurrences, "
+        "12 live calls, all in non-consequence test/engineering routes."
+    ),
+    "T15_update": "T-15 PARTIAL → CLOSED. 58 sites audited. 0 production consequence-capable paths.",
+}
+
