@@ -129045,3 +129045,44 @@ VCB_HAROLD_VERIFICATION_LESSON = {
     "locked_claim": "NOT_YET_DELIVERED",
 }
 
+
+# ============================================================
+# STILL-01 through STILL-08 — ADVERSARIAL SUITE RESULTS
+# GAP-ID: STILL-ADVERSARIAL-SUITE-01
+# Run date: Sep 2 2026
+# All 8 pass. Actuator_invoked=False on all REFUSE cases.
+# ============================================================
+
+VCB_STILL_ADVERSARIAL_SUITE_RESULTS = {
+    "name": "STILL Adversarial Suite — STILL-01 through STILL-08",
+    "gap_id": "STILL-ADVERSARIAL-SUITE-01",
+    "run_date": "2026-09-02",
+    "result": "8/8 PASS",
+    "actuator_invoked_on_any_fail": False,
+    "proof_level": "V3 — internal adversarial; Supabase mocked (not live Railway)",
+    "tests": {
+        "STILL_01": {"attack":"Mandate REVOKED in Supabase","expected":"STILL_FAILED","result":"STILL_FAILED","gate":"REFUSE","pass":True},
+        "STILL_02": {"attack":"All conditions valid","expected":"STILL_PROVABLE","result":"STILL_PROVABLE","gate":"CONTINUE","pass":True},
+        "STILL_03": {"attack":"Mandate EXPIRED","expected":"STILL_FAILED","result":"STILL_FAILED","gate":"REFUSE","pass":True},
+        "STILL_04": {"attack":"Amount 9999 > ceiling 5000","expected":"STILL_FAILED","result":"STILL_FAILED","gate":"REFUSE","pass":True},
+        "STILL_05": {"attack":"Vendor not in authorized list","expected":"STILL_FAILED","result":"STILL_FAILED","gate":"REFUSE","pass":True},
+        "STILL_06": {"attack":"Supabase returns empty — unknown mandate","expected":"STILL_NOT_PROVABLE","result":"STILL_NOT_PROVABLE","gate":"REFUSE","pass":True},
+        "STILL_07": {"attack":"Owner changed O1→O2","expected":"STILL_FAILED","result":"STILL_FAILED","gate":"REFUSE","reason":"OWNER_CONTINUITY_NOT_ESTABLISHED","standing":"STANDING_LOST","pass":True},
+        "STILL_08": {"attack":"Supabase raises exception — DB unavailable","expected":"STILL_NOT_PROVABLE","result":"STILL_NOT_PROVABLE","gate":"REFUSE","pass":True},
+    },
+    "claim_allowed": (
+        "STILL gate refuses revoked, expired, ceiling-exceeded, unauthorized-vendor, "
+        "unknown, and owner-changed mandates on tested paths. "
+        "Fail-closed confirmed on both NOT_FOUND and DB unavailable paths. "
+        "ACTUATOR_INVOKED=False on all REFUSE cases."
+    ),
+    "claim_forbidden": [
+        "STILL suite is complete",
+        "All STILL attacks prevented in production",
+        "Multi-instance or distributed STILL is proven",
+        "Live Railway outage behavior confirmed (Supabase mock used)",
+        "STILL-01 through STILL-08 exhausts all forge variants",
+    ],
+    "next": "P3 — composed path: mandate → STILL → evaluate_release → actuator → receipt (ALLOW and REFUSE cases)",
+}
+
