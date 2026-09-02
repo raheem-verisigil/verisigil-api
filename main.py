@@ -129666,3 +129666,38 @@ VCB_ENDPOINT_PROOF_FRAMEWORK = {
     },
 }
 
+
+# ============================================================
+# P1-C REPRODUCIBILITY RECORD — TWO BUILDS CONFIRMED
+# First green run:  BUILD_ID 0e9575012046ad3b INSTANCE inst-ec10be9fd7d1
+# Second green run: BUILD_ID fdbd2e7b723d486c INSTANCE inst-12a67f2383d4
+# T-P2 all_pass reporting fix confirmed in fdbd2e7b build
+# PRODUCTION_CLAIM_ALLOWED: False — P1-A Alkama pending
+# ============================================================
+
+VCB_P1C_TWO_BUILD_CONFIRMATION = {
+    "gap_id": "P1-C-LIVE-SUPABASE-PROOF-03",
+    "pass_fail": "PASS 7/7 on both builds",
+    "builds_confirmed": [
+        {"build_id": "0e9575012046ad3b", "instance_id": "inst-ec10be9fd7d1", "all_pass_warning": True},
+        {"build_id": "fdbd2e7b723d486c", "instance_id": "inst-12a67f2383d4", "all_pass_warning": False},
+    ],
+    "note": "Two green runs on different INSTANCE_IDs is stronger than one. Still not a claim flip.",
+    "T_P2_fix": "all_pass field now returns True in fdbd2e7b build. Individual counts remain authoritative.",
+    "all_pass_field_confirmed": True,
+    "failed_field_confirmed": True,
+    "limitations_unchanged": [
+        "Test mandate scope — not production mandate",
+        "C2 — test API key, not production credentials",
+        "Single-instance Railway deployment",
+    ],
+    "PRODUCTION_CLAIM_ALLOWED": False,
+    "next_only": "P1-A — Alkama live Railway delegation rerun",
+    "P1_A_sequence": [
+        "1. Persist parent sigilmark or mandate",
+        "2. Issue child with parent_sigilmark_id",
+        "3. Escalation probe — must refuse without proper lineage",
+        "4. GAP row: pass or defect in standard format",
+    ],
+}
+
