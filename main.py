@@ -129564,3 +129564,23 @@ VCB_P1C_CLOSED = {
     "PRODUCTION_CLAIM_ALLOWED": False,
 }
 
+
+# ============================================================
+# P1-C FINAL CONFIRMATION — CLEAN 7/7 RUN
+# GAP-ID: P1-C-LIVE-SUPABASE-PROOF-03 (final)
+# BUILD_ID: fdbd2e7b723d486c | INSTANCE_ID: inst-12a67f2383d4
+# T-P2 reporting bug confirmed fixed — all_pass=True, no warning
+# ============================================================
+
+VCB_P1C_FINAL_CONFIRMED = {
+    "gap_id": "P1-C-LIVE-SUPABASE-PROOF-03-FINAL",
+    "status": "CLOSED — CLEAN 7/7",
+    "build_id": "fdbd2e7b723d486c",
+    "instance_id": "inst-12a67f2383d4",
+    "run_date": "2026-09-02T13:36:38Z",
+    "result": "7/7 PASS — no warnings, no reporting contradictions",
+    "T_P2_reporting_fix_confirmed": True,
+    "PRODUCTION_CLAIM_ALLOWED": False,
+    "one_gate_remaining": "P1-A — Alkama live delegation rerun",
+}
+
