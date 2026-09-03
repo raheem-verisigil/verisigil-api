@@ -123548,8 +123548,25 @@ async def delegation_issue(
     parent_ceiling_display = parent_ceiling if parent_ceiling is not None else "UNCONSTRAINED"
 
     violations = []
+
+    # INV-DELEGATION-01: child ceiling must not exceed parent ceiling
     if parent_ceiling is not None and isinstance(parent_ceiling, (int, float)) and child_ceiling > parent_ceiling:
         violations.append(f"CEILING_EXCEEDED: child {child_ceiling} > parent {parent_ceiling}")
+
+    # INV-DELEGATION-02: child scope must be a strict subset of parent scope
+    # If parent declared a scope, child cannot exceed it
+    # If parent scope is empty/undeclared, child scope is also constrained to empty
+    # (an unconstrained parent means no explicit scope granted, not infinite scope)
+    if parent_scope:
+        # Parent declared a scope — child must be subset
+        for action in child_scope:
+            if action not in parent_scope:
+                violations.append(f"SCOPE_ESCALATION: child action '{action}' not in parent scope {parent_scope}")
+    elif child_scope:
+        # Parent declared NO scope — child cannot declare any scope either
+        violations.append(f"SCOPE_ESCALATION: parent scope is undeclared (no scope granted); child cannot declare scope {child_scope}")
+
+    # INV-DELEGATION-03: forbidden actions cannot appear in child scope
     for action in child_scope:
         if action in forbidden:
             violations.append(f"FORBIDDEN_ACTION_IN_CHILD: {action} is forbidden by parent")
