@@ -129718,3 +129718,69 @@ VCB_P1C_TWO_BUILD_CONFIRMATION = {
     ],
 }
 
+
+# ============================================================
+# P1-A DELEGATION FIX — ALKAMA FINDING ACCEPTED
+# Defect: scope subset check missing from delegation_issue
+# Fix: INV-DELEGATION-02 + INV-DELEGATION-03 added
+# Build confirming fix: aa29dfd0914d54d7
+# Awaiting: Alkama rerun on fixed build
+# ============================================================
+
+VCB_P1A_DELEGATION_FIX = {
+    "gap_id": "P1-A-DELEGATION-SCOPE-FIX-01",
+    "run_date": "2026-09-03",
+    "build_id_with_fix": "aa29dfd0914d54d7",
+    "instance_id": "inst-655e8ca1f69d",
+    "status": "FIX DEPLOYED — awaiting Alkama rerun",
+
+    "defect_found_by": "Alkama Eqbal (independent external tester)",
+    "defect_description": (
+        "INV-DELEGATION-01 check was present in documentation and doctrine "
+        "but the scope subset enforcement was not implemented in code. "
+        "The code at line 123553 only checked forbidden_actions — "
+        "it did not verify that child_scope is a subset of parent_scope. "
+        "When parent declared no scope, any child scope was accepted (UNCONSTRAINED). "
+        "When parent declared explicit scope, children could still exceed it."
+    ),
+
+    "alkama_findings_accepted": {
+        "POST_RESTART_DURABILITY": "VERIFIED — independent evidence: process_started_at after anchor SM-922E1C2CD7C0C71AF1EB, cache_used=False, durability_verified=True",
+        "VALID_PARENT_LINEAGE_NARROW_CHILD": "CONFIRMED on Aug 31 build — delegation_id issued, parent from SUPABASE, durability verified",
+        "ESCALATION_PROBE": "DEFECT FOUND — escalation was incorrectly ISSUED; fix now deployed",
+        "SCOPE_NARROWING_TEST": "DEFECT CONFIRMED — parent with explicit scope, 4 children all issued regardless of scope/ceiling escalation",
+    },
+
+    "fix_applied": {
+        "INV_DELEGATION_02": (
+            "If parent declared a scope, child scope must be a strict subset. "
+            "Actions in child_scope not in parent_scope → SCOPE_ESCALATION violation."
+        ),
+        "INV_DELEGATION_03": (
+            "If parent declared NO scope (undeclared), child cannot declare any scope. "
+            "Previously: undeclared parent = UNCONSTRAINED = child can declare anything. "
+            "Now: undeclared parent = no scope granted = child scope must be empty."
+        ),
+    },
+
+    "build_confirmed": {
+        "seal": "PASS — SM-48C0E8852A9073A988DF",
+        "verify": "VALID failures=[]",
+        "tamper": "INVALID INTEGRITY_HASH_INVALID",
+    },
+
+    "alkama_answers": {
+        "T15_scenario": (
+            "T-15 was the enforce_still=False alternate-path audit — "
+            "a static call-graph analysis task, not a runtime test. "
+            "Classified PARTIAL at the time. Now CLOSED by P1-B audit Sep 2 2026: "
+            "58 sites audited, 0 production consequence-capable paths. "
+            "Does not affect the delegation path."
+        ),
+        "correlation_id_for_failure": "Non-diagnostic — nothing failed during run so hardened failure path was not reached. Correct classification.",
+    },
+
+    "next": "Alkama reruns full delegation sequence on aa29dfd0914d54d7 build: narrow child → escalation probe must now REFUSE with DELEGATION_SCOPE_VIOLATION",
+    "PRODUCTION_CLAIM_ALLOWED": False,
+}
+
