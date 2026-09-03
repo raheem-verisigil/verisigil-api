@@ -96453,9 +96453,9 @@ def issue_sigilmark(
             "implementation_status": "NOT_IMPLEMENTED — requires real actuator (P4)",
         },
         "claim_limitations": [
-            "STILL: authority continuity at commitment NOT YET ENFORCED (R003 SPEC_ONLY)",
-            "COULD: boundary leverage NOT YET ENFORCED (no real actuator)",
-            "WHAT: execution evidence NOT YET AVAILABLE (no real actuator)",
+            "STILL: this receipt is issued after a VCB ALLOW decision; STILL enforcement happens in evaluate_release(), not in this seal path. Receipt does not re-establish current STILL standing offline.",
+            "COULD: boundary leverage NOT YET ENFORCED (no real actuator on this path)",
+            "WHAT: execution evidence NOT YET AVAILABLE (no real actuator — C2 scope)",
             "CONSUMPTION_STATE: always NOT_YET_CONSUMED in signed artifact; query DB for current state",
             "MULTI_INSTANCE: distributed atomicity demonstrated single-instance only",
         ],
