@@ -129784,3 +129784,59 @@ VCB_P1A_DELEGATION_FIX = {
     "PRODUCTION_CLAIM_ALLOWED": False,
 }
 
+
+# ============================================================
+# DELEGATION SCOPE ENFORCEMENT — 10-CASE ADVERSARIAL SUITE
+# GAP-ID: DELEGATION-SCOPE-ENFORCEMENT-01
+# Run date: Sep 3 2026
+# Result: 10/10 PASS — fix verified internally
+# Awaiting: Alkama independent rerun on live Railway
+# ============================================================
+
+VCB_DELEGATION_SCOPE_ENFORCEMENT_SUITE = {
+    "gap_id": "DELEGATION-SCOPE-ENFORCEMENT-01",
+    "run_date": "2026-09-03",
+    "result": "10/10 PASS — internal adversarial suite",
+    "proof_level": "V3 — internal tested; Alkama live rerun required for V4",
+
+    "tests": {
+        "DEL_01": {"case":"Within scope + ceiling","expected":"ISSUE","result":"PASS"},
+        "DEL_02": {"case":"At ceiling limit","expected":"ISSUE","result":"PASS"},
+        "DEL_03": {"case":"Ceiling exceeded 1001>1000","expected":"REFUSE","result":"PASS","violation":"CEILING_EXCEEDED"},
+        "DEL_04": {"case":"Scope escalated (delete not in parent)","expected":"REFUSE","result":"PASS","violation":"SCOPE_ESCALATION"},
+        "DEL_05": {"case":"Scope + ceiling both exceeded","expected":"REFUSE","result":"PASS","violation":"CEILING_EXCEEDED + SCOPE_ESCALATION"},
+        "DEL_06": {"case":"Parent no scope, child declares scope","expected":"REFUSE","result":"PASS","violation":"SCOPE_ESCALATION parent undeclared"},
+        "DEL_07": {"case":"Parent no scope, child no scope","expected":"ISSUE","result":"PASS"},
+        "DEL_08": {"case":"Parent ceiling genuinely None, child sets any ceiling","expected":"ISSUE","result":"PASS"},
+        "DEL_09": {"case":"Child empty scope (valid subset of anything)","expected":"ISSUE","result":"PASS"},
+        "DEL_10": {"case":"Mixed scope, one action exceeds","expected":"REFUSE","result":"PASS","violation":"SCOPE_ESCALATION"},
+    },
+
+    "alkama_cases_now_covered": {
+        "parent_read_document_1000_child_delete_999k": "DEL-04 variant → REFUSE (SCOPE_ESCALATION)",
+        "parent_explicit_scope_child_escalates": "DEL-04/DEL-05 → REFUSE",
+        "parent_ceiling_1000_returned_as_UNCONSTRAINED": "Fixed — parent_ceiling now read from consequence_envelope.ceiling correctly",
+        "lineage_verified_true_while_scope_exceeded": "Fixed — lineage_verified only set after violations check passes",
+    },
+
+    "claim_allowed": (
+        "Delegation scope subset and ceiling enforcement on tested paths: "
+        "within-scope child issues; exceeding scope or ceiling is refused with DELEGATION_SCOPE_VIOLATION; "
+        "undeclared parent scope blocks any child scope declaration."
+    ),
+    "claim_forbidden": [
+        "Universal delegation safety across all paths",
+        "Live Railway confirmation (Alkama rerun pending)",
+        "lineage_verified=True implies scope was enforced (old behavior — now fixed)",
+    ],
+
+    "claim_registry_update": {
+        "POST_RESTART_DURABILITY": "VERIFIED — Alkama independent evidence confirmed",
+        "DELEGATION_NARROW_CHILD": "DEMONSTRATED — Aug 31 build; reconfirm on fixed build",
+        "DELEGATION_SCOPE_SUBSET": "INTERNAL PASS — V3; Alkama live rerun required for V4",
+        "DELEGATION_ESCALATION_REFUSAL": "NOT YET EXTERNALLY VERIFIED — fix deployed; Alkama rerun pending",
+        "VALID_PARENT_LINEAGE": "NOT VERIFIED until Alkama rerun on fixed build passes escalation probe",
+        "PRODUCTION_CLAIM_ALLOWED": False,
+    },
+}
+
