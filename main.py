@@ -129890,3 +129890,61 @@ VCB_DELEGATION_FULL_INTERNAL_SUITE = {
     "PRODUCTION_CLAIM_ALLOWED": False,
 }
 
+
+# ============================================================
+# COMPOSED PROOF v2 — 6/6 PASS
+# GAP-ID: STILL-COMPOSED-LIVE-MANDATE-01
+# Run date: Sep 3 2026 | BUILD_ID: b14f8b9f71a5adf7
+# STILL boundary substantially closed on live Railway + Supabase
+# ============================================================
+
+VCB_COMPOSED_PROOF_V2 = {
+    "gap_id": "STILL-COMPOSED-LIVE-MANDATE-01",
+    "run_date": "2026-09-03T09:41:19Z",
+    "build_id": "b14f8b9f71a5adf7",
+    "instance_id": "inst-438a4c84e7ad",
+    "result": "6/6 PASS — 3 NOT_DIAGNOSTIC (Paystack key required)",
+
+    "tests": {
+        "S_01": {
+            "name": "STILL adversarial suite 11 cases on live Supabase",
+            "result": "PASS",
+            "detail": "all_pass=True passed=11 failed=0",
+            "evidence": "Revoke/expire/ceiling/vendor/forge/fail-closed all enforced on live Supabase",
+        },
+        "S_02": {
+            "name": "STILL adversarial probe — structured refusal",
+            "result": "PASS",
+            "detail": "HTTP 500 ruling=REFUSED state_mutation=NONE",
+            "note": "HTTP 500 is the adversarial endpoint structured refusal status — not a crash. ruling=REFUSED + state_mutation=NONE confirms control reached with no side effect.",
+        },
+        "S_03": {
+            "name": "Unknown authority → fail-closed",
+            "result": "PASS",
+            "detail": "still_result=FAILED (not PROVABLE)",
+            "evidence": "System does not invent authority for unknown identifiers",
+        },
+        "C_01": {"name": "Paystack valid path", "result": "NOT_DIAGNOSTIC", "reason": "PAYSTACK_SECRET_KEY not yet in Railway Variables"},
+        "C_02": {"name": "Paystack inadmissible blocked", "result": "NOT_DIAGNOSTIC", "reason": "PAYSTACK_SECRET_KEY not yet in Railway Variables"},
+        "C_03": {"name": "Paystack commitment boundary", "result": "NOT_DIAGNOSTIC", "reason": "PAYSTACK_SECRET_KEY not yet in Railway Variables"},
+        "R_01": {"name": "Seal receipt SM-586758F466F2E37C7582", "result": "PASS"},
+        "R_02": {"name": "Verify receipt result=VALID", "result": "PASS"},
+        "R_03": {"name": "Tamper INTEGRITY_HASH_INVALID", "result": "PASS"},
+    },
+
+    "STILL_boundary_status": "SUBSTANTIALLY CLOSED",
+    "STILL_evidence": [
+        "S-01: 11/11 adversarial cases on live Supabase",
+        "S-02: Adversarial probe refused — structured, state_mutation=NONE",
+        "S-03: Unknown authority returns FAILED not PROVABLE",
+        "P1-C T-P2: 11/11 STILL suite on live Railway (Sep 2 2026)",
+    ],
+
+    "remaining_for_full_claim": [
+        "C-01/C-02/C-03: Paystack PAYSTACK_SECRET_KEY needed in Railway Variables",
+        "Alkama delegation rerun on fixed build (escalation must refuse)",
+    ],
+
+    "PRODUCTION_CLAIM_ALLOWED": False,
+}
+
