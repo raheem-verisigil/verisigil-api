@@ -129840,3 +129840,53 @@ VCB_DELEGATION_SCOPE_ENFORCEMENT_SUITE = {
     },
 }
 
+
+# ============================================================
+# DELEGATION FULL INTERNAL SUITE — 23/23 PASS
+# GAP-ID: DELEGATION-FULL-INTERNAL-SUITE-01
+# Run date: Sep 3 2026
+# Groups: A (Alkama exact 6), B (scope subset 7), C (undeclared 3),
+#         D (unconstrained 2), E (state checks 4), F (violations 1)
+# READY FOR ALKAMA RERUN
+# ============================================================
+
+VCB_DELEGATION_FULL_INTERNAL_SUITE = {
+    "gap_id": "DELEGATION-FULL-INTERNAL-SUITE-01",
+    "run_date": "2026-09-03",
+    "result": "23/23 PASS",
+    "proof_level": "V3 — internal adversarial; Alkama live rerun required for V4",
+    "groups": {
+        "A_Alkama_exact": {
+            "count": 6, "pass": 6,
+            "ALK_01": "parent payment/1000 child delete+transfer/999k → REFUSE SCOPE_ESCALATION+CEILING_EXCEEDED",
+            "ALK_02": "parent read_document/1000 child read_document/500 → ISSUE",
+            "ALK_03": "parent read_document/1000 child delete/999k → REFUSE",
+            "ALK_04": "parent read_document/1000 child read_document/1001 → REFUSE CEILING_EXCEEDED",
+            "ALK_05": "parent read_document/1000 child delete/500 → REFUSE SCOPE_ESCALATION",
+            "ALK_06": "parent_ceiling now shows 1000 not UNCONSTRAINED when parent declared 1000",
+        },
+        "B_scope_subset": {"count": 7, "pass": 7},
+        "C_undeclared_parent_scope": {"count": 3, "pass": 3},
+        "D_genuinely_unconstrained": {"count": 2, "pass": 2},
+        "E_parent_state_checks": {
+            "count": 4, "pass": 4,
+            "STA_01": "PARENT_NOT_FOUND → HALT",
+            "STA_02": "cache origin parent → PARENT_DURABILITY_UNCONFIRMED → REFUSED",
+            "STA_03": "lineage_verified=True only when all checks pass",
+            "STA_04": "lineage_verified NOT present in refused response",
+        },
+        "F_violation_structure": {"count": 1, "pass": 1,
+            "VIO_01": "DELEGATION_SCOPE_VIOLATION has ruling=REFUSED state_mutation=NONE violations[]"},
+    },
+    "key_behaviors_confirmed": [
+        "parent_ceiling correctly reflects declared value (1000 shows as 1000, not UNCONSTRAINED)",
+        "UNCONSTRAINED only when parent ceiling is genuinely None/not declared",
+        "lineage_verified=True only set after violations check passes (not before)",
+        "lineage_verified absent in refused responses",
+        "state_mutation=NONE on all refusals",
+        "All Alkama escalation cases now refuse with DELEGATION_SCOPE_VIOLATION",
+    ],
+    "ready_for_alkama_rerun": True,
+    "PRODUCTION_CLAIM_ALLOWED": False,
+}
+
