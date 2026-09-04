@@ -108286,11 +108286,28 @@ async def vcb_seal(
     vcb_decision = req.get("vcb_decision", {})
     if vcb_decision.get("decision") != "ALLOW":
         raise HTTPException(400, f"SigilMark requires ALLOW decision. Got: {vcb_decision.get('decision')}")
+    # Build consequence_envelope from explicit field or from top-level scope/ceiling fields
+    # Alkama finding (Sep 4 2026): delegated_scope/delegated_ceiling passed at top level
+    # were not being stored in consequence_envelope.
+    # Now: if consequence_envelope not provided, build it from scope fields.
+    _ce = req.get("consequence_envelope")
+    if not _ce:
+        _scope = (req.get("delegated_scope") or req.get("scope") or
+                  req.get("authorized_actions") or [])
+        _ceiling = (req.get("delegated_ceiling") if req.get("delegated_ceiling") is not None
+                    else req.get("ceiling"))
+        _forbidden = req.get("forbidden_actions", [])
+        if _scope or _ceiling is not None:
+            _ce = {
+                "authorized_actions": _scope,
+                "ceiling": _ceiling,
+                "forbidden_actions": _forbidden,
+            }
     sigilmark = issue_sigilmark(
         vcb_decision         = vcb_decision,
         action_payload       = req.get("action", {}),
         material_commitment  = req.get("material_commitment"),
-        consequence_envelope = req.get("consequence_envelope"),
+        consequence_envelope = _ce,
         transition_record    = req.get("transition_record"),
         enforcement_point    = req.get("enforcement_point", ""),
         ttl_seconds          = int(req.get("ttl_seconds", 120)),
