@@ -3,6 +3,7 @@
 **Date:** 2026-09-03  
 **Build:** a986a9e6e99c71ea (Railway production)  
 **Status:** PRODUCTION_CLAIM_ALLOWED = False | LOCKED_CLAIM = NOT_YET_DELIVERED  
+**Phase:** PROOF CLOSURE — architecture frozen; no new features or terminology  
 **Invitation:** We invite adversarial testing. If you find a failure, we will publish it, fix it, and credit you.
 
 ---
@@ -85,7 +86,7 @@ F-32 fixed. Owner change O1→O2/O3 refuses in both still_authority_adapter() an
 
 | Gap | Status |
 |-----|--------|
-| Delegation escalation refusal on live Railway | Fix deployed. 23/23 internal tests pass. **External confirmation pending — Alkama rerun in progress** |
+| Delegation escalation refusal on live Railway | Fix deployed (INV-DELEGATION-02/03). 23/23 internal adversarial tests pass. **INTERNAL ONLY — external live confirmation pending. Alkama rerun in progress on current build.** |
 | Real Paystack test reference | Architecture boundary proven. Real sk_test_ key needed to produce actual consequence_id |
 | Multi-instance distributed atomicity | F-31: single-instance Railway only. Cross-replica replay not tested |
 | Webhook retry idempotency | F-34: not tested, not claimed |
@@ -135,7 +136,14 @@ When this closes:
 - PRODUCTION_CLAIM_ALLOWED is evaluated against written acceptance criteria
 - Even then: Section 2 gaps remain as explicit limitations
 
-**After Alkama confirms, PRODUCTION_CLAIM_ALLOWED is evaluated — not automatically flipped.**
+**After Alkama confirms, PRODUCTION_CLAIM_ALLOWED is evaluated against the written checklist — not automatically flipped. Alkama closes the delegation evidence gap only. Section 2 gaps remain as explicit limitations regardless.**
+
+Written checklist for evaluation:
+- Alkama escalation refuse confirmed on live Railway build
+- Composed STILL on real mandate through evaluate_release
+- Paystack statement: placeholder vs real test reference clearly labeled
+- Section 2 limitations still published in full
+- No safe-claim language contradicts any NOT_PROVEN item
 
 ---
 
