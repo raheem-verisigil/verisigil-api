@@ -108448,7 +108448,7 @@ async def adversarial_alternate_allow_paths(
 ):
     """Gate 1: Scan for alternate ALLOW paths that bypass VCBFinalEngine."""
     require_api_key(x_api_key, authorization)
-    result = _scan_alternate_allow_paths()
+    result = _scan_alternate_allow_paths(app_routes=app.routes)
     _record_gate_result("GATE_1", "alternate-allow-paths", True, result)
     return result
 
