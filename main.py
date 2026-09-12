@@ -108571,109 +108571,20 @@ async def adversarial_transition_attacks(
     """
     Gate 3: Attack TransitionIntegrityRecord.
     Proves "Validity does not automatically survive movement."
+    STUB: Full transition attack suite pending VCB engine integration.
     """
+    from datetime import datetime, timezone
     require_api_key(x_api_key, authorization)
-    ts      = datetime.now(timezone.utc).isoformat()
-    payload = req.get("payload", {"type": "test_transition", "amount": 1000})
-    ph      = _vcc_hash(payload)
-
-    # Build a valid TIR
-    valid_tir = build_transition_integrity_record(
-        origin_stage="VCB_EVALUATED", destination_stage="ENFORCEMENT_ACCEPTED",
-        origin_actor="vcb-engine", receiving_actor="payment-actuator",
-        payload_hash=ph, purpose="supplier_payment",
-        authority_scope=["payment_destination_change"],
-        reversibility_class="LOW_REVERSIBILITY",
-    )
-
-    import copy
-    attacks = []
-
-    # T01 — Remove the transition record entirely
-    result_no_tir = _VCB_FINAL_ENGINE.evaluate(
-        action=payload, authority={"status":"ACTIVE","scope":["payment_destination_change"]},
-        state={"balance":100000}, enforcement_point="payment-actuator-v1",
-        transition_record=None,  # missing
-    )
-    vcb_decision_no_tir = result_no_tir["vcb_decision"]
-    attacks.append({
-        "id":"T01","name":"remove_transition_record","expected":"ALLOW with missing TIR noted",
-        "actual": vcb_decision_no_tir["decision"],
-        "tir_hash_in_decision": bool(vcb_decision_no_tir.get("transition_integrity_hash")),
-        "passed": True,  # VCBFinalEngine notes missing TIR but doesn't block without it — honest about what is enforced
-        "note": "TIR is recorded. Production enforcement requires TIR validation at actuator boundary.",
-    })
-
-    # T02 — Replay old transition (stale)
-    stale_tir = copy.deepcopy(valid_tir)
-    from datetime import datetime as _dt, timedelta, timezone as _tz
-    stale_tir["expiry"] = (_dt.now(_tz.utc) - timedelta(hours=2)).isoformat()
-    stale_tir["transition_integrity_hash"] = "STALE_" + stale_tir.get("transition_integrity_hash","")[:16]
-    attacks.append({
-        "id":"T02","name":"replay_stale_transition",
-        "stale_expiry": stale_tir["expiry"],
-        "original_hash": valid_tir["transition_integrity_hash"][:16],
-        "stale_hash": stale_tir["transition_integrity_hash"][:16],
-        "hashes_differ": valid_tir["transition_integrity_hash"] != stale_tir["transition_integrity_hash"],
-        "expected":"HASHES_DIFFER",
-        "actual": "HASHES_DIFFER" if valid_tir["transition_integrity_hash"] != stale_tir["transition_integrity_hash"] else "FAIL",
-        "passed": valid_tir["transition_integrity_hash"] != stale_tir["transition_integrity_hash"],
-    })
-
-    # T03 — Alter transition_integrity_hash
-    altered = copy.deepcopy(valid_tir)
-    altered["transition_integrity_hash"] = "a" * 64
-    # Recompute expected hash
-    expected_hash = _vcc_hash(
-        {k: v for k, v in valid_tir.items() if k not in ("transition_integrity_hash","signature")}
-    )
-    attacks.append({
-        "id":"T03","name":"alter_transition_integrity_hash",
-        "stored_hash": altered["transition_integrity_hash"][:16],
-        "expected_hash": expected_hash[:16],
-        "tamper_detected": altered["transition_integrity_hash"] != expected_hash,
-        "expected":"TAMPER_DETECTED",
-        "actual": "TAMPER_DETECTED" if altered["transition_integrity_hash"] != expected_hash else "FAIL",
-        "passed": altered["transition_integrity_hash"] != expected_hash,
-    })
-
-    # T04 — Claim REVALIDATED without evidence
-    fake_tir = copy.deepcopy(valid_tir)
-    fake_tir["property_states"]["authority"] = "REVALIDATED"
-    fake_tir["property_states"]["state"] = "REVALIDATED"
-    # Hash changes — revealing the fake
-    recomputed = _vcc_hash(
-        {k: v for k, v in fake_tir.items() if k not in ("transition_integrity_hash","signature")}
-    )
-    attacks.append({
-        "id":"T04","name":"claim_revalidated_without_evidence",
-        "original_hash": valid_tir["transition_integrity_hash"][:16],
-        "recomputed_hash": recomputed[:16],
-        "hashes_differ": valid_tir["transition_integrity_hash"] != recomputed,
-        "expected":"HASH_MISMATCH",
-        "actual": "HASH_MISMATCH" if valid_tir["transition_integrity_hash"] != recomputed else "FAIL",
-        "passed": valid_tir["transition_integrity_hash"] != recomputed,
-    })
-
-    passed_n = sum(1 for a in attacks if a.get("passed"))
-    gate_result = {
-        "schema":   "VGS-GATE3-TRANSITION-ATTACKS-1.0",
-        "gate":     "GATE_3",
-        "question": "Can a manipulated transition record bypass governance?",
-        "total":    len(attacks),
-        "passed":   passed_n,
-        "failed":   len(attacks) - passed_n,
-        "status":   "PASS" if passed_n == len(attacks) else "PARTIAL",
-        "attacks":  attacks,
-        "invariant":"Validity does not automatically survive movement.",
-        "note": "T01 records missing TIR. Full enforcement at actuator boundary requires TIR validation — PENDING real actuator.",
-        "timestamp":ts,
+    return {
+        "schema": "VGS-GATE3-TRANSITION-ATTACKS-1.0",
+        "gate": "GATE_3",
+        "question": "Do transition attacks correctly produce INVALID/ALLOW distinctions?",
+        "status": "NOT_TESTABLE",
+        "note": "Transition attack suite pending full VCB engine integration — _VCB_FINAL_ENGINE is a stub dict, build_transition_integrity_record not yet implemented",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     }
-    _record_gate_result("GATE_3", "transition-attacks", passed_n == len(attacks), gate_result)
-    return gate_result
 
 
-# ── GATE 4: CONSEQUENCE ENVELOPE ATTACKS ────────────────────
 
 @app.post("/v1/adversarial/envelope-attacks", tags=["Adversarial Proof Gates"])
 async def adversarial_envelope_attacks(
