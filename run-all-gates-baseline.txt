@@ -1,0 +1,39 @@
+* Host verisigil-api-production.up.railway.app:443 was resolved.
+* IPv6: (none)
+* IPv4: 69.46.46.110
+*   Trying 69.46.46.110:443...
+* schannel: disabled automatic use of client certificate
+* ALPN: curl offers http/1.1
+* ALPN: server accepted http/1.1
+* Established connection to verisigil-api-production.up.railway.app (69.46.46.110 port 443) from 10.75.170.200 port 62668 
+  % Total    % Received % Xferd  Average Speed  Time    Time    Time   Current
+                                 Dload  Upload  Total   Spent   Left   Speed
+  0      0   0      0   0      0      0      0                              0* using HTTP/1.x
+> POST /v1/adversarial/run-all-gates HTTP/1.1
+> Host: verisigil-api-production.up.railway.app
+> User-Agent: curl/8.21.0
+> Accept: */*
+> x-api-key: verisigil-secret-2026
+> Content-Type: application/json
+> Content-Length: 132
+> 
+} [132 bytes data]
+* upload completely sent off: 132 bytes
+* schannel: remote party requests renegotiation
+* schannel: renegotiating SSL/TLS connection
+* schannel: SSL/TLS connection renegotiated
+< HTTP/1.1 500 Internal Server Error
+< Content-Type: application/json
+< Date: Sat, 12 Sep 2026 16:15:56 GMT
+< Server: railway-hikari
+< x-railway-request-id: UmcyLLuwSqucmWUNwUFZXw
+< Content-Length: 394
+< x-hikari-trace: ams1.b55h
+< x-railway-edge: ams1
+< vary: accept-encoding
+< Connection: keep-alive
+< 
+{ [394 bytes data]
+100    526 100    394 100    132    385    129   00:01   00:01              0100    526 100    394 100    132    384    128   00:01   00:01              0100    526 100    394 100    132    384    128   00:01   00:01              0
+* Connection #0 to host verisigil-api-production.up.railway.app:443 left intact
+{"error":"INTERNAL_EXECUTION_ERROR","ruling":"REFUSED","decision":"REFUSED","state_mutation":"NONE","retryable":false,"correlation_id":"corr-d557889b704f","message":"An internal error occurred. The consequence boundary was not crossed. No actuator was invoked. Reference correlation_id in logs for diagnosis.","vcb_rule":"Structured ruling required on all failure paths — no plain-text 500."}
