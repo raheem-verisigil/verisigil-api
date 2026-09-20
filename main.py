@@ -1755,6 +1755,58 @@ def _evaluate_decision(sig_valid, is_revoked, is_expired, shadow_detected,
 # ROUTES
 # ============================================================
 
+
+# ============================================================
+# P2-01: PRINCIPAL IDENTITY SCHEMA — VGS-PRINCIPAL-1.0
+# Phase 2 engineering — Sep 2026
+# Additive: subject_id in existing SigilMarks unchanged
+# ============================================================
+
+VGS_PRINCIPAL_SCHEMA = {
+    "schema": "VGS-PRINCIPAL-1.0",
+    "version": "1.0",
+    "phase": "P2-01",
+    "added": "2026-09-20",
+    "governing_principle": (
+        "VERISIGIL DOES NOT ESTABLISH TRUST BY ASSERTION. "
+        "Identity and Authority are separate objects. "
+        "A Principal record establishes WHO — Authority establishes WHAT they may do."
+    ),
+    "identity_types": [
+        "AI_AGENT", "AI_SERVICE", "SOFTWARE_SYSTEM",
+        "ORGANIZATION", "HUMAN", "DELEGATED"
+    ],
+    "status_values": ["ACTIVE", "SUSPENDED", "REVOKED", "EXPIRED"],
+    "status_transitions": {
+        "ACTIVE":    ["SUSPENDED", "REVOKED", "EXPIRED"],
+        "SUSPENDED": ["ACTIVE", "REVOKED"],
+        "REVOKED":   [],          # terminal — cannot reinstate
+        "EXPIRED":   [],          # terminal — cannot reinstate
+    },
+    "enforcement_rule": (
+        "Unknown principal → block. "
+        "Suspended principal → block. "
+        "Revoked principal → block. "
+        "Expired principal → block. "
+        "Only ACTIVE principal may proceed to authority evaluation."
+    ),
+    "backward_compatibility": (
+        "subject_id in existing SigilMarks is preserved unchanged. "
+        "principal_id is a new additive field referencing vgs_principals table. "
+        "Existing SigilMarks without principal_id remain valid."
+    ),
+}
+
+PRINCIPAL_IDENTITY_TYPES = {
+    "AI_AGENT":         "An autonomous AI agent operating within a defined scope",
+    "AI_SERVICE":       "An AI service or API that acts on behalf of callers",
+    "SOFTWARE_SYSTEM":  "A non-AI software system participating in a governed action",
+    "ORGANIZATION":     "An organization that grants or receives authority",
+    "HUMAN":            "A human principal who approves or delegates authority",
+    "DELEGATED":        "A principal receiving delegated authority from another principal",
+}
+
+
 @app.get("/")
 async def root():
     return {
@@ -45962,6 +46014,86 @@ async def persist_sigilmark(sigilmark: dict) -> dict:
         "scope_limit": "NOT_DURABLE_ACROSS_RESTARTS",
     }
 
+
+
+# ── P2-01: Principal Identity helpers ────────────────────────────────────
+
+async def register_principal(principal: dict) -> dict:
+    """Store a principal record in vgs_principals table."""
+    import httpx, os
+    url = f"{os.environ.get('SUPABASE_URL','')}/rest/v1/vgs_principals"
+    headers = {
+        "apikey": os.environ.get("SUPABASE_KEY",""),
+        "Authorization": f"Bearer {os.environ.get('SUPABASE_KEY','')}",
+        "Content-Type": "application/json",
+        "Prefer": "return=representation",
+    }
+    async with httpx.AsyncClient(timeout=10) as client:
+        r = await client.post(url, json=principal, headers=headers)
+        if r.status_code in (200, 201):
+            return {"registered": True, "principal_id": principal["principal_id"]}
+        return {"registered": False, "error": r.text[:200]}
+
+
+async def get_principal_status(principal_id: str) -> dict:
+    """Retrieve a principal record from vgs_principals by principal_id."""
+    import httpx, os
+    url = f"{os.environ.get('SUPABASE_URL','')}/rest/v1/vgs_principals"
+    headers = {
+        "apikey": os.environ.get("SUPABASE_KEY",""),
+        "Authorization": f"Bearer {os.environ.get('SUPABASE_KEY','')}",
+    }
+    params = {"principal_id": f"eq.{principal_id}", "select": "*"}
+    async with httpx.AsyncClient(timeout=10) as client:
+        r = await client.get(url, headers=headers, params=params)
+        if r.status_code == 200:
+            rows = r.json()
+            if rows:
+                return {"found": True, "principal": rows[0]}
+            return {"found": False, "principal_id": principal_id}
+        return {"found": False, "error": r.text[:200]}
+
+
+def check_principal_admissible(principal_record: dict) -> dict:
+    """
+    Enforce principal status gate.
+    Only ACTIVE principals may proceed to authority evaluation.
+    All other statuses → block.
+    """
+    status = principal_record.get("status", "UNKNOWN")
+    if status == "ACTIVE":
+        # Check expiry
+        valid_until = principal_record.get("valid_until")
+        if valid_until:
+            from datetime import datetime, timezone
+            try:
+                exp = datetime.fromisoformat(valid_until.replace("Z", "+00:00"))
+                if datetime.now(timezone.utc) > exp:
+                    return {
+                        "admissible": False,
+                        "reason": "PRINCIPAL_EXPIRED",
+                        "status": status,
+                        "principal_id": principal_record.get("principal_id"),
+                    }
+            except Exception:
+                pass
+        return {
+            "admissible": True,
+            "reason": "PRINCIPAL_ACTIVE",
+            "status": status,
+            "principal_id": principal_record.get("principal_id"),
+        }
+    reason_map = {
+        "SUSPENDED": "PRINCIPAL_SUSPENDED",
+        "REVOKED":   "PRINCIPAL_REVOKED",
+        "EXPIRED":   "PRINCIPAL_EXPIRED",
+    }
+    return {
+        "admissible": False,
+        "reason": reason_map.get(status, "PRINCIPAL_STATUS_UNKNOWN"),
+        "status": status,
+        "principal_id": principal_record.get("principal_id"),
+    }
 
 async def retrieve_sigilmark(sigilmark_id: str) -> dict:
     """
@@ -113558,6 +113690,33 @@ CREATE TABLE IF NOT EXISTS vcb_sigilmarks (
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_sigilmarks_id ON vcb_sigilmarks(sigilmark_id);
 
+-- P2-01: Principal Identity Schema (VGS-PRINCIPAL-1.0)
+-- Added Sep 2026 — Phase 2 engineering. Additive only.
+CREATE TABLE IF NOT EXISTS vgs_principals (
+    principal_id          TEXT PRIMARY KEY,
+    identity_type         TEXT NOT NULL
+                          CHECK (identity_type IN (
+                              'AI_AGENT','AI_SERVICE','SOFTWARE_SYSTEM',
+                              'ORGANIZATION','HUMAN','DELEGATED'
+                          )),
+    issuer                TEXT NOT NULL DEFAULT 'SELF_DECLARED',
+    verification_material TEXT,          -- public key or verification reference
+    status                TEXT NOT NULL DEFAULT 'ACTIVE'
+                          CHECK (status IN (
+                              'ACTIVE','SUSPENDED','REVOKED','EXPIRED'
+                          )),
+    valid_from            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    valid_until           TIMESTAMPTZ,   -- NULL = no expiry declared
+    identity_evidence     TEXT,
+    created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_principals_id
+    ON vgs_principals(principal_id);
+CREATE INDEX IF NOT EXISTS idx_principals_status
+    ON vgs_principals(status);
+
 CREATE TABLE IF NOT EXISTS vcb_proof_records (
     proof_id        TEXT PRIMARY KEY,
     proof_type      TEXT NOT NULL,  -- 'GCP','AR','CONTINUITY','CEE','CBA'
@@ -123654,6 +123813,150 @@ async def delegation_issue(
     }
 
 
+
+
+
+# ── P2-01: Principal Identity endpoints ──────────────────────────────────
+
+@app.post("/v1/principals/register",
+          tags=["P2 — Principal Identity"],
+          summary="Register a principal identity record")
+async def principal_register(
+    req: dict = None,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    VGS-PRINCIPAL-1.0 — Register a Principal identity record.
+
+    A Principal is the entity whose authority will be evaluated.
+    Identity (who are you?) and Authority (what may you do?) are separate objects.
+
+    Required fields:
+      principal_id   — unique identifier for this principal
+      identity_type  — AI_AGENT | AI_SERVICE | SOFTWARE_SYSTEM | ORGANIZATION | HUMAN | DELEGATED
+
+    Optional fields:
+      issuer, verification_material, valid_from, valid_until, identity_evidence
+    """
+    require_api_key(x_api_key, authorization)
+    req = req or {}
+
+    principal_id = req.get("principal_id")
+    identity_type = req.get("identity_type")
+
+    if not principal_id:
+        return JSONResponse(status_code=422, content={
+            "error": "MISSING_PRINCIPAL_ID",
+            "detail": "principal_id is required",
+        })
+
+    valid_types = ["AI_AGENT","AI_SERVICE","SOFTWARE_SYSTEM","ORGANIZATION","HUMAN","DELEGATED"]
+    if not identity_type or identity_type not in valid_types:
+        return JSONResponse(status_code=422, content={
+            "error": "INVALID_IDENTITY_TYPE",
+            "detail": f"identity_type must be one of {valid_types}",
+            "provided": identity_type,
+        })
+
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).isoformat()
+
+    principal = {
+        "principal_id":          principal_id,
+        "identity_type":         identity_type,
+        "issuer":                req.get("issuer", "SELF_DECLARED"),
+        "verification_material": req.get("verification_material"),
+        "status":                "ACTIVE",
+        "valid_from":            req.get("valid_from", now),
+        "valid_until":           req.get("valid_until"),
+        "identity_evidence":     req.get("identity_evidence"),
+        "created_at":            now,
+        "updated_at":            now,
+    }
+
+    result = await register_principal(principal)
+
+    if result.get("registered"):
+        return {
+            "schema": "VGS-PRINCIPAL-1.0",
+            "registered": True,
+            "principal_id": principal_id,
+            "identity_type": identity_type,
+            "status": "ACTIVE",
+            "registered_at": now,
+            "note": (
+                "Principal registered. Identity and Authority are separate. "
+                "Registration does not grant any authority. "
+                "Use /v1/authorities/register (P2-02) to establish what this principal may do."
+            ),
+        }
+    return JSONResponse(status_code=500, content={
+        "error": "REGISTRATION_FAILED",
+        "detail": result.get("error","Unknown error"),
+    })
+
+
+@app.get("/v1/principals/{principal_id}",
+         tags=["P2 — Principal Identity"],
+         summary="Get principal status and identity record")
+async def principal_status(
+    principal_id: str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    VGS-PRINCIPAL-1.0 — Retrieve current principal status.
+
+    Returns the principal record including current status (ACTIVE/SUSPENDED/REVOKED/EXPIRED).
+    Also evaluates admissibility: only ACTIVE, non-expired principals may proceed to
+    authority evaluation.
+
+    This is the first gate in the P2 chain:
+      Principal (this endpoint) → Authority → Delegation → Conditions → Action → Gate
+    """
+    require_api_key(x_api_key, authorization)
+
+    result = await get_principal_status(principal_id)
+
+    if not result.get("found"):
+        return JSONResponse(status_code=404, content={
+            "schema": "VGS-PRINCIPAL-1.0",
+            "found": False,
+            "principal_id": principal_id,
+            "admissible": False,
+            "reason": "PRINCIPAL_NOT_FOUND",
+            "enforcement": "BLOCK — unknown principal may not proceed to authority evaluation",
+        })
+
+    principal = result["principal"]
+    admissibility = check_principal_admissible(principal)
+
+    return {
+        "schema": "VGS-PRINCIPAL-1.0",
+        "found": True,
+        "principal_id": principal_id,
+        "identity_type": principal.get("identity_type"),
+        "issuer": principal.get("issuer"),
+        "status": principal.get("status"),
+        "valid_from": principal.get("valid_from"),
+        "valid_until": principal.get("valid_until"),
+        "admissible": admissibility["admissible"],
+        "admissibility_reason": admissibility["reason"],
+        "enforcement": (
+            "PROCEED to authority evaluation"
+            if admissibility["admissible"]
+            else f"BLOCK — {admissibility['reason']}"
+        ),
+        "identity_evidence": principal.get("identity_evidence"),
+        "created_at": principal.get("created_at"),
+        "note": (
+            "Principal status is evaluated at this moment. "
+            "A previously ACTIVE principal may have since been SUSPENDED or REVOKED. "
+            "Historical authority does not automatically confer current authority. "
+            "INV-ID-03: runtime discontinuity must not inherit consequence rights."
+        ),
+    }
 
 
 @app.post("/v1/engineering/test-stale-receipt",
