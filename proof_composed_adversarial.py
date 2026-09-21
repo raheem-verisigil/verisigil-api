@@ -15,7 +15,7 @@ Architecture freeze in effect. No new features added.
 """
 import requests, json, time, sys, uuid, hashlib, os
 
-BASE  = "https://verisigil-api-production.up.railway.app"
+BASE  = "https://verisigil-api-production-b79a.up.railway.app"
 KEY   = "vs-sandbox-demo-2026b"
 HEADS = {"Content-Type": "application/json", "x-api-key": KEY}
 PAYSTACK_KEY = os.environ.get("PAYSTACK_SECRET_KEY", "")

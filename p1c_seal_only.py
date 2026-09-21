@@ -9,7 +9,7 @@ Run from Git Bash:
 """
 import requests, json, hashlib, time, sys
 
-BASE    = "https://verisigil-api-production.up.railway.app"
+BASE    = "https://verisigil-api-production-b79a.up.railway.app"
 KEY     = "vs-sandbox-demo-2026b"
 HEADERS = {"Content-Type": "application/json", "x-api-key": KEY}
 

@@ -13,7 +13,7 @@ GAP-ID: P1-C-LIVE-SUPABASE-PROOF-03
 """
 import requests, json, hashlib, time, threading, sys
 
-BASE    = "https://verisigil-api-production.up.railway.app"
+BASE    = "https://verisigil-api-production-b79a.up.railway.app"
 KEY     = "vs-sandbox-demo-2026b"
 HEADERS = {"Content-Type": "application/json", "x-api-key": KEY}
 

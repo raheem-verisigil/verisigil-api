@@ -14,7 +14,7 @@ Run:
 """
 import requests, time, sys, uuid
 
-BASE  = "https://verisigil-api-production.up.railway.app"
+BASE  = "https://verisigil-api-production-b79a.up.railway.app"
 KEY   = "vs-sandbox-demo-2026b"
 HEADS = {"Content-Type": "application/json", "x-api-key": KEY}
 
