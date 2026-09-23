@@ -1806,6 +1806,115 @@ PRINCIPAL_IDENTITY_TYPES = {
     "DELEGATED":        "A principal receiving delegated authority from another principal",
 }
 
+# ============================================================
+# P2-02: AUTHORITY RECORD SCHEMA — VGS-AUTHORITY-RECORD-1.0
+# Phase 2 engineering — Sep 2026
+# Additive: treasury_mandates unchanged. This is the canonical schema.
+# ============================================================
+
+VGS_AUTHORITY_RECORD_SCHEMA = {
+    "schema": "VGS-AUTHORITY-RECORD-1.0",
+    "version": "1.0",
+    "phase": "P2-02",
+    "added": "2026-09-21",
+    "governing_principle": (
+        "Identity (who are you?) and Authority (what may you do?) are separate objects. "
+        "An Authority Record establishes WHAT a Principal is permitted to do. "
+        "A Principal without an Authority Record has no granted permissions."
+    ),
+    "status_values": [
+        "PENDING", "ACTIVE", "SUSPENDED", "EXPIRED", "REVOKED", "INVALID"
+    ],
+    "status_transitions": {
+        "PENDING":   ["ACTIVE", "REVOKED"],
+        "ACTIVE":    ["SUSPENDED", "EXPIRED", "REVOKED"],
+        "SUSPENDED": ["ACTIVE", "REVOKED"],
+        "EXPIRED":   ["INVALID"],    # terminal path
+        "REVOKED":   ["INVALID"],    # terminal path
+        "INVALID":   [],             # terminal — no recovery
+    },
+    "enforcement_rule": (
+        "No authority → BLOCK. "
+        "Expired authority → BLOCK. "
+        "Revoked authority → BLOCK. "
+        "Suspended authority → BLOCK. "
+        "Only ACTIVE authority within scope and conditions may proceed to execution gate."
+    ),
+    "relationship_to_treasury_mandates": (
+        "treasury_mandates is the primary VCB authority store for STILL gate operations. "
+        "vgs_authority_records is the canonical Phase 2 schema. "
+        "Both coexist. treasury_mandates maps to AuthorityRecord conceptually."
+    ),
+    "caeg_note": (
+        "This schema is the prerequisite for CAEG action binding (CAEG-0). "
+        "The CAEG Proof Envelope references authority_id from this table."
+    ),
+}
+
+AUTHORITY_RECORD_STATUS = {
+    "PENDING":   "Authority requested but not yet active",
+    "ACTIVE":    "Authority is current and in effect",
+    "SUSPENDED": "Authority temporarily halted — may be reinstated",
+    "EXPIRED":   "Authority passed its validity window — cannot be reinstated",
+    "REVOKED":   "Authority explicitly withdrawn — cannot be reinstated",
+    "INVALID":   "Authority record is malformed or permanently invalid",
+}
+
+
+# ============================================================
+# P2-02: AUTHORITY RECORD SCHEMA — VGS-AUTHORITY-RECORD-1.0
+# Phase 2 engineering — Sep 2026
+# Key rule: Identity (P2-01) answers WHO. Authority (P2-02) answers WHAT.
+# These are always separate objects. Registration ≠ Authority.
+# ============================================================
+
+VGS_AUTHORITY_RECORD_SCHEMA = {
+    "schema": "VGS-AUTHORITY-RECORD-1.0",
+    "version": "1.0",
+    "phase": "P2-02",
+    "added": "2026-09-21",
+    "governing_principle": (
+        "Identity and Authority are separate objects. "
+        "A Principal record (VGS-PRINCIPAL-1.0) establishes WHO. "
+        "An Authority Record (VGS-AUTHORITY-RECORD-1.0) establishes WHAT they may do. "
+        "An Authority Record without a valid Principal is not admissible. "
+        "A valid Principal without an Authority Record has no granted permissions."
+    ),
+    "status_values": [
+        "PENDING", "ACTIVE", "SUSPENDED", "EXPIRED", "REVOKED", "INVALID"
+    ],
+    "status_transitions": {
+        "PENDING":   ["ACTIVE", "REVOKED"],
+        "ACTIVE":    ["SUSPENDED", "EXPIRED", "REVOKED"],
+        "SUSPENDED": ["ACTIVE", "REVOKED"],
+        "EXPIRED":   ["INVALID"],   # terminal path
+        "REVOKED":   ["INVALID"],   # terminal path
+        "INVALID":   [],            # terminal — permanent
+    },
+    "enforcement_rules": [
+        "No authority → BLOCK",
+        "Expired authority → BLOCK",
+        "Revoked authority → BLOCK",
+        "Suspended authority → BLOCK",
+        "Invalid authority → BLOCK",
+        "Action not in permitted_actions → BLOCK",
+        "Action in restricted_actions → BLOCK",
+        "Only ACTIVE authority with valid principal may proceed to evaluation",
+    ],
+    "relationship_to_treasury_mandates": (
+        "treasury_mandates is the existing operational mandate store. "
+        "vgs_authority_records is the canonical P2 authority schema. "
+        "Both coexist. treasury_mandates drives STILL checks. "
+        "vgs_authority_records drives P2 principal-authority chain validation."
+    ),
+    "caeg_note": (
+        "This table is a prerequisite for CAEG action binding (CAEG-0). "
+        "The authority_id maps to CAEG proof envelope authority reference. "
+        "Build P2-02 before designing the CAEG Proof Envelope schema."
+    ),
+}
+
+
 
 @app.get("/")
 async def root():
@@ -46016,6 +46125,121 @@ async def persist_sigilmark(sigilmark: dict) -> dict:
 
 
 
+
+# ── P2-02: Authority Record helpers ──────────────────────────────────────
+
+async def register_authority_record(authority: dict) -> dict:
+    """Store an authority record in vgs_authority_records table."""
+    import httpx, os
+    url = f"{os.environ.get('SUPABASE_URL','')}/rest/v1/vgs_authority_records"
+    headers = {
+        "apikey": os.environ.get("SUPABASE_KEY",""),
+        "Authorization": f"Bearer {os.environ.get('SUPABASE_KEY','')}",
+        "Content-Type": "application/json",
+        "Prefer": "return=representation",
+    }
+    async with httpx.AsyncClient(timeout=10) as client:
+        r = await client.post(url, json=authority, headers=headers)
+        if r.status_code in (200, 201):
+            return {"registered": True, "authority_id": authority["authority_id"]}
+        return {"registered": False, "error": r.text[:200]}
+
+
+async def get_authority_record(authority_id: str) -> dict:
+    """Retrieve an authority record from vgs_authority_records."""
+    import httpx, os
+    url = f"{os.environ.get('SUPABASE_URL','')}/rest/v1/vgs_authority_records"
+    headers = {
+        "apikey": os.environ.get("SUPABASE_KEY",""),
+        "Authorization": f"Bearer {os.environ.get('SUPABASE_KEY','')}",
+    }
+    params = {"authority_id": f"eq.{authority_id}", "select": "*"}
+    async with httpx.AsyncClient(timeout=10) as client:
+        r = await client.get(url, headers=headers, params=params)
+        if r.status_code == 200:
+            rows = r.json()
+            if rows:
+                return {"found": True, "authority": rows[0]}
+            return {"found": False, "authority_id": authority_id}
+        return {"found": False, "error": r.text[:200]}
+
+
+def check_authority_admissible(authority_record: dict,
+                                requested_action: str = None,
+                                requested_scope: list = None) -> dict:
+    """
+    Enforce authority status gate.
+    Only ACTIVE authorities within scope and conditions may proceed.
+    All other statuses → block.
+    """
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc)
+    status = authority_record.get("status", "UNKNOWN")
+    authority_id = authority_record.get("authority_id")
+
+    # Status check
+    if status != "ACTIVE":
+        reason_map = {
+            "PENDING":   "AUTHORITY_PENDING",
+            "SUSPENDED": "AUTHORITY_SUSPENDED",
+            "EXPIRED":   "AUTHORITY_EXPIRED",
+            "REVOKED":   "AUTHORITY_REVOKED",
+            "INVALID":   "AUTHORITY_INVALID",
+        }
+        return {
+            "admissible": False,
+            "reason": reason_map.get(status, "AUTHORITY_STATUS_UNKNOWN"),
+            "status": status,
+            "authority_id": authority_id,
+        }
+
+    # Expiry check
+    expires_at = authority_record.get("expires_at")
+    if expires_at:
+        try:
+            exp = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+            if now > exp:
+                return {
+                    "admissible": False,
+                    "reason": "AUTHORITY_EXPIRED",
+                    "status": "EXPIRED",
+                    "authority_id": authority_id,
+                    "expired_at": expires_at,
+                }
+        except Exception:
+            pass
+
+    # Scope check (if action requested)
+    if requested_action:
+        permitted = authority_record.get("permitted_actions") or []
+        restricted = authority_record.get("restricted_actions") or []
+        scope = authority_record.get("scope") or []
+        all_permitted = permitted + scope
+        if restricted and requested_action in restricted:
+            return {
+                "admissible": False,
+                "reason": "ACTION_EXPLICITLY_RESTRICTED",
+                "status": status,
+                "authority_id": authority_id,
+                "requested_action": requested_action,
+            }
+        if all_permitted and requested_action not in all_permitted:
+            return {
+                "admissible": False,
+                "reason": "ACTION_NOT_IN_SCOPE",
+                "status": status,
+                "authority_id": authority_id,
+                "requested_action": requested_action,
+                "permitted_actions": all_permitted,
+            }
+
+    return {
+        "admissible": True,
+        "reason": "AUTHORITY_ACTIVE_AND_IN_SCOPE",
+        "status": status,
+        "authority_id": authority_id,
+    }
+
 # ── P2-01: Principal Identity helpers ────────────────────────────────────
 
 async def register_principal(principal: dict) -> dict:
@@ -46093,6 +46317,240 @@ def check_principal_admissible(principal_record: dict) -> dict:
         "reason": reason_map.get(status, "PRINCIPAL_STATUS_UNKNOWN"),
         "status": status,
         "principal_id": principal_record.get("principal_id"),
+    }
+
+
+# ── P2-02: Authority Record helpers ──────────────────────────────────────
+
+async def register_authority(authority: dict) -> dict:
+    """Store an authority record in vgs_authority_records table."""
+    import httpx, os
+    url = f"{os.environ.get('SUPABASE_URL','')}/rest/v1/vgs_authority_records"
+    headers = {
+        "apikey": os.environ.get("SUPABASE_KEY",""),
+        "Authorization": f"Bearer {os.environ.get('SUPABASE_KEY','')}",
+        "Content-Type": "application/json",
+        "Prefer": "return=representation",
+    }
+    async with httpx.AsyncClient(timeout=10) as client:
+        r = await client.post(url, json=authority, headers=headers)
+        if r.status_code in (200, 201):
+            return {"registered": True, "authority_id": authority["authority_id"]}
+        return {"registered": False, "error": r.text[:200]}
+
+
+async def get_authority_record(authority_id: str) -> dict:
+    """Retrieve an authority record from vgs_authority_records."""
+    import httpx, os
+    url = f"{os.environ.get('SUPABASE_URL','')}/rest/v1/vgs_authority_records"
+    headers = {
+        "apikey": os.environ.get("SUPABASE_KEY",""),
+        "Authorization": f"Bearer {os.environ.get('SUPABASE_KEY','')}",
+    }
+    params = {"authority_id": f"eq.{authority_id}", "select": "*"}
+    async with httpx.AsyncClient(timeout=10) as client:
+        r = await client.get(url, headers=headers, params=params)
+        if r.status_code == 200:
+            rows = r.json()
+            if rows:
+                return {"found": True, "authority": rows[0]}
+            return {"found": False, "authority_id": authority_id}
+        return {"found": False, "error": r.text[:200]}
+
+
+def check_authority_admissible(authority_record: dict,
+                                requested_action: str = None,
+                                requested_ceiling: float = None) -> dict:
+    """
+    Enforce authority status gate.
+    Only ACTIVE, non-expired authorities with matching scope may proceed.
+    """
+    from datetime import datetime, timezone
+
+    status = authority_record.get("status", "UNKNOWN")
+    authority_id = authority_record.get("authority_id")
+
+    # Status check
+    if status != "ACTIVE":
+        reason_map = {
+            "PENDING":   "AUTHORITY_PENDING",
+            "SUSPENDED": "AUTHORITY_SUSPENDED",
+            "REVOKED":   "AUTHORITY_REVOKED",
+            "EXPIRED":   "AUTHORITY_EXPIRED",
+            "INVALID":   "AUTHORITY_INVALID",
+        }
+        return {
+            "admissible": False,
+            "reason": reason_map.get(status, "AUTHORITY_STATUS_UNKNOWN"),
+            "status": status,
+            "authority_id": authority_id,
+        }
+
+    # Expiry check
+    expires_at = authority_record.get("expires_at")
+    if expires_at:
+        try:
+            exp = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+            if datetime.now(timezone.utc) > exp:
+                return {
+                    "admissible": False,
+                    "reason": "AUTHORITY_EXPIRED",
+                    "status": status,
+                    "authority_id": authority_id,
+                }
+        except Exception:
+            pass
+
+    # Scope check
+    if requested_action:
+        permitted = authority_record.get("permitted_actions", [])
+        scope = authority_record.get("scope", [])
+        all_permitted = permitted + scope
+        if all_permitted and requested_action not in all_permitted:
+            return {
+                "admissible": False,
+                "reason": "ACTION_NOT_IN_SCOPE",
+                "status": status,
+                "authority_id": authority_id,
+                "requested_action": requested_action,
+                "permitted_actions": all_permitted,
+            }
+
+    # Ceiling check
+    if requested_ceiling is not None:
+        ceiling = authority_record.get("ceiling")
+        if ceiling is not None and requested_ceiling > ceiling:
+            return {
+                "admissible": False,
+                "reason": "CEILING_EXCEEDED",
+                "status": status,
+                "authority_id": authority_id,
+                "requested_ceiling": requested_ceiling,
+                "authority_ceiling": ceiling,
+            }
+
+    return {
+        "admissible": True,
+        "reason": "AUTHORITY_ACTIVE",
+        "status": status,
+        "authority_id": authority_id,
+    }
+
+
+
+# ── P2-02: Authority Record helpers ──────────────────────────────────────
+
+async def register_authority(authority: dict) -> dict:
+    """Store an authority record in vgs_authority_records table."""
+    import httpx, os
+    url = f"{os.environ.get('SUPABASE_URL','')}/rest/v1/vgs_authority_records"
+    headers = {
+        "apikey": os.environ.get("SUPABASE_KEY",""),
+        "Authorization": f"Bearer {os.environ.get('SUPABASE_KEY','')}",
+        "Content-Type": "application/json",
+        "Prefer": "return=representation",
+    }
+    async with httpx.AsyncClient(timeout=10) as client:
+        r = await client.post(url, json=authority, headers=headers)
+        if r.status_code in (200, 201):
+            return {"registered": True, "authority_id": authority["authority_id"]}
+        return {"registered": False, "error": r.text[:200], "status_code": r.status_code}
+
+
+async def get_authority_record(authority_id: str) -> dict:
+    """Retrieve an authority record from vgs_authority_records."""
+    import httpx, os
+    url = f"{os.environ.get('SUPABASE_URL','')}/rest/v1/vgs_authority_records"
+    headers = {
+        "apikey": os.environ.get("SUPABASE_KEY",""),
+        "Authorization": f"Bearer {os.environ.get('SUPABASE_KEY','')}",
+    }
+    params = {"authority_id": f"eq.{authority_id}", "select": "*"}
+    async with httpx.AsyncClient(timeout=10) as client:
+        r = await client.get(url, headers=headers, params=params)
+        if r.status_code == 200:
+            rows = r.json()
+            if rows:
+                return {"found": True, "authority": rows[0]}
+            return {"found": False, "authority_id": authority_id}
+        return {"found": False, "error": r.text[:200]}
+
+
+def check_authority_admissible(authority_record: dict,
+                                proposed_action: str = None) -> dict:
+    """
+    Enforce authority status gate.
+    Only ACTIVE authority with non-expired validity may proceed.
+    Optionally checks proposed_action against permitted_actions and restricted_actions.
+    """
+    from datetime import datetime, timezone
+
+    status = authority_record.get("status", "UNKNOWN")
+    authority_id = authority_record.get("authority_id")
+
+    # Status check
+    if status != "ACTIVE":
+        reason_map = {
+            "PENDING":   "AUTHORITY_PENDING",
+            "SUSPENDED": "AUTHORITY_SUSPENDED",
+            "EXPIRED":   "AUTHORITY_EXPIRED",
+            "REVOKED":   "AUTHORITY_REVOKED",
+            "INVALID":   "AUTHORITY_INVALID",
+        }
+        return {
+            "admissible": False,
+            "reason": reason_map.get(status, "AUTHORITY_STATUS_UNKNOWN"),
+            "status": status,
+            "authority_id": authority_id,
+        }
+
+    # Expiry check
+    expires_at = authority_record.get("expires_at")
+    if expires_at:
+        try:
+            exp = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+            if datetime.now(timezone.utc) > exp:
+                return {
+                    "admissible": False,
+                    "reason": "AUTHORITY_EXPIRED",
+                    "status": status,
+                    "authority_id": authority_id,
+                    "expired_at": expires_at,
+                }
+        except Exception:
+            pass
+
+    # Action scope check (optional)
+    if proposed_action:
+        permitted = authority_record.get("permitted_actions") or []
+        restricted = authority_record.get("restricted_actions") or []
+        scope = authority_record.get("scope") or []
+
+        if restricted and proposed_action in restricted:
+            return {
+                "admissible": False,
+                "reason": "ACTION_RESTRICTED",
+                "status": status,
+                "authority_id": authority_id,
+                "proposed_action": proposed_action,
+            }
+
+        all_permitted = set(permitted) | set(scope)
+        if all_permitted and proposed_action not in all_permitted:
+            return {
+                "admissible": False,
+                "reason": "ACTION_NOT_IN_SCOPE",
+                "status": status,
+                "authority_id": authority_id,
+                "proposed_action": proposed_action,
+                "permitted_actions": list(all_permitted),
+            }
+
+    return {
+        "admissible": True,
+        "reason": "AUTHORITY_ACTIVE",
+        "status": status,
+        "authority_id": authority_id,
     }
 
 async def retrieve_sigilmark(sigilmark_id: str) -> dict:
@@ -113690,6 +114148,39 @@ CREATE TABLE IF NOT EXISTS vcb_sigilmarks (
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_sigilmarks_id ON vcb_sigilmarks(sigilmark_id);
 
+-- P2-02: Authority Record Schema (VGS-AUTHORITY-1.0)
+-- Added Sep 2026 — Phase 2 engineering. Additive only.
+-- Key distinction: Identity (who) ≠ Authority (what may they do)
+CREATE TABLE IF NOT EXISTS vgs_authority_records (
+    authority_id        TEXT PRIMARY KEY,
+    principal_id        TEXT NOT NULL REFERENCES vgs_principals(principal_id),
+    issuer              TEXT NOT NULL DEFAULT 'SELF_DECLARED',
+    granted_authority   TEXT NOT NULL,
+    purpose             TEXT,
+    scope               JSONB NOT NULL DEFAULT '[]',
+    permitted_actions   JSONB NOT NULL DEFAULT '[]',
+    restricted_actions  JSONB NOT NULL DEFAULT '[]',
+    conditions          JSONB NOT NULL DEFAULT '{}',
+    ceiling             NUMERIC,
+    effective_from      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    expires_at          TIMESTAMPTZ,
+    status              TEXT NOT NULL DEFAULT 'ACTIVE'
+                        CHECK (status IN (
+                            'PENDING','ACTIVE','SUSPENDED','EXPIRED','REVOKED','INVALID'
+                        )),
+    evidence            TEXT,
+    signature           TEXT,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_authority_records_id
+    ON vgs_authority_records(authority_id);
+CREATE INDEX IF NOT EXISTS idx_authority_records_principal
+    ON vgs_authority_records(principal_id);
+CREATE INDEX IF NOT EXISTS idx_authority_records_status
+    ON vgs_authority_records(status);
+
 -- P2-01: Principal Identity Schema (VGS-PRINCIPAL-1.0)
 -- Added Sep 2026 — Phase 2 engineering. Additive only.
 CREATE TABLE IF NOT EXISTS vgs_principals (
@@ -113716,6 +114207,73 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_principals_id
     ON vgs_principals(principal_id);
 CREATE INDEX IF NOT EXISTS idx_principals_status
     ON vgs_principals(status);
+
+-- P2-02: Authority Record Schema (VGS-AUTHORITY-RECORD-1.0)
+-- Added Sep 2026 — Phase 2 engineering. Additive only.
+-- treasury_mandates remains; this is the canonical authority schema.
+CREATE TABLE IF NOT EXISTS vgs_authority_records (
+    authority_id          TEXT PRIMARY KEY,
+    principal_id          TEXT REFERENCES vgs_principals(principal_id),
+    issuer                TEXT NOT NULL DEFAULT 'SELF_DECLARED',
+    granted_authority     TEXT NOT NULL,
+    purpose               TEXT,
+    scope                 JSONB NOT NULL DEFAULT '[]',
+    permitted_actions     JSONB NOT NULL DEFAULT '[]',
+    restricted_actions    JSONB NOT NULL DEFAULT '[]',
+    conditions            JSONB DEFAULT '{}',
+    effective_from        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    expires_at            TIMESTAMPTZ,
+    status                TEXT NOT NULL DEFAULT 'ACTIVE'
+                          CHECK (status IN (
+                              'PENDING','ACTIVE','SUSPENDED',
+                              'EXPIRED','REVOKED','INVALID'
+                          )),
+    evidence              TEXT,
+    signature             TEXT,
+    created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_authority_records_id
+    ON vgs_authority_records(authority_id);
+CREATE INDEX IF NOT EXISTS idx_authority_records_principal
+    ON vgs_authority_records(principal_id);
+CREATE INDEX IF NOT EXISTS idx_authority_records_status
+    ON vgs_authority_records(status);
+
+-- P2-02: Authority Record Schema (VGS-AUTHORITY-RECORD-1.0)
+-- Added Sep 2026 — Phase 2 engineering. Additive only.
+-- treasury_mandates remains the primary authority store for VCB operations.
+-- vgs_authority_records is the canonical schema all mandate types map to.
+CREATE TABLE IF NOT EXISTS vgs_authority_records (
+    authority_id          TEXT PRIMARY KEY,
+    principal_id          TEXT REFERENCES vgs_principals(principal_id),
+    issuer                TEXT NOT NULL DEFAULT 'SELF_DECLARED',
+    granted_authority     TEXT NOT NULL,
+    purpose               TEXT,
+    scope                 JSONB DEFAULT '[]'::jsonb,
+    permitted_actions     JSONB DEFAULT '[]'::jsonb,
+    restricted_actions    JSONB DEFAULT '[]'::jsonb,
+    conditions            JSONB DEFAULT '{}'::jsonb,
+    effective_from        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    expires_at            TIMESTAMPTZ,
+    status                TEXT NOT NULL DEFAULT 'ACTIVE'
+                          CHECK (status IN (
+                              'PENDING','ACTIVE','SUSPENDED',
+                              'EXPIRED','REVOKED','INVALID'
+                          )),
+    evidence              TEXT,
+    signature             TEXT,
+    created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_authority_records_id
+    ON vgs_authority_records(authority_id);
+CREATE INDEX IF NOT EXISTS idx_authority_records_principal
+    ON vgs_authority_records(principal_id);
+CREATE INDEX IF NOT EXISTS idx_authority_records_status
+    ON vgs_authority_records(status);
 
 CREATE TABLE IF NOT EXISTS vcb_proof_records (
     proof_id        TEXT PRIMARY KEY,
@@ -123959,7 +124517,407 @@ async def principal_status(
     }
 
 
-@app.post("/v1/engineering/test-stale-receipt",
+@a
+
+# ── P2-02: Authority Record endpoints ────────────────────────────────────
+
+@app.post("/v1/authorities/register",
+          tags=["P2 — Authority Records"],
+          summary="Register an authority record for a principal")
+async def authority_register(
+    req: dict = None,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    VGS-AUTHORITY-RECORD-1.0 — Register an Authority Record.
+
+    Authority establishes WHAT a Principal may do.
+    Identity (Principal) and Authority are separate objects.
+
+    Required: authority_id, principal_id, granted_authority
+    Optional: purpose, scope, permitted_actions, restricted_actions,
+              conditions, expires_at, evidence
+    """
+    require_api_key(x_api_key, authorization)
+    req = req or {}
+
+    authority_id = req.get("authority_id")
+    principal_id = req.get("principal_id")
+    granted_authority = req.get("granted_authority")
+
+    if not authority_id:
+        return JSONResponse(status_code=422, content={
+            "error": "MISSING_AUTHORITY_ID",
+            "detail": "authority_id is required",
+        })
+    if not principal_id:
+        return JSONResponse(status_code=422, content={
+            "error": "MISSING_PRINCIPAL_ID",
+            "detail": "principal_id is required — authority must be linked to a principal",
+        })
+    if not granted_authority:
+        return JSONResponse(status_code=422, content={
+            "error": "MISSING_GRANTED_AUTHORITY",
+            "detail": "granted_authority is required — describe what is being authorized",
+        })
+
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).isoformat()
+
+    authority = {
+        "authority_id":       authority_id,
+        "principal_id":       principal_id,
+        "issuer":             req.get("issuer", "SELF_DECLARED"),
+        "granted_authority":  granted_authority,
+        "purpose":            req.get("purpose"),
+        "scope":              req.get("scope", []),
+        "permitted_actions":  req.get("permitted_actions", []),
+        "restricted_actions": req.get("restricted_actions", []),
+        "conditions":         req.get("conditions", {}),
+        "effective_from":     req.get("effective_from", now),
+        "expires_at":         req.get("expires_at"),
+        "status":             "ACTIVE",
+        "evidence":           req.get("evidence"),
+        "signature":          req.get("signature"),
+        "created_at":         now,
+        "updated_at":         now,
+    }
+
+    result = await register_authority_record(authority)
+
+    if result.get("registered"):
+        return {
+            "schema": "VGS-AUTHORITY-RECORD-1.0",
+            "registered": True,
+            "authority_id": authority_id,
+            "principal_id": principal_id,
+            "granted_authority": granted_authority,
+            "status": "ACTIVE",
+            "registered_at": now,
+            "note": (
+                "Authority registered. This establishes WHAT the principal may do. "
+                "Authority must be re-evaluated at execution time — "
+                "historical authority does not automatically confer current permission. "
+                "Use /v1/authorities/{id}/state to check current admissibility."
+            ),
+        }
+    return JSONResponse(status_code=500, content={
+        "error": "REGISTRATION_FAILED",
+        "detail": result.get("error", "Unknown error"),
+    })
+
+
+
+# ── P2-02: Authority Record endpoints ────────────────────────────────────
+
+@app.post("/v1/authorities/register",
+          tags=["P2 — Authority Record"],
+          summary="Register an authority record for a principal")
+async def authority_register(
+    req: dict = None,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    VGS-AUTHORITY-1.0 — Register an Authority Record.
+
+    Authority answers: what may this principal do?
+    Identity (who) and Authority (what) are always separate objects.
+
+    Required fields:
+      authority_id      — unique identifier for this authority record
+      principal_id      — the principal this authority is granted to
+      granted_authority — what authority is being granted
+
+    Optional fields:
+      scope, permitted_actions, restricted_actions, ceiling,
+      purpose, conditions, expires_at, evidence
+    """
+    require_api_key(x_api_key, authorization)
+    req = req or {}
+
+    authority_id = req.get("authority_id")
+    principal_id = req.get("principal_id")
+    granted_authority = req.get("granted_authority")
+
+    if not authority_id:
+        return JSONResponse(status_code=422, content={
+            "error": "MISSING_AUTHORITY_ID",
+            "detail": "authority_id is required",
+        })
+    if not principal_id:
+        return JSONResponse(status_code=422, content={
+            "error": "MISSING_PRINCIPAL_ID",
+            "detail": "principal_id is required — authority must be linked to a principal",
+        })
+    if not granted_authority:
+        return JSONResponse(status_code=422, content={
+            "error": "MISSING_GRANTED_AUTHORITY",
+            "detail": "granted_authority is required",
+        })
+
+    # Verify principal exists
+    principal_result = await get_principal_status(principal_id)
+    if not principal_result.get("found"):
+        return JSONResponse(status_code=404, content={
+            "error": "PRINCIPAL_NOT_FOUND",
+            "detail": f"Principal {principal_id} not found — register the principal first",
+            "authority_not_registered": True,
+        })
+
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).isoformat()
+
+    authority = {
+        "authority_id":       authority_id,
+        "principal_id":       principal_id,
+        "issuer":             req.get("issuer", "SELF_DECLARED"),
+        "granted_authority":  granted_authority,
+        "purpose":            req.get("purpose"),
+        "scope":              req.get("scope", []),
+        "permitted_actions":  req.get("permitted_actions", []),
+        "restricted_actions": req.get("restricted_actions", []),
+        "conditions":         req.get("conditions", {}),
+        "ceiling":            req.get("ceiling"),
+        "effective_from":     req.get("effective_from", now),
+        "expires_at":         req.get("expires_at"),
+        "status":             "ACTIVE",
+        "evidence":           req.get("evidence"),
+        "signature":          req.get("signature"),
+        "created_at":         now,
+        "updated_at":         now,
+    }
+
+    result = await register_authority(authority)
+
+    if result.get("registered"):
+        return {
+            "schema": "VGS-AUTHORITY-1.0",
+            "registered": True,
+            "authority_id": authority_id,
+            "principal_id": principal_id,
+            "granted_authority": granted_authority,
+            "status": "ACTIVE",
+            "registered_at": now,
+            "note": (
+                "Authority registered and linked to principal. "
+                "Identity (who) and Authority (what) remain separate objects. "
+                "This authority record must be evaluated at consequence time — "
+                "historical authority does not automatically confer current authority. "
+                "INV-AUTH-TEMP-01: re-establish standing before consequence."
+            ),
+        }
+    return JSONResponse(status_code=500, content={
+        "error": "REGISTRATION_FAILED",
+        "detail": result.get("error", "Unknown error"),
+    })
+
+
+@app.get("/v1/authorities/{authority_id}",
+         tags=["P2 — Authority Record"],
+         summary="Get authority record and current admissibility")
+async def authority_get(
+    authority_id: str,
+    action: Optional[str] = None,
+    ceiling: Optional[float] = None,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    VGS-AUTHORITY-1.0 — Retrieve authority record and evaluate admissibility.
+
+    Optional query params:
+      action  — check if this specific action is in scope
+      ceiling — check if this ceiling is within authority ceiling
+
+    This is the second gate in the P2 chain:
+      Principal → Authority (this endpoint) → Delegation → Conditions → Action → Gate
+    """
+    require_api_key(x_api_key, authorization)
+
+    result = await get_authority_record(authority_id)
+
+    if not result.get("found"):
+        return JSONResponse(status_code=404, content={
+            "schema": "VGS-AUTHORITY-1.0",
+            "found": False,
+            "authority_id": authority_id,
+            "admissible": False,
+            "reason": "AUTHORITY_NOT_FOUND",
+            "enforcement": "BLOCK — no authority record exists for this authority_id",
+        })
+
+    authority = result["authority"]
+    admissibility = check_authority_admissible(
+        authority,
+        requested_action=action,
+        requested_ceiling=ceiling
+    )
+
+    return {
+        "schema": "VGS-AUTHORITY-1.0",
+        "found": True,
+        "authority_id": authority_id,
+        "principal_id": authority.get("principal_id"),
+        "granted_authority": authority.get("granted_authority"),
+        "purpose": authority.get("purpose"),
+        "scope": authority.get("scope", []),
+        "permitted_actions": authority.get("permitted_actions", []),
+        "restricted_actions": authority.get("restricted_actions", []),
+        "ceiling": authority.get("ceiling"),
+        "status": authority.get("status"),
+        "effective_from": authority.get("effective_from"),
+        "expires_at": authority.get("expires_at"),
+        "admissible": admissibility["admissible"],
+        "admissibility_reason": admissibility["reason"],
+        "enforcement": (
+            "PROCEED to delegation/conditions evaluation"
+            if admissibility["admissible"]
+            else f"BLOCK — {admissibility['reason']}"
+        ),
+        "created_at": authority.get("created_at"),
+        "note": (
+            "Authority status is evaluated at this moment. "
+            "A previously ACTIVE authority may have since been SUSPENDED, REVOKED, or EXPIRED. "
+            "Historical authority does not automatically confer current authority. "
+            "INV-AUTH-TEMP-01: re-establish standing before consequence. "
+            "Identity ≠ Authority: this record establishes WHAT the principal may do, "
+            "not WHO the principal is."
+        ),
+    }
+
+
+@app.get("/v1/authorities/{authority_id}/state",
+         tags=["P2 — Authority Record"],
+         summary="Get current authority state only")
+async def authority_state(
+    authority_id: str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    VGS-AUTHORITY-1.0 — Current state of an authority record.
+    Lightweight endpoint for state-only checks.
+    """
+    require_api_key(x_api_key, authorization)
+
+    result = await get_authority_record(authority_id)
+    if not result.get("found"):
+        return JSONResponse(status_code=404, content={
+            "schema": "VGS-AUTHORITY-STATE-1.0",
+            "found": False,
+            "authority_id": authority_id,
+            "status": "NOT_FOUND",
+            "admissible": False,
+        })
+
+    authority = result["authority"]
+    admissibility = check_authority_admissible(authority)
+
+    return {
+        "schema": "VGS-AUTHORITY-STATE-1.0",
+        "authority_id": authority_id,
+        "principal_id": authority.get("principal_id"),
+        "status": authority.get("status"),
+        "admissible": admissibility["admissible"],
+        "reason": admissibility["reason"],
+        "expires_at": authority.get("expires_at"),
+        "ceiling": authority.get("ceiling"),
+        "checked_at": __import__('datetime').datetime.now(
+            __import__('datetime').timezone.utc).isoformat(),
+    }
+
+
+@app.get("/v1/authorities/{authority_id}",
+         tags=["P2 — Authority Records"],
+         summary="Get authority record")
+async def authority_get(
+    authority_id: str,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """VGS-AUTHORITY-RECORD-1.0 — Retrieve full authority record."""
+    require_api_key(x_api_key, authorization)
+    result = await get_authority_record(authority_id)
+    if not result.get("found"):
+        return JSONResponse(status_code=404, content={
+            "schema": "VGS-AUTHORITY-RECORD-1.0",
+            "found": False,
+            "authority_id": authority_id,
+            "admissible": False,
+            "reason": "AUTHORITY_NOT_FOUND",
+        })
+    return {
+        "schema": "VGS-AUTHORITY-RECORD-1.0",
+        "found": True,
+        **result["authority"],
+    }
+
+
+@app.get("/v1/authorities/{authority_id}/state",
+         tags=["P2 — Authority Records"],
+         summary="Check current authority admissibility state")
+async def authority_state(
+    authority_id: str,
+    action: Optional[str] = None,
+    x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    VGS-AUTHORITY-RECORD-1.0 — Check current authority admissibility.
+
+    Re-evaluates admissibility at the moment of the call.
+    Historical authority does not automatically confer current permission.
+    Pass ?action=<action_type> to check scope admissibility.
+
+    This is the P2 chain:
+      Principal → Authority (this endpoint) → Conditions → Action → Gate
+    """
+    require_api_key(x_api_key, authorization)
+    result = await get_authority_record(authority_id)
+    if not result.get("found"):
+        return JSONResponse(status_code=404, content={
+            "schema": "VGS-AUTHORITY-RECORD-1.0",
+            "found": False,
+            "authority_id": authority_id,
+            "admissible": False,
+            "reason": "AUTHORITY_NOT_FOUND",
+            "enforcement": "BLOCK — authority not found",
+        })
+
+    authority = result["authority"]
+    admissibility = check_authority_admissible(authority, requested_action=action)
+
+    return {
+        "schema": "VGS-AUTHORITY-RECORD-1.0",
+        "authority_id": authority_id,
+        "principal_id": authority.get("principal_id"),
+        "status": authority.get("status"),
+        "granted_authority": authority.get("granted_authority"),
+        "scope": authority.get("scope", []),
+        "permitted_actions": authority.get("permitted_actions", []),
+        "restricted_actions": authority.get("restricted_actions", []),
+        "expires_at": authority.get("expires_at"),
+        "admissible": admissibility["admissible"],
+        "admissibility_reason": admissibility["reason"],
+        "enforcement": (
+            "PROCEED to conditions evaluation"
+            if admissibility["admissible"]
+            else f"BLOCK — {admissibility['reason']}"
+        ),
+        "evaluated_at": __import__('datetime').datetime.now(
+            __import__('datetime').timezone.utc).isoformat(),
+        "note": (
+            "Admissibility evaluated at this moment. "
+            "Authority that was ACTIVE at T₀ may have since been SUSPENDED, "
+            "REVOKED, or EXPIRED. Re-evaluate at consequence time. "
+            "INV-AUTH-TEMP-01: historical authority does not automatically "
+            "confer current permission."
+        ),
+    }
+
+pp.post("/v1/engineering/test-stale-receipt",
           tags=["Engineering — Adversarial"])
 async def test_stale_receipt(
     req: dict = None,
