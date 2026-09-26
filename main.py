@@ -124916,7 +124916,7 @@ async def authority_state(
         ),
     }
 
-pp.post("/v1/engineering/test-stale-receipt",
+@app.post("/v1/engineering/test-stale-receipt",
           tags=["Engineering — Adversarial"])
 async def test_stale_receipt(
     req: dict = None,
