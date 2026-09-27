@@ -124517,6 +124517,7 @@ async def principal_status(
     }
 
 
+@a
 
 # ── P2-02: Authority Record endpoints ────────────────────────────────────
 
@@ -124916,7 +124917,7 @@ async def authority_state(
         ),
     }
 
-@app.post("/v1/engineering/test-stale-receipt",
+pp.post("/v1/engineering/test-stale-receipt",
           tags=["Engineering — Adversarial"])
 async def test_stale_receipt(
     req: dict = None,
