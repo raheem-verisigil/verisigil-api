@@ -124517,7 +124517,6 @@ async def principal_status(
     }
 
 
-@a
 
 # ── P2-02: Authority Record endpoints ────────────────────────────────────
 
