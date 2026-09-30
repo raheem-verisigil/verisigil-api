@@ -46166,7 +46166,7 @@ async def get_authority_record(authority_id: str) -> dict:
 
 def check_authority_admissible(authority_record: dict,
                                 requested_action: str = None,
-                                requested_scope: list = None) -> dict:
+                                requested_ceiling: float = None) -> dict:
     """
     Enforce authority status gate.
     Only ACTIVE authorities within scope and conditions may proceed.
