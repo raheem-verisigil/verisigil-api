@@ -242,13 +242,14 @@ def install_durable_middleware(app, core, receipt_cache, authority_check,
                 }, status_code=403)
 
             if record.get("allowed") is not True or record.get("ruling") != "ALLOW":
-                return JSONResponse({
+                return JSONResponse(signed_receipt({
+                    "schema": "VGS-EXECUTION-AUTH-BLOCK-1.0",
                     "revalidation_id": rid,
                     "proposal_id": proposal_id,
                     "ruling": "REVALIDATION_NOT_ALLOWED",
                     "allowed": False,
                     "consequence_boundary": "NO_EXECUTION_AUTHORIZATION_ISSUED",
-                }, status_code=403)
+                }), status_code=403)
 
             if stored.get("consumed_at"):
                 return JSONResponse({
