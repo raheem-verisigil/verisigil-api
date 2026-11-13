@@ -186,6 +186,7 @@ async def verisigil_runtime_hardening(request: Request, call_next):
             VALIDATION_RECEIPTS[result["revalidation_id"]] = {
                 "agent_id": agent_id, "action_type": action_type, "proposal_id": proposal_id,
                 "capacity_assertion_id": assertion_id, "required_capacity": req.get("required_capacity"),
+                "amount": req.get("amount", req.get("required_capacity")),
             }
             core._emit_proof_event("REVALIDATION_CAPACITY_VALIDATED", result["revalidation_id"], {
                 "ruling": result["ruling"], "capacity_assertion_id": assertion_id,
