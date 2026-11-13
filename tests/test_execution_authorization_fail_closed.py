@@ -10,6 +10,7 @@ os.environ.setdefault("DEPLOY_ENV", "test")
 
 from fastapi.testclient import TestClient
 import verisigil_entrypoint as runtime
+import durable_validation_receipts as durable
 
 client = TestClient(runtime.app)
 HEADERS = {"x-api-key": os.environ["VERISIGIL_API_KEY"]}
@@ -18,6 +19,16 @@ HEADERS = {"x-api-key": os.environ["VERISIGIL_API_KEY"]}
 class ExecutionAuthorizationFailClosedTests(unittest.TestCase):
     def setUp(self):
         runtime.VALIDATION_RECEIPTS.clear()
+        self.store = {}
+        self.original_load = durable.load_validation_receipt
+
+        async def fake_load(revalidation_id):
+            return self.store.get(revalidation_id)
+
+        durable.load_validation_receipt = fake_load
+
+    def tearDown(self):
+        durable.load_validation_receipt = self.original_load
 
     def test_missing_revalidation_receipt_is_denied(self):
         response = client.post("/v1/execution/authorize", headers=HEADERS, json={
@@ -32,14 +43,22 @@ class ExecutionAuthorizationFailClosedTests(unittest.TestCase):
         self.assertEqual(body["consequence_boundary"], "NO_EXECUTION_AUTHORIZATION_ISSUED")
 
     def test_proposal_mismatch_is_denied_before_core_authorization(self):
-        runtime.VALIDATION_RECEIPTS["known-rid"] = {
-            "agent_id": "synthetic-agent",
-            "action_type": "TRANSFER",
+        self.store["known-rid"] = {
+            "revalidation_id": "known-rid",
             "proposal_id": "proposal-A",
-            "capacity_assertion_id": "synthetic-assertion",
-            "required_capacity": 10,
-            "amount": 10,
-            "passport_id": "synthetic-passport",
+            "receipt": {"governance_signature": "not-reached-before-proposal-check"},
+            "record": {
+                "agent_id": "synthetic-agent",
+                "action_type": "TRANSFER",
+                "proposal_id": "proposal-A",
+                "capacity_assertion_id": "synthetic-assertion",
+                "required_capacity": 10,
+                "amount": 10,
+                "passport_id": "synthetic-passport",
+                "ruling": "ALLOW",
+                "allowed": True,
+            },
+            "consumed_at": None,
         }
         response = client.post("/v1/execution/authorize", headers=HEADERS, json={
             "proposal_id": "proposal-B",
