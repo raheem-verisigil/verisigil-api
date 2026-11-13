@@ -98,7 +98,7 @@ def _capacity_check(assertion_id: str, required_override: Any = None) -> dict:
     }
 
 
-def _authority_check(agent_id: str, action_type: str) -> dict:
+def _authority_check(agent_id: str, action_type: str, amount: Any = None) -> dict:
     passport = core._DELEGATION_PASSPORTS.get(agent_id)
     if not passport:
         return {"valid": False, "ruling": "AUTHORITY_INVALID", "reason": "No active delegation passport found."}
@@ -113,12 +113,18 @@ def _authority_check(agent_id: str, action_type: str) -> dict:
     allowed = passport.get("allowed_actions", [])
     forbidden = passport.get("forbidden_actions", [])
     in_scope = action_type in allowed and action_type not in forbidden
-    valid = not passport.get("revoked", False) and not_expired and in_scope
+    amount_within_limit = True
+    budget_sufficient = True
+    if amount is not None:
+        amount_within_limit = isinstance(amount, (int, float)) and not isinstance(amount, bool) and amount >= 0 and amount <= passport.get("max_transaction_value", 0)
+        budget_sufficient = isinstance(amount, (int, float)) and not isinstance(amount, bool) and amount >= 0 and amount <= passport.get("budget_remaining", 0)
+    valid = not passport.get("revoked", False) and not_expired and in_scope and amount_within_limit and budget_sufficient
     return {
         "valid": valid, "ruling": "ALLOW" if valid else "AUTHORITY_INVALID",
-        "reason": "Authority is active and action is within scope." if valid else "Authority is revoked, expired, missing, or outside its declared action scope.",
+        "reason": "Authority is active and action is within scope and limits." if valid else "Authority is revoked, expired, missing, outside scope, or exceeds its delegated limits.",
         "passport_id": passport.get("passport_id", ""), "revoked": bool(passport.get("revoked", False)),
         "not_expired": not_expired, "action_in_scope": in_scope,
+        "amount_within_limit": amount_within_limit, "budget_sufficient": budget_sufficient,
     }
 
 
@@ -147,7 +153,7 @@ async def verisigil_runtime_hardening(request: Request, call_next):
             agent_id = req.get("agent_id", "")
             action_type = req.get("action_type", "")
             assertion_id = req.get("capacity_assertion_id") or req.get("state_assertion_id") or proposal.get("state", {}).get("canonical_state_assertion_id", "")
-            authority = _authority_check(agent_id, action_type)
+            authority = _authority_check(agent_id, action_type, req.get("amount", req.get("required_capacity")))
             capacity = _capacity_check(assertion_id, req.get("required_capacity"))
             failure = authority["ruling"] if not authority["valid"] else capacity["ruling"] if not capacity["valid"] else None
             if failure:
@@ -163,6 +169,7 @@ async def verisigil_runtime_hardening(request: Request, call_next):
                 VALIDATION_RECEIPTS[rid] = {
                     "agent_id": agent_id, "action_type": action_type, "proposal_id": proposal_id,
                     "capacity_assertion_id": assertion_id, "required_capacity": req.get("required_capacity"),
+                    "amount": req.get("amount", req.get("required_capacity")),
                 }
                 core._emit_proof_event("REVALIDATION_FAILED", rid, {"ruling": failure, "proposal_id": proposal_id}, ts)
                 return JSONResponse(receipt)
@@ -194,7 +201,7 @@ async def verisigil_runtime_hardening(request: Request, call_next):
         rid = req.get("revalidation_id", "")
         record = VALIDATION_RECEIPTS.get(rid)
         if record:
-            authority = _authority_check(record["agent_id"], record["action_type"])
+            authority = _authority_check(record["agent_id"], record["action_type"], record.get("amount"))
             capacity = _capacity_check(record["capacity_assertion_id"], record.get("required_capacity"))
             if not authority["valid"] or not capacity["valid"]:
                 ts = _now()
