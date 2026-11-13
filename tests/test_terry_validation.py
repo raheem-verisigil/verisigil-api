@@ -1,5 +1,6 @@
 """Bounded staging adversarial validation for Terry's three proposed scenarios."""
 import os
+import unittest
 from datetime import datetime, timedelta, timezone
 
 os.environ.setdefault("SUPABASE_URL", "http://127.0.0.1:1")
@@ -82,84 +83,94 @@ def _verify_receipt(receipt):
     assert response.json()["result"] == "VERIFIED", response.json()
 
 
-def test_terry_three_stage_adversarial_validation_and_replayable_receipts(monkeypatch):
-    monkeypatch.setattr(core, "_vgs_persist", _no_persist)
-    core._STATE_ASSERTIONS.clear()
-    core._PROPOSAL_REGISTRY.clear()
-    core._DELEGATION_PASSPORTS.clear()
-    core._REVALIDATION_LOG.clear()
-    runtime.VALIDATION_RECEIPTS.clear()
+class TerryValidationTests(unittest.TestCase):
+    def setUp(self):
+        self.original_persist = core._vgs_persist
+        self.original_upsert = core._vgs_upsert_passport
+        core._vgs_persist = _no_persist
+        core._vgs_upsert_passport = _no_persist
+        core._STATE_ASSERTIONS.clear()
+        core._PROPOSAL_REGISTRY.clear()
+        core._DELEGATION_PASSPORTS.clear()
+        core._REVALIDATION_LOG.clear()
+        core._EXECUTION_AUTH.clear()
+        runtime.VALIDATION_RECEIPTS.clear()
 
-    agent = "terry-capacity-agent"
-    initial = _capacity_assertion({
-        "capacity": {"total": 160, "available": 130, "required": 100},
-        "obligations": [{"id": "existing-obligation-001", "amount": 30}],
-    })
-    _delegate(agent)
-    proposal = _proposal(agent, initial)
+    def tearDown(self):
+        core._vgs_persist = self.original_persist
+        core._vgs_upsert_passport = self.original_upsert
 
-    baseline = _revalidate(proposal, agent, initial["assertion_id"])
-    assert baseline["ruling"] == "ALLOW"
-    assert baseline["capacity"]["cumulative_obligations"] == 30
-    _verify_receipt(baseline)
+    def test_terry_three_stage_adversarial_validation_and_replayable_receipts(self):
+        agent = "terry-capacity-agent"
+        initial = _capacity_assertion({
+            "capacity": {"total": 160, "available": 130, "required": 100},
+            "obligations": [{"id": "existing-obligation-001", "amount": 30}],
+        })
+        _delegate(agent)
+        proposal = _proposal(agent, initial)
 
-    revoked = client.post(f"/v1/delegation/passport/revoke/{agent}", headers=API, json={
-        "reason": "Terry scenario: authority revoked after proposal",
-    })
-    assert revoked.status_code == 200, revoked.text
-    _verify_receipt(revoked.json())
+        baseline = _revalidate(proposal, agent, initial["assertion_id"])
+        assert baseline["ruling"] == "ALLOW"
+        assert baseline["capacity"]["cumulative_obligations"] == 30
+        _verify_receipt(baseline)
 
-    stale_auth = client.post("/v1/execution/authorize", headers=API, json={
-        "proposal_id": proposal["proposal_id"], "revalidation_id": baseline["revalidation_id"],
-        "ttl_seconds": 30,
-    })
-    assert stale_auth.status_code == 403, stale_auth.text
-    assert stale_auth.json()["allowed"] is False
-    assert stale_auth.json()["ruling"] == "AUTHORITY_INVALID"
-    _verify_receipt(stale_auth.json())
+        revoked = client.post(f"/v1/delegation/passport/revoke/{agent}", headers=API, json={
+            "reason": "Terry scenario: authority revoked after proposal",
+        })
+        assert revoked.status_code == 200, revoked.text
+        _verify_receipt(revoked.json())
 
-    _delegate(agent)
-    contradictory = _capacity_assertion({
-        "capacity": {"total": 100, "available": 80, "required": 100},
-        "obligations": [{"id": "existing-obligation-001", "amount": 30}],
-    })
-    stale_after_reissue = client.post("/v1/execution/authorize", headers=API, json={
-        "proposal_id": proposal["proposal_id"], "revalidation_id": baseline["revalidation_id"],
-        "ttl_seconds": 30,
-    })
-    assert stale_after_reissue.status_code == 403, stale_after_reissue.text
-    _verify_receipt(stale_after_reissue.json())
+        stale_auth = client.post("/v1/execution/authorize", headers=API, json={
+            "proposal_id": proposal["proposal_id"], "revalidation_id": baseline["revalidation_id"],
+            "ttl_seconds": 30,
+        })
+        assert stale_auth.status_code == 403, stale_auth.text
+        assert stale_auth.json()["allowed"] is False
+        assert stale_auth.json()["ruling"] == "AUTHORITY_INVALID"
+        _verify_receipt(stale_auth.json())
 
-    refused = _revalidate(proposal, agent, contradictory["assertion_id"])
-    assert refused["ruling"] == "CAPACITY_CONTRADICTION"
-    assert refused["allowed"] is False
-    assert refused["capacity"]["cumulative_obligations"] == 30
-    _verify_receipt(refused)
+        _delegate(agent)
+        contradictory = _capacity_assertion({
+            "capacity": {"total": 100, "available": 80, "required": 100},
+            "obligations": [{"id": "existing-obligation-001", "amount": 30}],
+        })
+        stale_after_reissue = client.post("/v1/execution/authorize", headers=API, json={
+            "proposal_id": proposal["proposal_id"], "revalidation_id": baseline["revalidation_id"],
+            "ttl_seconds": 30,
+        })
+        assert stale_after_reissue.status_code == 403, stale_after_reissue.text
+        _verify_receipt(stale_after_reissue.json())
 
-    refused_auth = client.post("/v1/execution/authorize", headers=API, json={
-        "proposal_id": proposal["proposal_id"], "revalidation_id": refused["revalidation_id"],
-        "ttl_seconds": 30,
-    })
-    assert refused_auth.status_code == 403, refused_auth.text
-    _verify_receipt(refused_auth.json())
+        refused = _revalidate(proposal, agent, contradictory["assertion_id"])
+        assert refused["ruling"] == "CAPACITY_CONTRADICTION"
+        assert refused["allowed"] is False
+        assert refused["capacity"]["cumulative_obligations"] == 30
+        _verify_receipt(refused)
 
-    restored = _capacity_assertion({
-        "capacity": {"total": 160, "available": 130, "required": 100},
-        "obligations": [{"id": "existing-obligation-001", "amount": 30}],
-    })
-    continued = _revalidate(proposal, agent, restored["assertion_id"])
-    assert continued["ruling"] == "ALLOW"
-    assert continued["capacity"]["cumulative_obligations"] == 30
-    assert continued["checks"]["cumulative_obligations_accounted"] is True
-    _verify_receipt(continued)
+        refused_auth = client.post("/v1/execution/authorize", headers=API, json={
+            "proposal_id": proposal["proposal_id"], "revalidation_id": refused["revalidation_id"],
+            "ttl_seconds": 30,
+        })
+        assert refused_auth.status_code == 403, refused_auth.text
+        _verify_receipt(refused_auth.json())
 
-    execution = client.post("/v1/execution/authorize", headers=API, json={
-        "proposal_id": proposal["proposal_id"], "revalidation_id": continued["revalidation_id"],
-        "ttl_seconds": 30,
-    })
-    assert execution.status_code == 200, execution.text
-    execution_receipt = execution.json()
-    assert execution_receipt["commit_time_recheck"]["capacity"]["cumulative_obligations"] == 30
-    assert execution_receipt["consequence_boundary"] == "PRE_EXECUTION_AUTHORIZATION_ONLY"
-    assert execution_receipt["expires_at"] > execution_receipt["issued_at"]
-    _verify_receipt(execution_receipt)
+        restored = _capacity_assertion({
+            "capacity": {"total": 160, "available": 130, "required": 100},
+            "obligations": [{"id": "existing-obligation-001", "amount": 30}],
+        })
+        continued = _revalidate(proposal, agent, restored["assertion_id"])
+        assert continued["ruling"] == "ALLOW"
+        assert continued["capacity"]["cumulative_obligations"] == 30
+        assert continued["checks"]["cumulative_obligations_accounted"] is True
+        _verify_receipt(continued)
+
+        execution = client.post("/v1/execution/authorize", headers=API, json={
+            "proposal_id": proposal["proposal_id"], "revalidation_id": continued["revalidation_id"],
+            "ttl_seconds": 30,
+        })
+        assert execution.status_code == 200, execution.text
+        execution_receipt = execution.json()
+        assert execution_receipt["commit_time_recheck"]["capacity"]["cumulative_obligations"] == 30
+        assert execution_receipt["consequence_boundary"] == "PRE_EXECUTION_AUTHORIZATION_ONLY"
+        assert execution_receipt["expires_at"] > execution_receipt["issued_at"]
+        _verify_receipt(execution_receipt)
