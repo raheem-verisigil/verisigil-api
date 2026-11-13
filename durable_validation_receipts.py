@@ -7,7 +7,7 @@ from typing import Any
 
 import httpx
 from fastapi import HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 
 
 class ReceiptPersistenceUnavailable(RuntimeError):
@@ -128,7 +128,8 @@ def install_durable_middleware(app, core, receipt_cache, authority_check,
             if response.status_code != 200:
                 return response
             try:
-                payload = __import__("json").loads(response.body)
+                response_body = b"".join([chunk async for chunk in response.body_iterator])
+                payload = __import__("json").loads(response_body)
             except Exception:
                 return JSONResponse({
                     "ruling": "DURABLE_RECEIPT_INVALID",
@@ -164,7 +165,11 @@ def install_durable_middleware(app, core, receipt_cache, authority_check,
                     "consequence_boundary": "NO_EXECUTION_AUTHORIZATION_ISSUED",
                 }, status_code=503)
             receipt_cache[rid] = durable_record
-            return response
+            return Response(
+                content=response_body,
+                status_code=response.status_code,
+                headers=dict(response.headers),
+            )
 
         if request.method == "POST" and path == "/v1/execution/authorize":
             try:
