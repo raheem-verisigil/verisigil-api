@@ -85,7 +85,7 @@ jobs:
 
   security-regressions:
     name: Public Proof & Credential Security Regressions
-    if: github.ref != 'refs/heads/security/credential-proof-repair'
+    if: (github.ref != 'refs/heads/security/credential-proof-repair' && github.head_ref != 'security/credential-proof-repair') || github.event.action == 'synchronize'
     runs-on: ubuntu-latest
     needs: lint
     steps:
@@ -106,13 +106,14 @@ jobs:
   security-repair-apply:
     name: Apply and Test Security Repair
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' && github.ref == 'refs/heads/security/credential-proof-repair' && github.event.head_commit.message == 'Enable controlled security repair runner'
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/security/credential-proof-repair' && github.event.head_commit.message == 'Enable controlled security repair runner') || (github.event_name == 'pull_request' && github.head_ref == 'security/credential-proof-repair' && github.event.action == 'opened')
     needs: lint
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4.2.2
         with:
+          ref: ${{ github.head_ref || github.ref }}
           persist-credentials: true
 
       - name: Set up Python
@@ -173,7 +174,7 @@ jobs:
     name: Deployment Summary
     runs-on: ubuntu-latest
     needs: [lint, invariants, security-regressions, api-tests]
-    if: always() && github.ref != 'refs/heads/security/credential-proof-repair'
+    if: always() && github.ref != 'refs/heads/security/credential-proof-repair' && (github.head_ref != 'security/credential-proof-repair' || github.event.action == 'synchronize')
     steps:
       - name: Summary
         run: |
