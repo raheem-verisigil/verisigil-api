@@ -12,6 +12,8 @@ os.environ.setdefault("DEPLOY_ENV", "test")
 from fastapi.testclient import TestClient
 import main as core
 import verisigil_entrypoint as runtime
+import durable_validation_receipts as durable
+import copy
 
 client = TestClient(runtime.app)
 API = {"x-api-key": os.environ["VERISIGIL_API_KEY"]}
@@ -87,6 +89,10 @@ class TerryValidationTests(unittest.TestCase):
     def setUp(self):
         self.original_persist = core._vgs_persist
         self.original_upsert = core._vgs_upsert_passport
+        self.original_receipt_persist = durable.persist_validation_receipt
+        self.original_receipt_load = durable.load_validation_receipt
+        self.original_receipt_consume = durable.consume_validation_receipt
+        self.receipt_store = {}
         core._vgs_persist = _no_persist
         core._vgs_upsert_passport = _no_persist
         core._STATE_ASSERTIONS.clear()
@@ -96,9 +102,37 @@ class TerryValidationTests(unittest.TestCase):
         core._EXECUTION_AUTH.clear()
         runtime.VALIDATION_RECEIPTS.clear()
 
+        async def fake_persist(revalidation_id, proposal_id, receipt, record):
+            self.receipt_store[revalidation_id] = {
+                "revalidation_id": revalidation_id,
+                "proposal_id": proposal_id,
+                "receipt": copy.deepcopy(receipt),
+                "record": copy.deepcopy(record),
+                "consumed_at": None,
+            }
+
+        async def fake_load(revalidation_id):
+            row = self.receipt_store.get(revalidation_id)
+            return copy.deepcopy(row) if row else None
+
+        async def fake_consume(revalidation_id, proposal_id):
+            row = self.receipt_store.get(revalidation_id)
+            if not row or row["proposal_id"] != proposal_id or row["consumed_at"]:
+                return None
+            row["consumed_at"] = "2026-11-13T00:00:00+00:00"
+            row["consumed_proposal_id"] = proposal_id
+            return copy.deepcopy(row["record"])
+
+        durable.persist_validation_receipt = fake_persist
+        durable.load_validation_receipt = fake_load
+        durable.consume_validation_receipt = fake_consume
+
     def tearDown(self):
         core._vgs_persist = self.original_persist
         core._vgs_upsert_passport = self.original_upsert
+        durable.persist_validation_receipt = self.original_receipt_persist
+        durable.load_validation_receipt = self.original_receipt_load
+        durable.consume_validation_receipt = self.original_receipt_consume
 
     def test_terry_three_stage_adversarial_validation_and_replayable_receipts(self):
         agent = "terry-capacity-agent"
@@ -130,12 +164,13 @@ class TerryValidationTests(unittest.TestCase):
         _verify_receipt(stale_auth.json())
 
         _delegate(agent)
+        fresh_after_reissue = _revalidate(proposal, agent, initial["assertion_id"])
         contradictory = _capacity_assertion({
             "capacity": {"total": 100, "available": 80, "required": 100},
             "obligations": [{"id": "existing-obligation-001", "amount": 30}],
         })
         stale_after_reissue = client.post("/v1/execution/authorize", headers=API, json={
-            "proposal_id": proposal["proposal_id"], "revalidation_id": baseline["revalidation_id"],
+            "proposal_id": proposal["proposal_id"], "revalidation_id": fresh_after_reissue["revalidation_id"],
             "ttl_seconds": 30,
         })
         assert stale_after_reissue.status_code == 403, stale_after_reissue.text
@@ -174,3 +209,11 @@ class TerryValidationTests(unittest.TestCase):
         assert execution_receipt["consequence_boundary"] == "PRE_EXECUTION_AUTHORIZATION_ONLY"
         assert execution_receipt["expires_at"] > execution_receipt["issued_at"]
         _verify_receipt(execution_receipt)
+
+        replay = client.post("/v1/execution/authorize", headers=API, json={
+            "proposal_id": proposal["proposal_id"],
+            "revalidation_id": continued["revalidation_id"],
+            "ttl_seconds": 30,
+        })
+        assert replay.status_code == 403, replay.text
+        assert replay.json()["ruling"] == "REVALIDATION_RECEIPT_ALREADY_CONSUMED"

@@ -231,6 +231,28 @@ async def verisigil_runtime_hardening(request: Request, call_next):
             return JSONResponse({"error": "INVALID_JSON"}, status_code=400)
         rid = req.get("revalidation_id", "")
         record = VALIDATION_RECEIPTS.get(rid)
+        if not record:
+            return JSONResponse({
+                "schema": "VGS-EXECUTION-AUTH-BLOCK-1.0",
+                "revalidation_id": rid,
+                "proposal_id": req.get("proposal_id", ""),
+                "ruling": "REVALIDATION_RECEIPT_MISSING",
+                "allowed": False,
+                "reason": "Execution authorization requires a locally verified revalidation record.",
+                "checked_at": _now(),
+                "consequence_boundary": "NO_EXECUTION_AUTHORIZATION_ISSUED",
+            }, status_code=403)
+        if req.get("proposal_id") != record.get("proposal_id"):
+            return JSONResponse({
+                "schema": "VGS-EXECUTION-AUTH-BLOCK-1.0",
+                "revalidation_id": rid,
+                "proposal_id": req.get("proposal_id", ""),
+                "ruling": "REVALIDATION_PROPOSAL_MISMATCH",
+                "allowed": False,
+                "reason": "Execution proposal does not match the proposal bound to revalidation.",
+                "checked_at": _now(),
+                "consequence_boundary": "NO_EXECUTION_AUTHORIZATION_ISSUED",
+            }, status_code=403)
         if record:
             authority = _authority_check(record["agent_id"], record["action_type"], record.get("amount"))
             capacity = _capacity_check(record["capacity_assertion_id"], record.get("required_capacity"))
@@ -285,3 +307,11 @@ async def revoke_delegation_for_validation(agent_id: str, req: dict, request: Re
     core._DELEGATION_PASSPORTS[agent_id] = passport
     core._emit_proof_event("DELEGATION_REVOKED", agent_id, {"passport_id": passport.get("passport_id", "")}, ts)
     return JSONResponse(receipt)
+
+# Durable Supabase receipt boundary is registered last so it wraps the
+# in-process middleware and is the outermost execution authorization gate.
+from durable_validation_receipts import install_durable_middleware
+
+install_durable_middleware(
+    app, core, VALIDATION_RECEIPTS, _authority_check, _capacity_check, _now, _signed_receipt
+)
