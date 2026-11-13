@@ -35,6 +35,15 @@ def _capacity_check(assertion_id: str, required_override: Any = None) -> dict:
     assertion = core._STATE_ASSERTIONS.get(assertion_id)
     if not assertion:
         return {"valid": False, "ruling": "STATE_INVALID", "reason": "Capacity state assertion not found."}
+    related = [
+        item for item in core._STATE_ASSERTIONS.values()
+        if item.get("subject") == assertion.get("subject") and item.get("state_type") == assertion.get("state_type")
+    ]
+    if related:
+        latest = max(related, key=lambda item: item.get("issued_at", ""))
+        if latest.get("assertion_id") != assertion_id:
+            return {"valid": False, "ruling": "CAPACITY_STALE", "reason": "A newer capacity assertion superseded this evidence."}
+
     state = assertion.get("state")
     if not isinstance(state, dict):
         return {"valid": False, "ruling": "STATE_INVALID", "reason": "Capacity state must be a JSON object."}
@@ -170,6 +179,7 @@ async def verisigil_runtime_hardening(request: Request, call_next):
                     "agent_id": agent_id, "action_type": action_type, "proposal_id": proposal_id,
                     "capacity_assertion_id": assertion_id, "required_capacity": req.get("required_capacity"),
                     "amount": req.get("amount", req.get("required_capacity")),
+                    "passport_id": authority.get("passport_id", ""),
                 }
                 core._emit_proof_event("REVALIDATION_FAILED", rid, {"ruling": failure, "proposal_id": proposal_id}, ts)
                 return JSONResponse(receipt)
@@ -187,6 +197,7 @@ async def verisigil_runtime_hardening(request: Request, call_next):
                 "agent_id": agent_id, "action_type": action_type, "proposal_id": proposal_id,
                 "capacity_assertion_id": assertion_id, "required_capacity": req.get("required_capacity"),
                 "amount": req.get("amount", req.get("required_capacity")),
+                "passport_id": authority.get("passport_id", ""),
             }
             core._emit_proof_event("REVALIDATION_CAPACITY_VALIDATED", result["revalidation_id"], {
                 "ruling": result["ruling"], "capacity_assertion_id": assertion_id,
@@ -204,13 +215,15 @@ async def verisigil_runtime_hardening(request: Request, call_next):
         if record:
             authority = _authority_check(record["agent_id"], record["action_type"], record.get("amount"))
             capacity = _capacity_check(record["capacity_assertion_id"], record.get("required_capacity"))
-            if not authority["valid"] or not capacity["valid"]:
+            authority_unchanged = authority.get("passport_id") == record.get("passport_id")
+            if not authority["valid"] or not authority_unchanged or not capacity["valid"]:
                 ts = _now()
                 blocked = _signed_receipt({
                     "schema": "VGS-EXECUTION-AUTH-BLOCK-1.0", "revalidation_id": rid,
                     "proposal_id": record["proposal_id"],
-                    "ruling": "AUTHORITY_INVALID" if not authority["valid"] else capacity["ruling"],
+                    "ruling": "AUTHORITY_INVALID" if not authority["valid"] or not authority_unchanged else capacity["ruling"],
                     "allowed": False, "authority": authority, "capacity": capacity,
+                    "authority_unchanged_since_revalidation": authority_unchanged,
                     "checked_at": ts, "consequence_boundary": "NO_EXECUTION_AUTHORIZATION_ISSUED",
                 })
                 core._emit_proof_event("EXECUTION_AUTHORIZATION_BLOCKED", rid, {"ruling": blocked["ruling"]}, ts)
