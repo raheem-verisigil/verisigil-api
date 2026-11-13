@@ -4,6 +4,7 @@ Called by GitHub Actions — uses env vars set by the workflow.
 """
 import os
 import sys
+from urllib.parse import urlparse
 
 try:
     import httpx
@@ -11,9 +12,20 @@ except ImportError:
     print("httpx not installed — skipping API tests")
     sys.exit(0)
 
-BASE = os.environ.get("VERISIGIL_URL", "https://verisigil-api-production.up.railway.app")
-KEY  = os.environ.get("VERISIGIL_KEY", "")
-HDR  = {"x-api-key": KEY, "Content-Type": "application/json"}
+BASE = os.environ.get("VERISIGIL_URL", "").strip().rstrip("/")
+KEY = os.environ.get("VERISIGIL_KEY", "").strip()
+TEST_ENV = os.environ.get("VERISIGIL_TEST_ENV", "").strip().lower()
+if TEST_ENV != "staging" or not BASE or not KEY:
+    print("REFUSED: CI health checks require VERISIGIL_TEST_ENV=staging, VERISIGIL_URL and VERISIGIL_KEY.")
+    sys.exit(2)
+_target = urlparse(BASE)
+if _target.scheme != "https" or not _target.hostname:
+    print("REFUSED: VERISIGIL_URL must be a valid HTTPS URL.")
+    sys.exit(2)
+if "production" in _target.hostname.lower():
+    print("REFUSED: CI health checks cannot target production.")
+    sys.exit(2)
+HDR = {"x-api-key": KEY, "Content-Type": "application/json"}
 
 passed  = []
 skipped = []
