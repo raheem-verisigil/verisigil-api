@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - security/terry-ci-verification-20261113
+      - security/proof-verification-hardening-20261113
   pull_request:
     branches:
       - security/proof-verification-hardening-20261113
