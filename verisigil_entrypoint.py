@@ -307,3 +307,11 @@ async def revoke_delegation_for_validation(agent_id: str, req: dict, request: Re
     core._DELEGATION_PASSPORTS[agent_id] = passport
     core._emit_proof_event("DELEGATION_REVOKED", agent_id, {"passport_id": passport.get("passport_id", "")}, ts)
     return JSONResponse(receipt)
+
+# Durable Supabase receipt boundary is registered last so it wraps the
+# in-process middleware and is the outermost execution authorization gate.
+from durable_validation_receipts import install_durable_middleware
+
+install_durable_middleware(
+    app, core, VALIDATION_RECEIPTS, _authority_check, _capacity_check, _now, _signed_receipt
+)
