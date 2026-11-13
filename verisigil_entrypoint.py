@@ -231,6 +231,28 @@ async def verisigil_runtime_hardening(request: Request, call_next):
             return JSONResponse({"error": "INVALID_JSON"}, status_code=400)
         rid = req.get("revalidation_id", "")
         record = VALIDATION_RECEIPTS.get(rid)
+        if not record:
+            return JSONResponse({
+                "schema": "VGS-EXECUTION-AUTH-BLOCK-1.0",
+                "revalidation_id": rid,
+                "proposal_id": req.get("proposal_id", ""),
+                "ruling": "REVALIDATION_RECEIPT_MISSING",
+                "allowed": False,
+                "reason": "Execution authorization requires a locally verified revalidation record.",
+                "checked_at": _now(),
+                "consequence_boundary": "NO_EXECUTION_AUTHORIZATION_ISSUED",
+            }, status_code=403)
+        if req.get("proposal_id") != record.get("proposal_id"):
+            return JSONResponse({
+                "schema": "VGS-EXECUTION-AUTH-BLOCK-1.0",
+                "revalidation_id": rid,
+                "proposal_id": req.get("proposal_id", ""),
+                "ruling": "REVALIDATION_PROPOSAL_MISMATCH",
+                "allowed": False,
+                "reason": "Execution proposal does not match the proposal bound to revalidation.",
+                "checked_at": _now(),
+                "consequence_boundary": "NO_EXECUTION_AUTHORIZATION_ISSUED",
+            }, status_code=403)
         if record:
             authority = _authority_check(record["agent_id"], record["action_type"], record.get("amount"))
             capacity = _capacity_check(record["capacity_assertion_id"], record.get("required_capacity"))
