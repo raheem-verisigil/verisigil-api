@@ -1,137 +1,124 @@
 """
-VeriSigil CI Health Check Script
-Called by GitHub Actions — uses env vars set by the workflow.
+VeriSigil staging CI health check.
+
+This script is deliberately fail-closed: missing dependencies/configuration,
+unreachable endpoints, non-200 responses, redirects, or unexpected payloads
+must fail the check. It never falls back to production.
 """
+from __future__ import annotations
+
 import os
 import sys
 from urllib.parse import urlparse
 
 try:
     import httpx
-except ImportError:
-    print("httpx not installed — skipping API tests")
-    sys.exit(0)
-
-BASE = os.environ.get("VERISIGIL_URL", "").strip().rstrip("/")
-KEY = os.environ.get("VERISIGIL_KEY", "").strip()
-TEST_ENV = os.environ.get("VERISIGIL_TEST_ENV", "").strip().lower()
-if TEST_ENV != "staging" or not BASE or not KEY:
-    print("REFUSED: CI health checks require VERISIGIL_TEST_ENV=staging, VERISIGIL_URL and VERISIGIL_KEY.")
-    sys.exit(2)
-_target = urlparse(BASE)
-if _target.scheme != "https" or not _target.hostname:
-    print("REFUSED: VERISIGIL_URL must be a valid HTTPS URL.")
-    sys.exit(2)
-if "production" in _target.hostname.lower():
-    print("REFUSED: CI health checks cannot target production.")
-    sys.exit(2)
-HDR = {"x-api-key": KEY, "Content-Type": "application/json"}
-
-passed  = []
-skipped = []
-failed  = []
+except ImportError as exc:  # A skipped dependency must never produce green CI.
+    print(f"FAIL: required dependency httpx is unavailable: {exc}", file=sys.stderr)
+    raise SystemExit(2)
 
 
-def check(label, method, path, json=None, require_key=False):
-    url = f"{BASE}{path}"
+def _configuration() -> tuple[str, str]:
+    base = os.environ.get("VERISIGIL_URL", "").strip().rstrip("/")
+    key = os.environ.get("VERISIGIL_KEY", "").strip()
+    test_env = os.environ.get("VERISIGIL_TEST_ENV", "").strip().lower()
+    if test_env != "staging" or not base or not key:
+        raise ValueError(
+            "Require VERISIGIL_TEST_ENV=staging, VERISIGIL_URL and VERISIGIL_KEY."
+        )
+
+    target = urlparse(base)
+    host = (target.hostname or "").lower()
+    if (
+        target.scheme != "https"
+        or not host
+        or target.username
+        or target.password
+        or target.query
+        or target.fragment
+        or target.path not in ("", "/")
+    ):
+        raise ValueError("VERISIGIL_URL must be a root HTTPS URL without credentials, path, query or fragment.")
+    if "production" in host or host.startswith("prod.") or ".prod." in host:
+        raise ValueError("Production targets are forbidden.")
+    if not ("staging" in host or "stage" in host or "test" in host):
+        raise ValueError("Target hostname must be explicitly labelled staging, stage or test.")
+    return base, key
+
+
+def _request(client: httpx.Client, label: str, method: str, path: str,
+             headers: dict[str, str] | None = None, payload: dict | None = None) -> httpx.Response:
     try:
-        headers = HDR if require_key else {}
-        if method == "GET":
-            r = httpx.get(url, headers=headers, timeout=30)
-        else:
-            r = httpx.post(url, headers=headers, json=json, timeout=30)
-
-        if r.status_code in (403, 429, 502, 503, 504):
-            print(f"  SKIP {label} — {r.status_code} (network/auth blocked)")
-            skipped.append(label)
-            return None
-
-        return r
-
-    except Exception as e:
-        print(f"  SKIP {label} — {str(e)[:60]}")
-        skipped.append(label)
-        return None
+        response = client.request(method, path, headers=headers, json=payload)
+    except httpx.HTTPError as exc:
+        raise RuntimeError(f"{label}: request failed: {type(exc).__name__}") from exc
+    if response.is_redirect:
+        raise RuntimeError(f"{label}: redirects are not accepted (HTTP {response.status_code}).")
+    if response.status_code != 200:
+        raise RuntimeError(f"{label}: expected HTTP 200, received {response.status_code}.")
+    return response
 
 
-print(f"VeriSigil CI Health Check")
-print(f"Target: {BASE}")
-print()
+def run() -> int:
+    try:
+        base, key = _configuration()
+    except ValueError as exc:
+        print(f"REFUSED: {exc}", file=sys.stderr)
+        return 2
 
-# ── MUST PASS — no API key ────────────────────────────────────
-try:
-    r = httpx.get(f"{BASE}/health", timeout=30)
-    assert r.status_code == 200, f"Expected 200 got {r.status_code}"
-    print(f"  PASS /health — {r.status_code}")
-    passed.append("/health")
-except Exception as e:
-    print(f"  FAIL /health — {e}")
-    failed.append("/health")
+    api_headers = {"x-api-key": key, "Content-Type": "application/json"}
+    checks: list[str] = []
+    failures: list[str] = []
 
-try:
-    r = httpx.get(f"{BASE}/liveness", timeout=30)
-    assert r.status_code == 200, f"Expected 200 got {r.status_code}"
-    print(f"  PASS /liveness — {r.status_code}")
-    passed.append("/liveness")
-except Exception as e:
-    print(f"  FAIL /liveness — {e}")
-    failed.append("/liveness")
+    print("VeriSigil staging CI health check")
+    print(f"Target host: {urlparse(base).hostname}")
+    print()
 
-try:
-    r = httpx.get(f"{BASE}/readiness", timeout=30)
-    assert r.status_code in (200, 503), f"Unexpected {r.status_code}"
-    print(f"  PASS /readiness — {r.status_code}")
-    passed.append("/readiness")
-except Exception as e:
-    print(f"  FAIL /readiness — {e}")
-    failed.append("/readiness")
+    with httpx.Client(base_url=base, timeout=20.0, follow_redirects=False) as client:
+        probes = [
+            ("health", "GET", "/health", None, None),
+            ("liveness", "GET", "/liveness", None, None),
+            ("readiness", "GET", "/readiness", None, None),
+            ("fail-safe", "GET", "/v1/governance/failsafe", api_headers, None),
+            ("sovereignty", "GET", "/v1/human/sovereignty/status", api_headers, None),
+            (
+                "HAL authority",
+                "POST",
+                "/v1/human/authority/check",
+                api_headers,
+                {"agent_id": "ci", "action_type": "fire_employee", "domain": "hr", "consequence": "CRITICAL"},
+            ),
+            ("governance pulse", "GET", "/v1/diagnostics/pulse", api_headers, None),
+            ("database status", "GET", "/v1/db/status", api_headers, None),
+        ]
 
-# ── SKIP GRACEFULLY if blocked ────────────────────────────────
-r = check("fail-safe", "GET", "/v1/governance/failsafe", require_key=True)
-if r and r.status_code == 200:
-    data = r.json()
-    if data.get("failsafe_behavior") == "DENY":
-        print(f"  PASS fail-safe DENY confirmed")
-        passed.append("failsafe")
+        for label, method, path, headers, payload in probes:
+            try:
+                response = _request(client, label, method, path, headers, payload)
+                body = response.json() if response.content else {}
+                if label == "fail-safe" and body.get("failsafe_behavior") != "DENY":
+                    raise RuntimeError("fail-safe: expected failsafe_behavior=DENY.")
+                if label == "sovereignty" and body.get("sovereignty_posture") != "HUMAN_SOVEREIGN":
+                    raise RuntimeError("sovereignty: expected HUMAN_SOVEREIGN posture.")
+                if label == "HAL authority" and body.get("human_required") is not True:
+                    raise RuntimeError("HAL authority: expected human_required=true.")
+                if label in ("governance pulse", "database status") and not isinstance(body, dict):
+                    raise RuntimeError(f"{label}: expected a JSON object.")
+                checks.append(label)
+                print(f"PASS {label} — HTTP 200")
+            except (RuntimeError, ValueError) as exc:
+                failures.append(label)
+                print(f"FAIL {exc}", file=sys.stderr)
 
-r = check("sovereignty", "GET", "/v1/human/sovereignty/status", require_key=True)
-if r and r.status_code == 200:
-    data = r.json()
-    if data.get("sovereignty_posture") == "HUMAN_SOVEREIGN":
-        print(f"  PASS sovereignty HUMAN_SOVEREIGN confirmed")
-        passed.append("sovereignty")
+    print()
+    print(f"Passed: {len(checks)}")
+    print(f"Failed: {len(failures)}")
+    if failures:
+        print("FAILED CHECKS: " + ", ".join(failures), file=sys.stderr)
+        return 1
+    print("All configured staging health checks passed.")
+    return 0
 
-r = check("HAL check", "POST", "/v1/human/authority/check",
-          json={"agent_id": "ci", "action_type": "fire_employee",
-                "domain": "hr", "consequence": "CRITICAL"},
-          require_key=True)
-if r and r.status_code == 200:
-    data = r.json()
-    if data.get("human_required") is True:
-        print(f"  PASS HAL HUMAN_ONLY confirmed")
-        passed.append("hal")
 
-r = check("pulse", "GET", "/v1/diagnostics/pulse", require_key=True)
-if r and r.status_code == 200:
-    print(f"  PASS governance pulse OK")
-    passed.append("pulse")
-
-r = check("db-status", "GET", "/v1/db/status", require_key=True)
-if r and r.status_code == 200:
-    data = r.json()
-    print(f"  PASS db status — {data.get('mode')}")
-    passed.append("db")
-
-# ── SUMMARY ───────────────────────────────────────────────────
-print()
-print(f"Passed:  {len(passed)}")
-print(f"Skipped: {len(skipped)}")
-print(f"Failed:  {len(failed)}")
-print()
-
-if failed:
-    print(f"FAILED: {failed}")
-    sys.exit(1)
-else:
-    print("CI health checks complete")
-    sys.exit(0)
+if __name__ == "__main__":
+    raise SystemExit(run())
