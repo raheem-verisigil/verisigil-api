@@ -4,15 +4,26 @@ Run this from your local machine (Git Bash or terminal):
   python p1c_live_supabase_proof.py
 
 This runs the critical subset of the 18-scenario proof
-against the live production endpoint with real Supabase persistence.
-No mocks. No in-memory store. Real Railway. Real Supabase.
+against an explicitly configured isolated staging endpoint and staging Supabase.
+No production default. No embedded credential. Staging only.
 
 GAP-ID: P1-C-LIVE-SUPABASE-PROOF-01
 """
-import requests, json, hashlib, uuid, time, threading, sys
+import requests, json, hashlib, uuid, time, threading, sys, os
+from urllib.parse import urlparse
 
-BASE    = "https://verisigil-api-production.up.railway.app"
-API_KEY = "vs-sandbox-demo-2026b"
+BASE = os.environ.get("VERISIGIL_STAGING_URL", "").strip().rstrip("/")
+API_KEY = os.environ.get("VERISIGIL_STAGING_API_KEY", "").strip()
+if not BASE or not API_KEY:
+    print("REFUSED: set VERISIGIL_STAGING_URL and VERISIGIL_STAGING_API_KEY.")
+    sys.exit(2)
+_target = urlparse(BASE)
+if _target.scheme != "https" or not _target.hostname:
+    print("REFUSED: staging target must be a valid HTTPS URL.")
+    sys.exit(2)
+if "production" in _target.hostname.lower():
+    print("REFUSED: production targets are prohibited by this proof runner.")
+    sys.exit(2)
 HEADERS = {"Content-Type": "application/json", "x-api-key": API_KEY}
 
 PASS = []

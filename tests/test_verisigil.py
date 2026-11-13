@@ -25,13 +25,21 @@ import os
 import json
 
 # ── CONFIG ────────────────────────────────────────────────────
-BASE_URL  = os.environ.get(
-    "VERISIGIL_TEST_URL",
-    "https://verisigil-api-production.up.railway.app"
-)
-API_KEY   = os.environ.get("VERISIGIL_API_KEY", "verisigil-secret-2026")
-HEADERS   = {
-    "x-api-key":    API_KEY,
+BASE_URL = os.environ.get("VERISIGIL_TEST_URL", "").strip().rstrip("/")
+API_KEY = os.environ.get("VERISIGIL_TEST_API_KEY", "").strip()
+TEST_ENV = os.environ.get("VERISIGIL_TEST_ENV", "").strip().lower()
+if TEST_ENV != "staging":
+    pytest.skip("Live API suite runs only when VERISIGIL_TEST_ENV=staging.", allow_module_level=True)
+if not BASE_URL or not API_KEY:
+    pytest.skip("Set VERISIGIL_TEST_URL and VERISIGIL_TEST_API_KEY for isolated staging tests.", allow_module_level=True)
+from urllib.parse import urlparse
+_target = urlparse(BASE_URL)
+if _target.scheme != "https" or not _target.hostname:
+    raise RuntimeError("VERISIGIL_TEST_URL must be a valid HTTPS URL.")
+if "production" in _target.hostname.lower():
+    raise RuntimeError("Production API targets are prohibited by this test suite.")
+HEADERS = {
+    "x-api-key": API_KEY,
     "Content-Type": "application/json",
 }
 TIMEOUT   = 30.0
