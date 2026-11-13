@@ -25,7 +25,7 @@ A reproducible, synthetic staging exercise for contradictory capacity evidence, 
 
 ```bash
 python -m unittest tests.test_proof_verification -v
-pytest -q tests/test_terry_validation.py
+python -m unittest tests.test_terry_validation -v
 ```
 
 The tests use synthetic environment values only. Never point the integration suite at production.
