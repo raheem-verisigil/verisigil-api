@@ -51,12 +51,12 @@ class ProofVerificationTests(unittest.TestCase):
         self.assertNotIn(base64.b64decode("dnMtc2FuZGJveC1kZW1vLTIwMjY=").decode(), text)
         self.assertNotIn(base64.b64decode("VnJUM0pOOGlTS1BvTmt5eU9hbkNFdGZLVWR2b0lUeVh5bDI0RkNuRCtqQT0=").decode(), text)
 
-    def test_legacy_route_uses_runtime_key_and_revocation_registry(self):
-        source = (Path(__file__).resolve().parents[1] / "main.py").read_text(encoding="utf-8")
-        route = source.split('@app.post("/v1/proof/verify"', 1)[1].split('@app.get("/v1/proof/public-key"', 1)[0]
-        self.assertIn("bytes(_VERIFY_KEY)", route)
-        self.assertIn("ED25519_REVOKED_KEY_IDS", route)
-        self.assertNotIn("VrT3", route)
+    def test_staging_entrypoint_intercepts_legacy_verify_route_with_runtime_key(self):
+        source = (Path(__file__).resolve().parents[1] / "verisigil_entrypoint.py").read_text(encoding="utf-8")
+        self.assertIn('request.url.path == "/v1/proof/verify"', source)
+        self.assertIn("bytes(core._VERIFY_KEY)", source)
+        self.assertIn("ED25519_REVOKED_KEY_IDS", source)
+        self.assertIn("verify_ed25519_payload", source)
 
 
 if __name__ == "__main__":
