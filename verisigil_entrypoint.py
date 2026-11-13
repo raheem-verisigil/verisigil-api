@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -31,6 +32,10 @@ def _signed_receipt(body: dict) -> dict:
     return receipt
 
 
+def _finite_number(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(float(value))
+
+
 def _capacity_check(assertion_id: str, required_override: Any = None) -> dict:
     assertion = core._STATE_ASSERTIONS.get(assertion_id)
     if not assertion:
@@ -54,16 +59,28 @@ def _capacity_check(assertion_id: str, required_override: Any = None) -> dict:
     if not core.verify_governance_signature(signed_fields, assertion.get("governance_signature", "")):
         return {"valid": False, "ruling": "STATE_INVALID", "reason": "VeriSigil state receipt signature is invalid."}
     now = datetime.now(timezone.utc)
+    issued_at = assertion.get("issued_at")
+    try:
+        issued = datetime.fromisoformat(str(issued_at).replace("Z", "+00:00"))
+        if issued.tzinfo is None:
+            issued = issued.replace(tzinfo=timezone.utc)
+    except (TypeError, ValueError):
+        return {"valid": False, "ruling": "STATE_INVALID", "reason": "State assertion issue time is malformed."}
+    freshness_seconds = assertion.get("validation", {}).get("freshness_seconds", 300)
+    if not _finite_number(freshness_seconds) or freshness_seconds <= 0 or (now - issued).total_seconds() > freshness_seconds:
+        return {"valid": False, "ruling": "STATE_STALE", "reason": "Capacity state assertion exceeds its freshness window."}
     expires_at = assertion.get("expires_at") or ""
     if expires_at:
         try:
-            expiry = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+            expiry = datetime.fromisoformat(str(expires_at).replace("Z", "+00:00"))
             if expiry.tzinfo is None:
                 expiry = expiry.replace(tzinfo=timezone.utc)
-        except ValueError:
+        except (TypeError, ValueError):
             return {"valid": False, "ruling": "STATE_INVALID", "reason": "State assertion expiry is malformed."}
         if now > expiry:
             return {"valid": False, "ruling": "STATE_INVALID", "reason": "Capacity state assertion has expired."}
+    if assertion.get("state_type") != "capacity":
+        return {"valid": False, "ruling": "CAPACITY_INVALID", "reason": "State assertion type is not capacity."}
     capacity = state.get("capacity")
     if not isinstance(capacity, dict):
         return {"valid": False, "ruling": "CAPACITY_INVALID", "reason": "State assertion has no capacity object."}
@@ -74,20 +91,20 @@ def _capacity_check(assertion_id: str, required_override: Any = None) -> dict:
     seen_ids = set()
     obligation_total = 0.0
     for item in obligations:
-        if not isinstance(item, dict) or not item.get("id"):
-            return {"valid": False, "ruling": "CAPACITY_INVALID", "reason": "Every obligation requires a stable id."}
+        if not isinstance(item, dict) or not isinstance(item.get("id"), str) or not item.get("id").strip():
+            return {"valid": False, "ruling": "CAPACITY_INVALID", "reason": "Every obligation requires a stable string id."}
         if item["id"] in seen_ids:
             return {"valid": False, "ruling": "CAPACITY_INVALID", "reason": "Duplicate obligation id would double-count cumulative commitments."}
         seen_ids.add(item["id"])
         amount = item.get("amount")
-        if not isinstance(amount, (int, float)) or isinstance(amount, bool) or amount < 0:
-            return {"valid": False, "ruling": "CAPACITY_INVALID", "reason": "Obligation amounts must be non-negative numbers."}
+        if not _finite_number(amount) or amount < 0:
+            return {"valid": False, "ruling": "CAPACITY_INVALID", "reason": "Obligation amounts must be finite non-negative numbers."}
         obligation_total += float(amount)
-    if not isinstance(total, (int, float)) or isinstance(total, bool) or total < 0:
-        return {"valid": False, "ruling": "CAPACITY_INVALID", "reason": "Total capacity must be a non-negative number."}
+    if not _finite_number(total) or total < 0:
+        return {"valid": False, "ruling": "CAPACITY_INVALID", "reason": "Total capacity must be a finite non-negative number."}
     required = required_override if required_override is not None else capacity.get("required")
-    if not isinstance(required, (int, float)) or isinstance(required, bool) or required < 0:
-        return {"valid": False, "ruling": "CAPACITY_INVALID", "reason": "Required capacity must be a non-negative number."}
+    if not _finite_number(required) or required < 0:
+        return {"valid": False, "ruling": "CAPACITY_INVALID", "reason": "Required capacity must be a finite non-negative number."}
     available = float(total) - obligation_total
     common = {
         "assertion_id": assertion_id, "state_hash": actual_hash,
@@ -97,7 +114,7 @@ def _capacity_check(assertion_id: str, required_override: Any = None) -> dict:
         "source_authentication": "NOT_INDEPENDENTLY_ESTABLISHED_BY_THIS_RECEIPT",
     }
     claimed_available = capacity.get("available")
-    if claimed_available is not None and (not isinstance(claimed_available, (int, float)) or abs(float(claimed_available) - available) > 1e-9):
+    if claimed_available is not None and (not _finite_number(claimed_available) or abs(float(claimed_available) - available) > 1e-9):
         return {"valid": False, "ruling": "CAPACITY_CONTRADICTION", "reason": "Claimed available capacity conflicts with cumulative obligations.", **common}
     valid = available >= float(required)
     return {
@@ -125,8 +142,10 @@ def _authority_check(agent_id: str, action_type: str, amount: Any = None) -> dic
     amount_within_limit = True
     budget_sufficient = True
     if amount is not None:
-        amount_within_limit = isinstance(amount, (int, float)) and not isinstance(amount, bool) and amount >= 0 and amount <= passport.get("max_transaction_value", 0)
-        budget_sufficient = isinstance(amount, (int, float)) and not isinstance(amount, bool) and amount >= 0 and amount <= passport.get("budget_remaining", 0)
+        max_value = passport.get("max_transaction_value", 0)
+        remaining_budget = passport.get("budget_remaining", 0)
+        amount_within_limit = _finite_number(amount) and _finite_number(max_value) and amount >= 0 and amount <= max_value
+        budget_sufficient = _finite_number(amount) and _finite_number(remaining_budget) and amount >= 0 and amount <= remaining_budget
     valid = not passport.get("revoked", False) and not_expired and in_scope and amount_within_limit and budget_sufficient
     return {
         "valid": valid, "ruling": "ALLOW" if valid else "AUTHORITY_INVALID",
