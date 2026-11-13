@@ -64,7 +64,7 @@ def _revalidate(proposal, agent_id, assertion_id):
         "proposal_id": proposal["proposal_id"], "proposal_hash": proposal["proposal_hash"],
         "target": "synthetic-ledger-account", "parameters": {"amount": 100, "currency": "USD"},
         "agent_id": agent_id, "action_type": "TRANSFER",
-        "capacity_assertion_id": assertion_id, "required_capacity": 100,
+        "capacity_assertion_id": assertion_id, "required_capacity": 100, "amount": 100,
     })
     assert response.status_code == 200, response.text
     return response.json()
