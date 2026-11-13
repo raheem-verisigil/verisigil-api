@@ -123,6 +123,13 @@ def test_terry_three_stage_adversarial_validation_and_replayable_receipts(monkey
         "capacity": {"total": 100, "available": 80, "required": 100},
         "obligations": [{"id": "existing-obligation-001", "amount": 30}],
     })
+    stale_after_reissue = client.post("/v1/execution/authorize", headers=API, json={
+        "proposal_id": proposal["proposal_id"], "revalidation_id": baseline["revalidation_id"],
+        "ttl_seconds": 30,
+    })
+    assert stale_after_reissue.status_code == 403, stale_after_reissue.text
+    _verify_receipt(stale_after_reissue.json())
+
     refused = _revalidate(proposal, agent, contradictory["assertion_id"])
     assert refused["ruling"] == "CAPACITY_CONTRADICTION"
     assert refused["allowed"] is False
