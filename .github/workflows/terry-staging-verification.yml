@@ -1,0 +1,47 @@
+name: Terry staging security verification
+
+on:
+  push:
+    branches:
+      - security/terry-ci-verification-20261113
+  pull_request:
+    branches:
+      - security/proof-verification-hardening-20261113
+
+permissions:
+  contents: read
+
+concurrency:
+  group: terry-security-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  focused-security-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      DEPLOY_ENV: test
+      SUPABASE_URL: http://127.0.0.1:1
+      SUPABASE_KEY: verisigil-test-only-not-a-credential
+      VERISIGIL_API_KEY: verisigil-test-api-key-only
+      SIGN_SECRET: verisigil-test-signing-secret-not-for-deployment
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Compile source
+        run: python -m compileall -q .
+      - name: Run cryptographic regression tests
+        run: python -m unittest tests.test_proof_verification -v
+      - name: Run fail-closed execution authorization tests
+        run: python -m unittest tests.test_execution_authorization_fail_closed -v
+      - name: Run bounded adversarial scenarios
+        run: python -m unittest tests.test_terry_validation -v
+      - name: Run complete unit test suite
+        run: python -m unittest discover -s tests -v
