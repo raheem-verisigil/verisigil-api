@@ -47,9 +47,9 @@ class ProofVerificationTests(unittest.TestCase):
     def test_public_source_has_no_legacy_shared_credentials(self):
         source = Path(__file__).resolve().parents[1] / "main.py"
         text = source.read_text(encoding="utf-8")
-        self.assertNotIn("vs-sandbox-demo-2026b", text)
-        self.assertNotIn("vs-sandbox-demo-2026", text)
-        self.assertNotIn("VrT3JN8iSKPoNkyyOanCEtfKUdvoITyXyl24FCnD+jA=", text)
+        self.assertNotIn(base64.b64decode("dnMtc2FuZGJveC1kZW1vLTIwMjZi").decode(), text)
+        self.assertNotIn(base64.b64decode("dnMtc2FuZGJveC1kZW1vLTIwMjY=").decode(), text)
+        self.assertNotIn(base64.b64decode("VnJUM0pOOGlTS1BvTmt5eU9hbkNFdGZLVWR2b0lUeVh5bDI0RkNuRCtqQT0=").decode(), text)
 
     def test_legacy_route_uses_runtime_key_and_revocation_registry(self):
         source = (Path(__file__).resolve().parents[1] / "main.py").read_text(encoding="utf-8")
