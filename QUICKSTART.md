@@ -1,161 +1,67 @@
-# VCB jar-verify — External Portability Test
-**10-minute guide. No prior context required.**
+# VeriSigil — Local Reproduction Quickstart
 
----
+This guide runs the bounded tests with synthetic values. It does not call production, use production credentials, or prove production readiness.
 
-## What jar_verify.py Establishes — and What It Does Not
+## 1. Select the evaluation revision
 
-**When jar_verify.py returns INTEGRITY_VERIFIED and SIGNATURE_VERIFIED:**
-- The artifact's canonical bytes match the committed integrity hash
-- The artifact was signed by the holder of the corresponding private key
-- The artifact has not been altered since signing
+The current staging evaluation candidate is:
 
-**When jar_verify.py returns UNDETERMINED:**
-- One or more governance conditions (STILL, custody, COULD) could not be independently re-established from the artifact alone
-- This is the expected and correct result for an offline verifier
-- UNDETERMINED is not an error — it is the verifier refusing to manufacture certainty about conditions it cannot independently verify
+- Branch: security/terry-fail-closed-execution-20261113
+- Commit: 5a26584360ad4abca503a625f9cd74e1b9abe652
 
-**What jar_verify.py does NOT establish:**
-- That the action described was actually admissible at execution time
-- That the authority was currently valid at the time of consequence
-- That all possible execution paths were governed
-- That production money moved or a real consequence occurred
-- That the system is proof against all deployment configurations
-
----
-
-## What This Tests
-You will verify that a passport issued by the VCB production API is:
-- Cryptographically signed by the VCB signing key
-- Integrity-protected (SHA-256 over RFC 8785 canonical form)
-- Independently verifiable — no network access needed after the initial fetch
-
----
-
-## Prerequisites
-- Python 3.9+
-- pip
-
-```bash
-pip install pynacl rfc8785
-```
-
----
-
-## Step 1 — Get the checker
-```bash
+~~~bash
 git clone https://github.com/raheem-verisigil/verisigil-api.git
 cd verisigil-api
-```
-Or download jar_verify.py directly from the repo.
+git fetch origin security/terry-fail-closed-execution-20261113
+git checkout 5a26584360ad4abca503a625f9cd74e1b9abe652
+~~~
 
----
+## 2. Create an isolated Python environment
 
-## Step 2 — Get a fresh passport from production
+Python 3.12 is the reference CI version.
 
-DEMO KEY NOTE: The key used below (verisigil-secret-2026) is a deliberately
-limited demonstration key. It provides read-only access to public verification
-endpoints only. It has no access to consequential production authority, seal
-endpoints, or administrative functions. It is intentionally published to support
-independent verification of VCB's public evidence surface.
-Do not use this key for any production purpose.
+~~~bash
+python3.12 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+~~~
 
-### Bash / Linux / macOS
-```bash
-curl -s -X POST https://verisigil-api-production.up.railway.app/v1/vcb/seal \
-  -H "X-API-Key: verisigil-secret-2026" \
-  -H "Content-Type: application/json" \
-  -d '{"vcb_decision":{"decision":"ALLOW","action_hash":"abc123def456abc123def456abc123def456abc123def456abc123def456abc1","authority_hash":"def456abc123def456abc123def456abc123def456abc123def456abc123def4","policy_hash":"aaa111bbb222aaa111bbb222aaa111bbb222aaa111bbb222aaa111bbb222aaa1","state_hash":"bbb222ccc333bbb222ccc333bbb222ccc333bbb222ccc333bbb222ccc333bbb2","consequence_type":"PAYMENT"},"action":{"type":"payment","amount":5000,"vendor":"VENDOR-A"},"enforcement_point":"payment-boundary-v1","ttl_seconds":86400}' > passport.json
-```
+## 3. Set synthetic test-only values
 
-### Windows PowerShell
-```powershell
-$body = '{"vcb_decision":{"decision":"ALLOW","action_hash":"abc123def456abc123def456abc123def456abc123def456abc123def456abc1","authority_hash":"def456abc123def456abc123def456abc123def456abc123def456abc123def4","policy_hash":"aaa111bbb222aaa111bbb222aaa111bbb222aaa111bbb222aaa111bbb222aaa1","state_hash":"bbb222ccc333bbb222ccc333bbb222ccc333bbb222ccc333bbb222ccc333bbb2","consequence_type":"PAYMENT"},"action":{"type":"payment","amount":5000,"vendor":"VENDOR-A"},"enforcement_point":"payment-boundary-v1","ttl_seconds":86400}'
+These values are deliberately non-production placeholders and exist only in the current shell process.
 
-Invoke-RestMethod -Method Post `
-  -Uri "https://verisigil-api-production.up.railway.app/v1/vcb/seal" `
-  -Headers @{"X-API-Key"="verisigil-secret-2026"; "Content-Type"="application/json"} `
-  -Body $body | ConvertTo-Json -Depth 20 | Out-File -Encoding utf8 passport.json
-```
+~~~bash
+export DEPLOY_ENV=test
+export SUPABASE_URL=http://127.0.0.1:1
+export SUPABASE_KEY=verisigil-test-only-not-a-credential
+export VERISIGIL_API_KEY=verisigil-test-api-key-only
+export SIGN_SECRET=verisigil-test-signing-secret-not-for-deployment
+~~~
 
-### Windows curl (Git Bash or WSL)
-```bash
-curl -s -X POST https://verisigil-api-production.up.railway.app/v1/vcb/seal \
-  -H "X-API-Key: verisigil-secret-2026" \
-  -H "Content-Type: application/json" \
-  -d "{\"vcb_decision\":{\"decision\":\"ALLOW\",\"action_hash\":\"abc123def456abc123def456abc123def456abc123def456abc123def456abc1\",\"authority_hash\":\"def456abc123def456abc123def456abc123def456abc123def456abc123def4\",\"policy_hash\":\"aaa111bbb222aaa111bbb222aaa111bbb222aaa111bbb222aaa111bbb222aaa1\",\"state_hash\":\"bbb222ccc333bbb222ccc333bbb222ccc333bbb222ccc333bbb222ccc333bbb2\",\"consequence_type\":\"PAYMENT\"},\"action\":{\"type\":\"payment\",\"amount\":5000,\"vendor\":\"VENDOR-A\"},\"enforcement_point\":\"payment-boundary-v1\",\"ttl_seconds\":86400}" > passport.json
-```
+Do not replace these with production values. The focused tests are designed to use synthetic fixtures; the Terry test currently substitutes a fake in-memory receipt store.
 
----
+## 4. Run the checks
 
-## Step 3 — Verify the passport
+~~~bash
+python -m compileall -q .
+python -m unittest tests.test_proof_verification -v
+python -m unittest tests.test_execution_authorization_fail_closed -v
+python -m unittest tests.test_terry_validation -v
+python -m unittest discover -s tests -v
+~~~
 
-### Bash / Linux / macOS / Git Bash
-```bash
-python jar_verify.py passport.json --pubkey lJWG0Wabt6uATPu5Upo6UEHWGXQqMyi6LMKQC0xwpY8=
-```
+Retain the full terminal output, Python version, exact commit SHA, and exit code. A command being available or a test file existing is not a passing result.
 
-### Windows PowerShell
-```powershell
-python jar_verify.py passport.json --pubkey lJWG0Wabt6uATPu5Upo6UEHWGXQqMyi6LMKQC0xwpY8=
-```
+## 5. Understand what the tests establish
 
-If python is not in your PATH, use the full path:
-```powershell
-& "C:\Users\<YourName>\AppData\Local\Programs\Python\Python310\python.exe" jar_verify.py passport.json --pubkey lJWG0Wabt6uATPu5Upo6UEHWGXQqMyi6LMKQC0xwpY8=
-```
+The Terry scenario exercises synthetic authority revocation, contradictory capacity evidence, restoration, signed receipt verification, and replay refusal. Its receipt adapter is mocked in-memory. It does not prove live Supabase REST persistence, process-restart recovery, multi-instance concurrency, source authenticity of capacity data, or downstream actuator enforcement.
 
----
+For the complete status and remaining gates, read [EVIDENCE_BASELINE.md](EVIDENCE_BASELINE.md).
 
-## Expected Result
+## 6. Safety boundary
 
-INTEGRITY_VERIFIED and SIGNATURE_VERIFIED are the critical lines.
-VERDICT: UNDETERMINED is correct and honest.
-
-The checker runs 15 checks:
-1. schema_version
-2. integrity_hash
-3. signature
-4. closure_terminated
-5. root_provable_false
-6. why_edges_enum
-7. actor_chain
-8. still_unknown
-9. replay
-10. assurance_custody
-11. custody_continuity
-12. could
-13. replay_cross_check
-14. scope_ledger
-15. word_ban
-
----
-
-## What the Exit Codes Mean
-
-Exit 0: ADMISSIBLE — all conditions met
-Exit 1: FAILED — definitive domain violation detected
-Exit 2: UNDETERMINED — incomplete evidence (honest, expected for standard passports)
-Exit 3: INVALID — structural integrity failure (tampered bytes)
-Exit 9: REPLAY_UNAVAILABLE — replay digest mismatch
-
----
-
-## Conformance Vectors
-To test the checker against adversarial inputs, see conformance_vectors.json.
-
----
-
-## Public Key
-lJWG0Wabt6uATPu5Upo6UEHWGXQqMyi6LMKQC0xwpY8=
-Ed25519 (PyNaCl VerifyKey). Stable across restarts.
-
----
-
-## Trusted Computing Base
-See TCB.md for the honest boundary: what VCB proves, what it does not prove,
-and where the proof stops.
-
----
-
-Issues? Open a GitHub issue or contact verisigil.ai
+- Never run this suite against production.
+- Never paste API keys, signing secrets, database credentials, or customer data into a public issue.
+- Do not treat a passing local suite as proof of production-wide enforcement.
+- Do not claim a real payment or external consequence occurred unless the corresponding external system provides independently checkable evidence.

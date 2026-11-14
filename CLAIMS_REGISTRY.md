@@ -1,53 +1,45 @@
-# VeriSigil AI — Claims Registry
-**Date:** 2026-09-03 | **Phase:** PROOF CLOSURE
+# VeriSigil AI — Current Claims Registry
 
-## Claim States
+**Updated:** 2026-11-14  
+**Phase:** PROVE  
+**Controlling record:** [EVIDENCE_BASELINE.md](EVIDENCE_BASELINE.md)
 
-| Claim | Status | Evidence | Public Language |
-|-------|--------|----------|-----------------|
-| PRODUCTION_CLAIM_ALLOWED | **False** | Not yet evaluated | — |
-| LOCKED_CLAIM | **NOT_YET_DELIVERED** | Gates not complete | — |
-| Receipt integrity + Ed25519 | **VERIFIED** | Harold cold run V5 | ✅ Safe to post |
-| UNDETERMINED correct behavior | **VERIFIED** | Harold cold run V5 | ✅ Safe to post |
-| STILL adversarial 11/11 live | **DEMONSTRATED V4** | Live Railway + Supabase | ✅ Safe to post |
-| Supabase persist + retrieve | **DEMONSTRATED V4** | Live Railway + Supabase | ✅ Safe to post |
-| Tamper detection live | **DEMONSTRATED V4** | Live Railway | ✅ Safe to post |
-| Actuator boundary (Paystack) | **DEMONSTRATED V4** | Architecture + placeholder key | ✅ Safe (with limitation noted) |
-| COULD binding INV-P3 | **DEMONSTRATED V4** | Live Railway | ✅ Safe (with limitation noted) |
-| Post-restart durability | **VERIFIED** | Alkama independent V4 | ✅ Safe to post |
-| enforce_still=False 0 paths | **DEMONSTRATED V4** | Static audit P1-B | ✅ Safe to post |
-| NOT_DIAGNOSTIC discipline | **DEMONSTRATED V5** | Public record | ✅ Safe to post |
-| Replay protection 1/9 | **DEMONSTRATED V3** | Internal adversarial | ⚠️ V3 only — label as internal |
-| Owner continuity CAT-01 | **DEMONSTRATED V3** | Internal adversarial | ⚠️ V3 only — label as internal |
-| Execution admissibility 17/18 | **DEMONSTRATED V3** | Internal adversarial | ⚠️ V3 only — label as internal |
-| Delegation scope enforcement | **INTERNAL ONLY** | 23/23 internal; Alkama live rerun pending | ❌ NOT in safe public claims until Alkama |
-| Real Paystack reference | **NOT PROVEN** | Placeholder key only | ❌ Not claimable |
-| Multi-instance atomicity | **NOT PROVEN** | F-31 single-instance | ❌ Not claimable |
-| Distributed replay | **NOT PROVEN** | Not tested | ❌ Not claimable |
-| Live money | **NOT PROVEN** | C2 scope only | ❌ Not claimable |
-| Full endpoint coverage | **NOT PROVEN** | 6/1286 LIVE_VERIFIED | ❌ Not claimable |
-| Regulatory certification | **NOT CLAIMABLE** | CLM-SCOPE-04 confirmed | ❌ Never |
+This registry supersedes earlier status tables for present-day claims. Historical proof reports and earlier VCB/VGS records remain preserved in Git history and the repository, but they must not be treated as current evidence unless their exact build, environment, conditions, and reproducible artifacts are identified.
 
-## After Alkama Confirms (Checklist — all required)
+## Current claims
 
-- [ ] Alkama escalation refuse on live Railway build
-- [ ] Composed STILL on real mandate through evaluate_release
-- [ ] Paystack: clearly labeled placeholder vs real test reference
-- [ ] Section 2 limitations still published
-- [ ] No safe-claim language contradicts any NOT_PROVEN item
+| Claim | Current status | Permitted interpretation |
+|---|---|---|
+| Declared consequence-boundary architecture | IMPLEMENTED as an architectural design | Product architecture and intended control boundary; not proof of universal coverage. |
+| Durable validation-receipt adapter | IMPLEMENTED in the staging evaluation branch | Source contains Supabase insert/read/atomic-consume operations; live API integration is not yet independently verified. |
+| Receipt table, RLS, service-role grants and consume function | DATABASE SCHEMA INSPECTED | Schema and privileges were inspected; a direct rollback SQL smoke test was reported successful by the operator. This is not API-level or multi-instance evidence. |
+| Fail-closed execution authorization middleware | IMPLEMENTED; synthetic test coverage exists | Code and tests define receipt validation, proposal binding, one-time consumption and refusal behavior. Exact current suite result is not yet confirmed. |
+| Terry bounded adversarial scenario | SYNTHETIC TEST DEFINED | Synthetic authority/capacity changes, receipt verification and replay refusal; receipt storage is mocked in the test. |
+| Ed25519 receipt verification | IMPLEMENTED / TEST DEFINED | Cryptographic verification of the signed artifact; it does not prove source-data truth or actuator enforcement. |
+| Staging deployment | DEMONSTRATED ONLINE | The named Railway staging deployment was observed successful with one running replica. Deployment health is not a security test result. |
+| Current API-to-Supabase persistence | NOT PROVEN END TO END | Requires create/read/consume through the deployed API. |
+| Process-restart recovery | NOT PROVEN | Authority/state registries remain process-memory structures. On 2026-11-14, the startup loader reported zero records across all ten Supabase registry tables; no known persisted record was demonstrated as recovered. |
+| Two-instance atomic replay prevention | NOT PROVEN END TO END | Database-level consume behavior is not a substitute for a two-instance API concurrency test. |
+| Live authority re-derivation / Temporal Standing | NOT ESTABLISHED | The Phase 2 engineering specification records this as an open architectural gap. |
+| Downstream actuator enforcement | NOT PROVEN | A short-lived authorization response is not proof that a customer sink cannot be bypassed. |
+| Real Paystack transaction reference / live money | NOT PROVEN | No real provider transaction is established by the current baseline. |
+| Complete endpoint coverage / production-wide prevention | NOT PROVEN | No complete production-wide coverage claim is allowed. |
+| Z3 formal proof execution in current runtime | NOT AVAILABLE AS A CURRENT CLAIM | Do not claim that the current staging path executes Z3 proofs. |
+| Dilithium / ML-DSA post-quantum signing | NOT AVAILABLE IN CURRENT EXECUTION PATH | Current receipt-signing evidence is Ed25519; do not claim dual or post-quantum signing. |
+| Regulatory certification or legal compliance | NOT CLAIMABLE | VeriSigil is not a regulator, auditor, certification body, or legal opinion. |
 
-When all five are checked: PRODUCTION_CLAIM_ALLOWED moves to EVALUATION IN PROGRESS.
-LOCKED_CLAIM remains NOT_YET_DELIVERED until composed path + actuator are demonstrated.
+## Gates before any stronger claim
 
-## Architecture Freeze
+- [ ] Deployed staging API creates, reads and consumes a receipt through Supabase REST.
+- [ ] Receipt survives an independent process restart and is recovered correctly.
+- [ ] Simultaneous consume attempts through two independent API instances produce exactly one success.
+- [ ] Authority and state registries have verified persistence/freshness, or remain explicitly outside the claim.
+- [ ] Focused and complete unit suites pass on the exact evaluation commit, with raw CI output retained.
+- [ ] A controlled sink integration demonstrates the claimed enforcement boundary before any actuator claim is made.
+- [ ] Temporal Standing live-authority re-derivation is implemented and passes both preserving and defeating paired tests.
 
-**IN EFFECT.** No new features. No new terminology. No new architecture.
-Engineering objective: convert every remaining material claim boundary into independently reproducible evidence.
+## Claim control
 
-**Priority order:**
-1. P1: Alkama live delegation rerun
-2. P2: Composed STILL → COULD → commitment → actuator path
-3. P3: Real Paystack test reference (Route A) or honest interface-only label (Route B)
-4. P4: Distributed concurrency (before serious financial claims)
-5. P5: Evidence package freeze + Proof Report v1 publish
+A claim may advance only when its evidence artifact is reproducible and tied to a commit, environment, configuration, and observed result. Source presence, deployment status, a written test, or a direct database schema check cannot independently upgrade a claim to VERIFIED.
 
+**PRODUCTION_CLAIM_ALLOWED: FALSE**
