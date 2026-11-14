@@ -1,190 +1,55 @@
-# ⬡ VeriSigil AI — Runtime Governance Infrastructure
+# VeriSigil AI — Verifiable Consequence Boundaries
 
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.20264923.svg)](https://doi.org/10.5281/zenodo.20264923)
-[![Conformance](https://img.shields.io/badge/conformance-80%2F80-green)](https://verisigil-api-production.up.railway.app/v1/conformance/verify)
-[![Version](https://img.shields.io/badge/version-0.7.2-cyan)](https://verisigil-api-production.up.railway.app/health)
-[![License](https://img.shields.io/badge/license-CC%20BY%204.0-blue)](https://creativecommons.org/licenses/by/4.0/)
+**Runtime control and evidence for consequential AI actions at declared execution boundaries.**
 
-## Formal Specification
+VeriSigil addresses a specific systems problem: when an AI-generated action is about to become consequential, can the system establish that the action is still authorized under the current conditions, bind the decision to the exact parameters, refuse when required evidence is missing or contradictory, and produce independently verifiable evidence?
 
-**DOI:** https://doi.org/10.5281/zenodo.20264923
+VeriSigil is being developed to answer that question at declared, protected execution boundaries.
 
-VeriSigil Governance Specification (VGS-001 to VGS-011) is formally published on Zenodo under CC BY 4.0. The specification is citable, versioned, and permanently archived.
+## Product architecture
 
----
+- **Verifiable Consequence Boundaries** — the architectural boundary at which a consequential action is evaluated and controlled.
+- **Runtime Authority** — authority and required conditions are evaluated for the action about to become real.
+- **Parameter-Locked Execution** — the decision is bound to the exact action and parameters.
+- **Fail-Closed Runtime** — inability to establish a required condition does not become implicit permission.
+- **Cryptographic Execution Receipts** — signed evidence supports independent verification of the recorded decision.
 
-## What Is VeriSigil
+VeriSigil complements existing identity, IAM, policy, model-safety, human-governance, and actuator systems. It does not replace them.
 
-VeriSigil is **runtime governance infrastructure for autonomous AI agents** — the enforcement layer between agent intent and agent action.
+## Current phase: PROVE
 
-> "Governance must happen before execution — not after. A log proves what happened. A runtime gate prevents the wrong thing from happening."
+The current evaluation is deliberately bounded. The current staging candidate includes a durable validation-receipt adapter and fail-closed execution-authorization middleware. Its tests exercise synthetic authority and capacity scenarios, receipt verification, and replay refusal.
 
----
+Important limitations remain:
+- The Terry scenario tests currently use a synthetic in-memory receipt-store adapter.
+- The Supabase receipt schema and atomic consume function have been inspected and a direct SQL smoke test was reported successful, but the deployed API's insert/read/consume path is not yet independently verified end to end.
+- Authority and state registries remain in-memory in the current staging harness.
+- Process-restart recovery and cross-instance replay behavior are not yet proven.
+- Downstream actuator enforcement and real payment execution are not proven.
+- The current execution path uses Ed25519. Do not infer post-quantum signing.
+- No current claim of Z3 proof execution, universal AI coverage, production-wide prevention, or regulatory certification is made.
 
-## Governance Specification (VGS)
+## Current evaluation build
 
-| Spec | Description | Status |
-|------|-------------|--------|
-| VGS-001 | Runtime Admissibility | ✅ Live |
-| VGS-002 | Governance State Machine | ✅ Live |
-| VGS-003 | Human Approval Invariants | ✅ Live |
-| VGS-004 | Cryptographic Governance Receipts | ✅ Live |
-| VGS-005 | Intent-Bound Execution Protocol | ✅ Live |
-| VGS-006 | Execution Authority Token (EAT) | ✅ Live |
-| VGS-007 | Immutable Evidence Classification | ✅ Live |
-| VGS-008 | Offline Forensic Verifier | ✅ Live |
-| VGS-009 | Formal Mathematical Proofs (Z3 SMT) | ✅ Live |
-| VGS-010 | Jurisdiction-Aware Admissibility | ✅ Live |
-| VGS-011 | Governance Continuity Engine (GCS) | ✅ Live |
+The current bounded evaluation candidate is on the [Terry staging branch](https://github.com/raheem-verisigil/verisigil-api/tree/security/terry-fail-closed-execution-20261113), at commit [dfa626d](https://github.com/raheem-verisigil/verisigil-api/commit/dfa626d309cf397f4e861a3449f258dcb6b5fdf5).
 
----
+The isolated Railway staging service is:
 
-## Formal Verification
+https://verisigil-security-repair-test-staging.up.railway.app
 
-### Z3 SMT Proofs — All UNSAT
+**This is a staging evaluation surface, not the production API. Do not use production credentials or production data for reproduction.**
 
-```
-VFGS-INV-001  HIGH consequence gate        UNSAT — no counterexample exists
-VFGS-INV-002  Financial exposure limit     UNSAT — ∀ amount ∈ ℝ⁺
-VFGS-INV-003  Monotonic authority reduction UNSAT
-VFGS-INV-004  Trust score floor            UNSAT — ∀ trust ∈ [0, 0.50)
-```
+## Start here
 
-### TLA+ Formal State Machine
+1. Read [EVIDENCE_BASELINE.md](EVIDENCE_BASELINE.md) for the controlling claim and evidence status.
+2. Read [TERRY_VALIDATION.md](TERRY_VALIDATION.md) for the synthetic adversarial scenario and its limits.
+3. Follow [QUICKSTART.md](QUICKSTART.md) to reproduce the local test suite with synthetic environment values.
+4. Use [CHALLENGE.md](CHALLENGE.md) to report a bounded, reproducible finding.
 
-`VeriSigilGovernance.tla` — 5 safety theorems + 2 liveness properties. TLC model checker ready.
+## Evidence discipline
 
-### Conformance Vectors
+Implemented behavior is not automatically tested behavior. A passing test is not automatically independent verification. A staging demonstration is not production-wide coverage. A cryptographic receipt proves the integrity and signature of the recorded artifact; it does not independently establish the truth of an external data source or prove that a downstream actuator enforced the authorization.
 
-```
-POST /v1/conformance/verify
-→ total_vectors: 80
-→ passed: 80
-→ verdict: ALL CONFORMANCE VECTORS PASS
-```
+The authoritative status and remaining proof gates are maintained in [EVIDENCE_BASELINE.md](EVIDENCE_BASELINE.md).
 
-Cross-runtime parity verified: Python + Node.js produce identical hashes.
-
----
-
-## Named Invariant Taxonomy
-
-| ID | Name | Enforcement Location |
-|----|------|---------------------|
-| VER-INV-001 | Evidence Classification Hash Binding | classify_evidence() |
-| VER-INV-002 | Runtime Guard Latency Bound | /v1/guard/verify |
-| VER-INV-003 | Audit Log Append-Only Immutability | chain_append() |
-| VER-INV-004 | Classification Transition Prohibition | CLASSIFICATION_TRANSITION_MATRIX |
-| VER-INV-005 | Jurisdiction Resolver Determinism | resolve_jurisdiction() |
-| VER-INV-006 | Authority Collapse Propagation | propagate_revocation() |
-| VER-INV-007 | Pre-Remediation Evidence Capture | propagate_revocation() → FRI |
-| VER-INV-008 | Canonical Serialization Cross-Runtime Parity | canonical_serialize() |
-
----
-
-## Cryptography
-
-| Algorithm | Standard | Purpose |
-|-----------|----------|---------|
-| Ed25519 | RFC 8037 | Immediate security |
-| Dilithium-3 | NIST FIPS 204 (ML-DSA-65) | Post-quantum security |
-
-Dual signing on every governance receipt. ATF-compatible.
-
----
-
-## Jurisdiction Coverage (VGS-010)
-
-| Regime | Jurisdiction | Philosophy |
-|--------|-------------|------------|
-| EU_AI_ACT | European Union | Compliance-first |
-| US_NIST | United States | Innovation-first |
-| CN_AI_LAW | China | State-aligned |
-| GCC_DIFC | UAE/GCC | Sovereign-innovation |
-
----
-
-## Repository Contents
-
-```
-main.py                    VGS-001 through VGS-011 — full implementation
-vfgs.py                    Z3 formal proofs
-verisigil_sdk.py           Python SDK
-verisigil_sdk.js           Node.js SDK
-verisigil_verify.py        Offline forensic verifier (VGS-008)
-VeriSigilGovernance.tla    TLA+ formal specification
-conformance_vectors.json   80 deterministic conformance vectors
-test_conformance.js        Node.js conformance test suite (86/86)
-requirements.txt           Dependencies
-```
-
----
-
-## Live API
-
-```
-Base URL: https://verisigil-api-production.up.railway.app
-Docs:     https://verisigil-api-production.up.railway.app/docs
-Health:   https://verisigil-api-production.up.railway.app/health
-```
-
-All endpoints require: `x-api-key: your-api-key`
-
----
-
-## Key Endpoints
-
-```
-POST /v1/guard/verify           Runtime Guard — ALLOW/DENY/REQUIRE_HUMAN_APPROVAL
-POST /v1/eat/issue              Execution Authority Token
-POST /v1/eat/validate           Validate EAT at action boundary
-POST /v1/jurisdiction/resolve   Jurisdiction-aware admissibility
-POST /v1/formal/prove           Z3 formal proofs
-POST /v1/formal/certificate     Proof certificate (VSGCERT-*)
-GET  /v1/invariants             40 governance invariants
-GET  /v1/invariants/named       VER-INV-001 through VER-INV-008
-POST /v1/conformance/verify     80 conformance vectors
-POST /v1/evidence/verify        Reclassification attack detection
-POST /v1/continuity/chain/revoke Authority collapse propagation
-GET  /v1/crypto/status          Dilithium-3 + Ed25519 status
-```
-
----
-
-## Relationship to ATF
-
-VeriSigil and the Agent Trust Fabric (ATF, RFC-ATF-1 through RFC-ATF-3 by Harold Alberto Nunes Rodelo, OMNIX QUANTUM) address the same missing infrastructure layer from complementary implementations.
-
-| ATF | VeriSigil |
-|-----|-----------|
-| Intra-domain authority governance | Inter-domain jurisdiction enforcement |
-| Formal RFC specifications | VGS-001 through VGS-011 |
-| ML-DSA-65 signatures | Dilithium-3 + Ed25519 dual signing |
-| Digital asset markets | Enterprise · Legal · Finance · GCC |
-
-DOI: [RFC-ATF-1](https://doi.org/10.5281/zenodo.20155016)
-
----
-
-## Formal Specification Citation
-
-```
-Babatunde, R. L. (2026). VeriSigil Governance Specification (VGS-001 to VGS-011).
-Zenodo. https://doi.org/10.5281/zenodo.20264923
-```
-
----
-
-## Commercial Deployment
-
-| Tier | Price | Target |
-|------|-------|--------|
-| Starter | $49/month | Developers |
-| Professional | $499/month | Teams |
-| Enterprise | $2,499/month | Organizations |
-
-👉 **https://verisigilai.com**
-
----
-
-*Built in Lagos, Nigeria 🇳🇬 · CC BY 4.0 · VGS v1.0*
+**BUILD → PROVE → GENERALIZE → INTEROPERATE → STANDARDIZE**
