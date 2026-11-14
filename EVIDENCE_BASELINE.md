@@ -27,7 +27,9 @@ VeriSigil does not replace IAM, policy engines, model safety, human governance, 
 
 - Repository: raheem-verisigil/verisigil-api
 - Evaluation branch: security/terry-fail-closed-execution-20261113
-- Staging commit: dfa626d309cf397f4e861a3449f258dcb6b5fdf5
+- Latest staging deployment commit: 5a26584360ad4abca503a625f9cd74e1b9abe652 (CI workflow-only update; runtime source unchanged)
+- Core security implementation commit: dfa626d309cf397f4e861a3449f258dcb6b5fdf5
+- Latest API staging deployment: e729e888-f300-47e1-aa9b-da4f0aa29630 — SUCCESS, one running replica (2026-11-14)
 - Staging service: verisigil-security-repair-test
 - Staging URL: https://verisigil-security-repair-test-staging.up.railway.app
 - Environment: Railway staging
