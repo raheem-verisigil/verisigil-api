@@ -31,7 +31,7 @@ Important limitations remain:
 
 ## Current evaluation build
 
-The current bounded evaluation candidate is on the [Terry staging branch](https://github.com/raheem-verisigil/verisigil-api/tree/security/terry-fail-closed-execution-20261113), at commit [dfa626d](https://github.com/raheem-verisigil/verisigil-api/commit/dfa626d309cf397f4e861a3449f258dcb6b5fdf5).
+The current bounded evaluation candidate is on the [Terry staging branch](https://github.com/raheem-verisigil/verisigil-api/tree/security/terry-fail-closed-execution-20261113), at latest staging deployment commit [5a26584](https://github.com/raheem-verisigil/verisigil-api/commit/5a26584360ad4abca503a625f9cd74e1b9abe652). The core security implementation is unchanged from [dfa626d](https://github.com/raheem-verisigil/verisigil-api/commit/dfa626d309cf397f4e861a3449f258dcb6b5fdf5).
 
 The isolated Railway staging service is:
 
