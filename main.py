@@ -30875,7 +30875,7 @@ async def survivability_diagnostics(
         },
         "human_readable": (
             f"Governance Survivability Index: {gsi:.0f}/100. "
-            f"Collapse Probability: {collapse_probability_band}. "
+            f"Collapse Probability: {collapse_prob_band}. "
             f"{'Time to critical: ' + str(ttc_hours) + 'h. ' if ttc_hours else ''}"
             f"{'Escalation overload detected. ' if esc_overload else ''}"
             f"{'Autonomy over-expansion detected.' if over_expanded else ''}"
