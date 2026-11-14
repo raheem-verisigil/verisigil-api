@@ -7,13 +7,13 @@ This guide runs the bounded tests with synthetic values. It does not call produc
 The current staging evaluation candidate is:
 
 - Branch: security/terry-fail-closed-execution-20261113
-- Commit: dfa626d309cf397f4e861a3449f258dcb6b5fdf5
+- Commit: 5a26584360ad4abca503a625f9cd74e1b9abe652
 
 ~~~bash
 git clone https://github.com/raheem-verisigil/verisigil-api.git
 cd verisigil-api
 git fetch origin security/terry-fail-closed-execution-20261113
-git checkout dfa626d309cf397f4e861a3449f258dcb6b5fdf5
+git checkout 5a26584360ad4abca503a625f9cd74e1b9abe652
 ~~~
 
 ## 2. Create an isolated Python environment
