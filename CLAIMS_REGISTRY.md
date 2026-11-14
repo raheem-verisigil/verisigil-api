@@ -18,7 +18,7 @@ This registry supersedes earlier status tables for present-day claims. Historica
 | Ed25519 receipt verification | IMPLEMENTED / TEST DEFINED | Cryptographic verification of the signed artifact; it does not prove source-data truth or actuator enforcement. |
 | Staging deployment | DEMONSTRATED ONLINE | The named Railway staging deployment was observed successful with one running replica. Deployment health is not a security test result. |
 | Current API-to-Supabase persistence | NOT PROVEN END TO END | Requires create/read/consume through the deployed API. |
-| Process-restart recovery | NOT PROVEN | Authority/state registries remain in-memory in the current staging harness. |
+| Process-restart recovery | NOT PROVEN | Authority/state registries remain process-memory structures. On 2026-11-14, the startup loader reported zero records across all ten Supabase registry tables; no known persisted record was demonstrated as recovered. |
 | Two-instance atomic replay prevention | NOT PROVEN END TO END | Database-level consume behavior is not a substitute for a two-instance API concurrency test. |
 | Live authority re-derivation / Temporal Standing | NOT ESTABLISHED | The Phase 2 engineering specification records this as an open architectural gap. |
 | Downstream actuator enforcement | NOT PROVEN | A short-lived authorization response is not proof that a customer sink cannot be bypassed. |
