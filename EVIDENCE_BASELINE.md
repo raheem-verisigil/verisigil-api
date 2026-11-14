@@ -45,7 +45,7 @@ The deployed branch is an evaluation branch. The production service is not the t
 | Fail-closed execution authorization middleware | Implemented; synthetic test coverage exists | Middleware checks the stored receipt, proposal binding, signature and one-time consumption before issuing a short-lived authorization. The current Terry test substitutes an in-memory fake receipt store. |
 | Missing/mismatched/replayed receipt refusal | Test cases present; exact current CI result not confirmed | The code and tests define these refusal cases. Do not report a passing suite until the exact commit's test output is available. |
 | Terry bounded scenario | Synthetic test defined | Exercises authority revocation, contradictory capacity evidence, restored authority/conditions, signed receipt verification and replay refusal. Inputs are synthetic. |
-| Authority and state registries | In-memory in the current staging harness | Durable restart recovery and cross-replica consistency are not established. |
+| Authority and state registries | Process-memory registries; durable recovery not proven | On the 2026-11-14 staging startup, the loader queried ten Supabase registry tables and loaded 0 records from each. This is an empty registry state, not evidence of persisted-record recovery or freshness. |
 | Downstream actuator enforcement | Not proven | An authorization response is not proof that a customer sink or external system cannot be bypassed. |
 | Real payment execution/reference | Not proven | No real Paystack transaction reference is established by this baseline. |
 | Multi-instance atomicity | Not proven end-to-end | The database consume function has a SQL-level atomicity smoke test; two independent API instances have not been exercised together. |
@@ -59,6 +59,8 @@ tests/test_terry_validation.py replaces the durable receipt adapter functions wi
 
 The SQL smoke test exercises the database function directly. It does not prove the deployed API's REST integration, process-restart recovery, or concurrent consumption across independent API instances.
 
+The latest observed staging startup (2026-11-14) logged zero records loaded for all ten registry categories: vgs_proposals, vgs_state_assertions, vgs_bindings, vgs_decisions, vgs_delegation_passports, vgs_assurance_runs, vgs_challenges, vgs_assumptions, vgs_sink_log, and vgs_proof_events. Startup completed, but an empty registry is not proof of persistence, recovery, or safe authority state.
+
 ## 4. Remaining proof gates
 
 These are engineering gates for strengthening the product, not reasons to change its architecture:
@@ -66,7 +68,7 @@ These are engineering gates for strengthening the product, not reasons to change
 1. **API-to-database integration:** create a receipt through the deployed staging API, read it back through a separate request/process, consume it, and verify replay refusal through the API.
 2. **Restart recovery:** create durable receipt state, restart the staging process, then prove that the receipt can still be read and correctly consumed.
 3. **Independent-instance concurrency:** send simultaneous consume attempts through two separate API instances and prove exactly one succeeds.
-4. **Registry durability and freshness:** either implement and test authoritative persistence/re-derivation for the authority and state registries, or keep those claims explicitly outside the current proof boundary.
+4. **Registry durability and freshness:** prove that known persisted records are reloaded after restart, prove that stale or unavailable registry state fails closed, and implement/test authoritative persistence or re-derivation for the authority and state registries. The observed zero-record startup must not be treated as a successful recovery test.
 5. **CI evidence:** run the focused security tests and complete unit suite against the exact evaluation commit; retain the unedited logs and commit SHA.
 6. **Sink enforcement:** integrate a controlled test actuator with an independently observable side effect before claiming enforcement beyond the authorization boundary.
 7. **Live-authority re-derivation:** close the documented Temporal Standing gap and test both a standing-preserving and standing-defeating authority change.
