@@ -554,7 +554,7 @@ def require_api_key(x_api_key: Optional[str] = None,
     Accepts:
       1. Production key  — VERISIGIL_API_KEY env var
       2. Sandbox keys    — SANDBOX_API_KEY, VERISIGIL_SANDBOX_KEY env vars
-      3. CLARA program   — vs-sandbox-demo-2026b (permanent sandbox key)
+      3. Optional program sandbox key — supplied through environment configuration
     Accepts X-API-Key header OR Authorization: Bearer token.
     """
     import re as _re
@@ -582,8 +582,6 @@ def require_api_key(x_api_key: Optional[str] = None,
         _normalize(API_KEY or ""),
         _normalize(_os.environ.get("SANDBOX_API_KEY", "") or ""),
         _normalize(_os.environ.get("VERISIGIL_SANDBOX_KEY", "") or ""),
-        "vs-sandbox-demo-2026b",   # CLARA program sandbox key — permanent
-        "vs-sandbox-demo-2026",    # Legacy sandbox key
     ]))
 
     key_to_check = received or bearer
@@ -45729,7 +45727,7 @@ async def crypto_verify_key():
         "algorithm":  "Ed25519",
         "verify_key": base64.b64encode(_VERIFY_KEY.encode()).decode(),
         "usage":      "Use PyNaCl verify_key.verify(canonical_json, signature) to verify any VeriSigil evidence bundle",
-        "note":       "This key rotates on service restart unless ED25519_SIGNING_KEY_B64 is set in environment",
+        "note":       "This key remains stable across restarts only while SIGN_SECRET remains unchanged",
     }
 
 
@@ -47776,9 +47774,9 @@ def _certify_bundle(bundle: dict, jurisdiction: str) -> dict:
             "3. Compute SHA-256 of UTF-8 encoded canonical JSON",
             "4. Prefix with 'sha256:' and compare with canonical_hash",
             "5. If match: bundle is authentic and unmodified",
-            "6. Verify Ed25519 signature using VeriSigil public key: VrT3JN8iSKPoNkyyOanCEtfKUdvoITyXyl24FCnD+jA=",
+            "6. Verify Ed25519 signature using VeriSigil public key: GET /v1/crypto/verify-key",
         ],
-        "verisigil_public_key": "VrT3JN8iSKPoNkyyOanCEtfKUdvoITyXyl24FCnD+jA=",
+        "verisigil_public_key": PUBLIC_KEY_B64,
     }
 
     # Sign the certificate
@@ -47882,7 +47880,7 @@ async def ves_standard():
         "issuer":              VES_ISSUER,
         "doi":                 VES_DOI_REFERENCE,
         "algorithm":           VES_ALGORITHM,
-        "public_verify_key":   "VrT3JN8iSKPoNkyyOanCEtfKUdvoITyXyl24FCnD+jA=",
+        "public_verify_key":   PUBLIC_KEY_B64,
         "required_fields":     VES_REQUIRED_FIELDS,
         "admissibility":       VES_ADMISSIBILITY_REQUIREMENTS,
         "canonical_hash_method": {
@@ -48087,7 +48085,7 @@ async def litigation_package(
         "package_hash":       package_hash,
         "package_signature":  package_signature,
         "signing_algorithm":  "Ed25519",
-        "verify_key":         "VrT3JN8iSKPoNkyyOanCEtfKUdvoITyXyl24FCnD+jA=",
+        "verify_key":         PUBLIC_KEY_B64,
 
         # Chain of custody
         "chain_of_custody":   chain_of_custody,
@@ -48140,7 +48138,7 @@ async def litigation_standards():
         "schema":      "VGS-LITIGATION-STANDARDS-v1.0",
         "ves_version": VES_VERSION,
         "standards":   VES_ADMISSIBILITY_REQUIREMENTS,
-        "public_key":  "VrT3JN8iSKPoNkyyOanCEtfKUdvoITyXyl24FCnD+jA=",
+        "public_key":  PUBLIC_KEY_B64,
         "contact":     "info@verisigilai.com",
         "timestamp":   datetime.now(timezone.utc).isoformat(),
     }
@@ -48245,7 +48243,7 @@ async def evidence_verify_offline():
         "schema":      "VGS-OFFLINE-VERIFY-v1.0",
         "title":       "VES-1.0 Offline Verification Guide",
         "description": "Verify any VeriSigil evidence bundle without internet access or platform trust",
-        "public_key":  "VrT3JN8iSKPoNkyyOanCEtfKUdvoITyXyl24FCnD+jA=",
+        "public_key":  PUBLIC_KEY_B64,
         "algorithm":   "Ed25519 (PyNaCl / libsodium)",
         "steps": {
             "hash_verification": [
@@ -48267,7 +48265,7 @@ async def evidence_verify_offline():
                 "Python: pip install pynacl",
                 "JS: npm install tweetnacl",
             ],
-            "python_example": "import nacl.signing, base64, json\nvk = nacl.signing.VerifyKey(base64.b64decode('VrT3JN8iSKPoNkyyOanCEtfKUdvoITyXyl24FCnD+jA='))\nvk.verify(canonical_bytes, sig_bytes)",
+            "python_example": "import urllib.request, json, base64\nimport nacl.signing\nurl = 'https://YOUR_VERISIGIL_HOST/v1/crypto/verify-key'\npublic_key = json.load(urllib.request.urlopen(url))['verify_key']\nvk = nacl.signing.VerifyKey(base64.b64decode(public_key))\nvk.verify(canonical_bytes, sig_bytes)",
         },
         "contact":    "info@verisigilai.com",
         "timestamp":  datetime.now(timezone.utc).isoformat(),
@@ -48820,7 +48818,7 @@ async def ves_survivability(
             "survives":    True,
             "reason":      "VES-1.0 bundles are self-contained — vendor shutdown does not invalidate evidence",
             "requirement": "Ed25519 public key must be retained independently",
-            "public_key":  "VrT3JN8iSKPoNkyyOanCEtfKUdvoITyXyl24FCnD+jA=",
+            "public_key":  PUBLIC_KEY_B64,
         }
 
     if "system" in req.check_dimensions:
@@ -50401,7 +50399,7 @@ async def sovereign_visa(
         "visa_signature":      signature,
         "offline_verifiable":  True,
         "court_admissible":    True,
-        "verification_key":    "VrT3JN8iSKPoNkyyOanCEtfKUdvoITyXyl24FCnD+jA=",
+        "verification_key":    PUBLIC_KEY_B64,
         "what_this_proves": (
             f"Agent '{req.agent_id}' is authorized to operate under "
             f"{source} governance while executing {req.operation_type} "
@@ -52676,7 +52674,7 @@ async def enterprise_pack_types():
             "summaries — ready for procurement teams, auditors, regulators, and boards."
         ),
         "doi_reference": "https://doi.org/10.5281/zenodo.20627386",
-        "sandbox": "vs-sandbox-demo-2026b",
+        "sandbox": "YOUR_VERISIGIL_SANDBOX_KEY",
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
@@ -52708,7 +52706,7 @@ async def enterprise_pack_demo():
         ],
         "try_it": {
             "endpoint": "POST /v1/enterprise/pack/generate",
-            "sandbox_key": "vs-sandbox-demo-2026b",
+            "sandbox_key": "YOUR_VERISIGIL_SANDBOX_KEY",
             "sample_request": {
                 "org_id": "your-org-id",
                 "pack_type": "PROCUREMENT",
@@ -53817,7 +53815,7 @@ async def demo_twenty_interactions():
             "governance_signature": governance_signature,
         },
         "interactions": interactions,
-        "public_key": "VrT3JN8iSKPoNkyyOanCEtfKUdvoITyXyl24FCnD+jA=",
+        "public_key": PUBLIC_KEY_B64,
         "verify_at": "GET /v1/proof/verifier",
         "run_proof_scenario": "POST /v1/proof/scenario/run with condition=A or B",
         "doi_reference": "https://doi.org/10.5281/zenodo.20627386",
@@ -53929,12 +53927,12 @@ async def proof_condition_b():
 
 @app.post("/v1/proof/verify", tags=["Public Proof Surface"])
 async def proof_verify_record(payload: dict, signature: str = ""):
-    """Verify any sealed VeriSigil record offline. No auth required."""
+    """Verify a sealed VeriSigil record using the active runtime public key."""
     import base64
     try:
         import nacl.signing, json as _j
-        vk = nacl.signing.VerifyKey(
-            base64.b64decode("VrT3JN8iSKPoNkyyOanCEtfKUdvoITyXyl24FCnD+jA="))
+        public_key = bytes(_VERIFY_KEY)
+        vk = nacl.signing.VerifyKey(public_key)
         vk.verify(
             _j.dumps(payload, sort_keys=True, separators=(',', ':')).encode(),
             base64.b64decode(signature))
@@ -53943,7 +53941,7 @@ async def proof_verify_record(payload: dict, signature: str = ""):
         result, msg = "UNVERIFIED", str(e)
     return {
         "result": result, "message": msg,
-        "public_key": "VrT3JN8iSKPoNkyyOanCEtfKUdvoITyXyl24FCnD+jA=",
+        "public_key": base64.b64encode(bytes(_VERIFY_KEY)).decode(),
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
@@ -64235,6 +64233,8 @@ _CORRECTNESS_PROOFS:dict = {}  # proof_id -> decision correctness record
 # Source: nonce_ledger.py from consequence-custody-spec package.
 
 import sqlite3 as _sqlite3
+import os as _os
+import tempfile as _tempfile
 from contextlib import contextmanager as _contextmanager
 
 class _NonceLedger:
@@ -64245,8 +64245,12 @@ class _NonceLedger:
     logic, is what prevents the race. WAL mode keeps concurrent
     reads fast while writes are in progress.
     """
-    def __init__(self, db_path: str = "/tmp/verisigil_nonces.db"):
-        self.db_path = db_path
+    def __init__(self, db_path: str = None):
+        configured_path = db_path or _os.environ.get("VERISIGIL_NONCE_DB_PATH")
+        self.db_path = configured_path or _os.path.join(
+            _tempfile.gettempdir(), "verisigil_nonces.db"
+        )
+        _os.makedirs(_os.path.dirname(_os.path.abspath(self.db_path)), exist_ok=True)
         self._init_schema()
 
     def _init_schema(self):
@@ -65526,7 +65530,7 @@ async def verify_kit():
                 "status": "PENDING — independent code audit not yet conducted. This is an honest gap.",
             },
         },
-        "sandbox_key":  "vs-sandbox-demo-2026b",
+        "sandbox_key":  "YOUR_VERISIGIL_SANDBOX_KEY",
         "base_url":     "https://verisigil-api-production.up.railway.app",
         "what_is_verified_now":  ["Row 1 — Signature validity (CLARA 25/25 confirmed)", "Row 2 — Custody bypass (structurally prevented by AO architecture)", "Row 4 — Payload continuity (hop-by-hop hash verification)"],
         "what_is_pending":       ["Row 3 — Threshold (second signer must be genuinely independent)", "Row 5 — Reality (requires downstream system cooperation)", "Row 6 — TLA+ model: ActuatorSpec.tla published (NoBypass + NoReplay). Gap: §2, §5-7 primitives not yet formally modeled.", "Row 7 — Code audit (not yet conducted)"],
@@ -65732,7 +65736,7 @@ async def verify_conformance(
                 "expected_result": "HALT — payload tampered",
             },
         ],
-        "run_at":    "POST /v1/intercept (with sandbox key vs-sandbox-demo-2026b)",
+        "run_at":    "POST /v1/intercept (with sandbox key YOUR_VERISIGIL_SANDBOX_KEY)",
         "verify_at": "GET /v1/proof/signing-diagnostic (no auth required)",
         "what_failing_a_vector_means": "If any vector produces a different result than expected_ruling, VeriSigil has deviated from specification. This should be reported to raheem@verisigilai.com.",
         "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -67343,7 +67347,7 @@ async def vges_benchmark():
         },
 
         "how_to_run_against_verisigil": {
-            "sandbox_key": "vs-sandbox-demo-2026b",
+            "sandbox_key": "YOUR_VERISIGIL_SANDBOX_KEY",
             "base_url":    "https://verisigil-api-production.up.railway.app",
             "all_p1_p6_runnable_now": True,
             "p7_runnable":            "Partially — threshold endpoint exists, independent second signer pending",
@@ -74151,7 +74155,7 @@ PROOF_ESTATE = {
         "and executable with the public sandbox key. No trust in VeriSigil "
         "required to verify any proof."
     ),
-    "sandbox_key": "vs-sandbox-demo-2026b",
+    "sandbox_key": "YOUR_VERISIGIL_SANDBOX_KEY",
     "base_url":    "https://verisigil-api-production.up.railway.app",
     "independent_validation": "CLARA Runtime Validation Program — Run 3 closed 2026-08-07",
 
@@ -75831,7 +75835,7 @@ async def article50_adequate_means():
             "compliance_timeline":    "GET /v1/compliance/timeline/{org_id}",
             "regulatory_requirements":"GET /v1/regulatory/requirements?jurisdiction=EU",
         },
-        "sandbox_key":    "vs-sandbox-demo-2026b",
+        "sandbox_key":    "YOUR_VERISIGIL_SANDBOX_KEY",
         "public_key":     "lJWG0Wabt6uATPu5Upo6UEHWGXQqMyi6LMKQC0xwpY8=",
         "timestamp":      datetime.now(timezone.utc).isoformat(),
     }
@@ -77800,7 +77804,7 @@ async def sink_proof():
             },
         ],
         "independent_validation": "Planned for CLARA Run 4 — Alkama Eqbal",
-        "sandbox_key": "vs-sandbox-demo-2026b",
+        "sandbox_key": "YOUR_VERISIGIL_SANDBOX_KEY",
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
@@ -118507,7 +118511,7 @@ async def engineering_p0_02b_deployment_identity(
             # Step 1: Get self-reported SHA from build-snapshot
             resp = await client.get(
                 f"{railway_base_url}/v1/engineering/build-snapshot",
-                headers={"X-API-Key": "vs-sandbox-demo-2026b"},
+                headers={"X-API-Key": "YOUR_VERISIGIL_SANDBOX_KEY"},
             )
             if resp.status_code == 200:
                 data = resp.json()
