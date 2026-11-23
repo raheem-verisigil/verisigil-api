@@ -47,6 +47,7 @@ Do not accept either UUID from an untrusted client as proof of membership. Tenan
 | Method | Path | Purpose |
 |---|---|---|
 | POST | `/v1/agent-identity/api-keys` | Create a tenant-scoped, hashed API key (verified tenant owner only) |
+| POST | `/v1/agent-identity/api-keys/{key_id}/revoke` | Revoke a tenant API key (verified tenant owner only) |
 | POST | `/v1/agent-identity/challenges` | Issue a short-lived Ed25519 proof-of-possession challenge |
 | POST | `/v1/agent-identity/agents` | Register an agent and issue a signed Cryptographic Passport |
 | GET | `/v1/agent-identity/agents` | List agents within the authenticated tenant |
