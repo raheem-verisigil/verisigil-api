@@ -26,7 +26,7 @@ app.add_middleware(
         "https://www.verisigilai.com",
         "https://feature-cryptographic-passpo.verisigil-website.pages.dev",
     ],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"],
     allow_headers=[
         "Authorization", "Content-Type", "X-API-Key", "X-Org-ID", "apikey",
