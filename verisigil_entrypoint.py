@@ -315,3 +315,11 @@ from durable_validation_receipts import install_durable_middleware
 install_durable_middleware(
     app, core, VALIDATION_RECEIPTS, _authority_check, _capacity_check, _now, _signed_receipt
 )
+
+
+# Tenant-scoped Cryptographic Passport identity and one-time runtime authority.
+# Routes are attached to the existing FastAPI core; legacy routes remain intact.
+from agent_identity_layer import router as agent_identity_router, install_openapi_security
+
+app.include_router(agent_identity_router)
+install_openapi_security(app)
