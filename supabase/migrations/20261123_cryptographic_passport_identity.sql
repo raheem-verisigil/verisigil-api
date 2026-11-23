@@ -41,7 +41,7 @@ create table if not exists public.vgs_agent_identities (
 );
 
 create table if not exists public.vgs_agent_identity_keys (
-  key_id text primary key,
+  key_id text not null,
   org_id uuid not null,
   agent_id uuid not null references public.vgs_agent_identities(agent_id),
   public_key_b64 text not null,
@@ -50,6 +50,7 @@ create table if not exists public.vgs_agent_identity_keys (
   status text not null default 'ACTIVE' check (status in ('ACTIVE','ROTATED','REVOKED')),
   created_at timestamptz not null default now(),
   revoked_at timestamptz,
+  primary key (org_id, key_id),
   unique (org_id, agent_id, fingerprint)
 );
 
@@ -82,7 +83,7 @@ create table if not exists public.vgs_agent_authority_commitments (
   commitment_id uuid primary key,
   org_id uuid not null,
   agent_id uuid not null references public.vgs_agent_identities(agent_id),
-  key_id text not null references public.vgs_agent_identity_keys(key_id),
+  key_id text not null,
   delegation_id uuid references public.vgs_agent_delegations(delegation_id),
   action text not null,
   action_digest text not null,
@@ -93,7 +94,9 @@ create table if not exists public.vgs_agent_authority_commitments (
   consumption_receipt jsonb,
   evaluated_at timestamptz not null default now(),
   expires_at timestamptz not null,
-  consumed_at timestamptz
+  consumed_at timestamptz,
+  foreign key (org_id, key_id)
+    references public.vgs_agent_identity_keys(org_id, key_id)
 );
 
 create index if not exists vgs_agent_identity_org_idx
@@ -127,7 +130,7 @@ end $$;
 create or replace function public.vgs_consume_agent_identity_challenge(
   p_challenge_id uuid, p_org_id uuid, p_purpose text, p_key_fingerprint text
 ) returns jsonb
-language plpgsql security definer set search_path = public
+language plpgsql security definer set search_path = pg_catalog, public
 as $$
 declare consumed jsonb;
 begin
@@ -147,10 +150,15 @@ $$;
 create or replace function public.vgs_create_agent_identity(
   p_agent jsonb, p_key jsonb
 ) returns jsonb
-language plpgsql security definer set search_path = public
+language plpgsql security definer set search_path = pg_catalog, public
 as $$
 declare a jsonb; k jsonb;
 begin
+  if (p_agent->>'org_id')::uuid <> (p_key->>'org_id')::uuid
+     or (p_agent->>'agent_id')::uuid <> (p_key->>'agent_id')::uuid then
+    raise exception 'Agent and key tenant/identity binding mismatch';
+  end if;
+
   insert into public.vgs_agent_identities as inserted
     (agent_id, org_id, agent_name, did, passport, capabilities, status, issued_at, expires_at)
   values
@@ -176,7 +184,7 @@ create or replace function public.vgs_rotate_agent_identity_key(
   p_org_id uuid, p_agent_id uuid, p_key jsonb, p_passport jsonb,
   p_replace_existing boolean default true
 ) returns jsonb
-language plpgsql security definer set search_path = public
+language plpgsql security definer set search_path = pg_catalog, public
 as $$
 declare a jsonb; k jsonb;
 begin
@@ -207,7 +215,7 @@ $$;
 create or replace function public.vgs_revoke_agent_identity(
   p_org_id uuid, p_agent_id uuid
 ) returns jsonb
-language plpgsql security definer set search_path = public
+language plpgsql security definer set search_path = pg_catalog, public
 as $$
 declare key_count integer; delegation_count integer;
 begin
@@ -239,7 +247,7 @@ $$;
 create or replace function public.vgs_consume_agent_authority_commitment(
   p_commitment_id uuid, p_org_id uuid, p_action_digest text
 ) returns jsonb
-language plpgsql security definer set search_path = public
+language plpgsql security definer set search_path = pg_catalog, public
 as $$
 declare
   c public.vgs_agent_authority_commitments%rowtype;
