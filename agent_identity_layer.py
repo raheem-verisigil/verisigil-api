@@ -104,7 +104,7 @@ def _verify_agent_signature(public_key: str, payload: dict, signature: str) -> b
 async def _db_request(method: str, path: str, *, params: dict | None = None,
                       body: dict | None = None, prefer: str = "return=representation") -> Any:
     base = (os.environ.get("SUPABASE_URL") or "").strip().rstrip("/")
-    key = (os.environ.get("SUPABASE_SERVICE_KEY") or os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or os.environ.get("SUPABASE_KEY") or "").strip()
+    key = (os.environ.get("SUPABASE_SERVICE_KEY") or os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or "").strip()
     if not base.startswith("https://") or not key:
         raise HTTPException(503, "Identity persistence is not configured; authority fails closed.")
     headers = {
@@ -481,9 +481,11 @@ async def revoke_api_key(key_id: str, principal: Principal = Depends(get_princip
         raise HTTPException(404, "Tenant API key not found.")
     if row.get("status") != "ACTIVE":
         return {"key_id": key_id, "revoked": False, "status": row.get("status")}
-    await _patch("vgs_agent_identity_api_keys", {
-        "org_id": principal.org_id, "key_id": key_id,
+    updated = await _patch("vgs_agent_identity_api_keys", {
+        "org_id": principal.org_id, "key_id": key_id, "status": "ACTIVE",
     }, {"status": "REVOKED", "revoked_at": _iso()})
+    if not updated:
+        raise HTTPException(503, "Tenant API-key revocation was not confirmed by the database.")
     return {"key_id": key_id, "revoked": True, "status": "REVOKED"}
 
 
@@ -611,8 +613,11 @@ async def revoke_agent_key(key_id: str, principal: Principal = Depends(get_princ
         raise HTTPException(404, "Agent key not found in this tenant.")
     if key.get("status") != "ACTIVE":
         return {"revoked": False, "status": key.get("status"), "key_id": key_id}
-    await _patch("vgs_agent_identity_keys", {"org_id": principal.org_id, "key_id": key_id},
-                 {"status": "REVOKED", "revoked_at": _iso()})
+    updated = await _patch("vgs_agent_identity_keys", {
+        "org_id": principal.org_id, "key_id": key_id, "status": "ACTIVE",
+    }, {"status": "REVOKED", "revoked_at": _iso()})
+    if not updated:
+        raise HTTPException(503, "Agent-key revocation was not confirmed by the database.")
     return {"revoked": True, "key_id": key_id, "status": "REVOKED"}
 
 
@@ -668,8 +673,11 @@ async def revoke_delegation(delegation_id: str, principal: Principal = Depends(g
     })
     if not row:
         raise HTTPException(404, "Delegation not found in this tenant.")
-    await _patch("vgs_agent_delegations", {"org_id": principal.org_id, "delegation_id": delegation_id},
-                 {"status": "REVOKED", "revoked_at": _iso()})
+    updated = await _patch("vgs_agent_delegations", {
+        "org_id": principal.org_id, "delegation_id": delegation_id, "status": "ACTIVE",
+    }, {"status": "REVOKED", "revoked_at": _iso()})
+    if not updated:
+        raise HTTPException(503, "Delegation revocation was not confirmed by the database.")
     return {"delegation_id": delegation_id, "status": "REVOKED"}
 
 
