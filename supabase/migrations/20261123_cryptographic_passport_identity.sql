@@ -336,12 +336,12 @@ begin
     end if;
   end if;
 
-  update public.vgs_agent_authority_commitments
+  update public.vgs_agent_authority_commitments as target
      set consumed_at = clock_timestamp()
    where commitment_id = p_commitment_id
      and org_id = p_org_id
      and consumed_at is null
-  returning to_jsonb(vgs_agent_authority_commitments) into consumed;
+  returning to_jsonb(target) into consumed;
 
   return consumed;
 end;
