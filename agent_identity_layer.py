@@ -356,6 +356,12 @@ async def _evaluate_identity(org_id: str, agent_id: str, key_id: str,
         reasons.append("PASSPORT_SIGNATURE_INVALID")
     if key.get("status") != "ACTIVE":
         reasons.append("AGENT_KEY_REVOKED_OR_INACTIVE")
+    try:
+        actual_fingerprint = _fingerprint(key.get("public_key_b64", ""))
+        if actual_fingerprint != key.get("fingerprint") or actual_fingerprint != key_id:
+            reasons.append("AGENT_KEY_FINGERPRINT_MISMATCH")
+    except HTTPException:
+        reasons.append("AGENT_PUBLIC_KEY_INVALID")
     passport = agent.get("passport") or {}
     claims = passport.get("claims") or {}
     capabilities = claims.get("declared_capabilities") or []
@@ -577,6 +583,8 @@ async def rotate_agent_key(agent_id: str, req: KeyRotate, principal: Principal =
 @router.post("/v1/agent-identity/keys/{key_id}/revoke", summary="Revoke an agent public key")
 async def revoke_agent_key(key_id: str, principal: Principal = Depends(get_principal)):
     _need(principal, "keys:write")
+    if not re.fullmatch(r"[0-9a-f]{64}", key_id):
+        raise HTTPException(422, "key_id must be a SHA-256 Ed25519 fingerprint.")
     key = await _one("vgs_agent_identity_keys", {"org_id": principal.org_id, "key_id": key_id})
     if not key:
         raise HTTPException(404, "Agent key not found in this tenant.")
@@ -764,7 +772,9 @@ async def get_authority_receipt(commitment_id: str, principal: Principal = Depen
     claims = {key: value for key, value in receipt.items() if key != "issuer_signature"}
     return {"receipt": receipt,
             "issuer_signature_valid": core.verify_governance_signature(claims, signature),
-            "consumed": bool(row.get("consumed_at"))}
+            "consumed": bool(row.get("consumed_at")),
+            "current_decision": row.get("decision"),
+            "consumable": row.get("decision") == "AUTHORIZED" and not row.get("consumed_at") and _parse_time(row["expires_at"]) > _now()}
 
 
 def install_openapi_security(app) -> None:
