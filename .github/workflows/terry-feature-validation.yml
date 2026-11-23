@@ -34,7 +34,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt pytest
+          pip install -r requirements.txt pytest pytest
       - name: Compile source
         run: python -m compileall -q .
       - name: Run cryptographic regression tests
@@ -44,4 +44,4 @@ jobs:
       - name: Run bounded adversarial scenario tests
         run: python -m unittest tests.test_terry_validation -v
       - name: Run complete unit test suite
-        run: pytest -q tests
+        run: PYTHONPATH=. pytest -q tests
