@@ -195,6 +195,14 @@ class AgentIdentityLayerTests(unittest.TestCase):
         finally:
             identity._one, identity._rpc = original_one, original_rpc
 
+    def test_supabase_secret_key_is_not_sent_as_bearer_jwt(self):
+        headers = identity._service_auth_headers("sb_secret_test-only")
+        self.assertEqual(headers["apikey"], "sb_secret_test-only")
+        self.assertNotIn("Authorization", headers)
+        legacy = identity._service_auth_headers("eyJlegacy-service-role")
+        self.assertEqual(legacy["Authorization"], "Bearer eyJlegacy-service-role")
+        self.assertEqual(legacy["apikey"], "eyJlegacy-service-role")
+
     def test_agent_signature_canonicalization_uses_rfc8785(self):
         # RFC 8785 normalizes number rendering and rejects non-I-JSON values.
         self.assertEqual(identity._canonical({"z": 333333333.33333329, "a": "€"}), '{"a":"€","z":333333333.3333333}'.encode("utf-8"))
