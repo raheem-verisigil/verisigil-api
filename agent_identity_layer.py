@@ -102,7 +102,7 @@ def _verify_agent_signature(public_key: str, payload: dict, signature: str) -> b
 async def _db_request(method: str, path: str, *, params: dict | None = None,
                       body: dict | None = None, prefer: str = "return=representation") -> Any:
     base = (os.environ.get("SUPABASE_URL") or "").strip().rstrip("/")
-    key = (os.environ.get("SUPABASE_SERVICE_KEY") or os.environ.get("SUPABASE_KEY") or "").strip()
+    key = (os.environ.get("SUPABASE_SERVICE_KEY") or os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or os.environ.get("SUPABASE_KEY") or "").strip()
     if not base.startswith("https://") or not key:
         raise HTTPException(503, "Identity persistence is not configured; authority fails closed.")
     headers = {
@@ -179,7 +179,7 @@ async def get_principal(request: Request) -> Principal:
     if authorization.startswith("Bearer ") and authorization[7:].strip():
         token = authorization[7:].strip()
         base = (os.environ.get("SUPABASE_URL") or "").strip().rstrip("/")
-        anon_key = (os.environ.get("SUPABASE_KEY") or "").strip()
+        anon_key = (os.environ.get("SUPABASE_ANON_KEY") or os.environ.get("SUPABASE_KEY") or "").strip()
         if not base.startswith("https://") or not anon_key:
             raise HTTPException(503, "Supabase Auth verification is not configured.")
         try:
@@ -789,11 +789,20 @@ async def get_authority_receipt(commitment_id: str, principal: Principal = Depen
         raise HTTPException(404, "No receipt has been issued for this commitment.")
     signature = receipt.get("issuer_signature", "")
     claims = {key: value for key, value in receipt.items() if key != "issuer_signature"}
+    consumable = False
+    current_reasons = []
+    if row.get("decision") == "AUTHORIZED" and not row.get("consumed_at") and _parse_time(row["expires_at"]) > _now():
+        _, _, current_reasons = await _evaluate_identity(
+            principal.org_id, row["agent_id"], row["key_id"],
+            row["action"], row.get("delegation_id"),
+        )
+        consumable = not current_reasons
     return {"receipt": receipt,
             "issuer_signature_valid": core.verify_governance_signature(claims, signature),
             "consumed": bool(row.get("consumed_at")),
             "current_decision": row.get("decision"),
-            "consumable": row.get("decision") == "AUTHORIZED" and not row.get("consumed_at") and _parse_time(row["expires_at"]) > _now()}
+            "consumable": consumable,
+            "current_authority_reasons": current_reasons}
 
 
 def install_openapi_security(app) -> None:
