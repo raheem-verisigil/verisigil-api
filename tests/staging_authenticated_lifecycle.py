@@ -124,6 +124,10 @@ def register_agent(label,capabilities):
     return {"signing_key":signing_key,"public_key":public_key,"key_id":fingerprint,"agent_id":agent_id}
 
 def rotate_agent_key(agent):
+ hardening/verisigil-production-readiness-20261123
+    old_signing_key=agent["signing_key"]; old_key_id=agent["key_id"]
+  
+     main
     new_signing_key,new_public_key,new_fingerprint=new_agent_key()
     status,challenge=call(BASE+"/v1/agent-identity/challenges","POST",owner_tenant,{"purpose":"ROTATE_KEY","agent_id":agent["agent_id"],"public_key":new_public_key})
     assert status==200 and isinstance(challenge,dict) and challenge.get("sign_this_exact_object"),f"key-rotation challenge failed: HTTP {status}"
@@ -138,6 +142,16 @@ def rotate_agent_key(agent):
     assert status==200 and detail.get("passport_signature_valid") is True and old.get("status")=="ROTATED" and new.get("status")=="ACTIVE","rotated key states or updated passport are invalid"
     agent.update({"signing_key":new_signing_key,"public_key":new_public_key,"key_id":new_fingerprint})
     print("PASS: proof-bound Ed25519 key rotation and passport versioning")
+    hardening/verisigil-production-readiness-20261123
+    replay_status,_=call(BASE+f"/v1/agent-identity/agents/{agent['agent_id']}/keys","POST",owner_tenant,request)
+    assert replay_status==409,f"consumed key-rotation challenge replay was not rejected: HTTP {replay_status}"
+    old_payload={"agent_id":agent["agent_id"],"key_id":old_key_id,"action":"payments.read","parameters":{},"delegation_id":None}
+    old_request={"agent_id":agent["agent_id"],"key_id":old_key_id,"action":"payments.read","parameters":{},"agent_signature":sign_payload(old_signing_key,old_payload)}
+    old_status,old_decision=call(BASE+"/v1/runtime/authority/evaluate","POST",owner_tenant,old_request)
+    assert old_status==200 and old_decision.get("decision")=="REFUSED" and "AGENT_KEY_REVOKED_OR_INACTIVE" in old_decision.get("reasons",[]),"rotated old key retained runtime authority"
+    print("PASS: rotated key cannot authorize new runtime actions")
+
+     main
 
 def evaluate(agent,delegation_id,parameters):
     action="payments.approve"
@@ -164,11 +178,20 @@ try:
     rotate_agent_key(grantor)
 
     expiry=(datetime.now(timezone.utc)+timedelta(hours=1)).isoformat()
+     hardening/verisigil-production-readiness-20261123
+    status,_=call(BASE+"/v1/agent-identity/delegations","POST",owner_tenant,{"grantor_agent_id":grantor["agent_id"],"grantee_agent_id":grantee["agent_id"],"scopes":["payments.admin"],"expires_at":expiry})
+    assert status==403,f"delegation exceeded grantor capabilities: HTTP {status}"
+    print("PASS: delegation cannot exceed grantor capabilities")
+    status,delegation=call(BASE+"/v1/agent-identity/delegations","POST",owner_tenant,{"grantor_agent_id":grantor["agent_id"],"grantee_agent_id":grantee["agent_id"],"scopes":["payments.approve"],"expires_at":expiry})
+    assert status==200 and isinstance(delegation,dict) and delegation.get("status")=="ACTIVE",f"bounded delegation creation failed: HTTP {status}"
+    delegation_id=delegation["delegation_id"]
+
     status,delegation=call(BASE+"/v1/agent-identity/delegations","POST",owner_tenant,{"grantor_agent_id":grantor["agent_id"],"grantee_agent_id":grantee["agent_id"],"scopes":["payments.approve"],"expires_at":expiry})
     assert status==200 and isinstance(delegation,dict) and delegation.get("status")=="ACTIVE",f"bounded delegation creation failed: HTTP {status}"
     delegation_id=delegation["delegation_id"]
     print("PASS: delegation cannot exceed grantor capabilities")
 
+     main
     parameters={"invoice_id":"INV-STAGING-001","amount_minor":12500}
     decision,consume_request=evaluate(grantee,delegation_id,parameters)
     status,receipt=call(BASE+f"/v1/runtime/authority/receipts/{decision['commitment_id']}",headers=owner_tenant)

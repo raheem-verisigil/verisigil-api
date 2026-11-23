@@ -6,14 +6,18 @@ on:
     paths:
       - "agent_identity_layer.py"
       - "verisigil_entrypoint.py"
+      - "requirements.txt"
       - "main.py"
+      - "durable_validation_receipts.py"
+      - "supabase/migrations/**"
       - "tests/**"
       - ".github/workflows/verisigil-staging-runtime-gates.yml"
   pull_request:
-    branches: [main]
+    branches: [main, hardening/verisigil-production-readiness-20261123]
     paths:
       - "agent_identity_layer.py"
       - "verisigil_entrypoint.py"
+      - "requirements.txt"
       - "main.py"
       - "tests/**"
       - ".github/workflows/verisigil-staging-runtime-gates.yml"
