@@ -36,7 +36,6 @@ def _environment_only_api_key(x_api_key: str | None = None,
         normalize(os.environ.get("VS_API_KEY")),
         normalize(os.environ.get("SANDBOX_API_KEY")),
         normalize(os.environ.get("VERISIGIL_SANDBOX_KEY")),
-        normalize(getattr(core, "API_KEY", "")),
     }
     configured.discard("")
     if not candidate or candidate not in configured:
