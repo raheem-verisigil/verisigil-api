@@ -206,6 +206,9 @@ class AgentIdentityLayerTests(unittest.TestCase):
         self.assertIn("primary key (org_id, key_id)", key_table)
         self.assertIn("foreign key (org_id, key_id)", source)
         self.assertNotIn("references public.vgs_agent_identity_keys(key_id)", source)
+        self.assertIn("foreign key (org_id, agent_id)", source)
+        self.assertIn("foreign key (org_id, grantor_agent_id)", source)
+        self.assertIn("foreign key (org_id, grantee_agent_id)", source)
         self.assertEqual(source.count("security definer set search_path = pg_catalog, public"), 5)
         consume_fn = source.split("create or replace function public.vgs_consume_agent_authority_commitment", 1)[1]
         self.assertIn("consumption_receipt = p_consumption_receipt", consume_fn)
