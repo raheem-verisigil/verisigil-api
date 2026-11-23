@@ -13,3 +13,7 @@ The workflow creates synthetic Supabase Auth users and tests tenant-owner onboar
 Generated synthetic rows and Auth users are removed in a finally cleanup path. Cleanup warnings fail the run. Use this only against the isolated staging database.
 
 A green lifecycle workflow does not itself prove backup restoration, load behaviour, external customer actuator enforcement, independent penetration testing, or production cutover. Those require separate evidence.
+
+
+## Legacy database hardening already applied
+The restored legacy project now has explicit `USING (false) WITH CHECK (false)` policies on every public RLS-enabled table that previously had no policy. The migration also revokes all table privileges from `anon` and `authenticated` on those tables, including `TRUNCATE`, `MAINTAIN`, `TRIGGER`, and `REFERENCES`, while leaving `service_role` and database owners untouched. Post-migration checks returned zero RLS-enabled tables without policies, zero remaining client table grants across the affected legacy tables, and no Supabase security or health advisor lints.
