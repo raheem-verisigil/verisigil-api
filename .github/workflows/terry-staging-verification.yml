@@ -7,8 +7,10 @@ on:
       - ci/execute-terry-verification-20261114
       - security/proof-verification-hardening-20261113
       - main
+      - fix/staging-test-discovery-20261114
   pull_request:
     branches:
+      - main
       - security/proof-verification-hardening-20261113
 
 permissions:
@@ -37,7 +39,12 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
+          security/proof-verification-hardening-20261113
           pip install -r requirements.txt pytest
+
+          pip install -r requirements.txt
+          python -m pip install pytest
+         main
       - name: Compile source
         run: python -m compileall -q .
       - name: Run cryptographic regression tests
@@ -47,4 +54,48 @@ jobs:
       - name: Run bounded adversarial scenarios
         run: python -m unittest tests.test_terry_validation -v
       - name: Run complete unit test suite
+             security/proof-verification-hardening-20261113
         run: PYTHONPATH=. pytest -q tests
+
+        run: python -m unittest discover -s tests -v
+
+  staging-api-tests:
+    if: ${{ github.event_name == 'push' }}
+    needs: focused-security-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      VERISIGIL_TEST_ENV: staging
+      VERISIGIL_TEST_URL: ${{ secrets.VERISIGIL_TEST_URL }}
+      VERISIGIL_TEST_API_KEY: ${{ secrets.VERISIGIL_TEST_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install live-test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          python -m pip install pytest
+      - name: Validate staging configuration
+        run: |
+          python - <<'PY'
+          import os
+          from urllib.parse import urlparse
+
+          url = os.environ.get("VERISIGIL_TEST_URL", "")
+          key = os.environ.get("VERISIGIL_TEST_API_KEY", "")
+          parsed = urlparse(url)
+
+          if not key:
+              raise SystemExit("VERISIGIL_TEST_API_KEY is missing")
+          if parsed.scheme != "https":
+              raise SystemExit("Staging URL must use HTTPS")
+          if parsed.hostname != "verisigil-security-repair-test-staging.up.railway.app":
+              raise SystemExit("Staging URL does not match the approved staging host")
+          print("Staging configuration validated; secret values were not printed.")
+          PY
+      - name: Run live staging API verification
+        run: python -m pytest tests/staging_verisigil_api.py -v
+           main
