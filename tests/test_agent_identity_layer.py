@@ -208,7 +208,7 @@ class AgentIdentityLayerTests(unittest.TestCase):
         self.assertEqual(identity._canonical({"z": 333333333.33333329, "a": "€"}), '{"a":"€","z":333333333.3333333}'.encode("utf-8"))
 
     def test_migration_scopes_agent_keys_by_tenant(self):
-        migration = Path(__file__).resolve().parents[1] / "supabase" / "migrations" / "20261123_cryptographic_passport_identity.sql"
+        migration = Path(__file__).resolve().parents[1] / "supabase" / "migrations" / "20261123160247_cryptographic_passport_identity.sql"
         source = migration.read_text(encoding="utf-8").lower()
         key_table = source.split("create table if not exists public.vgs_agent_identity_keys", 1)[1].split("create table", 1)[0]
         self.assertIn("primary key (org_id, key_id)", key_table)
@@ -223,7 +223,7 @@ class AgentIdentityLayerTests(unittest.TestCase):
         self.assertIn("consumed_at = p_consumed_at", consume_fn)
 
     def test_database_consume_function_is_single_use_and_rechecks_live_authority(self):
-        migration = Path(__file__).resolve().parents[1] / "supabase" / "migrations" / "20261123_cryptographic_passport_identity.sql"
+        migration = Path(__file__).resolve().parents[1] / "supabase" / "migrations" / "20261123160247_cryptographic_passport_identity.sql"
         source = migration.read_text(encoding="utf-8").lower()
         function = source.split("create or replace function public.vgs_consume_agent_authority_commitment", 1)[1]
         self.assertIn("c.consumed_at is not null", function)
