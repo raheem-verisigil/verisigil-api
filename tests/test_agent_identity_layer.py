@@ -204,7 +204,9 @@ class AgentIdentityLayerTests(unittest.TestCase):
         self.assertIn("k.status = 'active'", function)
         self.assertIn("a.status = 'active'", function)
         self.assertIn("d.status = 'active'", function)
-        self.assertIn("c.action_digest = p_action_digest", function)
+        self.assertIn("c.action_digest <> p_action_digest", function)
+        self.assertIn("for update", function)
+        self.assertIn("c.consumed_at is not null", function)
 
 
 if __name__ == "__main__":
