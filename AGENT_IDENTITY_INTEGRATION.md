@@ -29,7 +29,7 @@ Two authentication modes are supported:
 
 The caller cannot set a tenant by submitting an `org_id` in a request body. A user with one active membership uses it automatically. A user with multiple memberships must select one using `x-org-id`, and it must match an active membership.
 
-The new routes do not accept the legacy global production API key as a tenant credential. This avoids silently assigning a global credential to an arbitrary tenant. The staging entrypoint also replaces the legacy core API-key validator with an environment-only validator, so source-embedded demo/sandbox strings are no longer accepted by the active staging entrypoint.
+The new routes do not accept the legacy global production API key as a tenant credential. This avoids silently assigning a global credential to an arbitrary tenant. The staging entrypoint also replaces the legacy core API-key validator with an environment-only validator, so source-embedded demo/sandbox strings are no longer accepted by the active staging entrypoint. The legacy literals remain in the large historical core source file pending a separate source-file cleanup; they are not valid credentials through the active staging entrypoint.
 
 ### Bootstrap
 
@@ -106,7 +106,7 @@ Delegations are direct and tenant-local. A grantor may delegate only capabilitie
 1. Review the migration and tests.
 2. Apply `20261123_cryptographic_passport_identity.sql` only to the dedicated isolated staging Supabase project.
 3. Insert the first tenant membership using a verified Auth user UUID.
-4. Set staging Supabase credentials in the isolated staging service only.
+4. Set `SUPABASE_URL`, `SUPABASE_ANON_KEY` (or the existing `SUPABASE_KEY` used for Auth), `SUPABASE_SERVICE_KEY` (or `SUPABASE_SERVICE_ROLE_KEY` for PostgREST writes), and the existing `SIGN_SECRET` in the isolated staging service only. Never copy production values into staging.
 5. Deploy the staging branch and run the identity regression suite plus API round-trip tests.
 6. Test challenge replay, key rotation/revocation, tenant cross-read denial, delegation revocation, exact-parameter mismatch, commitment expiry, two concurrent consume requests and process restart.
 7. Only after evidence review should the website describe the endpoints as live.
