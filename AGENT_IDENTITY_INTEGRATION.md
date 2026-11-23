@@ -29,7 +29,7 @@ Two authentication modes are supported:
 
 The caller cannot set a tenant by submitting an `org_id` in a request body. A user with one active membership uses it automatically. A user with multiple memberships must select one using `x-org-id`, and it must match an active membership.
 
-The new routes do not accept the legacy global production API key as a tenant credential. This avoids silently assigning a global credential to an arbitrary tenant.
+The new routes do not accept the legacy global production API key as a tenant credential. This avoids silently assigning a global credential to an arbitrary tenant. The staging entrypoint also replaces the legacy core API-key validator with an environment-only validator, so source-embedded demo/sandbox strings are no longer accepted by the active staging entrypoint.
 
 ### Bootstrap
 
