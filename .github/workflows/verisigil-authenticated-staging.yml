@@ -26,9 +26,9 @@ jobs:
     timeout-minutes: 15
     env:
       VERISIGIL_STAGING_BASE_URL: https://verisigil-passport-staging-api-staging.up.railway.app
-      VERISIGIL_STAGING_SUPABASE_URL: ${{ secrets.VERISIGIL_STAGING_SUPABASE_URL }}
-      VERISIGIL_STAGING_SUPABASE_ANON_KEY: ${{ secrets.VERISIGIL_STAGING_SUPABASE_ANON_KEY }}
-      VERISIGIL_STAGING_SUPABASE_SERVICE_KEY: ${{ secrets.VERISIGIL_STAGING_SUPABASE_SERVICE_KEY }}
+      VERISIGIL_STAGING_SUPABASE_URL: ${{ secrets.VERISIGIL_STAGING_SUPABASE_URL || secrets.SUPABASE_URL }}
+      VERISIGIL_STAGING_SUPABASE_ANON_KEY: ${{ secrets.VERISIGIL_STAGING_SUPABASE_ANON_KEY || secrets.SUPABASE_ANON_KEY || secrets.SUPABASE_KEY }}
+      VERISIGIL_STAGING_SUPABASE_SERVICE_KEY: ${{ secrets.VERISIGIL_STAGING_SUPABASE_SERVICE_KEY || secrets.SUPABASE_SERVICE_KEY }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
