@@ -20,6 +20,7 @@ from typing import Any, Literal
 
 import httpx
 import nacl.exceptions
+import rfc8785
 from nacl.signing import VerifyKey
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel, Field
@@ -66,7 +67,8 @@ def _parse_time(value: str) -> datetime:
 
 
 def _canonical(value: Any) -> bytes:
-    return core._vcb_canonical(value)
+    """RFC 8785 JSON Canonicalization Scheme for agent-signed payloads."""
+    return rfc8785.dumps(value)
 
 
 def _digest(value: Any) -> str:
@@ -99,17 +101,28 @@ def _verify_agent_signature(public_key: str, payload: dict, signature: str) -> b
         return False
 
 
+def _service_auth_headers(key: str, prefer: str = "return=representation") -> dict[str, str]:
+    """Build server-only Supabase headers for legacy JWT or modern secret key."""
+    headers = {
+        "apikey": key,
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "Prefer": prefer,
+    }
+    # Modern Supabase secret API keys are opaque and must be sent via apikey
+    # only. Legacy service_role JWTs may also be sent as Bearer credentials.
+    if not key.startswith("sb_secret_"):
+        headers["Authorization"] = f"Bearer {key}"
+    return headers
+
+
 async def _db_request(method: str, path: str, *, params: dict | None = None,
                       body: dict | None = None, prefer: str = "return=representation") -> Any:
     base = (os.environ.get("SUPABASE_URL") or "").strip().rstrip("/")
-    key = (os.environ.get("SUPABASE_SERVICE_KEY") or os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or os.environ.get("SUPABASE_KEY") or "").strip()
+    key = (os.environ.get("SUPABASE_SERVICE_KEY") or os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or "").strip()
     if not base.startswith("https://") or not key:
         raise HTTPException(503, "Identity persistence is not configured; authority fails closed.")
-    headers = {
-        "apikey": key, "Authorization": f"Bearer {key}",
-        "Content-Type": "application/json", "Accept": "application/json",
-        "Prefer": prefer,
-    }
+    headers = _service_auth_headers(key, prefer)
     try:
         async with httpx.AsyncClient(timeout=8.0) as client:
             response = await client.request(method, f"{base}/rest/v1/{path}",
@@ -172,32 +185,41 @@ class Principal(BaseModel):
     auth_method: Literal["supabase_jwt", "tenant_api_key"]
 
 
+async def get_verified_supabase_user(request: Request) -> dict:
+    """Validate the caller's Supabase access token without requiring a tenant."""
+    authorization = request.headers.get("authorization", "")
+    if not authorization.startswith("Bearer ") or not authorization[7:].strip():
+        raise HTTPException(401, "Supply a valid Supabase Bearer access token.")
+    token = authorization[7:].strip()
+    base = (os.environ.get("SUPABASE_URL") or "").strip().rstrip("/")
+    anon_key = (os.environ.get("SUPABASE_ANON_KEY") or os.environ.get("SUPABASE_KEY") or "").strip()
+    if not base.startswith("https://") or not anon_key:
+        raise HTTPException(503, "Supabase Auth verification is not configured.")
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            response = await client.get(
+                f"{base}/auth/v1/user",
+                headers={"apikey": anon_key, "Authorization": f"Bearer {token}"},
+            )
+        if response.status_code != 200:
+            raise HTTPException(401, "Supabase access token is invalid or expired.")
+        user = response.json()
+        if not user.get("id"):
+            raise HTTPException(401, "Supabase Auth returned no verified user identity.")
+        return user
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(503, "Supabase Auth could not verify the user.") from exc
+
+
 async def get_principal(request: Request) -> Principal:
     """Authenticate a Supabase user through Auth, or a hashed tenant API key."""
     authorization = request.headers.get("authorization", "")
     api_key = request.headers.get("x-api-key", "")
     if authorization.startswith("Bearer ") and authorization[7:].strip():
-        token = authorization[7:].strip()
-        base = (os.environ.get("SUPABASE_URL") or "").strip().rstrip("/")
-        anon_key = (os.environ.get("SUPABASE_ANON_KEY") or os.environ.get("SUPABASE_KEY") or "").strip()
-        if not base.startswith("https://") or not anon_key:
-            raise HTTPException(503, "Supabase Auth verification is not configured.")
-        try:
-            async with httpx.AsyncClient(timeout=8.0) as client:
-                response = await client.get(
-                    f"{base}/auth/v1/user",
-                    headers={"apikey": anon_key, "Authorization": f"Bearer {token}"},
-                )
-            if response.status_code != 200:
-                raise HTTPException(401, "Supabase access token is invalid or expired.")
-            user = response.json()
-            user_id = str(user.get("id") or "")
-            if not user_id:
-                raise HTTPException(401, "Supabase Auth returned no verified user identity.")
-        except HTTPException:
-            raise
-        except Exception as exc:
-            raise HTTPException(503, "Supabase Auth could not verify the user.") from exc
+        user = await get_verified_supabase_user(request)
+        user_id = str(user["id"])
         memberships = await _select("vgs_agent_identity_memberships",
                                     {"user_id": user_id, "status": "ACTIVE"}, limit=50)
         if not memberships:
@@ -212,6 +234,11 @@ async def get_principal(request: Request) -> Principal:
             membership = memberships[0]
         else:
             raise HTTPException(400, "This user belongs to multiple tenants; supply x-org-id for an active membership.")
+        tenant = await _one("vgs_agent_identity_tenants", {
+            "org_id": str(membership["org_id"]), "status": "ACTIVE",
+        })
+        if not tenant:
+            raise HTTPException(403, "The selected VeriSigil tenant is suspended or unavailable.")
         role = str(membership.get("role") or "auditor").lower()
         return Principal(org_id=str(membership["org_id"]), principal_id=user_id,
                          role=role, scopes=ROLE_SCOPES.get(role, ROLE_SCOPES["auditor"]),
@@ -224,6 +251,11 @@ async def get_principal(request: Request) -> Principal:
             raise HTTPException(401, "Tenant API key is invalid or revoked.")
         if row.get("expires_at") and _parse_time(row["expires_at"]) <= _now():
             raise HTTPException(401, "Tenant API key has expired.")
+        tenant = await _one("vgs_agent_identity_tenants", {
+            "org_id": str(row["org_id"]), "status": "ACTIVE",
+        })
+        if not tenant:
+            raise HTTPException(403, "The API key's tenant is suspended or unavailable.")
         scopes = row.get("scopes") or []
         if not isinstance(scopes, list) or any(not isinstance(scope, str) for scope in scopes) or not set(scopes).issubset(KNOWN_SCOPES):
             raise HTTPException(403, "Tenant API key has invalid scope metadata.")
@@ -393,6 +425,10 @@ async def _evaluate_identity(org_id: str, agent_id: str, key_id: str,
     return (agent if not reasons else None), key, reasons
 
 
+class TenantCreate(BaseModel):
+    tenant_name: str = Field(min_length=2, max_length=120)
+
+
 class ApiKeyCreate(BaseModel):
     name: str = Field(min_length=2, max_length=80)
     scopes: list[str] = Field(min_length=1, max_length=8)
@@ -445,6 +481,38 @@ class AuthorityConsume(BaseModel):
     agent_signature: str
 
 
+@router.post("/v1/agent-identity/tenants", summary="Create a tenant and its first owner membership")
+async def create_tenant(req: TenantCreate, user: dict = Depends(get_verified_supabase_user)):
+    user_id = _require_uuid(str(user.get("id") or ""), "verified_user_id")
+    org_id = str(uuid.uuid4())
+    created = _rpc_record(await _rpc("vgs_create_agent_identity_tenant", {
+        "p_org_id": org_id, "p_user_id": user_id,
+        "p_tenant_name": req.tenant_name.strip(),
+    }))
+    if not created:
+        raise HTTPException(503, "Tenant creation was not committed; no owner membership was issued.")
+    return {
+        "tenant": created.get("tenant", {"org_id": org_id, "tenant_name": req.tenant_name.strip(), "status": "ACTIVE"}),
+        "membership": created.get("membership", {"user_id": user_id, "org_id": org_id, "role": "owner", "status": "ACTIVE"}),
+        "onboarding": "TENANT_OWNER_CREATED",
+    }
+
+
+@router.get("/v1/agent-identity/tenants", summary="List the authenticated user's active tenants")
+async def list_my_tenants(user: dict = Depends(get_verified_supabase_user)):
+    user_id = _require_uuid(str(user.get("id") or ""), "verified_user_id")
+    memberships = await _select("vgs_agent_identity_memberships",
+                                {"user_id": user_id, "status": "ACTIVE"}, limit=50)
+    tenants = []
+    for membership in memberships:
+        tenant = await _one("vgs_agent_identity_tenants", {
+            "org_id": str(membership["org_id"]), "status": "ACTIVE",
+        })
+        if tenant:
+            tenants.append({"tenant": tenant, "membership": membership})
+    return {"tenants": tenants}
+
+
 @router.post("/v1/agent-identity/api-keys", summary="Create a tenant-scoped API key")
 async def create_api_key(req: ApiKeyCreate, principal: Principal = Depends(get_principal)):
     _need(principal, "api_keys:write")
@@ -479,9 +547,11 @@ async def revoke_api_key(key_id: str, principal: Principal = Depends(get_princip
         raise HTTPException(404, "Tenant API key not found.")
     if row.get("status") != "ACTIVE":
         return {"key_id": key_id, "revoked": False, "status": row.get("status")}
-    await _patch("vgs_agent_identity_api_keys", {
-        "org_id": principal.org_id, "key_id": key_id,
+    updated = await _patch("vgs_agent_identity_api_keys", {
+        "org_id": principal.org_id, "key_id": key_id, "status": "ACTIVE",
     }, {"status": "REVOKED", "revoked_at": _iso()})
+    if not updated:
+        raise HTTPException(503, "Tenant API-key revocation was not confirmed by the database.")
     return {"key_id": key_id, "revoked": True, "status": "REVOKED"}
 
 
@@ -609,8 +679,11 @@ async def revoke_agent_key(key_id: str, principal: Principal = Depends(get_princ
         raise HTTPException(404, "Agent key not found in this tenant.")
     if key.get("status") != "ACTIVE":
         return {"revoked": False, "status": key.get("status"), "key_id": key_id}
-    await _patch("vgs_agent_identity_keys", {"org_id": principal.org_id, "key_id": key_id},
-                 {"status": "REVOKED", "revoked_at": _iso()})
+    updated = await _patch("vgs_agent_identity_keys", {
+        "org_id": principal.org_id, "key_id": key_id, "status": "ACTIVE",
+    }, {"status": "REVOKED", "revoked_at": _iso()})
+    if not updated:
+        raise HTTPException(503, "Agent-key revocation was not confirmed by the database.")
     return {"revoked": True, "key_id": key_id, "status": "REVOKED"}
 
 
@@ -666,8 +739,11 @@ async def revoke_delegation(delegation_id: str, principal: Principal = Depends(g
     })
     if not row:
         raise HTTPException(404, "Delegation not found in this tenant.")
-    await _patch("vgs_agent_delegations", {"org_id": principal.org_id, "delegation_id": delegation_id},
-                 {"status": "REVOKED", "revoked_at": _iso()})
+    updated = await _patch("vgs_agent_delegations", {
+        "org_id": principal.org_id, "delegation_id": delegation_id, "status": "ACTIVE",
+    }, {"status": "REVOKED", "revoked_at": _iso()})
+    if not updated:
+        raise HTTPException(503, "Delegation revocation was not confirmed by the database.")
     return {"delegation_id": delegation_id, "status": "REVOKED"}
 
 
@@ -749,13 +825,7 @@ async def consume_authority(req: AuthorityConsume, principal: Principal = Depend
                                               row["action"], row.get("delegation_id"))
     if reasons:
         raise HTTPException(403, {"error": "AUTHORITY_REVOKED_BEFORE_CONSUME", "reasons": reasons})
-    consumed = _rpc_record(await _rpc("vgs_consume_agent_authority_commitment", {
-        "p_commitment_id": req.commitment_id, "p_org_id": principal.org_id,
-        "p_action_digest": action_digest,
-    }))
-    if not consumed:
-        raise HTTPException(409, "Authority commitment expired, was revoked, or has already been consumed.")
-    consumed_at = consumed.get("consumed_at") or _iso()
+    consumed_at = _iso()
     receipt_claims = {
         "schema": "VERISIGIL-EXECUTION-AUTHORITY-RECEIPT-1.0",
         "commitment_id": req.commitment_id, "org_id": principal.org_id,
@@ -766,14 +836,17 @@ async def consume_authority(req: AuthorityConsume, principal: Principal = Depend
     }
     receipt = {**receipt_claims,
                "issuer_signature": core.sign_governance_payload(receipt_claims)}
-    patched = await _patch("vgs_agent_authority_commitments", {
-        "org_id": principal.org_id, "commitment_id": req.commitment_id,
-    }, {"consumption_receipt": receipt})
-    if not patched:
-        raise HTTPException(503, "Commitment was consumed but receipt persistence was not confirmed; do not execute.")
+    consumed = _rpc_record(await _rpc("vgs_consume_agent_authority_commitment", {
+        "p_commitment_id": req.commitment_id, "p_org_id": principal.org_id,
+        "p_action_digest": action_digest, "p_consumed_at": consumed_at,
+        "p_consumption_receipt": receipt,
+    }))
+    if not consumed:
+        raise HTTPException(409, "Authority commitment expired, was revoked, or has already been consumed.")
     return {"commitment_id": req.commitment_id, "execution_authorized": True,
             "actuator_invoked": False, "receipt": receipt,
-            "message": "One-time authority was consumed. The caller's protected actuator must enforce this result."}
+            "message": "One-time authority and signed receipt were atomically persisted. The caller's protected actuator must enforce this result."}
+
 
 
 @router.get("/v1/runtime/authority/receipts/{commitment_id}", summary="Retrieve a tenant execution-authority receipt")
@@ -821,7 +894,7 @@ def install_openapi_security(app) -> None:
             if path.startswith("/v1/agent-identity/") or path.startswith("/v1/runtime/authority/"):
                 for operation in operations.values():
                     if isinstance(operation, dict) and "operationId" in operation:
-                        if path == "/v1/agent-identity/api-keys" or path.startswith("/v1/agent-identity/api-keys/"):
+                        if path in {"/v1/agent-identity/api-keys", "/v1/agent-identity/tenants"} or path.startswith("/v1/agent-identity/api-keys/"):
                             operation["security"] = [{"SupabaseBearer": []}]
                         else:
                             operation["security"] = [{"SupabaseBearer": []}, {"ApiKeyAuth": []}]

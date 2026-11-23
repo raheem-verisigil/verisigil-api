@@ -195,11 +195,51 @@ class AgentIdentityLayerTests(unittest.TestCase):
         finally:
             identity._one, identity._rpc = original_one, original_rpc
 
+    def test_supabase_secret_key_is_not_sent_as_bearer_jwt(self):
+        headers = identity._service_auth_headers("sb_secret_test-only")
+        self.assertEqual(headers["apikey"], "sb_secret_test-only")
+        self.assertNotIn("Authorization", headers)
+        legacy = identity._service_auth_headers("eyJlegacy-service-role")
+        self.assertEqual(legacy["Authorization"], "Bearer eyJlegacy-service-role")
+        self.assertEqual(legacy["apikey"], "eyJlegacy-service-role")
+
+    def test_agent_signature_canonicalization_uses_rfc8785(self):
+        # RFC 8785 normalizes number rendering and rejects non-I-JSON values.
+        self.assertEqual(identity._canonical({"z": 333333333.33333329, "a": "€"}), '{"a":"€","z":333333333.3333333}'.encode("utf-8"))
+
+    def test_migration_scopes_agent_keys_by_tenant(self):
+        migration = Path(__file__).resolve().parents[1] / "supabase" / "migrations" / "20261123160247_cryptographic_passport_identity.sql"
+        source = migration.read_text(encoding="utf-8").lower()
+        key_table = source.split("create table if not exists public.vgs_agent_identity_keys", 1)[1].split("create table", 1)[0]
+        self.assertIn("primary key (org_id, key_id)", key_table)
+        self.assertIn("foreign key (org_id, key_id)", source)
+        self.assertNotIn("references public.vgs_agent_identity_keys(key_id)", source)
+        self.assertIn("foreign key (org_id, agent_id)", source)
+        self.assertIn("foreign key (org_id, grantor_agent_id)", source)
+        self.assertIn("foreign key (org_id, grantee_agent_id)", source)
+        integrity = Path(__file__).resolve().parents[1] / "supabase" / "migrations" / "20261123161005_passport_tenant_integrity.sql"
+        integrity_source = integrity.read_text(encoding="utf-8").lower()
+        self.assertIn("references auth.users(id)", integrity_source)
+        self.assertIn("foreign key (created_by, org_id)", integrity_source)
+        self.assertIn("foreign key (org_id, agent_id)", integrity_source)
+        self.assertIn("foreign key (org_id, delegation_id)", integrity_source)
+        onboarding = Path(__file__).resolve().parents[1] / "supabase" / "migrations" / "20261123161200_passport_tenant_onboarding.sql"
+        onboarding_source = onboarding.read_text(encoding="utf-8").lower()
+        self.assertIn("create table if not exists public.vgs_agent_identity_tenants", onboarding_source)
+        self.assertIn("vgs_create_agent_identity_tenant", onboarding_source)
+        self.assertIn("references public.vgs_agent_identity_tenants(org_id)", onboarding_source)
+        self.assertIn("grant execute on function public.vgs_create_agent_identity_tenant(uuid,uuid,text)", onboarding_source)
+        self.assertEqual(source.count("security definer set search_path = pg_catalog, public"), 5)
+        consume_fn = source.split("create or replace function public.vgs_consume_agent_authority_commitment", 1)[1]
+        self.assertIn("consumption_receipt = p_consumption_receipt", consume_fn)
+        self.assertIn("consumed_at = p_consumed_at", consume_fn)
+
     def test_database_consume_function_is_single_use_and_rechecks_live_authority(self):
-        migration = Path(__file__).resolve().parents[1] / "supabase" / "migrations" / "20261123_cryptographic_passport_identity.sql"
+        migration = Path(__file__).resolve().parents[1] / "supabase" / "migrations" / "20261123160247_cryptographic_passport_identity.sql"
         source = migration.read_text(encoding="utf-8").lower()
         function = source.split("create or replace function public.vgs_consume_agent_authority_commitment", 1)[1]
         self.assertIn("c.consumed_at is not null", function)
+        self.assertIn("consumption_receipt = p_consumption_receipt", function)
         self.assertIn("c.expires_at <= clock_timestamp()", function)
         self.assertIn("k.status <> 'active'", function)
         self.assertIn("a.status <> 'active'", function)

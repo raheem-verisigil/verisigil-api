@@ -9,12 +9,31 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from fastapi import Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 import main as core
 from proof_verification import public_key_id, verify_ed25519_payload
 
 app = core.app
+
+# Explicit browser origins for the first-party API explorer and website.
+# No wildcard origin is used with credentialed requests.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "https://verisigilai.com",
+        "https://www.verisigilai.com",
+        "https://feature-cryptographic-passpo.verisigil-website.pages.dev",
+    ],
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"],
+    allow_headers=[
+        "Authorization", "Content-Type", "X-API-Key", "X-Org-ID", "apikey",
+    ],
+    expose_headers=["Content-Type"],
+    max_age=600,
+)
 
 
 def _environment_only_api_key(x_api_key: str | None = None,

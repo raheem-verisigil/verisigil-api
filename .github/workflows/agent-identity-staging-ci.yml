@@ -10,7 +10,7 @@ on:
       - "tests/test_agent_identity_layer.py"
       - ".github/workflows/agent-identity-staging-ci.yml"
   push:
-    branches: [feature/cryptographic-passport-runtime-identity-20261123]
+    branches: [feature/cryptographic-passport-runtime-identity-20261123, hardening/verisigil-production-readiness-20261123]
 
 permissions:
   contents: read

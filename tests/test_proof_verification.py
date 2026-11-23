@@ -74,15 +74,24 @@ class ProofVerificationTests(unittest.TestCase):
     def test_agent_identity_routes_and_auth_schemes_are_registered(self):
         schema = runtime.app.openapi()
         self.assertIn("/v1/agent-identity/agents", schema["paths"])
+        self.assertIn("/v1/agent-identity/tenants", schema["paths"])
         self.assertIn("/v1/agent-identity/challenges", schema["paths"])
         self.assertIn("/v1/runtime/authority/evaluate", schema["paths"])
         self.assertIn("/v1/runtime/authority/consume", schema["paths"])
+        from fastapi.middleware.cors import CORSMiddleware
+        cors = next((m for m in runtime.app.user_middleware if m.cls is CORSMiddleware), None)
+        self.assertIsNotNone(cors)
+        self.assertIn("https://verisigilai.com", cors.kwargs["allow_origins"])
+        self.assertIn("https://www.verisigilai.com", cors.kwargs["allow_origins"])
+        self.assertNotIn("*", cors.kwargs["allow_origins"])
+        self.assertFalse(cors.kwargs["allow_credentials"])
         schemes = schema["components"]["securitySchemes"]
         self.assertIn("SupabaseBearer", schemes)
         self.assertEqual(
             schema["paths"]["/v1/agent-identity/api-keys"]["post"]["security"],
             [{"SupabaseBearer": []}],
         )
+        self.assertEqual(schema["paths"]["/v1/agent-identity/tenants"]["post"]["security"], [{"SupabaseBearer": []}])
         self.assertIn(
             {"ApiKeyAuth": []},
             schema["paths"]["/v1/runtime/authority/evaluate"]["post"]["security"],

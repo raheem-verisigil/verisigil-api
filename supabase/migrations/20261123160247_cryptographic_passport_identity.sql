@@ -37,20 +37,24 @@ create table if not exists public.vgs_agent_identities (
   issued_at timestamptz not null,
   expires_at timestamptz not null,
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
+  updated_at timestamptz not null default now(),
+  unique (org_id, agent_id)
 );
 
 create table if not exists public.vgs_agent_identity_keys (
-  key_id text primary key,
+  key_id text not null,
   org_id uuid not null,
-  agent_id uuid not null references public.vgs_agent_identities(agent_id),
+  agent_id uuid not null,
   public_key_b64 text not null,
   fingerprint text not null,
   algorithm text not null check (algorithm = 'Ed25519'),
   status text not null default 'ACTIVE' check (status in ('ACTIVE','ROTATED','REVOKED')),
   created_at timestamptz not null default now(),
   revoked_at timestamptz,
-  unique (org_id, agent_id, fingerprint)
+  primary key (org_id, key_id),
+  unique (org_id, agent_id, fingerprint),
+  foreign key (org_id, agent_id)
+    references public.vgs_agent_identities(org_id, agent_id)
 );
 
 create table if not exists public.vgs_agent_identity_challenges (
@@ -68,21 +72,25 @@ create table if not exists public.vgs_agent_identity_challenges (
 create table if not exists public.vgs_agent_delegations (
   delegation_id uuid primary key,
   org_id uuid not null,
-  grantor_agent_id uuid not null references public.vgs_agent_identities(agent_id),
-  grantee_agent_id uuid not null references public.vgs_agent_identities(agent_id),
+  grantor_agent_id uuid not null,
+  grantee_agent_id uuid not null,
   scopes jsonb not null,
   status text not null default 'ACTIVE' check (status in ('ACTIVE','REVOKED')),
   issued_at timestamptz not null,
   expires_at timestamptz not null,
   revoked_at timestamptz,
-  check (grantor_agent_id <> grantee_agent_id)
+  check (grantor_agent_id <> grantee_agent_id),
+  foreign key (org_id, grantor_agent_id)
+    references public.vgs_agent_identities(org_id, agent_id),
+  foreign key (org_id, grantee_agent_id)
+    references public.vgs_agent_identities(org_id, agent_id)
 );
 
 create table if not exists public.vgs_agent_authority_commitments (
   commitment_id uuid primary key,
   org_id uuid not null,
   agent_id uuid not null references public.vgs_agent_identities(agent_id),
-  key_id text not null references public.vgs_agent_identity_keys(key_id),
+  key_id text not null,
   delegation_id uuid references public.vgs_agent_delegations(delegation_id),
   action text not null,
   action_digest text not null,
@@ -93,7 +101,11 @@ create table if not exists public.vgs_agent_authority_commitments (
   consumption_receipt jsonb,
   evaluated_at timestamptz not null default now(),
   expires_at timestamptz not null,
-  consumed_at timestamptz
+  consumed_at timestamptz,
+  foreign key (org_id, agent_id)
+    references public.vgs_agent_identities(org_id, agent_id),
+  foreign key (org_id, key_id)
+    references public.vgs_agent_identity_keys(org_id, key_id)
 );
 
 create index if not exists vgs_agent_identity_org_idx
@@ -127,7 +139,7 @@ end $$;
 create or replace function public.vgs_consume_agent_identity_challenge(
   p_challenge_id uuid, p_org_id uuid, p_purpose text, p_key_fingerprint text
 ) returns jsonb
-language plpgsql security definer set search_path = public
+language plpgsql security definer set search_path = pg_catalog, public
 as $$
 declare consumed jsonb;
 begin
@@ -147,10 +159,15 @@ $$;
 create or replace function public.vgs_create_agent_identity(
   p_agent jsonb, p_key jsonb
 ) returns jsonb
-language plpgsql security definer set search_path = public
+language plpgsql security definer set search_path = pg_catalog, public
 as $$
 declare a jsonb; k jsonb;
 begin
+  if (p_agent->>'org_id')::uuid <> (p_key->>'org_id')::uuid
+     or (p_agent->>'agent_id')::uuid <> (p_key->>'agent_id')::uuid then
+    raise exception 'Agent and key tenant/identity binding mismatch';
+  end if;
+
   insert into public.vgs_agent_identities as inserted
     (agent_id, org_id, agent_name, did, passport, capabilities, status, issued_at, expires_at)
   values
@@ -176,7 +193,7 @@ create or replace function public.vgs_rotate_agent_identity_key(
   p_org_id uuid, p_agent_id uuid, p_key jsonb, p_passport jsonb,
   p_replace_existing boolean default true
 ) returns jsonb
-language plpgsql security definer set search_path = public
+language plpgsql security definer set search_path = pg_catalog, public
 as $$
 declare a jsonb; k jsonb;
 begin
@@ -207,7 +224,7 @@ $$;
 create or replace function public.vgs_revoke_agent_identity(
   p_org_id uuid, p_agent_id uuid
 ) returns jsonb
-language plpgsql security definer set search_path = public
+language plpgsql security definer set search_path = pg_catalog, public
 as $$
 declare key_count integer; delegation_count integer;
 begin
@@ -236,10 +253,13 @@ begin
 end;
 $$;
 
+drop function if exists public.vgs_consume_agent_authority_commitment(uuid,uuid,text);
+
 create or replace function public.vgs_consume_agent_authority_commitment(
-  p_commitment_id uuid, p_org_id uuid, p_action_digest text
+  p_commitment_id uuid, p_org_id uuid, p_action_digest text,
+  p_consumed_at timestamptz, p_consumption_receipt jsonb
 ) returns jsonb
-language plpgsql security definer set search_path = public
+language plpgsql security definer set search_path = pg_catalog, public
 as $$
 declare
   c public.vgs_agent_authority_commitments%rowtype;
@@ -337,7 +357,8 @@ begin
   end if;
 
   update public.vgs_agent_authority_commitments as target
-     set consumed_at = clock_timestamp()
+     set consumed_at = p_consumed_at,
+         consumption_receipt = p_consumption_receipt
    where commitment_id = p_commitment_id
      and org_id = p_org_id
      and consumed_at is null
@@ -351,12 +372,12 @@ revoke all on function public.vgs_consume_agent_identity_challenge(uuid,uuid,tex
 revoke all on function public.vgs_create_agent_identity(jsonb,jsonb) from public, anon, authenticated;
 revoke all on function public.vgs_rotate_agent_identity_key(uuid,uuid,jsonb,jsonb,boolean) from public, anon, authenticated;
 revoke all on function public.vgs_revoke_agent_identity(uuid,uuid) from public, anon, authenticated;
-revoke all on function public.vgs_consume_agent_authority_commitment(uuid,uuid,text) from public, anon, authenticated;
+revoke all on function public.vgs_consume_agent_authority_commitment(uuid,uuid,text,timestamptz,jsonb) from public, anon, authenticated;
 grant execute on function public.vgs_consume_agent_identity_challenge(uuid,uuid,text,text) to service_role;
 grant execute on function public.vgs_create_agent_identity(jsonb,jsonb) to service_role;
 grant execute on function public.vgs_rotate_agent_identity_key(uuid,uuid,jsonb,jsonb,boolean) to service_role;
 grant execute on function public.vgs_revoke_agent_identity(uuid,uuid) to service_role;
-grant execute on function public.vgs_consume_agent_authority_commitment(uuid,uuid,text) to service_role;
+grant execute on function public.vgs_consume_agent_authority_commitment(uuid,uuid,text,timestamptz,jsonb) to service_role;
 
 -- Bootstrap tenant owner after creating the organisation and inviting the user:
 -- insert into public.vgs_agent_identity_memberships(user_id, org_id, role)
