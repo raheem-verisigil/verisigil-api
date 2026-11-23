@@ -46,6 +46,10 @@ https://verisigil-security-repair-test-staging.up.railway.app
 3. Follow [QUICKSTART.md](QUICKSTART.md) to reproduce the local test suite with synthetic environment values.
 4. Use [CHALLENGE.md](CHALLENGE.md) to report a bounded, reproducible finding.
 
+## Cryptographic Passport identity layer
+
+The tenant-scoped Cryptographic Passport and runtime-authority integration is documented in [AGENT_IDENTITY_INTEGRATION.md](AGENT_IDENTITY_INTEGRATION.md). It is a staging-only implementation candidate; its database migration must be applied and its API paths tested before any live capability claim.
+
 ## Evidence discipline
 
 Implemented behavior is not automatically tested behavior. A passing test is not automatically independent verification. A staging demonstration is not production-wide coverage. A cryptographic receipt proves the integrity and signature of the recorded artifact; it does not independently establish the truth of an external data source or prove that a downstream actuator enforced the authorization.

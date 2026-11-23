@@ -20,6 +20,7 @@ from typing import Any, Literal
 
 import httpx
 import nacl.exceptions
+import rfc8785
 from nacl.signing import VerifyKey
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel, Field
@@ -47,6 +48,13 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _require_uuid(value: str, field: str) -> str:
+    try:
+        return str(uuid.UUID(str(value)))
+    except (ValueError, TypeError, AttributeError) as exc:
+        raise HTTPException(422, f"{field} must be a UUID.") from exc
+
+
 def _iso(value: datetime | None = None) -> str:
     return (value or _now()).isoformat()
 
@@ -59,7 +67,8 @@ def _parse_time(value: str) -> datetime:
 
 
 def _canonical(value: Any) -> bytes:
-    return core._vcb_canonical(value)
+    """RFC 8785 JSON Canonicalization Scheme for agent-signed payloads."""
+    return rfc8785.dumps(value)
 
 
 def _digest(value: Any) -> str:
@@ -95,7 +104,7 @@ def _verify_agent_signature(public_key: str, payload: dict, signature: str) -> b
 async def _db_request(method: str, path: str, *, params: dict | None = None,
                       body: dict | None = None, prefer: str = "return=representation") -> Any:
     base = (os.environ.get("SUPABASE_URL") or "").strip().rstrip("/")
-    key = (os.environ.get("SUPABASE_SERVICE_KEY") or os.environ.get("SUPABASE_KEY") or "").strip()
+    key = (os.environ.get("SUPABASE_SERVICE_KEY") or os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or "").strip()
     if not base.startswith("https://") or not key:
         raise HTTPException(503, "Identity persistence is not configured; authority fails closed.")
     headers = {
@@ -172,7 +181,7 @@ async def get_principal(request: Request) -> Principal:
     if authorization.startswith("Bearer ") and authorization[7:].strip():
         token = authorization[7:].strip()
         base = (os.environ.get("SUPABASE_URL") or "").strip().rstrip("/")
-        anon_key = (os.environ.get("SUPABASE_KEY") or "").strip()
+        anon_key = (os.environ.get("SUPABASE_ANON_KEY") or os.environ.get("SUPABASE_KEY") or "").strip()
         if not base.startswith("https://") or not anon_key:
             raise HTTPException(503, "Supabase Auth verification is not configured.")
         try:
@@ -218,7 +227,7 @@ async def get_principal(request: Request) -> Principal:
         if row.get("expires_at") and _parse_time(row["expires_at"]) <= _now():
             raise HTTPException(401, "Tenant API key has expired.")
         scopes = row.get("scopes") or []
-        if not isinstance(scopes, list) or not set(scopes).issubset(KNOWN_SCOPES):
+        if not isinstance(scopes, list) or any(not isinstance(scope, str) for scope in scopes) or not set(scopes).issubset(KNOWN_SCOPES):
             raise HTTPException(403, "Tenant API key has invalid scope metadata.")
         return Principal(org_id=str(row["org_id"]), principal_id=str(row["key_id"]),
                          role="api_key", scopes=scopes, auth_method="tenant_api_key")
@@ -236,6 +245,7 @@ def _require_jwt_owner(principal: Principal) -> None:
 
 
 async def _get_agent(org_id: str, agent_id: str) -> dict:
+    agent_id = _require_uuid(agent_id, "agent_id")
     row = await _one("vgs_agent_identities", {"org_id": org_id, "agent_id": agent_id})
     if not row:
         raise HTTPException(404, "Agent identity not found in this tenant.")
@@ -243,6 +253,9 @@ async def _get_agent(org_id: str, agent_id: str) -> dict:
 
 
 async def _get_key(org_id: str, agent_id: str, key_id: str) -> dict:
+    agent_id = _require_uuid(agent_id, "agent_id")
+    if not re.fullmatch(r"[0-9a-f]{64}", key_id):
+        raise HTTPException(422, "key_id must be a SHA-256 Ed25519 fingerprint.")
     row = await _one("vgs_agent_identity_keys", {
         "org_id": org_id, "agent_id": agent_id, "key_id": key_id,
     })
@@ -283,6 +296,7 @@ def _challenge_payload(challenge: dict) -> dict:
 async def _consume_challenge(principal: Principal, challenge_id: str, purpose: str,
                              agent_id: str | None, public_key: str, proof: str) -> dict:
     fingerprint = _fingerprint(public_key)
+    challenge_id = _require_uuid(challenge_id, "challenge_id")
     challenge = await _one("vgs_agent_identity_challenges", {
         "challenge_id": challenge_id, "org_id": principal.org_id,
     })
@@ -344,6 +358,12 @@ async def _evaluate_identity(org_id: str, agent_id: str, key_id: str,
         reasons.append("PASSPORT_SIGNATURE_INVALID")
     if key.get("status") != "ACTIVE":
         reasons.append("AGENT_KEY_REVOKED_OR_INACTIVE")
+    try:
+        actual_fingerprint = _fingerprint(key.get("public_key_b64", ""))
+        if actual_fingerprint != key.get("fingerprint") or actual_fingerprint != key_id:
+            reasons.append("AGENT_KEY_FINGERPRINT_MISMATCH")
+    except HTTPException:
+        reasons.append("AGENT_PUBLIC_KEY_INVALID")
     passport = agent.get("passport") or {}
     claims = passport.get("claims") or {}
     capabilities = claims.get("declared_capabilities") or []
@@ -431,8 +451,9 @@ class AuthorityConsume(BaseModel):
 async def create_api_key(req: ApiKeyCreate, principal: Principal = Depends(get_principal)):
     _need(principal, "api_keys:write")
     _require_jwt_owner(principal)
-    if not set(req.scopes).issubset(KNOWN_SCOPES) or not set(req.scopes).issubset(set(principal.scopes)):
-        raise HTTPException(422, "Requested API-key scopes must be valid and no broader than the owner's scopes.")
+    if ("api_keys:write" in req.scopes or not set(req.scopes).issubset(KNOWN_SCOPES)
+            or not set(req.scopes).issubset(set(principal.scopes))):
+        raise HTTPException(422, "Tenant API-key scopes must be valid, must not include api_keys:write, and cannot exceed the owner's scopes.")
     raw_key = "vsa_ak_" + secrets.token_urlsafe(36)
     key_id = str(uuid.uuid4())
     expires_at = _iso(_now() + timedelta(days=req.expires_in_days))
@@ -446,6 +467,26 @@ async def create_api_key(req: ApiKeyCreate, principal: Principal = Depends(get_p
     return {"key_id": key_id, "api_key": raw_key, "name": req.name,
             "scopes": req.scopes, "expires_at": expires_at,
             "warning": "This key is shown once. Store it securely; VeriSigil stores only its SHA-256 hash."}
+
+
+@router.post("/v1/agent-identity/api-keys/{key_id}/revoke", summary="Revoke a tenant API key")
+async def revoke_api_key(key_id: str, principal: Principal = Depends(get_principal)):
+    _need(principal, "api_keys:write")
+    _require_jwt_owner(principal)
+    key_id = _require_uuid(key_id, "key_id")
+    row = await _one("vgs_agent_identity_api_keys", {
+        "org_id": principal.org_id, "key_id": key_id,
+    })
+    if not row:
+        raise HTTPException(404, "Tenant API key not found.")
+    if row.get("status") != "ACTIVE":
+        return {"key_id": key_id, "revoked": False, "status": row.get("status")}
+    updated = await _patch("vgs_agent_identity_api_keys", {
+        "org_id": principal.org_id, "key_id": key_id, "status": "ACTIVE",
+    }, {"status": "REVOKED", "revoked_at": _iso()})
+    if not updated:
+        raise HTTPException(503, "Tenant API-key revocation was not confirmed by the database.")
+    return {"key_id": key_id, "revoked": True, "status": "REVOKED"}
 
 
 @router.post("/v1/agent-identity/challenges", summary="Issue an agent-key proof-of-possession challenge")
@@ -565,13 +606,18 @@ async def rotate_agent_key(agent_id: str, req: KeyRotate, principal: Principal =
 @router.post("/v1/agent-identity/keys/{key_id}/revoke", summary="Revoke an agent public key")
 async def revoke_agent_key(key_id: str, principal: Principal = Depends(get_principal)):
     _need(principal, "keys:write")
+    if not re.fullmatch(r"[0-9a-f]{64}", key_id):
+        raise HTTPException(422, "key_id must be a SHA-256 Ed25519 fingerprint.")
     key = await _one("vgs_agent_identity_keys", {"org_id": principal.org_id, "key_id": key_id})
     if not key:
         raise HTTPException(404, "Agent key not found in this tenant.")
     if key.get("status") != "ACTIVE":
         return {"revoked": False, "status": key.get("status"), "key_id": key_id}
-    await _patch("vgs_agent_identity_keys", {"org_id": principal.org_id, "key_id": key_id},
-                 {"status": "REVOKED", "revoked_at": _iso()})
+    updated = await _patch("vgs_agent_identity_keys", {
+        "org_id": principal.org_id, "key_id": key_id, "status": "ACTIVE",
+    }, {"status": "REVOKED", "revoked_at": _iso()})
+    if not updated:
+        raise HTTPException(503, "Agent-key revocation was not confirmed by the database.")
     return {"revoked": True, "key_id": key_id, "status": "REVOKED"}
 
 
@@ -621,13 +667,17 @@ async def create_delegation(req: DelegationCreate, principal: Principal = Depend
 @router.post("/v1/agent-identity/delegations/{delegation_id}/revoke", summary="Revoke a delegation")
 async def revoke_delegation(delegation_id: str, principal: Principal = Depends(get_principal)):
     _need(principal, "delegations:write")
+    delegation_id = _require_uuid(delegation_id, "delegation_id")
     row = await _one("vgs_agent_delegations", {
         "org_id": principal.org_id, "delegation_id": delegation_id,
     })
     if not row:
         raise HTTPException(404, "Delegation not found in this tenant.")
-    await _patch("vgs_agent_delegations", {"org_id": principal.org_id, "delegation_id": delegation_id},
-                 {"status": "REVOKED", "revoked_at": _iso()})
+    updated = await _patch("vgs_agent_delegations", {
+        "org_id": principal.org_id, "delegation_id": delegation_id, "status": "ACTIVE",
+    }, {"status": "REVOKED", "revoked_at": _iso()})
+    if not updated:
+        raise HTTPException(503, "Delegation revocation was not confirmed by the database.")
     return {"delegation_id": delegation_id, "status": "REVOKED"}
 
 
@@ -683,8 +733,10 @@ async def evaluate_authority(req: AuthorityEvaluate, principal: Principal = Depe
 @router.post("/v1/runtime/authority/consume", summary="Atomically consume an authority commitment once")
 async def consume_authority(req: AuthorityConsume, principal: Principal = Depends(get_principal)):
     _need(principal, "authority:consume")
+    commitment_id = _require_uuid(req.commitment_id, "commitment_id")
+    commitment_id = _require_uuid(commitment_id, "commitment_id")
     row = await _one("vgs_agent_authority_commitments", {
-        "org_id": principal.org_id, "commitment_id": req.commitment_id,
+        "org_id": principal.org_id, "commitment_id": commitment_id,
     })
     if not row:
         raise HTTPException(404, "Authority commitment not found in this tenant.")
@@ -707,13 +759,7 @@ async def consume_authority(req: AuthorityConsume, principal: Principal = Depend
                                               row["action"], row.get("delegation_id"))
     if reasons:
         raise HTTPException(403, {"error": "AUTHORITY_REVOKED_BEFORE_CONSUME", "reasons": reasons})
-    consumed = _rpc_record(await _rpc("vgs_consume_agent_authority_commitment", {
-        "p_commitment_id": req.commitment_id, "p_org_id": principal.org_id,
-        "p_action_digest": action_digest,
-    }))
-    if not consumed:
-        raise HTTPException(409, "Authority commitment expired, was revoked, or has already been consumed.")
-    consumed_at = consumed.get("consumed_at") or _iso()
+    consumed_at = _iso()
     receipt_claims = {
         "schema": "VERISIGIL-EXECUTION-AUTHORITY-RECEIPT-1.0",
         "commitment_id": req.commitment_id, "org_id": principal.org_id,
@@ -724,14 +770,17 @@ async def consume_authority(req: AuthorityConsume, principal: Principal = Depend
     }
     receipt = {**receipt_claims,
                "issuer_signature": core.sign_governance_payload(receipt_claims)}
-    patched = await _patch("vgs_agent_authority_commitments", {
-        "org_id": principal.org_id, "commitment_id": req.commitment_id,
-    }, {"consumption_receipt": receipt})
-    if not patched:
-        raise HTTPException(503, "Commitment was consumed but receipt persistence was not confirmed; do not execute.")
+    consumed = _rpc_record(await _rpc("vgs_consume_agent_authority_commitment", {
+        "p_commitment_id": req.commitment_id, "p_org_id": principal.org_id,
+        "p_action_digest": action_digest, "p_consumed_at": consumed_at,
+        "p_consumption_receipt": receipt,
+    }))
+    if not consumed:
+        raise HTTPException(409, "Authority commitment expired, was revoked, or has already been consumed.")
     return {"commitment_id": req.commitment_id, "execution_authorized": True,
             "actuator_invoked": False, "receipt": receipt,
-            "message": "One-time authority was consumed. The caller's protected actuator must enforce this result."}
+            "message": "One-time authority and signed receipt were atomically persisted. The caller's protected actuator must enforce this result."}
+
 
 
 @router.get("/v1/runtime/authority/receipts/{commitment_id}", summary="Retrieve a tenant execution-authority receipt")
@@ -747,9 +796,20 @@ async def get_authority_receipt(commitment_id: str, principal: Principal = Depen
         raise HTTPException(404, "No receipt has been issued for this commitment.")
     signature = receipt.get("issuer_signature", "")
     claims = {key: value for key, value in receipt.items() if key != "issuer_signature"}
+    consumable = False
+    current_reasons = []
+    if row.get("decision") == "AUTHORIZED" and not row.get("consumed_at") and _parse_time(row["expires_at"]) > _now():
+        _, _, current_reasons = await _evaluate_identity(
+            principal.org_id, row["agent_id"], row["key_id"],
+            row["action"], row.get("delegation_id"),
+        )
+        consumable = not current_reasons
     return {"receipt": receipt,
             "issuer_signature_valid": core.verify_governance_signature(claims, signature),
-            "consumed": bool(row.get("consumed_at"))}
+            "consumed": bool(row.get("consumed_at")),
+            "current_decision": row.get("decision"),
+            "consumable": consumable,
+            "current_authority_reasons": current_reasons}
 
 
 def install_openapi_security(app) -> None:
@@ -768,7 +828,10 @@ def install_openapi_security(app) -> None:
             if path.startswith("/v1/agent-identity/") or path.startswith("/v1/runtime/authority/"):
                 for operation in operations.values():
                     if isinstance(operation, dict) and "operationId" in operation:
-                        operation["security"] = [{"SupabaseBearer": []}, {"ApiKeyAuth": []}]
+                        if path == "/v1/agent-identity/api-keys" or path.startswith("/v1/agent-identity/api-keys/"):
+                            operation["security"] = [{"SupabaseBearer": []}]
+                        else:
+                            operation["security"] = [{"SupabaseBearer": []}, {"ApiKeyAuth": []}]
         return schema
 
     app.openapi_schema = None

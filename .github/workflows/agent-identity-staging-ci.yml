@@ -1,0 +1,41 @@
+name: Cryptographic Passport identity regression
+
+on:
+  pull_request:
+    branches: [security/proof-verification-hardening-20261113]
+    paths:
+      - "agent_identity_layer.py"
+      - "verisigil_entrypoint.py"
+      - "supabase/migrations/**"
+      - "tests/test_agent_identity_layer.py"
+      - ".github/workflows/agent-identity-staging-ci.yml"
+  push:
+    branches: [feature/cryptographic-passport-runtime-identity-20261123, hardening/verisigil-production-readiness-20261123]
+
+permissions:
+  contents: read
+
+jobs:
+  identity-regression:
+    name: Passport, tenant and authority regression tests
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_URL: https://identity-test.invalid
+      SUPABASE_KEY: test-anon-key-not-a-secret
+      SUPABASE_SERVICE_KEY: test-service-key-not-a-secret
+      VERISIGIL_API_KEY: test-api-key-not-a-secret
+      SIGN_SECRET: test-signing-secret-not-for-deployment
+      DEPLOY_ENV: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install application dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Compile the identity integration
+        run: python -m py_compile agent_identity_layer.py verisigil_entrypoint.py
+      - name: Run identity and authority security tests
+        run: |
+          python -m unittest discover -s tests -p "test_agent_identity_layer.py" -v
+          python -m unittest discover -s tests -p "test_proof_verification.py" -v

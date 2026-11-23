@@ -15,6 +15,39 @@ import main as core
 from proof_verification import public_key_id, verify_ed25519_payload
 
 app = core.app
+
+
+def _environment_only_api_key(x_api_key: str | None = None,
+                              authorization: str | None = None) -> bool:
+    """Replace legacy hard-coded shared-key acceptance with env-only credentials."""
+    import re
+
+    def normalize(value: str | None) -> str:
+        return re.sub(r"[^a-zA-Z0-9-]", "", (value or "").strip())
+
+    received = normalize(x_api_key)
+    bearer = normalize((authorization or "").replace("Bearer", "").strip())
+    candidate = received or bearer
+    if candidate and getattr(core, "_check_canary", lambda _value: False)(candidate):
+        raise core.HTTPException(status_code=401, detail="Invalid or missing API key.")
+
+    configured = {
+        normalize(os.environ.get("VERISIGIL_API_KEY")),
+        normalize(os.environ.get("VS_API_KEY")),
+        normalize(os.environ.get("SANDBOX_API_KEY")),
+        normalize(os.environ.get("VERISIGIL_SANDBOX_KEY")),
+    }
+    configured.discard("")
+    if not candidate or candidate not in configured:
+        raise core.HTTPException(status_code=401, detail="Invalid or missing environment-managed API key.")
+    return True
+
+
+# Route handlers in the imported core resolve this global at request time.
+# Only environment-managed credentials remain valid; source-embedded legacy
+# sandbox strings are no longer accepted by the deployed staging entrypoint.
+core.require_api_key = _environment_only_api_key
+
 VALIDATION_RECEIPTS: dict[str, dict] = {}
 
 
