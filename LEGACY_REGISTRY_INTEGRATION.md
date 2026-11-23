@@ -20,10 +20,12 @@ The restored project `VeriSigilAI Project` is retained as the legacy registry an
 1. Keep the original production API and its database connection unchanged during integration.
 2. Apply the seven reviewed Passport migrations in timestamp order to the restored project.
 3. Apply `20261123190000_legacy_registry_bridge.sql` only after the seven Passport migrations are present.
-4. Verify the organisation/tenant and agent/passport foreign keys, lifecycle mirroring, and proof-event triggers.
-5. Run tenant onboarding and agent registration/rotation/revocation tests with synthetic Auth users and agents.
-6. Verify legacy records remain unchanged and count-stable.
-7. Complete cross-tenant denial, concurrent consume, restart/two-instance, backup restore, and actuator adapter acceptance tests before production cutover.
+4. Apply `20261123191500_legacy_access_hardening.sql` to remove raw-client exposure from operational ledgers and verifier credentials.
+5. Apply `20261123192000_legacy_rls_initplan_optimization.sql` to optimize the 13 server-only policies.
+6. Verify the organisation/tenant and agent/passport foreign keys, lifecycle mirroring, proof-event triggers, and client-role denial.
+7. Run tenant onboarding and agent registration/rotation/revocation tests with synthetic Auth users and agents.
+8. Verify legacy records remain unchanged and count-stable.
+9. Complete cross-tenant denial, concurrent consume, restart/two-instance, backup restore, and actuator adapter acceptance tests before production cutover.
 
 ## Current release limits
 
