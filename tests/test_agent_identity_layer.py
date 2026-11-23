@@ -195,6 +195,19 @@ class AgentIdentityLayerTests(unittest.TestCase):
         finally:
             identity._one, identity._rpc = original_one, original_rpc
 
+    def test_agent_signature_canonicalization_uses_rfc8785(self):
+        # RFC 8785 normalizes number rendering and rejects non-I-JSON values.
+        self.assertEqual(identity._canonical({"z": 333333333.33333329, "a": "€"}), b'{"a":"\\xe2\\x82\\xac","z":333333333.3333333}'.replace(b"\\\\x", b"\\x"))
+
+    def test_migration_scopes_agent_keys_by_tenant(self):
+        migration = Path(__file__).resolve().parents[1] / "supabase" / "migrations" / "20261123_cryptographic_passport_identity.sql"
+        source = migration.read_text(encoding="utf-8").lower()
+        key_table = source.split("create table if not exists public.vgs_agent_identity_keys", 1)[1].split("create table", 1)[0]
+        self.assertIn("primary key (org_id, key_id)", key_table)
+        self.assertIn("foreign key (org_id, key_id)", source)
+        self.assertNotIn("references public.vgs_agent_identity_keys(key_id)", source)
+        self.assertEqual(source.count("security definer set search_path = pg_catalog, public"), 5)
+
     def test_database_consume_function_is_single_use_and_rechecks_live_authority(self):
         migration = Path(__file__).resolve().parents[1] / "supabase" / "migrations" / "20261123_cryptographic_passport_identity.sql"
         source = migration.read_text(encoding="utf-8").lower()
