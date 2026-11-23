@@ -3,14 +3,6 @@ name: Terry staging security verification
 on:
   push:
     branches:
- fix/staging-ci-cleanup-and-lifecycle-20261123
-
- fix/durable-validation-receipts-20261123
-      - hardening/verisigil-production-readiness-20261123
-    paths:
-
-     hardening/verisigil-production-readiness-20261123
-        main
       - hardening/verisigil-production-readiness-20261123
     paths:
       - "requirements.txt"
@@ -28,21 +20,6 @@ on:
       - hardening/verisigil-production-readiness-20261123
     paths:
       - "requirements.txt"
-        main
-      - "main.py"
-      - "agent_identity_layer.py"
-      - "verisigil_entrypoint.py"
-      - "durable_validation_receipts.py"
-      - "proof_verification.py"
-      - "supabase/migrations/**"
-      - "tests/**"
-      - ".github/workflows/terry-staging-verification.yml"
-       fix/durable-validation-receipts-20261123
-  pull_request:
-    branches:
-      - main
-      - hardening/verisigil-production-readiness-20261123
-    paths:
       - "main.py"
       - "agent_identity_layer.py"
       - "verisigil_entrypoint.py"
@@ -52,20 +29,6 @@ on:
       - "tests/**"
       - ".github/workflows/terry-staging-verification.yml"
 
-         fix/staging-ci-cleanup-and-lifecycle-20261123
-
-
-      - main
-      - security/proof-verification-hardening-20261113
-      - hardening/verisigil-production-readiness-20261123
-      - integration/legacy-registry-bridge-20261123
-  pull_request:
-    branches:
-      - main
-         main
-        main
-
-       main
 permissions:
   contents: read
 
@@ -94,39 +57,16 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-        fix/staging-ci-cleanup-and-lifecycle-20261123
-
-        fix/durable-validation-receipts-20261123
-          python -m pip install -r requirements.txt
-      - name: Compile application and tests
-
-          hardening/verisigil-production-readiness-20261123
-          main
           python -m pip install -r requirements.txt
           python -m pip install --disable-pip-version-check pip-audit
       - name: Audit pinned Python dependencies
         run: pip-audit -r requirements.txt
       - name: Compile application and tests
-          fix/staging-ci-cleanup-and-lifecycle-20261123
-
-
-          python -m pip install -r requirements.txt pytest
-      - name: Compile source
-         main
-         main
-          main
         run: python -m compileall -q .
       - name: Run cryptographic regression tests
         run: python -m unittest tests.test_proof_verification -v
       - name: Run fail-closed execution authorization tests
         run: python -m unittest tests.test_execution_authorization_fail_closed -v
-         fix/staging-ci-cleanup-and-lifecycle-20261123
-
-        fix/durable-validation-receipts-20261123
-
-          hardening/verisigil-production-readiness-20261123
-        main
-        main
       - name: Run agent identity and authority tests
         run: python -m unittest tests.test_agent_identity_layer -v
       - name: Run durable receipt credential tests
@@ -135,17 +75,6 @@ jobs:
         run: python -m unittest tests.test_terry_validation -v
       - name: Run complete unit test suite
         run: python -m unittest discover -s tests -v
-         fix/staging-ci-cleanup-and-lifecycle-20261123
-  
-            fix/durable-validation-receipts-20261123
-
-
-      - name: Run bounded adversarial scenarios
-        run: python -m unittest tests.test_terry_validation -v
-      - name: Run complete unit test suite
-        run: python -m unittest discover -s tests -v
-      - name: Run pytest suite
-        run: PYTHONPATH=. pytest -q tests
 
   staging-api-tests:
     if: ${{ github.event_name == 'push' }}
@@ -186,6 +115,3 @@ jobs:
       - name: Report skipped live verification when staging secrets are absent
         if: ${{ env.VERISIGIL_TEST_URL == '' || env.VERISIGIL_TEST_API_KEY == '' }}
         run: echo "Live staging verification skipped; required GitHub secrets are not configured."
-         main
-         main
-          main
