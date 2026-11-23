@@ -1991,7 +1991,7 @@ async def status():
     }
 
 @app.get("/admin/system", tags=["Admin"])
-async def admin_system(x_api_key: Optional[str] = Header(None)):
+async def admin_system(x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     require_api_key(x_api_key, authorization)
     return {
         "version":       DEPLOY_VERSION,
@@ -2883,7 +2883,8 @@ async def start_chain(
     agent_id:    str,
     workflow_id: str,
     org_id:      str = "default",
-    x_api_key:   Optional[str] = Header(None)
+    x_api_key:   Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """Start a new agent chain — call when first agent initiates a workflow."""
     require_api_key(x_api_key, authorization)
@@ -2920,7 +2921,7 @@ async def get_provenance(
     return get_chain_provenance(chain_id)
 
 @app.get("/v1/chain/provenance", tags=["Runtime Governance"])
-async def list_chains(x_api_key: Optional[str] = Header(None)):
+async def list_chains(x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """List all active agent chains."""
     require_api_key(x_api_key, authorization)
     return {
@@ -2954,7 +2955,8 @@ async def start_monitor(
     workflow_id:  str,
     interval_sec: int = 30,
     org_id:       str = "default",
-    x_api_key:    Optional[str] = Header(None)
+    x_api_key:    Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """Start continuous admissibility monitoring for a long-running agent."""
     require_api_key(x_api_key, authorization)
@@ -2978,7 +2980,8 @@ async def check_continuous(
 @app.get("/v1/continuous/{monitor_id}", tags=["Runtime Governance"])
 async def get_monitor(
     monitor_id: str,
-    x_api_key:  Optional[str] = Header(None)
+    x_api_key:  Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """Get current status of a continuous monitor."""
     require_api_key(x_api_key, authorization)
@@ -3022,7 +3025,8 @@ async def revalidate(
 @app.get("/v1/revalidate/{execution_id}", tags=["Runtime Governance"])
 async def get_revalidations(
     execution_id: str,
-    x_api_key:    Optional[str] = Header(None)
+    x_api_key:    Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """Get all revalidation records for an execution."""
     require_api_key(x_api_key, authorization)
@@ -3042,7 +3046,8 @@ async def map_transitions(
     agent_id:         str,
     workflow_id:      str,
     current_step:     int   = 1,
-    x_api_key:        Optional[str] = Header(None)
+    x_api_key:        Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     PERMISSIBLE TRANSITION SPACE MAPPING
@@ -3176,7 +3181,8 @@ async def update_conditions(
 async def get_conditions(
     agent_id:   str,
     workflow_id: str,
-    x_api_key:  Optional[str] = Header(None)
+    x_api_key:  Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """Get current operational conditions for an agent/workflow."""
     require_api_key(x_api_key, authorization)
@@ -3189,7 +3195,7 @@ async def get_conditions(
     }
 
 @app.get("/v1/transitions/taxonomy", tags=["Operational State Governance"])
-async def get_taxonomy(x_api_key: Optional[str] = Header(None)):
+async def get_taxonomy(x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """
     Get the full transition consequence taxonomy.
     Shows binding risk, reversibility, and consequence level
@@ -3849,7 +3855,8 @@ async def get_friction_controls(
     completeness_score:  float = 0.8,
     adversarial_risk:    float = 0.1,
     comprehension_ready: bool = True,
-    x_api_key:           Optional[str] = Header(None)
+    x_api_key:           Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Get decision friction controls for a given governance scenario.
@@ -4261,7 +4268,8 @@ async def document_verify(
 @app.get("/v1/document/{document_id}/report", tags=["Document Integrity"])
 async def document_report(
     document_id: str,
-    x_api_key:   Optional[str] = Header(None)
+    x_api_key:   Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     DOCUMENT INTEGRITY REPORT
@@ -4276,7 +4284,8 @@ async def document_report(
 @app.get("/v1/document/{document_id}/status", tags=["Document Integrity"])
 async def document_status(
     document_id: str,
-    x_api_key:   Optional[str] = Header(None)
+    x_api_key:   Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """Quick document integrity status check."""
     require_api_key(x_api_key, authorization)
@@ -4293,7 +4302,7 @@ async def document_status(
     }
 
 @app.get("/v1/documents", tags=["Document Integrity"])
-async def list_documents(x_api_key: Optional[str] = Header(None)):
+async def list_documents(x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """List all tracked documents and their integrity status."""
     require_api_key(x_api_key, authorization)
     return {
@@ -5337,7 +5346,8 @@ async def create_governance_receipt(
     admissibility_score: float = 0.95,
     trust_score:         float = 0.963,
     workflow_id:         str   = "",
-    x_api_key:           Optional[str] = Header(None)
+    x_api_key:           Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     VGS-004: Generate cryptographic governance receipt.
@@ -5409,7 +5419,7 @@ async def evaluate_transition(
     return result
 
 @app.get("/v1/state/machine", tags=["Formal Governance"])
-async def get_state_machine(x_api_key: Optional[str] = Header(None)):
+async def get_state_machine(x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """VGS-002: Full governance state machine definition."""
     require_api_key(x_api_key, authorization)
     return {
@@ -5465,7 +5475,7 @@ async def intent_bind(
 # ============================================================
 
 @app.get("/v1/crypto/status", tags=["Formal Governance"])
-async def crypto_status(x_api_key: Optional[str] = Header(None)):
+async def crypto_status(x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """
     Cryptographic capability status.
     Shows Ed25519 and Dilithium-3 availability.
@@ -6126,7 +6136,7 @@ async def eat_revoke(
     return result
 
 @app.get("/v1/eat/{token_id}", tags=["VGS-006 Execution Authority"])
-async def get_eat(token_id: str, x_api_key: Optional[str] = Header(None)):
+async def get_eat(token_id: str, x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """Get an Execution Authority Token by ID."""
     require_api_key(x_api_key, authorization)
     token = _eat_registry.get(token_id)
@@ -6154,7 +6164,8 @@ async def list_eats(
 @app.get("/v1/evidence", tags=["VGS-007 Evidence Classification"])
 async def list_evidence(
     evidence_class: Optional[str] = None,
-    x_api_key:      Optional[str] = Header(None)
+    x_api_key:      Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     VGS-007: List classified evidence records.
@@ -6199,7 +6210,7 @@ except Exception as e:
     print(f"[VFGS] Formal verification not available: {e}")
 
 @app.get("/v1/formal/invariants", tags=["VGS-009 Formal Governance"])
-async def formal_invariants(x_api_key: Optional[str] = Header(None)):
+async def formal_invariants(x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """
     VGS-009: List formally specified invariants.
     These are mathematically proven — not just configurable policies.
@@ -6217,7 +6228,7 @@ async def formal_invariants(x_api_key: Optional[str] = Header(None)):
         return {"schema": "VFGS-009", "error": "VFGS module not available"}
 
 @app.post("/v1/formal/prove", tags=["VGS-009 Formal Governance"])
-async def run_formal_proofs(x_api_key: Optional[str] = Header(None)):
+async def run_formal_proofs(x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """
     VGS-009: Run all formal proofs.
     
@@ -6247,7 +6258,7 @@ async def run_formal_proofs(x_api_key: Optional[str] = Header(None)):
         return {"schema": "VFGS-009", "error": str(e)}
 
 @app.post("/v1/formal/certificate", tags=["VGS-009 Formal Governance"])
-async def generate_proof_certificate(x_api_key: Optional[str] = Header(None)):
+async def generate_proof_certificate(x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """
     VGS-009: Generate a proof certificate.
     
@@ -6288,7 +6299,7 @@ async def generate_proof_certificate(x_api_key: Optional[str] = Header(None)):
         return {"schema": "VFGS-009", "error": str(e)}
 
 @app.get("/v1/formal/state-machine", tags=["VGS-009 Formal Governance"])
-async def formal_state_machine(x_api_key: Optional[str] = Header(None)):
+async def formal_state_machine(x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """
     VGS-009: Formal state machine — unsafe states proven unreachable.
     Shows all valid states, transitions, and unsafe states
@@ -6620,7 +6631,7 @@ async def jurisdiction_resolve(
     return result
 
 @app.get("/v1/jurisdiction/regimes", tags=["VGS-010 Jurisdiction"])
-async def list_regimes(x_api_key: Optional[str] = Header(None)):
+async def list_regimes(x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     require_api_key(x_api_key, authorization)
     return {
         "schema":        "VGS-010",
@@ -6644,7 +6655,8 @@ async def list_regimes(x_api_key: Optional[str] = Header(None)):
 @app.post("/v1/evidence/verify", tags=["VGS-007 Evidence Classification"])
 async def verify_evidence(
     record_id:  str,
-    x_api_key:  Optional[str] = Header(None)
+    x_api_key:  Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     VGS-007: Verify evidence classification integrity.
@@ -6680,7 +6692,7 @@ async def verify_evidence(
     raise HTTPException(404, f"Evidence record {record_id} not found")
 
 @app.get("/v1/governance/summary", tags=["Dashboards"])
-async def governance_summary(x_api_key: Optional[str] = Header(None)):
+async def governance_summary(x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """Full governance summary — all layers in one call."""
     require_api_key(x_api_key, authorization)
     chain_data  = get_chain()
@@ -7228,7 +7240,8 @@ async def compute_continuity_score(
     active_violations: int   = 0,
     trust_scores:      str   = "0.963,0.963,0.963",
     elapsed_seconds:   float = 0,
-    x_api_key:         Optional[str] = Header(None)
+    x_api_key:         Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     VGS-011: Compute Continuity Enforcement Score (CES).
@@ -8562,7 +8575,7 @@ propagate_revocation = propagate_revocation_v2
 # ── CONFORMANCE + INVARIANT ENDPOINTS ───────────────────────
 
 @app.get("/v1/conformance/vectors", tags=["VGS-007 Evidence Classification"])
-async def get_conformance_vectors(x_api_key: Optional[str] = Header(None)):
+async def get_conformance_vectors(x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """
     VGS-008 / VER-INV-008: Deterministic conformance vectors.
     Any implementation in any language must reproduce identical
@@ -8595,7 +8608,7 @@ async def get_conformance_vectors(x_api_key: Optional[str] = Header(None)):
     }
 
 @app.get("/v1/invariants/named", tags=["Formal Governance"])
-async def get_named_invariants(x_api_key: Optional[str] = Header(None)):
+async def get_named_invariants(x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """
     VER-INV-001 through VER-INV-008 — named invariant taxonomy.
     Each invariant has: ID, exact statement, enforcement location,
@@ -8928,7 +8941,7 @@ async def cdpr_get(
     return cdpr
 
 @app.get("/v1/cdpr/domains/semantics", tags=["VGS-012 Cross-Domain Provenance"])
-async def cdpr_domain_semantics(x_api_key: Optional[str] = Header(None)):
+async def cdpr_domain_semantics(x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """
     VGS-012: List revocation semantics for all supported domains.
     Shows how each domain handles authority revocation differently.
@@ -9858,7 +9871,7 @@ class ReplayRequest(BaseModel):
     eat_token_id:          str   = ""
 
 @app.get("/v1/governance/decisions", tags=["OTANIS Governance Semantics"])
-async def governance_decisions(x_api_key: Optional[str] = Header(None)):
+async def governance_decisions(x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """
     OTANIS-aligned decision taxonomy.
     REFUSED = governance working correctly (positive signal)
@@ -9965,7 +9978,7 @@ async def governance_replay(
     return result
 
 @app.get("/v1/governance/invariants/otanis", tags=["OTANIS Governance Semantics"])
-async def otanis_invariants(x_api_key: Optional[str] = Header(None)):
+async def otanis_invariants(x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """
     OTANIS-aligned invariants: VER-INV-009 and VER-INV-010.
     Fail-closed default and non-bypass control.
@@ -10334,7 +10347,8 @@ async def proof_export(
     decision:          str,
     policy_hash:       str,
     evidence_record_id:str = "",
-    x_api_key:         Optional[str] = Header(None)
+    x_api_key:         Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Export a portable offline-verifiable proof bundle.
@@ -10353,7 +10367,7 @@ async def proof_export(
     )
 
 @app.get("/v1/policy/registry", tags=["Execution Control Infrastructure"])
-async def policy_registry(x_api_key: Optional[str] = Header(None)):
+async def policy_registry(x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """List all governance policies with version history."""
     require_api_key(x_api_key, authorization)
     active = get_active_policy()
@@ -10666,7 +10680,7 @@ async def adversarial_risk(
     )
 
 @app.get("/v1/provenance/governed-zones", tags=["VGS-013 Adversarial Governance"])
-async def governed_zones(x_api_key: Optional[str] = Header(None)):
+async def governed_zones(x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """VGS-013: List all governed jurisdictions."""
     require_api_key(x_api_key, authorization)
     return {
@@ -11170,7 +11184,7 @@ async def compute_provenance_verify(
     return result
 
 @app.get("/v1/compute/chip-types", tags=["CHIPverify Compute Provenance"])
-async def chip_types(x_api_key: Optional[str] = Header(None)):
+async def chip_types(x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """VGS-013: List all known chip types with export control status."""
     require_api_key(x_api_key, authorization)
     return {
@@ -11232,7 +11246,7 @@ async def chip_verify(
     return result
 
 @app.get("/v1/chip/controlled-list", tags=["CHIPverify Compute Provenance"])
-async def chip_controlled_list(x_api_key: Optional[str] = Header(None)):
+async def chip_controlled_list(x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """CHIPverify: List export-controlled chip types and restricted jurisdictions."""
     require_api_key(x_api_key, authorization)
     return {
@@ -12050,7 +12064,8 @@ async def fourth_party_dependency(
 @app.get("/v1/dependency/concentration", tags=["Financial Services Governance"])
 async def hyperscaler_concentration(
     jurisdiction: str = "",
-    x_api_key:    Optional[str] = Header(None)
+    x_api_key:    Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Hyperscaler Concentration Risk Assessment.
@@ -12064,7 +12079,7 @@ async def hyperscaler_concentration(
     return compute_hyperscaler_concentration(jurisdiction)
 
 @app.get("/v1/dependency/hyperscalers", tags=["Financial Services Governance"])
-async def list_hyperscalers(x_api_key: Optional[str] = Header(None)):
+async def list_hyperscalers(x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """List all tracked hyperscalers with DORA/APRA classification."""
     require_api_key(x_api_key, authorization)
     return {
@@ -12111,7 +12126,7 @@ async def cro_board_report(
     return result
 
 @app.get("/v1/regimes/financial", tags=["Financial Services Governance"])
-async def financial_regimes(x_api_key: Optional[str] = Header(None)):
+async def financial_regimes(x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """
     Financial regulatory regimes with AI governance requirements.
     APRA CPS 230, DORA, ASIC RG 271, FSB Framework.
@@ -12626,7 +12641,7 @@ async def monitor_dependency_freshness(
     )
 
 @app.get("/v1/monitor/health", tags=["Continuous Governance Monitoring"])
-async def governance_health(x_api_key: Optional[str] = Header(None)):
+async def governance_health(x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """
     Governance health score — executive intelligence layer.
     Composite score across: authority freshness, escalation
@@ -12637,7 +12652,7 @@ async def governance_health(x_api_key: Optional[str] = Header(None)):
     return compute_governance_health()
 
 @app.get("/v1/monitor/alerts", tags=["Continuous Governance Monitoring"])
-async def governance_alerts(x_api_key: Optional[str] = Header(None)):
+async def governance_alerts(x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """All active governance alerts requiring attention."""
     require_api_key(x_api_key, authorization)
     return {
@@ -12681,7 +12696,7 @@ async def execution_graph_create(
     return result
 
 @app.get("/v1/graph/list", tags=["Multi-Agent Execution Graph"])
-async def execution_graph_list(x_api_key: Optional[str] = Header(None)):
+async def execution_graph_list(x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """List all tracked multi-agent execution graphs."""
     require_api_key(x_api_key, authorization)
     return {
@@ -12706,7 +12721,7 @@ async def governance_analytics(
     return compute_governance_analytics(period)
 
 @app.get("/v1/analytics/gcs-trend", tags=["Governance Analytics"])
-async def gcs_trend(x_api_key: Optional[str] = Header(None)):
+async def gcs_trend(x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """GCS (Governance Continuity Score) trend history."""
     require_api_key(x_api_key, authorization)
     history = _GOVERNANCE_MONITOR["gcs_history"]
@@ -13311,7 +13326,7 @@ async def memory_replay(
     return replay_memory_state(req.agent_id, req.at_timestamp)
 
 @app.get("/v1/memory/expiry", tags=["VGS-014 Constitutional Memory"])
-async def memory_expiry_check(x_api_key: Optional[str] = Header(None)):
+async def memory_expiry_check(x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """
     VGS-014: Memory Expiration Governance.
     Detect expired memory records requiring purge.
@@ -13323,7 +13338,8 @@ async def memory_expiry_check(x_api_key: Optional[str] = Header(None)):
 @app.get("/v1/memory/sovereign/{jurisdiction}", tags=["VGS-014 Constitutional Memory"])
 async def memory_sovereign_partition(
     jurisdiction: str,
-    x_api_key:    Optional[str] = Header(None)
+    x_api_key:    Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     VGS-014: Jurisdictional Memory Sovereignty.
@@ -13335,7 +13351,7 @@ async def memory_sovereign_partition(
     return get_jurisdictional_memory_partition(jurisdiction)
 
 @app.get("/v1/memory/registry", tags=["VGS-014 Constitutional Memory"])
-async def memory_registry(x_api_key: Optional[str] = Header(None)):
+async def memory_registry(x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """List all classified memory records."""
     require_api_key(x_api_key, authorization)
     return {
@@ -13347,7 +13363,7 @@ async def memory_registry(x_api_key: Optional[str] = Header(None)):
     }
 
 @app.get("/v1/memory/classes", tags=["VGS-014 Constitutional Memory"])
-async def memory_classes(x_api_key: Optional[str] = Header(None)):
+async def memory_classes(x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """
     VGS-014: Memory class taxonomy.
     REGULATED · CONFIDENTIAL · OPERATIONAL
@@ -13802,7 +13818,7 @@ async def impossibility_certificate(
     )
 
 @app.get("/v1/impossibility/kernel", tags=["VGS-015 Structural Impossibility"])
-async def admissibility_kernel(x_api_key: Optional[str] = Header(None)):
+async def admissibility_kernel(x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """
     VGS-015: Admissibility Kernel specification.
     The execution gate — nothing executes outside it.
@@ -13819,7 +13835,7 @@ async def admissibility_kernel(x_api_key: Optional[str] = Header(None)):
     }
 
 @app.get("/v1/impossibility/invariants", tags=["VGS-015 Structural Impossibility"])
-async def impossibility_invariants(x_api_key: Optional[str] = Header(None)):
+async def impossibility_invariants(x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """All structural impossibility invariants — VER-INV-009 through VER-INV-015."""
     require_api_key(x_api_key, authorization)
     return {
@@ -14152,7 +14168,7 @@ async def path_topology(
     )
 
 @app.get("/v1/path/standard", tags=["VGS-015 Execution Path Topology"])
-async def path_standard(x_api_key: Optional[str] = Header(None)):
+async def path_standard(x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """
     The Leo Michaels standard — formally documented.
     "Systems claiming safety must prove the executable
@@ -14456,7 +14472,7 @@ async def genesis_revoke(
     return result
 
 @app.get("/v1/genesis/registry", tags=["VGS-000 Agent Genesis Infrastructure"])
-async def genesis_registry_list(x_api_key: Optional[str] = Header(None)):
+async def genesis_registry_list(x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """List all registered agent genesis records."""
     require_api_key(x_api_key, authorization)
     return {
@@ -14469,7 +14485,8 @@ async def genesis_registry_list(x_api_key: Optional[str] = Header(None)):
 @app.get("/v1/genesis/{genesis_id}", tags=["VGS-000 Agent Genesis Infrastructure"])
 async def genesis_get(
     genesis_id: str,
-    x_api_key:  Optional[str] = Header(None)
+    x_api_key:  Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """Get genesis record by ID — root of trust lookup."""
     require_api_key(x_api_key, authorization)
@@ -14478,7 +14495,7 @@ async def genesis_get(
     return _GENESIS_REGISTRY[genesis_id]
 
 @app.get("/v1/genesis/architecture/sovereign", tags=["VGS-000 Agent Genesis Infrastructure"])
-async def sovereign_architecture(x_api_key: Optional[str] = Header(None)):
+async def sovereign_architecture(x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """
     The full Sovereign Execution Infrastructure architecture.
     All 11 layers documented and linked to endpoints.
@@ -14831,7 +14848,7 @@ async def governance_connector(
     return result
 
 @app.get("/v1/connector/targets", tags=["Governance Continuity Connector"])
-async def connector_targets(x_api_key: Optional[str] = Header(None)):
+async def connector_targets(x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """List all supported connector target systems."""
     require_api_key(x_api_key, authorization)
     return {
@@ -15177,7 +15194,7 @@ async def incident_report(
     return result
 
 @app.get("/v1/incident/registry", tags=["EU AI Act Compliance"])
-async def incident_registry(x_api_key: Optional[str] = Header(None)):
+async def incident_registry(x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """List all reported incidents — Article 72 monitoring log."""
     require_api_key(x_api_key, authorization)
     return {
@@ -15188,7 +15205,7 @@ async def incident_registry(x_api_key: Optional[str] = Header(None)):
     }
 
 @app.get("/v1/classification/annex-iii/categories", tags=["EU AI Act Compliance"])
-async def annex_iii_categories(x_api_key: Optional[str] = Header(None)):
+async def annex_iii_categories(x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """All 8 Annex III high-risk categories with VeriSigil controls."""
     require_api_key(x_api_key, authorization)
     return {
@@ -15544,27 +15561,27 @@ class PDFReportRequest(BaseModel):
 
 # 1. Multi-Tenant
 @app.post("/v1/tenant/register", tags=["Multi-Tenant Support"])
-async def tenant_register(req: TenantRequest, x_api_key: Optional[str] = Header(None)):
+async def tenant_register(req: TenantRequest, x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """Register a new tenant — isolated governance namespace. SaaS readiness."""
     require_api_key(x_api_key, authorization)
     result = register_tenant(req.tenant_id, req.org_name, req.plan, req.jurisdiction, req.admin_email)
     return result
 
 @app.get("/v1/tenant/registry", tags=["Multi-Tenant Support"])
-async def tenant_registry(x_api_key: Optional[str] = Header(None)):
+async def tenant_registry(x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """List all registered tenants."""
     require_api_key(x_api_key, authorization)
     return {"total":len(_TENANT_REGISTRY),"tenants":list(_TENANT_REGISTRY.values())}
 
 @app.get("/v1/tenant/plans", tags=["Multi-Tenant Support"])
-async def tenant_plans(x_api_key: Optional[str] = Header(None)):
+async def tenant_plans(x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """Available tenant plans and features."""
     require_api_key(x_api_key, authorization)
     return {"plans":{"STARTER":"$499/mo","PROFESSIONAL":"$2499/mo","ENTERPRISE":"Custom","GOVERNMENT":"Custom"},"schema":"VGS-TENANT-1.0"}
 
 # 2. SIEM Integration
 @app.post("/v1/siem/event", tags=["SIEM Integration"])
-async def siem_event(req: SIEMEventRequest, x_api_key: Optional[str] = Header(None)):
+async def siem_event(req: SIEMEventRequest, x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """
     Format governance event for SIEM ingestion.
     Supports: Splunk, Datadog, Azure Sentinel, Elastic, CrowdStrike, IBM QRadar.
@@ -15574,14 +15591,14 @@ async def siem_event(req: SIEMEventRequest, x_api_key: Optional[str] = Header(No
     return format_siem_event(req.event_type, req.agent_id, req.decision, req.evidence_id, req.jurisdiction, req.severity, req.siem_target)
 
 @app.get("/v1/siem/targets", tags=["SIEM Integration"])
-async def siem_targets(x_api_key: Optional[str] = Header(None)):
+async def siem_targets(x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """List all supported SIEM integration targets."""
     require_api_key(x_api_key, authorization)
     return {"schema":"VGS-SIEM-1.0","targets":SIEM_TARGETS,"total":len(SIEM_TARGETS)}
 
 # 3. Enterprise Connectors
 @app.post("/v1/enterprise/connector", tags=["Enterprise Connectors"])
-async def enterprise_connector(req: EnterpriseConnectorRequest, x_api_key: Optional[str] = Header(None)):
+async def enterprise_connector(req: EnterpriseConnectorRequest, x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """
     Enterprise Connector Manifest.
     SAP, Salesforce, Workday, ServiceNow, Oracle, Microsoft 365.
@@ -15591,14 +15608,14 @@ async def enterprise_connector(req: EnterpriseConnectorRequest, x_api_key: Optio
     return build_enterprise_connector_manifest(req.agent_id, req.target_system, req.action_type, req.trust_score, req.jurisdiction)
 
 @app.get("/v1/enterprise/systems", tags=["Enterprise Connectors"])
-async def enterprise_systems(x_api_key: Optional[str] = Header(None)):
+async def enterprise_systems(x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """List all supported enterprise systems."""
     require_api_key(x_api_key, authorization)
     return {"schema":"VGS-ECM-1.0","systems":ENTERPRISE_SYSTEMS,"total":len(ENTERPRISE_SYSTEMS)}
 
 # 4. PDF Compliance Report
 @app.post("/v1/report/compliance-pdf", tags=["EU AI Act Compliance"])
-async def compliance_pdf(req: PDFReportRequest, x_api_key: Optional[str] = Header(None)):
+async def compliance_pdf(req: PDFReportRequest, x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """
     Compliance report content for PDF export.
     EU AI Act article-by-article + Board governance questions.
@@ -15619,7 +15636,7 @@ async def compliance_pdf(req: PDFReportRequest, x_api_key: Optional[str] = Heade
 
 # 5. SDK Registry
 @app.get("/v1/sdk/registry", tags=["SDK Registry"])
-async def sdk_registry(x_api_key: Optional[str] = Header(None)):
+async def sdk_registry(x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """
     VeriSigil SDK registry.
     Python + Node.js: STABLE.
@@ -15630,7 +15647,7 @@ async def sdk_registry(x_api_key: Optional[str] = Header(None)):
 
 # 6. Zenodo Publication Record
 @app.get("/v1/publication/zenodo", tags=["Formal Specification"])
-async def zenodo_publication(x_api_key: Optional[str] = Header(None)):
+async def zenodo_publication(x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """
     VeriSigil formal specification publication.
     DOI: https://doi.org/10.5281/zenodo.20264923
@@ -15641,7 +15658,7 @@ async def zenodo_publication(x_api_key: Optional[str] = Header(None)):
 
 # 7. Complete Architecture Overview
 @app.get("/v1/architecture/complete", tags=["Formal Specification"])
-async def architecture_complete(x_api_key: Optional[str] = Header(None)):
+async def architecture_complete(x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """
     Complete VeriSigil Sovereign Architecture.
     All 11 layers. 160 endpoints. VGS-000 to VGS-015.
@@ -15973,7 +15990,7 @@ async def survivability_chain(
     }
 
 @app.get("/v1/survivability/framing", tags=["VGS-016 Orchestration Survivability"])
-async def survivability_framing(x_api_key: Optional[str] = Header(None)):
+async def survivability_framing(x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """
     Orchestration survivability framing — formally documented.
     VeriSigil + orchestration layer architectural relationship.
@@ -16575,7 +16592,7 @@ class RegulatorPackageRequest(BaseModel):
 
 # 1. AI Birth Certificate
 @app.post("/v1/birth-certificate/issue", tags=["Sovereign AI Identity Lifecycle"])
-async def birth_certificate_issue(req: BirthCertRequest, x_api_key: Optional[str] = Header(None)):
+async def birth_certificate_issue(req: BirthCertRequest, x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """
     AI Birth Certificate — Sovereign identity root.
     Expert: "the legal identity root of the AI agent."
@@ -16596,7 +16613,7 @@ async def birth_certificate_issue(req: BirthCertRequest, x_api_key: Optional[str
 
 # 2. AI Visa
 @app.post("/v1/visa/issue", tags=["Sovereign AI Identity Lifecycle"])
-async def criminal_record_add(req: CriminalViolationRequest, x_api_key: Optional[str] = Header(None)):
+async def criminal_record_add(req: CriminalViolationRequest, x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """Record a violation in the AI agent criminal record."""
     require_api_key(x_api_key, authorization)
     return record_criminal_violation(
@@ -16605,7 +16622,7 @@ async def criminal_record_add(req: CriminalViolationRequest, x_api_key: Optional
     )
 
 @app.get("/v1/criminal-record/{agent_did}", tags=["Sovereign AI Identity Lifecycle"])
-async def criminal_record_get(agent_did: str, x_api_key: Optional[str] = Header(None)):
+async def criminal_record_get(agent_did: str, x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """
     AI Criminal Record — Full violation history.
     Expert: "enterprise AI liability infrastructure."
@@ -16615,7 +16632,7 @@ async def criminal_record_get(agent_did: str, x_api_key: Optional[str] = Header(
 
 # 4. Full Identity Lifecycle
 @app.get("/v1/identity/lifecycle/{agent_did}", tags=["Sovereign AI Identity Lifecycle"])
-async def identity_lifecycle(agent_did: str, genesis_id: str = "", x_api_key: Optional[str] = Header(None)):
+async def identity_lifecycle(agent_did: str, genesis_id: str = "", x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """
     Full sovereign AI identity lifecycle chain.
     Identity → Authority → Admissibility → Execution
@@ -16625,7 +16642,7 @@ async def identity_lifecycle(agent_did: str, genesis_id: str = "", x_api_key: Op
     return get_identity_lifecycle(agent_did, genesis_id)
 
 @app.get("/v1/identity/sovereign-stack", tags=["Sovereign AI Identity Lifecycle"])
-async def sovereign_stack(x_api_key: Optional[str] = Header(None)):
+async def sovereign_stack(x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """The complete sovereign AI identity infrastructure."""
     require_api_key(x_api_key, authorization)
     return {
@@ -16647,7 +16664,7 @@ async def sovereign_stack(x_api_key: Optional[str] = Header(None)):
 
 # 5. Regulator Verification Portal
 @app.post("/v1/regulator/package", tags=["Sovereign AI Identity Lifecycle"])
-async def regulator_package(req: RegulatorPackageRequest, x_api_key: Optional[str] = Header(None)):
+async def regulator_package(req: RegulatorPackageRequest, x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """
     Regulator Verification Package.
     Complete governance record for regulatory submission.
@@ -16660,43 +16677,43 @@ async def regulator_package(req: RegulatorPackageRequest, x_api_key: Optional[st
 
 # 6. Infrastructure / Compliance Readiness
 @app.get("/v1/infrastructure/database", tags=["Enterprise Infrastructure"])
-async def infrastructure_database(x_api_key: Optional[str] = Header(None)):
+async def infrastructure_database(x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """Database configuration + persistence status."""
     require_api_key(x_api_key, authorization)
     return {"schema":"VGS-INFRA-1.0","database":DATABASE_CONFIG,"migration":DB_MIGRATION_STATUS}
 
 @app.get("/v1/infrastructure/nitro", tags=["Enterprise Infrastructure"])
-async def infrastructure_nitro(x_api_key: Optional[str] = Header(None)):
+async def infrastructure_nitro(x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """AWS Nitro attestation configuration + status."""
     require_api_key(x_api_key, authorization)
     return {"schema":"VGS-INFRA-1.0","nitro":NITRO_CONFIG,"live_check":verify_nitro_attestation_real("self")}
 
 @app.get("/v1/compliance/soc2-readiness", tags=["Enterprise Infrastructure"])
-async def soc2_readiness(x_api_key: Optional[str] = Header(None)):
+async def soc2_readiness(x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """SOC 2 Type I readiness assessment."""
     require_api_key(x_api_key, authorization)
     return SOC2_READINESS
 
 @app.get("/v1/compliance/iso42001-gap", tags=["Enterprise Infrastructure"])
-async def iso42001_gap(x_api_key: Optional[str] = Header(None)):
+async def iso42001_gap(x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """ISO 42001 gap assessment for AI management system certification."""
     require_api_key(x_api_key, authorization)
     return ISO42001_GAP
 
 @app.get("/v1/network/sovereign", tags=["Enterprise Infrastructure"])
-async def sovereign_network(x_api_key: Optional[str] = Header(None)):
+async def sovereign_network(x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """Sovereign AI Trust Network architecture."""
     require_api_key(x_api_key, authorization)
     return SOVEREIGN_TRUST_NETWORK
 
 @app.post("/v1/infrastructure/nitro/verify", tags=["Enterprise Infrastructure"])
-async def nitro_verify(instance_id: str = "self", chip_serial: str = "", x_api_key: Optional[str] = Header(None)):
+async def nitro_verify(instance_id: str = "self", chip_serial: str = "", x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """Real AWS Nitro attestation (software fallback if Nitro not enabled)."""
     require_api_key(x_api_key, authorization)
     return verify_nitro_attestation_real(instance_id, chip_serial)
 
 @app.get("/v1/infrastructure/deployment-guide", tags=["Enterprise Infrastructure"])
-async def deployment_guide(x_api_key: Optional[str] = Header(None)):
+async def deployment_guide(x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """Enterprise deployment guide — architecture + steps."""
     require_api_key(x_api_key, authorization)
     return {
@@ -17054,7 +17071,7 @@ async def execution_readiness(
     return result
 
 @app.get("/v1/execution/governance-sequence", tags=["Structural Execution Formation"])
-async def governance_sequence(x_api_key: Optional[str] = Header(None)):
+async def governance_sequence(x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """
     The Governance Dependency Graph — all 9 sequential nodes.
     Every node must be satisfied before execution can form.
@@ -17274,7 +17291,8 @@ async def provision_key(
 @app.get("/v1/usage/{api_key_prefix}", tags=["Revenue Infrastructure"])
 async def usage_stats(
     api_key_prefix: str,
-    x_api_key:      Optional[str] = Header(None)
+    x_api_key:      Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Usage statistics for a provisioned API key.
@@ -17288,7 +17306,7 @@ async def usage_stats(
     return {"error": "API key not found", "prefix": api_key_prefix}
 
 @app.get("/v1/usage/summary/all", tags=["Revenue Infrastructure"])
-async def usage_summary(x_api_key: Optional[str] = Header(None)):
+async def usage_summary(x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """All tenant usage summary — admin view."""
     require_api_key(x_api_key, authorization)
     return {
@@ -17704,7 +17722,7 @@ async def atf_semantic_alignment(
     )
 
 @app.get("/v1/atf/core-terms", tags=["VGS-017 ATF Bridge"])
-async def atf_core_terms(x_api_key: Optional[str] = Header(None)):
+async def atf_core_terms(x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """All 8 ATF core terms with VGS field mappings."""
     require_api_key(x_api_key, authorization)
     return {
@@ -17718,7 +17736,7 @@ async def atf_core_terms(x_api_key: Optional[str] = Header(None)):
     }
 
 @app.get("/v1/atf/receipt-types", tags=["VGS-017 ATF Bridge"])
-async def atf_receipt_types(x_api_key: Optional[str] = Header(None)):
+async def atf_receipt_types(x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """All 7 ATF receipt types with VGS equivalents."""
     require_api_key(x_api_key, authorization)
     return {
@@ -18222,7 +18240,7 @@ async def memory_transfer(
     )
 
 @app.get("/v1/memory/isolation-zones", tags=["VGS-014 Constitutional Memory"])
-async def memory_isolation_zones(x_api_key: Optional[str] = Header(None)):
+async def memory_isolation_zones(x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """
     Memory Isolation Zones — separation of concerns.
     OPERATIONAL / REASONING / SOVEREIGN / REGULATED /
@@ -18238,7 +18256,7 @@ async def memory_isolation_zones(x_api_key: Optional[str] = Header(None)):
     }
 
 @app.get("/v1/memory/identity/ledger", tags=["VGS-014 Constitutional Memory"])
-async def memory_identity_ledger(x_api_key: Optional[str] = Header(None)):
+async def memory_identity_ledger(x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """Full Memory Identity Ledger — all registered memory objects."""
     require_api_key(x_api_key, authorization)
     return {
@@ -18684,7 +18702,7 @@ async def cognitive_admissibility(
     return result
 
 @app.get("/v1/cognitive/domains", tags=["VGS-018 Cognitive Admissibility"])
-async def cognitive_domains(x_api_key: Optional[str] = Header(None)):
+async def cognitive_domains(x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """
     VGS-018: All cognitive consequence domains.
     MEDICAL · LEGAL · FINANCIAL · PSYCHOLOGICAL
@@ -18700,7 +18718,7 @@ async def cognitive_domains(x_api_key: Optional[str] = Header(None)):
     }
 
 @app.get("/v1/cognitive/full-spectrum", tags=["VGS-018 Cognitive Admissibility"])
-async def cognitive_full_spectrum(x_api_key: Optional[str] = Header(None)):
+async def cognitive_full_spectrum(x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """
     Full-Spectrum Consequence Governance architecture.
     Layer 1: Cognitive (VGS-018) + Layer 2: Execution (VGS-001).
@@ -18953,7 +18971,8 @@ class RELRequest(BaseModel):
 
 @app.post("/v1/enforcement/intercept", tags=["Runtime Enforcement Layer"])
 async def enforcement_intercept(
-    req: RELRequest, x_api_key: Optional[str] = Header(None)
+    req: RELRequest, x_api_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Runtime Enforcement Layer (REL).
@@ -18977,7 +18996,7 @@ async def enforcement_intercept(
     return result
 
 @app.get("/v1/enforcement/interception-points", tags=["Runtime Enforcement Layer"])
-async def enforcement_points(x_api_key: Optional[str] = Header(None)):
+async def enforcement_points(x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """All 7 REL interception points with VGS gate mappings."""
     require_api_key(x_api_key, authorization)
     return {
@@ -18988,7 +19007,7 @@ async def enforcement_points(x_api_key: Optional[str] = Header(None)):
     }
 
 @app.get("/v1/policy/marketplace", tags=["Governance Policy Marketplace"])
-async def policy_marketplace(x_api_key: Optional[str] = Header(None)):
+async def policy_marketplace(x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """
     Governance Policy Marketplace.
     Install jurisdiction-specific governance packs.
@@ -19519,7 +19538,8 @@ async def gcm_converge_full(
 @app.post("/v1/gcm/seal/{session_id}", tags=["VGS-019 Governance Convergence Mesh"])
 async def gcm_seal(
     session_id: str,
-    x_api_key:  Optional[str] = Header(None)
+    x_api_key:  Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     VGS-019: Seal a GCM session after execution.
@@ -19532,7 +19552,8 @@ async def gcm_seal(
 @app.get("/v1/gcm/session/{session_id}", tags=["VGS-019 Governance Convergence Mesh"])
 async def gcm_session_get(
     session_id: str,
-    x_api_key:  Optional[str] = Header(None)
+    x_api_key:  Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """Get current state of a GCM session."""
     require_api_key(x_api_key, authorization)
@@ -19544,7 +19565,8 @@ async def gcm_session_get(
 @app.post("/v1/gcm/replay/{session_id}", tags=["VGS-019 Governance Convergence Mesh"])
 async def gcm_replay(
     session_id: str,
-    x_api_key:  Optional[str] = Header(None)
+    x_api_key:  Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     VGS-019: Governance Continuity Replay Engine.
@@ -19556,7 +19578,7 @@ async def gcm_replay(
     return replay_gcm_session(session_id)
 
 @app.get("/v1/gcm/chain", tags=["VGS-019 Governance Convergence Mesh"])
-async def gcm_chain(x_api_key: Optional[str] = Header(None)):
+async def gcm_chain(x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """
     Unified Merkle Governance Chain.
     Every evaluation from every runtime logged here.
@@ -19573,7 +19595,7 @@ async def gcm_chain(x_api_key: Optional[str] = Header(None)):
     }
 
 @app.get("/v1/gcm/conflict-table", tags=["VGS-019 Governance Convergence Mesh"])
-async def gcm_conflict_table(x_api_key: Optional[str] = Header(None)):
+async def gcm_conflict_table(x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """
     Conflict Resolution Engine (CRE).
     Sovereign Safety Invariant: RESTRICTIVE WINS.
@@ -19589,7 +19611,7 @@ async def gcm_conflict_table(x_api_key: Optional[str] = Header(None)):
     }
 
 @app.get("/v1/gcm/architecture", tags=["VGS-019 Governance Convergence Mesh"])
-async def gcm_architecture(x_api_key: Optional[str] = Header(None)):
+async def gcm_architecture(x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """
     VGS-019 Governance Convergence Mesh architecture.
     Full framing: bidirectional authority convergence
@@ -20117,7 +20139,7 @@ async def rcr_survivability_bridge(
     return result
 
 @app.get("/v1/atf/mapping-tables", tags=["VGS-017 ATF Bridge"])
-async def atf_mapping_tables(x_api_key: Optional[str] = Header(None)):
+async def atf_mapping_tables(x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """
     Complete ATF ↔ VGS formal mapping tables.
     TAR ↔ TAP + RCR ↔ Survivability.
@@ -20467,7 +20489,7 @@ async def batch_verify(
 
 @app.get("/v1/document/corruption-vectors",
          tags=["Autonomous Execution Integrity Governance"])
-async def corruption_vectors(x_api_key: Optional[str] = Header(None)):
+async def corruption_vectors(x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """
     All 4 corruption vectors with examples and severity.
     What VeriSigil detects that no other platform catches.
@@ -20619,7 +20641,8 @@ async def manual_onboard(
     name:       str,
     company:    str,
     plan:       str = "starter",
-    x_api_key:  Optional[str] = Header(None)
+    x_api_key:  Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None)
 ):
     """
     Manually onboard a customer — same as webhook but triggered by you.
@@ -20656,7 +20679,7 @@ async def manual_onboard(
 # ============================================================
 
 @app.get("/v1/customers", tags=["Onboarding"])
-async def list_customers(x_api_key: Optional[str] = Header(None)):
+async def list_customers(x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """List all customers — your internal dashboard."""
     require_api_key(x_api_key, authorization)
     customers = list(_customers.values())
@@ -20689,7 +20712,7 @@ async def list_customers(x_api_key: Optional[str] = Header(None)):
     }
 
 @app.get("/v1/customers/{org_id}", tags=["Onboarding"])
-async def get_customer(org_id: str, x_api_key: Optional[str] = Header(None)):
+async def get_customer(org_id: str, x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """Get a specific customer record."""
     require_api_key(x_api_key, authorization)
     customer = _customers.get(org_id)
@@ -20725,7 +20748,7 @@ async def get_chain(
     }
 
 @app.get("/v1/chain/verify", tags=["Audit Chain"])
-async def verify_chain(x_api_key: Optional[str] = Header(None)):
+async def verify_chain(x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """
     Verify entire chain integrity — recomputes every hash from scratch.
     Returns drift_detected: true if any block was tampered with.
@@ -20761,7 +20784,7 @@ async def replay_execution(
     return result
 
 @app.get("/v1/chain/stats", tags=["Audit Chain"])
-async def chain_stats(x_api_key: Optional[str] = Header(None)):
+async def chain_stats(x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """
     Chain statistics — blocks, decisions, drift detection summary.
     """
@@ -20799,7 +20822,8 @@ async def test_policy(
     action_type:    str = "payment",
     trust_score:    float = 0.963,
     action_details: dict = None,
-    x_api_key:      Optional[str] = Header(None)
+    x_api_key:      Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Test a policy rule without executing anything.
@@ -20833,7 +20857,8 @@ async def test_policy(
 async def reset_policy(
     org_id:      str,
     action_type: Optional[str] = None,
-    x_api_key:   Optional[str] = Header(None)
+    x_api_key:   Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """Reset policy to platform defaults."""
     require_api_key(x_api_key, authorization)
@@ -21096,7 +21121,7 @@ async def did_resolution(agent_id: str):
 # ── SECURITY SCAN ─────────────────────────────────────────────
 
 @app.post("/v1/security/scan")
-async def scan(req: ScanReq, x_api_key: Optional[str] = Header(None)):
+async def scan(req: ScanReq, x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     require_api_key(x_api_key, authorization)
     threats, seen = [], set()
     lines    = req.code.split("\n")
@@ -21143,7 +21168,7 @@ async def scan(req: ScanReq, x_api_key: Optional[str] = Header(None)):
 # ── COMPLIANCE ────────────────────────────────────────────────
 
 @app.post("/v1/compliance/check")
-async def compliance(req: ComplianceReq, x_api_key: Optional[str] = Header(None)):
+async def compliance(req: ComplianceReq, x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     require_api_key(x_api_key, authorization)
     result = {}
     if "eu_ai_act" in req.regulations:
@@ -21158,7 +21183,7 @@ async def compliance(req: ComplianceReq, x_api_key: Optional[str] = Header(None)
 # ── ACTION EVALUATE ───────────────────────────────────────────
 
 @app.post("/v1/action/evaluate", tags=["Action Evaluation"])
-async def evaluate_action(req: ActionEvaluateRequest, x_api_key: Optional[str] = Header(None)):
+async def evaluate_action(req: ActionEvaluateRequest, x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     require_api_key(x_api_key, authorization)
     p = await db_get("passports", "agent_id", req.agent_id)
     if not p:
@@ -21236,7 +21261,7 @@ async def register_verifier(req: RegisterVerifierReq):
             "message": "Welcome to VeriSigil! Use your api_key in the x-api-key header when calling /verify endpoints."}
 
 @app.get("/v1/verifiers", tags=["Verifiers"])
-async def list_verifiers(x_api_key: Optional[str] = Header(None)):
+async def list_verifiers(x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     require_api_key(x_api_key, authorization)
     async with httpx.AsyncClient() as c:
         r = await c.get(f"{SUPABASE_URL}/rest/v1/verifiers?order=created_at.desc",
@@ -21261,7 +21286,7 @@ async def join_waitlist(data: WaitlistSignup):
 # ── SIGILGUARD ────────────────────────────────────────────────
 
 @app.post("/v1/sigilguard/event", tags=["SigilGuard"])
-async def log_sigilguard_event(event: SigilGuardEvent, x_api_key: Optional[str] = Header(None)):
+async def log_sigilguard_event(event: SigilGuardEvent, x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     require_api_key(x_api_key, authorization)
     try:
         result = await db_insert("sigilguard_events", {
@@ -21596,7 +21621,7 @@ async def gate_verify(
         reason=" | ".join(reasons) if reasons else None)
 
 @app.get("/v1/guard/sdk", tags=["Runtime Guard"])
-async def get_sdk_integration(x_api_key: Optional[str] = Header(None)):
+async def get_sdk_integration(x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     require_api_key(x_api_key, authorization)
     return {
         "sdk_snippet": '''
@@ -23574,7 +23599,8 @@ async def inventory_list(
     state:      Optional[str] = None,
     role:       Optional[str] = None,
     jurisdiction:Optional[str]= None,
-    x_api_key:  Optional[str] = Header(None)
+    x_api_key:  Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """List all registered agents with optional filters."""
     require_api_key(x_api_key, authorization)
@@ -23592,7 +23618,7 @@ async def inventory_list(
     }
 
 @app.get("/v1/inventory/summary/all", tags=["VGS-020 Agent Inventory"])
-async def inventory_summary(x_api_key: Optional[str] = Header(None)):
+async def inventory_summary(x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """Full inventory summary — counts, states, trust distribution."""
     require_api_key(x_api_key, authorization)
     return get_inventory_summary()
@@ -23612,7 +23638,7 @@ async def inventory_events(
     return {"total":len(events),"events":events[-limit:]}
 
 @app.get("/v1/inventory/roles/list", tags=["VGS-020 Agent Inventory"])
-async def inventory_roles(x_api_key: Optional[str] = Header(None)):
+async def inventory_roles(x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """All valid agent roles and states."""
     require_api_key(x_api_key, authorization)
     return {"roles":AGENT_ROLES,"states":AGENT_STATES,"schema":"VGS-020"}
@@ -23723,7 +23749,7 @@ async def shadow_get_fingerprint(
     }
 
 @app.get("/v1/shadow/vectors", tags=["VGS-021 Shadow Detection"])
-async def shadow_attack_vectors(x_api_key: Optional[str] = Header(None)):
+async def shadow_attack_vectors(x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """All 7 shadow detection attack vectors with severity and weight."""
     require_api_key(x_api_key, authorization)
     return {
@@ -23781,7 +23807,7 @@ async def topology_add_edge(
     )
 
 @app.get("/v1/topology/graph", tags=["VGS-022 Topology Mapping"])
-async def topology_get_graph(x_api_key: Optional[str] = Header(None)):
+async def topology_get_graph(x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """
     Full topology graph — all nodes, edges, clusters, metrics.
     Use this to render the VeriSigil agent relationship map.
@@ -23792,13 +23818,13 @@ async def topology_get_graph(x_api_key: Optional[str] = Header(None)):
     return get_topology_graph()
 
 @app.get("/v1/topology/metrics", tags=["VGS-022 Topology Mapping"])
-async def topology_get_metrics(x_api_key: Optional[str] = Header(None)):
+async def topology_get_metrics(x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """Topology risk metrics — hubs, isolated agents, concentration."""
     require_api_key(x_api_key, authorization)
     return compute_topology_metrics()
 
 @app.get("/v1/topology/edge-types", tags=["VGS-022 Topology Mapping"])
-async def topology_edge_types(x_api_key: Optional[str] = Header(None)):
+async def topology_edge_types(x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """All supported topology edge types."""
     require_api_key(x_api_key, authorization)
     return {"edge_types": EDGE_TYPES, "schema": "VGS-022"}
@@ -23810,7 +23836,8 @@ async def topology_edge_types(x_api_key: Optional[str] = Header(None)):
 async def governance_dashboard(
     org_id:      str = "default",
     time_window: str = "24h",
-    x_api_key:   Optional[str] = Header(None)
+    x_api_key:   Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     VGS-023: Full Governance Dashboard.
@@ -29749,6 +29776,7 @@ async def cognitive_challenge(
 async def cognitive_history(
     reviewer_id: str,
     x_api_key:   Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """Get cognitive challenge history for a reviewer — detect judgment erosion over time."""
     require_api_key(x_api_key, authorization)
@@ -29879,6 +29907,7 @@ async def escalation_register(
 async def escalation_status(
     escalation_id: str,
     x_api_key:     Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """Check escalation integrity status — has human responded within window?"""
     require_api_key(x_api_key, authorization)
@@ -32209,6 +32238,7 @@ async def concurrence_approve(
 async def concurrence_workflow_status(
     workflow_id: str,
     x_api_key:   Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """Get full concurrence workflow status — all approvals, tokens, legitimacy graph."""
     require_api_key(x_api_key, authorization)
@@ -32252,6 +32282,7 @@ async def concurrence_threshold(
     action_type:     str  = "PAYMENT_EXECUTION",
     financial_amount:float= 0.0,
     x_api_key:       Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Concurrence Threshold Advisor.
@@ -32307,6 +32338,7 @@ async def concurrence_threshold(
 async def concurrence_proof(
     workflow_id: str,
     x_api_key:   Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Sequence Integrity Proof.
@@ -33705,6 +33737,7 @@ from fastapi import Header as FastAPIHeader
          tags=["System"])
 async def db_status(
     x_api_key: Optional[str] = FastAPIHeader(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Database persistence status.
@@ -33748,6 +33781,7 @@ async def db_status(
          tags=["System"])
 async def db_schema(
     x_api_key: Optional[str] = FastAPIHeader(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Returns the SQL schema to run in Supabase SQL Editor.
@@ -34924,6 +34958,7 @@ async def evidence_reconstruct(
     agent_id:     str,
     incident_id:  str = "",
     x_api_key:    Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Incident Reconstruction.
@@ -35618,6 +35653,7 @@ async def causality_record(
 async def get_causality(
     execution_id: str,
     x_api_key:    Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """Retrieve governance causality graph for an execution."""
     require_api_key(x_api_key, authorization)
@@ -37233,6 +37269,7 @@ async def sdk_admissibility_check(
     consequence: str = "MEDIUM",
     jurisdiction:str = "GLOBAL",
     x_api_key:   Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     @require_admissibility — SDK primitive.
@@ -37338,6 +37375,7 @@ async def sdk_human_continuity_check(
     reviewer_id: str,
     agent_id:    str,
     x_api_key:   Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     @require_human_continuity — SDK primitive.
@@ -37413,6 +37451,7 @@ async def sdk_bounded_execution_check(
     financial_impact:  float = 0.0,
     reversible:        bool  = True,
     x_api_key:         Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     @bounded_execution — SDK primitive.
@@ -38568,6 +38607,7 @@ async def risk_impact_classify(
     consequence:   str = "MEDIUM",
     domain:        str = "general",
     x_api_key:     Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """Classify the impact level of an AI action for risk assessment."""
     require_api_key(x_api_key, authorization)
@@ -38607,6 +38647,7 @@ async def risk_impact_classify(
 async def risk_evidence_verify(
     assessment_id: str,
     x_api_key:     Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """Verify the cryptographic seal of a risk assessment — offline verifiable."""
     require_api_key(x_api_key, authorization)
@@ -38644,6 +38685,7 @@ async def risk_evidence_verify(
 async def risk_replay(
     assessment_id: str,
     x_api_key:     Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """Replay a risk assessment — reconstruct exact governance state at assessment time."""
     require_api_key(x_api_key, authorization)
@@ -38768,6 +38810,7 @@ async def evidence_ledger_query(
     decision:   str = "",
     limit:      int = 50,
     x_api_key:  Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """Query the governance evidence ledger — filter by agent, decision, or time."""
     require_api_key(x_api_key, authorization)
@@ -39101,6 +39144,7 @@ async def nonconformity_close(
     closed_by:   str,
     closure_note:str = "",
     x_api_key:   Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """Close a nonconformity after corrective action verified."""
     require_api_key(x_api_key, authorization)
@@ -39226,6 +39270,7 @@ async def rootcause_trace(
     governance_gap:   str = "",
     traced_by:        str = "",
     x_api_key:        Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Root Cause Trace — Identify why the governance failure occurred.
@@ -43032,7 +43077,7 @@ class PilotRequest(BaseModel):
     jurisdiction: str = "EU"
 
 @app.post("/v1/pilot/offer", tags=["Commercial"])
-async def pilot_offer(req: PilotRequest, x_api_key: Optional[str] = Header(None)):
+async def pilot_offer(req: PilotRequest, x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """
     VeriSigil Constitutional Pilot — 30 Days, No Cost.
     Expert: "One signed pilot LOI converts technical depth into revenue validation."
@@ -43092,7 +43137,7 @@ async def pilot_offer(req: PilotRequest, x_api_key: Optional[str] = Header(None)
 
 
 @app.get("/v1/regulatory/nitda", tags=["Regulatory"])
-async def nitda_nigeria(x_api_key: Optional[str] = Header(None)):
+async def nitda_nigeria(x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """
     NITDA Nigeria — National AI Identity Framework.
     Expert: "Engage NITDA Nigeria. Offer National AI Identity Framework.
@@ -43142,7 +43187,7 @@ async def nitda_nigeria(x_api_key: Optional[str] = Header(None)):
 
 
 @app.get("/v1/platform", tags=["VeriSigil Platform"])
-async def platform_overview(x_api_key: Optional[str] = Header(None)):
+async def platform_overview(x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """
     VeriSigil Platform — Unified Overview.
     The single endpoint for enterprise buyers, investors, and partners.
@@ -43508,6 +43553,7 @@ async def gateway_prove(
 async def gateway_resilience(
     passport_id: str,
     x_api_key:   Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Constitutional Gateway — Constitutional Resilience Score.
@@ -44113,7 +44159,7 @@ class PogcVerifyRequest(BaseModel):
 
 
 @app.get("/v1/pogr/certificate/first", tags=["PoGR Integration"])
-async def pogr_first_certificate(x_api_key: Optional[str] = Header(None)):
+async def pogr_first_certificate(x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """
     The Historic First PoGR Certificate — Issued to VeriSigil AI.
     POGC-EXT-A7F3C2B1D9E4F508 · OMNIX QUANTUM LTD · 2026-05-30
@@ -44147,7 +44193,7 @@ async def pogr_first_certificate(x_api_key: Optional[str] = Header(None)):
 
 
 @app.get("/v1/pogr/certificate/{pogc_id}", tags=["PoGR Integration"])
-async def pogr_get_certificate(pogc_id: str, x_api_key: Optional[str] = Header(None)):
+async def pogr_get_certificate(pogc_id: str, x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """Retrieve a PoGR Certificate by ID from the VeriSigil ledger."""
     require_api_key(x_api_key, authorization)
     cert = _POGR_LEDGER.get(pogc_id)
@@ -44167,7 +44213,7 @@ async def pogr_get_certificate(pogc_id: str, x_api_key: Optional[str] = Header(N
 
 
 @app.post("/v1/pogr/verify", tags=["PoGR Integration"])
-async def pogr_verify(req: PogcVerifyRequest, x_api_key: Optional[str] = Header(None)):
+async def pogr_verify(req: PogcVerifyRequest, x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """
     Verify a PoGR Certificate Offline.
     Harold: "Content hash recomputes offline — no OMNIX access required."
@@ -44199,7 +44245,7 @@ async def pogr_verify(req: PogcVerifyRequest, x_api_key: Optional[str] = Header(
 
 
 @app.post("/v1/pogr/certificate/store", tags=["PoGR Integration"])
-async def pogr_store(req: PogcStoreRequest, x_api_key: Optional[str] = Header(None)):
+async def pogr_store(req: PogcStoreRequest, x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """Store a PoGR Certificate in the VeriSigil runtime ledger."""
     require_api_key(x_api_key, authorization)
     try:
@@ -44220,7 +44266,7 @@ async def pogr_store(req: PogcStoreRequest, x_api_key: Optional[str] = Header(No
 
 
 @app.get("/v1/stack/compose", tags=["PoGR Integration"])
-async def stack_compose(x_api_key: Optional[str] = Header(None)):
+async def stack_compose(x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """
     VeriSigil + PoGR Composability Specification.
     Harold: "Two layers that need each other to be complete."
@@ -44271,7 +44317,7 @@ async def stack_compose(x_api_key: Optional[str] = Header(None)):
 
 
 @app.get("/v1/pogr/integration", tags=["PoGR Integration"])
-async def pogr_integration(x_api_key: Optional[str] = Header(None)):
+async def pogr_integration(x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """Technical integration specification for VeriSigil + OMNIX PoGR."""
     require_api_key(x_api_key, authorization)
     return {
@@ -44660,7 +44706,7 @@ async def consequence_classify(
 
 
 @app.get("/v1/consequence/tiers", tags=["Layer 2: Consequence Classification"])
-async def consequence_tiers(x_api_key: Optional[str] = Header(None)):
+async def consequence_tiers(x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """
     Full Consequence Tier Registry — Advisory, Operational, Critical, Emergency.
     Shows governance enforcement for each tier.
@@ -44877,6 +44923,7 @@ async def governance_quality(
 async def escalation_quality(
     period_days: int = 30,
     x_api_key:   Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Escalation Quality Analytics.
@@ -46654,6 +46701,7 @@ async def evidence_persist(
     decision:     str,
     org_id:       str = "sandbox",
     x_api_key:    Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     Persist a governance evidence bundle to Supabase.
