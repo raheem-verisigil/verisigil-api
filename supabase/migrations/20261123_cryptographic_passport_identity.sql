@@ -193,12 +193,12 @@ begin
      where org_id = p_org_id and agent_id = p_agent_id and status = 'ACTIVE';
   end if;
 
-  insert into public.vgs_agent_identity_keys
+  insert into public.vgs_agent_identity_keys as inserted
     (key_id, org_id, agent_id, public_key_b64, fingerprint, algorithm, status)
   values
     (p_key->>'key_id', p_org_id, p_agent_id, p_key->>'public_key_b64',
      p_key->>'fingerprint', 'Ed25519', 'ACTIVE')
-  returning to_jsonb(vgs_agent_identity_keys.*) into k;
+  returning to_jsonb(inserted) into k;
 
   return jsonb_build_object('agent', a, 'key', k);
 end;
