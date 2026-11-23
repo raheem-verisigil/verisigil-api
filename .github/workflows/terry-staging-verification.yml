@@ -19,6 +19,7 @@ on:
       - main
       - hardening/verisigil-production-readiness-20261123
     paths:
+      - "requirements.txt"
       - "main.py"
       - "agent_identity_layer.py"
       - "verisigil_entrypoint.py"
