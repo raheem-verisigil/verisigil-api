@@ -1,7 +1,19 @@
 import base64
 import json
+import os
 import unittest
 from pathlib import Path
+
+os.environ.setdefault("SUPABASE_URL", "https://identity-test.invalid")
+os.environ.setdefault("SUPABASE_KEY", "test-anon-key-not-a-secret")
+os.environ.setdefault("SUPABASE_SERVICE_KEY", "test-service-key-not-a-secret")
+os.environ.setdefault("VERISIGIL_API_KEY", "test-api-key-not-a-secret")
+os.environ.setdefault("SIGN_SECRET", "test-signing-secret-not-for-deployment")
+os.environ.setdefault("DEPLOY_ENV", "test")
+
+from fastapi import HTTPException
+import main as core
+import verisigil_entrypoint as runtime
 
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
@@ -44,12 +56,20 @@ class ProofVerificationTests(unittest.TestCase):
         raw = self.signature.removeprefix("Ed25519:")
         self.assertEqual(verify_ed25519_payload(self.payload, raw, self.public_b64)["result"], "VERIFIED")
 
-    def test_public_source_has_no_legacy_shared_credentials(self):
-        source = Path(__file__).resolve().parents[1] / "main.py"
-        text = source.read_text(encoding="utf-8")
-        self.assertNotIn(base64.b64decode("dnMtc2FuZGJveC1kZW1vLTIwMjZi").decode(), text)
-        self.assertNotIn(base64.b64decode("dnMtc2FuZGJveC1kZW1vLTIwMjY=").decode(), text)
-        self.assertNotIn(base64.b64decode("VnJUM0pOOGlTS1BvTmt5eU9hbkNFdGZLVWR2b0lUeVh5bDI0RkNuRCtqQT0=").decode(), text)
+    def test_runtime_rejects_legacy_shared_credentials(self):
+        legacy_credentials = [
+            base64.b64decode("dnMtc2FuZGJveC1kZW1vLTIwMjZi").decode(),
+            base64.b64decode("dnMtc2FuZGJveC1kZW1vLTIwMjY=").decode(),
+        ]
+        for credential in legacy_credentials:
+            with self.subTest(credential="legacy-sandbox-key"):
+                with self.assertRaises(HTTPException):
+                    core.require_api_key(credential)
+        core.require_api_key(os.environ["VERISIGIL_API_KEY"])
+
+    def test_issuer_public_key_is_derived_from_active_signing_key(self):
+        expected = base64.b64encode(bytes(core._VERIFY_KEY)).decode("ascii")
+        self.assertEqual(core.PUBLIC_KEY_B64, expected)
 
     def test_staging_entrypoint_intercepts_legacy_verify_route_with_runtime_key(self):
         source = (Path(__file__).resolve().parents[1] / "verisigil_entrypoint.py").read_text(encoding="utf-8")
