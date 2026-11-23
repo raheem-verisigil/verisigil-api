@@ -16,19 +16,26 @@ class ReceiptPersistenceUnavailable(RuntimeError):
 
 def _config() -> tuple[str, str]:
     base = os.environ.get("SUPABASE_URL", "").strip().rstrip("/")
-    key = os.environ.get("SUPABASE_KEY", "").strip()
+    # Receipt writes bypass client RLS only through the server-side service key.
+    # SUPABASE_KEY is the public/anon key elsewhere in this application and
+    # must never be used for privileged receipt persistence.
+    key = (os.environ.get("SUPABASE_SERVICE_KEY")
+           or os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or "").strip()
     if not base.startswith("https://") or not key:
-        raise ReceiptPersistenceUnavailable("Supabase durable receipt storage is not configured.")
+        raise ReceiptPersistenceUnavailable("Supabase service credentials for durable receipt storage are not configured.")
     return base, key
 
 
 def _headers(key: str, prefer: str | None = None) -> dict[str, str]:
     headers = {
         "apikey": key,
-        "Authorization": f"Bearer {key}",
         "Content-Type": "application/json",
         "Accept": "application/json",
     }
+    # Modern sb_secret_ keys are opaque API keys, not JWTs; legacy
+    # service_role JWTs still require the Bearer header.
+    if not key.startswith("sb_secret_"):
+        headers["Authorization"] = f"Bearer {key}"
     if prefer:
         headers["Prefer"] = prefer
     return headers
