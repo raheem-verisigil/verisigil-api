@@ -59,7 +59,7 @@ jobs:
     timeout-minutes: 20
     env:
       VERISIGIL_TEST_ENV: staging
-      VERISIGIL_TEST_URL: ${{ secrets.VERISIGIL_TEST_URL }}
+      VERISIGIL_TEST_URL: https://verisigil-passport-staging-api-staging.up.railway.app
       VERISIGIL_TEST_API_KEY: ${{ secrets.VERISIGIL_TEST_API_KEY }}
     steps:
       - uses: actions/checkout@v4
