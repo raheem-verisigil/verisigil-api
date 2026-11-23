@@ -15,7 +15,7 @@ A Cryptographic Passport identifies an agent and its issuer-signed claims. It is
 - Core application: `main.py` (the existing 5.86 MB monolithic FastAPI application).
 - Runtime entrypoint: `verisigil_entrypoint.py` imports the existing core app and registers the new router.
 - New API module: `agent_identity_layer.py`.
-- Database migration: `supabase/migrations/20261123_cryptographic_passport_identity.sql`.
+- Database migration: `supabase/migrations/20261123160247_cryptographic_passport_identity.sql`.
 - Regression tests: `tests/test_agent_identity_layer.py`.
 
 The new endpoints are attached to `core.app`; existing route handlers are not replaced.
@@ -104,7 +104,7 @@ Delegations are direct and tenant-local. A grantor may delegate only capabilitie
 ## Staging-only activation checklist
 
 1. Review the migration and tests.
-2. Apply `20261123_cryptographic_passport_identity.sql` only to the dedicated isolated staging Supabase project.
+2. Apply `20261123160247_cryptographic_passport_identity.sql` only to the dedicated isolated staging Supabase project.
 3. Insert the first tenant membership using a verified Auth user UUID.
 4. Set `SUPABASE_URL`, `SUPABASE_ANON_KEY` (or the existing `SUPABASE_KEY` used for Auth), `SUPABASE_SERVICE_KEY` (or `SUPABASE_SERVICE_ROLE_KEY` for PostgREST writes), and the existing `SIGN_SECRET` in the isolated staging service only. Never copy production values into staging.
 5. Deploy the staging branch and run the identity regression suite plus API round-trip tests.
