@@ -217,6 +217,12 @@ class AgentIdentityLayerTests(unittest.TestCase):
         self.assertIn("foreign key (org_id, agent_id)", source)
         self.assertIn("foreign key (org_id, grantor_agent_id)", source)
         self.assertIn("foreign key (org_id, grantee_agent_id)", source)
+        integrity = Path(__file__).resolve().parents[1] / "supabase" / "migrations" / "20261123161000_passport_tenant_integrity.sql"
+        integrity_source = integrity.read_text(encoding="utf-8").lower()
+        self.assertIn("references auth.users(id)", integrity_source)
+        self.assertIn("foreign key (created_by, org_id)", integrity_source)
+        self.assertIn("foreign key (org_id, agent_id)", integrity_source)
+        self.assertIn("foreign key (org_id, delegation_id)", integrity_source)
         self.assertEqual(source.count("security definer set search_path = pg_catalog, public"), 5)
         consume_fn = source.split("create or replace function public.vgs_consume_agent_authority_commitment", 1)[1]
         self.assertIn("consumption_receipt = p_consumption_receipt", consume_fn)
