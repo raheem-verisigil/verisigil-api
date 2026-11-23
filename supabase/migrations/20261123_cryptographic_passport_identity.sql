@@ -151,22 +151,22 @@ language plpgsql security definer set search_path = public
 as $$
 declare a jsonb; k jsonb;
 begin
-  insert into public.vgs_agent_identities
+  insert into public.vgs_agent_identities as inserted
     (agent_id, org_id, agent_name, did, passport, capabilities, status, issued_at, expires_at)
   values
     ((p_agent->>'agent_id')::uuid, (p_agent->>'org_id')::uuid,
      p_agent->>'agent_name', p_agent->>'did', p_agent->'passport',
      p_agent->'capabilities', p_agent->>'status',
      (p_agent->>'issued_at')::timestamptz, (p_agent->>'expires_at')::timestamptz)
-  returning to_jsonb(vgs_agent_identities.*) into a;
+  returning to_jsonb(inserted) into a;
 
-  insert into public.vgs_agent_identity_keys
+  insert into public.vgs_agent_identity_keys as inserted
     (key_id, org_id, agent_id, public_key_b64, fingerprint, algorithm, status)
   values
     (p_key->>'key_id', (p_key->>'org_id')::uuid, (p_key->>'agent_id')::uuid,
      p_key->>'public_key_b64', p_key->>'fingerprint',
      p_key->>'algorithm', p_key->>'status')
-  returning to_jsonb(vgs_agent_identity_keys.*) into k;
+  returning to_jsonb(inserted) into k;
 
   return jsonb_build_object('agent', a, 'key', k);
 end;
@@ -180,15 +180,15 @@ language plpgsql security definer set search_path = public
 as $$
 declare a jsonb; k jsonb;
 begin
-  update public.vgs_agent_identities
+  update public.vgs_agent_identities as target
      set passport = p_passport, updated_at = clock_timestamp()
    where org_id = p_org_id and agent_id = p_agent_id and status = 'ACTIVE'
      and expires_at > clock_timestamp()
-  returning to_jsonb(vgs_agent_identities.*) into a;
+  returning to_jsonb(target) into a;
   if a is null then return null; end if;
 
   if p_replace_existing then
-    update public.vgs_agent_identity_keys
+    update public.vgs_agent_identity_keys as target
        set status = 'ROTATED', revoked_at = clock_timestamp()
      where org_id = p_org_id and agent_id = p_agent_id and status = 'ACTIVE';
   end if;
