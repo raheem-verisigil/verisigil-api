@@ -108,10 +108,15 @@ async def _db_request(method: str, path: str, *, params: dict | None = None,
     if not base.startswith("https://") or not key:
         raise HTTPException(503, "Identity persistence is not configured; authority fails closed.")
     headers = {
-        "apikey": key, "Authorization": f"Bearer {key}",
-        "Content-Type": "application/json", "Accept": "application/json",
+        "apikey": key,
+        "Content-Type": "application/json",
+        "Accept": "application/json",
         "Prefer": prefer,
     }
+    # Modern Supabase secret API keys are opaque and must be sent via apikey
+    # only. Legacy service_role JWTs may also be sent as Bearer credentials.
+    if not key.startswith("sb_secret_"):
+        headers["Authorization"] = f"Bearer {key}"
     try:
         async with httpx.AsyncClient(timeout=8.0) as client:
             response = await client.request(method, f"{base}/rest/v1/{path}",
