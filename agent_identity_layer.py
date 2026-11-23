@@ -751,13 +751,7 @@ async def consume_authority(req: AuthorityConsume, principal: Principal = Depend
                                               row["action"], row.get("delegation_id"))
     if reasons:
         raise HTTPException(403, {"error": "AUTHORITY_REVOKED_BEFORE_CONSUME", "reasons": reasons})
-    consumed = _rpc_record(await _rpc("vgs_consume_agent_authority_commitment", {
-        "p_commitment_id": req.commitment_id, "p_org_id": principal.org_id,
-        "p_action_digest": action_digest,
-    }))
-    if not consumed:
-        raise HTTPException(409, "Authority commitment expired, was revoked, or has already been consumed.")
-    consumed_at = consumed.get("consumed_at") or _iso()
+    consumed_at = _iso()
     receipt_claims = {
         "schema": "VERISIGIL-EXECUTION-AUTHORITY-RECEIPT-1.0",
         "commitment_id": req.commitment_id, "org_id": principal.org_id,
@@ -768,14 +762,17 @@ async def consume_authority(req: AuthorityConsume, principal: Principal = Depend
     }
     receipt = {**receipt_claims,
                "issuer_signature": core.sign_governance_payload(receipt_claims)}
-    patched = await _patch("vgs_agent_authority_commitments", {
-        "org_id": principal.org_id, "commitment_id": req.commitment_id,
-    }, {"consumption_receipt": receipt})
-    if not patched:
-        raise HTTPException(503, "Commitment was consumed but receipt persistence was not confirmed; do not execute.")
+    consumed = _rpc_record(await _rpc("vgs_consume_agent_authority_commitment", {
+        "p_commitment_id": req.commitment_id, "p_org_id": principal.org_id,
+        "p_action_digest": action_digest, "p_consumed_at": consumed_at,
+        "p_consumption_receipt": receipt,
+    }))
+    if not consumed:
+        raise HTTPException(409, "Authority commitment expired, was revoked, or has already been consumed.")
     return {"commitment_id": req.commitment_id, "execution_authorized": True,
             "actuator_invoked": False, "receipt": receipt,
-            "message": "One-time authority was consumed. The caller's protected actuator must enforce this result."}
+            "message": "One-time authority and signed receipt were atomically persisted. The caller's protected actuator must enforce this result."}
+
 
 
 @router.get("/v1/runtime/authority/receipts/{commitment_id}", summary="Retrieve a tenant execution-authority receipt")
