@@ -245,7 +245,8 @@ end;
 $$;
 
 create or replace function public.vgs_consume_agent_authority_commitment(
-  p_commitment_id uuid, p_org_id uuid, p_action_digest text
+  p_commitment_id uuid, p_org_id uuid, p_action_digest text,
+  p_consumed_at timestamptz, p_consumption_receipt jsonb
 ) returns jsonb
 language plpgsql security definer set search_path = pg_catalog, public
 as $$
@@ -345,7 +346,8 @@ begin
   end if;
 
   update public.vgs_agent_authority_commitments as target
-     set consumed_at = clock_timestamp()
+     set consumed_at = p_consumed_at,
+         consumption_receipt = p_consumption_receipt
    where commitment_id = p_commitment_id
      and org_id = p_org_id
      and consumed_at is null
@@ -359,12 +361,12 @@ revoke all on function public.vgs_consume_agent_identity_challenge(uuid,uuid,tex
 revoke all on function public.vgs_create_agent_identity(jsonb,jsonb) from public, anon, authenticated;
 revoke all on function public.vgs_rotate_agent_identity_key(uuid,uuid,jsonb,jsonb,boolean) from public, anon, authenticated;
 revoke all on function public.vgs_revoke_agent_identity(uuid,uuid) from public, anon, authenticated;
-revoke all on function public.vgs_consume_agent_authority_commitment(uuid,uuid,text) from public, anon, authenticated;
+revoke all on function public.vgs_consume_agent_authority_commitment(uuid,uuid,text,timestamptz,jsonb) from public, anon, authenticated;
 grant execute on function public.vgs_consume_agent_identity_challenge(uuid,uuid,text,text) to service_role;
 grant execute on function public.vgs_create_agent_identity(jsonb,jsonb) to service_role;
 grant execute on function public.vgs_rotate_agent_identity_key(uuid,uuid,jsonb,jsonb,boolean) to service_role;
 grant execute on function public.vgs_revoke_agent_identity(uuid,uuid) to service_role;
-grant execute on function public.vgs_consume_agent_authority_commitment(uuid,uuid,text) to service_role;
+grant execute on function public.vgs_consume_agent_authority_commitment(uuid,uuid,text,timestamptz,jsonb) to service_role;
 
 -- Bootstrap tenant owner after creating the organisation and inviting the user:
 -- insert into public.vgs_agent_identity_memberships(user_id, org_id, role)
