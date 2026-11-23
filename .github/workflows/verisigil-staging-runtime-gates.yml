@@ -6,6 +6,7 @@ on:
     paths:
       - "agent_identity_layer.py"
       - "verisigil_entrypoint.py"
+      - "requirements.txt"
       - "main.py"
       - "durable_validation_receipts.py"
       - "supabase/migrations/**"
