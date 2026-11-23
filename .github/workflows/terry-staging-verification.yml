@@ -3,11 +3,13 @@ name: Terry staging security verification
 on:
   push:
     branches:
-      - security/terry-ci-verification-20261113
-      - ci/execute-terry-verification-20261114
       - security/proof-verification-hardening-20261113
+        hardening/verisigil-production-readiness-20261123
+      - hardening/verisigil-production-readiness-20261123
+
       - main
       - fix/staging-test-discovery-20261114
+        security/proof-verification-hardening-20261113
   pull_request:
     branches:
       - main
@@ -23,38 +25,46 @@ concurrency:
 jobs:
   focused-security-tests:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 30
     env:
       DEPLOY_ENV: test
       SUPABASE_URL: http://127.0.0.1:1
       SUPABASE_KEY: verisigil-test-only-not-a-credential
+      SUPABASE_SERVICE_KEY: verisigil-test-service-only
       VERISIGIL_API_KEY: verisigil-test-api-key-only
       SIGN_SECRET: verisigil-test-signing-secret-not-for-deployment
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
-          cache: 'pip'
+          python-version: "3.12"
+          cache: "pip"
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          hardening/verisigil-production-readiness-20261123
+         hardening/verisigil-production-readiness-20261123
+          python -m pip install -r requirements.txt
+
+          security/proof-verification-hardening-20261113
           pip install -r requirements.txt pytest
 
           pip install -r requirements.txt
           python -m pip install pytest
-           main
+         main
+          security/proof-verification-hardening-20261113
       - name: Compile source
         run: python -m compileall -q .
       - name: Run cryptographic regression tests
         run: python -m unittest tests.test_proof_verification -v
       - name: Run fail-closed execution authorization tests
         run: python -m unittest tests.test_execution_authorization_fail_closed -v
-      - name: Run bounded adversarial scenarios
+      - name: Run bounded adversarial scenario tests
         run: python -m unittest tests.test_terry_validation -v
       - name: Run complete unit test suite
-          hardening/verisigil-production-readiness-20261123
+            hardening/verisigil-production-readiness-20261123
+        run: python -m unittest discover -s tests -v
+
+             security/proof-verification-hardening-20261113
         run: PYTHONPATH=. pytest -q tests
 
         run: python -m unittest discover -s tests -v
@@ -98,4 +108,5 @@ jobs:
           PY
       - name: Run live staging API verification
         run: python -m pytest tests/staging_verisigil_api.py -v
-              main
+           main
+         security/proof-verification-hardening-20261113
