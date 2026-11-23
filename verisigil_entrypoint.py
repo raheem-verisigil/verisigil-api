@@ -23,7 +23,7 @@ def _environment_only_api_key(x_api_key: str | None = None,
     import re
 
     def normalize(value: str | None) -> str:
-        return re.sub(r"[^a-zA-Z0-9\\-]", "", (value or "").strip())
+        return re.sub(r"[^a-zA-Z0-9-]", "", (value or "").strip())
 
     received = normalize(x_api_key)
     bearer = normalize((authorization or "").replace("Bearer", "").strip())
