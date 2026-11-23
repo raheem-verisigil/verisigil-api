@@ -13,7 +13,7 @@
 > Host: verisigil-api-production.up.railway.app
 > User-Agent: curl/8.21.0
 > Accept: */*
-> x-api-key: verisigil-secret-2026
+> x-api-key: [REDACTED — credential rotated]
 > Content-Type: application/json
 > Content-Length: 125
 > 
