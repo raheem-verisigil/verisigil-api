@@ -1,13 +1,16 @@
-name: VeriSigil security and staging verification
+name: Terry staging security verification
 
 on:
   push:
     branches:
+ fix/staging-ci-cleanup-and-lifecycle-20261123
+
  fix/durable-validation-receipts-20261123
       - hardening/verisigil-production-readiness-20261123
     paths:
 
      hardening/verisigil-production-readiness-20261123
+        main
       - hardening/verisigil-production-readiness-20261123
     paths:
       - "requirements.txt"
@@ -49,6 +52,8 @@ on:
       - "tests/**"
       - ".github/workflows/terry-staging-verification.yml"
 
+         fix/staging-ci-cleanup-and-lifecycle-20261123
+
 
       - main
       - security/proof-verification-hardening-20261113
@@ -60,11 +65,12 @@ on:
          main
         main
 
+       main
 permissions:
   contents: read
 
 concurrency:
-  group: verisigil-security-${{ github.ref }}
+  group: terry-security-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -88,29 +94,38 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
+        fix/staging-ci-cleanup-and-lifecycle-20261123
+
         fix/durable-validation-receipts-20261123
           python -m pip install -r requirements.txt
       - name: Compile application and tests
 
           hardening/verisigil-production-readiness-20261123
+          main
           python -m pip install -r requirements.txt
           python -m pip install --disable-pip-version-check pip-audit
       - name: Audit pinned Python dependencies
         run: pip-audit -r requirements.txt
       - name: Compile application and tests
+          fix/staging-ci-cleanup-and-lifecycle-20261123
+
 
           python -m pip install -r requirements.txt pytest
       - name: Compile source
          main
          main
+          main
         run: python -m compileall -q .
       - name: Run cryptographic regression tests
         run: python -m unittest tests.test_proof_verification -v
       - name: Run fail-closed execution authorization tests
         run: python -m unittest tests.test_execution_authorization_fail_closed -v
+         fix/staging-ci-cleanup-and-lifecycle-20261123
+
         fix/durable-validation-receipts-20261123
 
           hardening/verisigil-production-readiness-20261123
+        main
         main
       - name: Run agent identity and authority tests
         run: python -m unittest tests.test_agent_identity_layer -v
@@ -120,6 +135,8 @@ jobs:
         run: python -m unittest tests.test_terry_validation -v
       - name: Run complete unit test suite
         run: python -m unittest discover -s tests -v
+         fix/staging-ci-cleanup-and-lifecycle-20261123
+  
             fix/durable-validation-receipts-20261123
 
 
@@ -171,3 +188,4 @@ jobs:
         run: echo "Live staging verification skipped; required GitHub secrets are not configured."
          main
          main
+          main
