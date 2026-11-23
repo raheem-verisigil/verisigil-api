@@ -2,7 +2,7 @@ name: Cryptographic Passport identity regression
 
 on:
   pull_request:
-    branches: [main]
+    branches: [security/proof-verification-hardening-20261113]
     paths:
       - "agent_identity_layer.py"
       - "verisigil_entrypoint.py"
