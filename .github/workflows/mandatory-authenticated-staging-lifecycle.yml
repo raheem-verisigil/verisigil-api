@@ -8,7 +8,9 @@ on:
       - "tests/staging_authenticated_lifecycle.py"
       - ".github/workflows/mandatory-authenticated-staging-lifecycle.yml"
   push:
-    branches: [test/mandatory-authenticated-staging-lifecycle-clean-20261123]
+    branches:
+      - test/mandatory-authenticated-staging-lifecycle-clean-20261123
+      - test/api-key-negative-scope-gates-20261123
   workflow_dispatch:
 permissions:
   contents: read
