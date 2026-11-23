@@ -77,6 +77,12 @@ class ProofVerificationTests(unittest.TestCase):
         self.assertIn("/v1/agent-identity/challenges", schema["paths"])
         self.assertIn("/v1/runtime/authority/evaluate", schema["paths"])
         self.assertIn("/v1/runtime/authority/consume", schema["paths"])
+        from fastapi.middleware.cors import CORSMiddleware
+        cors = next((m for m in runtime.app.user_middleware if m.cls is CORSMiddleware), None)
+        self.assertIsNotNone(cors)
+        self.assertIn("https://verisigilai.com", cors.kwargs["allow_origins"])
+        self.assertIn("https://www.verisigilai.com", cors.kwargs["allow_origins"])
+        self.assertNotIn("*", cors.kwargs["allow_origins"])
         schemes = schema["components"]["securitySchemes"]
         self.assertIn("SupabaseBearer", schemes)
         self.assertEqual(
