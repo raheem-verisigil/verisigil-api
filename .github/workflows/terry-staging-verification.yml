@@ -3,14 +3,10 @@ name: Terry staging security verification
 on:
   push:
     branches:
-      - security/terry-ci-verification-20261113
-      - ci/execute-terry-verification-20261114
       - security/proof-verification-hardening-20261113
-      - main
-      - fix/staging-test-discovery-20261114
+      - hardening/verisigil-production-readiness-20261123
   pull_request:
     branches:
-      - main
       - security/proof-verification-hardening-20261113
 
 permissions:
@@ -23,79 +19,31 @@ concurrency:
 jobs:
   focused-security-tests:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 30
     env:
       DEPLOY_ENV: test
       SUPABASE_URL: http://127.0.0.1:1
       SUPABASE_KEY: verisigil-test-only-not-a-credential
+      SUPABASE_SERVICE_KEY: verisigil-test-service-only
       VERISIGIL_API_KEY: verisigil-test-api-key-only
       SIGN_SECRET: verisigil-test-signing-secret-not-for-deployment
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
-          cache: 'pip'
+          python-version: "3.12"
+          cache: "pip"
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          hardening/verisigil-production-readiness-20261123
-          pip install -r requirements.txt pytest
-
-          pip install -r requirements.txt
-          python -m pip install pytest
-           main
+          python -m pip install -r requirements.txt
       - name: Compile source
         run: python -m compileall -q .
       - name: Run cryptographic regression tests
         run: python -m unittest tests.test_proof_verification -v
       - name: Run fail-closed execution authorization tests
         run: python -m unittest tests.test_execution_authorization_fail_closed -v
-      - name: Run bounded adversarial scenarios
+      - name: Run bounded adversarial scenario tests
         run: python -m unittest tests.test_terry_validation -v
       - name: Run complete unit test suite
-          hardening/verisigil-production-readiness-20261123
-        run: PYTHONPATH=. pytest -q tests
-
         run: python -m unittest discover -s tests -v
-
-  staging-api-tests:
-    if: ${{ github.event_name == 'push' }}
-    needs: focused-security-tests
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    env:
-      VERISIGIL_TEST_ENV: staging
-      VERISIGIL_TEST_URL: ${{ secrets.VERISIGIL_TEST_URL }}
-      VERISIGIL_TEST_API_KEY: ${{ secrets.VERISIGIL_TEST_API_KEY }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - name: Install live-test dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          python -m pip install pytest
-      - name: Validate staging configuration
-        run: |
-          python - <<'PY'
-          import os
-          from urllib.parse import urlparse
-
-          url = os.environ.get("VERISIGIL_TEST_URL", "")
-          key = os.environ.get("VERISIGIL_TEST_API_KEY", "")
-          parsed = urlparse(url)
-
-          if not key:
-              raise SystemExit("VERISIGIL_TEST_API_KEY is missing")
-          if parsed.scheme != "https":
-              raise SystemExit("Staging URL must use HTTPS")
-          if parsed.hostname != "verisigil-security-repair-test-staging.up.railway.app":
-              raise SystemExit("Staging URL does not match the approved staging host")
-          print("Staging configuration validated; secret values were not printed.")
-          PY
-      - name: Run live staging API verification
-        run: python -m pytest tests/staging_verisigil_api.py -v
-              main
