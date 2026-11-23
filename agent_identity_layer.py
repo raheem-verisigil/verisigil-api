@@ -449,8 +449,9 @@ class AuthorityConsume(BaseModel):
 async def create_api_key(req: ApiKeyCreate, principal: Principal = Depends(get_principal)):
     _need(principal, "api_keys:write")
     _require_jwt_owner(principal)
-    if not set(req.scopes).issubset(KNOWN_SCOPES) or not set(req.scopes).issubset(set(principal.scopes)):
-        raise HTTPException(422, "Requested API-key scopes must be valid and no broader than the owner's scopes.")
+    if ("api_keys:write" in req.scopes or not set(req.scopes).issubset(KNOWN_SCOPES)
+            or not set(req.scopes).issubset(set(principal.scopes))):
+        raise HTTPException(422, "Tenant API-key scopes must be valid, must not include api_keys:write, and cannot exceed the owner's scopes.")
     raw_key = "vsa_ak_" + secrets.token_urlsafe(36)
     key_id = str(uuid.uuid4())
     expires_at = _iso(_now() + timedelta(days=req.expires_in_days))
@@ -464,6 +465,24 @@ async def create_api_key(req: ApiKeyCreate, principal: Principal = Depends(get_p
     return {"key_id": key_id, "api_key": raw_key, "name": req.name,
             "scopes": req.scopes, "expires_at": expires_at,
             "warning": "This key is shown once. Store it securely; VeriSigil stores only its SHA-256 hash."}
+
+
+@router.post("/v1/agent-identity/api-keys/{key_id}/revoke", summary="Revoke a tenant API key")
+async def revoke_api_key(key_id: str, principal: Principal = Depends(get_principal)):
+    _need(principal, "api_keys:write")
+    _require_jwt_owner(principal)
+    key_id = _require_uuid(key_id, "key_id")
+    row = await _one("vgs_agent_identity_api_keys", {
+        "org_id": principal.org_id, "key_id": key_id,
+    })
+    if not row:
+        raise HTTPException(404, "Tenant API key not found.")
+    if row.get("status") != "ACTIVE":
+        return {"key_id": key_id, "revoked": False, "status": row.get("status")}
+    await _patch("vgs_agent_identity_api_keys", {
+        "org_id": principal.org_id, "key_id": key_id,
+    }, {"status": "REVOKED", "revoked_at": _iso()})
+    return {"key_id": key_id, "revoked": True, "status": "REVOKED"}
 
 
 @router.post("/v1/agent-identity/challenges", summary="Issue an agent-key proof-of-possession challenge")
@@ -793,7 +812,10 @@ def install_openapi_security(app) -> None:
             if path.startswith("/v1/agent-identity/") or path.startswith("/v1/runtime/authority/"):
                 for operation in operations.values():
                     if isinstance(operation, dict) and "operationId" in operation:
-                        operation["security"] = [{"SupabaseBearer": []}, {"ApiKeyAuth": []}]
+                        if path == "/v1/agent-identity/api-keys":
+                            operation["security"] = [{"SupabaseBearer": []}]
+                        else:
+                            operation["security"] = [{"SupabaseBearer": []}, {"ApiKeyAuth": []}]
         return schema
 
     app.openapi_schema = None
