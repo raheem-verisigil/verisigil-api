@@ -223,6 +223,12 @@ class AgentIdentityLayerTests(unittest.TestCase):
         self.assertIn("foreign key (created_by, org_id)", integrity_source)
         self.assertIn("foreign key (org_id, agent_id)", integrity_source)
         self.assertIn("foreign key (org_id, delegation_id)", integrity_source)
+        onboarding = Path(__file__).resolve().parents[1] / "supabase" / "migrations" / "20261123162000_passport_tenant_onboarding.sql"
+        onboarding_source = onboarding.read_text(encoding="utf-8").lower()
+        self.assertIn("create table if not exists public.vgs_agent_identity_tenants", onboarding_source)
+        self.assertIn("vgs_create_agent_identity_tenant", onboarding_source)
+        self.assertIn("references public.vgs_agent_identity_tenants(org_id)", onboarding_source)
+        self.assertIn("grant execute on function public.vgs_create_agent_identity_tenant(uuid,uuid,text)", onboarding_source)
         self.assertEqual(source.count("security definer set search_path = pg_catalog, public"), 5)
         consume_fn = source.split("create or replace function public.vgs_consume_agent_authority_commitment", 1)[1]
         self.assertIn("consumption_receipt = p_consumption_receipt", consume_fn)
