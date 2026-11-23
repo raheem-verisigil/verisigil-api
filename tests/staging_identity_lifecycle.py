@@ -13,8 +13,8 @@ def check_config():
     missing=[k for k,v in {"VERISIGIL_STAGING_BASE_URL":BASE,"VERISIGIL_STAGING_SUPABASE_URL":SB,
         "VERISIGIL_STAGING_SUPABASE_ANON_KEY":ANON,"VERISIGIL_STAGING_SUPABASE_SERVICE_KEY":SERVICE}.items() if not v]
     if missing: raise RuntimeError("Missing Actions secrets: "+", ".join(missing))
-    if "staging" not in BASE.lower() or "staging" not in SB.lower():
-        raise RuntimeError("Refusing non-staging target.")
+    if "staging" not in BASE.lower() or "lgyxxxvlxlynylhjxbxb" not in SB.lower():
+        raise RuntimeError("Refusing non-staging target; Supabase ref must be the isolated staging project.")
 
 def hdr(key,bearer=None,extra=None):
     h={"apikey":key,"Accept":"application/json","Content-Type":"application/json"}
