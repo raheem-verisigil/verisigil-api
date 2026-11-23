@@ -207,12 +207,16 @@ class AgentIdentityLayerTests(unittest.TestCase):
         self.assertIn("foreign key (org_id, key_id)", source)
         self.assertNotIn("references public.vgs_agent_identity_keys(key_id)", source)
         self.assertEqual(source.count("security definer set search_path = pg_catalog, public"), 5)
+        consume_fn = source.split("create or replace function public.vgs_consume_agent_authority_commitment", 1)[1]
+        self.assertIn("consumption_receipt = p_consumption_receipt", consume_fn)
+        self.assertIn("consumed_at = p_consumed_at", consume_fn)
 
     def test_database_consume_function_is_single_use_and_rechecks_live_authority(self):
         migration = Path(__file__).resolve().parents[1] / "supabase" / "migrations" / "20261123_cryptographic_passport_identity.sql"
         source = migration.read_text(encoding="utf-8").lower()
         function = source.split("create or replace function public.vgs_consume_agent_authority_commitment", 1)[1]
         self.assertIn("c.consumed_at is not null", function)
+        self.assertIn("consumption_receipt = p_consumption_receipt", function)
         self.assertIn("c.expires_at <= clock_timestamp()", function)
         self.assertIn("k.status <> 'active'", function)
         self.assertIn("a.status <> 'active'", function)
