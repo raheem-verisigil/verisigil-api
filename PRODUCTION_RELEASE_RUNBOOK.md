@@ -146,9 +146,9 @@ Production release remains blocked until all of the following are evidenced:
 ## 9. Current evidence and open issues
 
 - **Staging Supabase:** project `lgyxxxvlxlynylhjxbxb`; eight migrations recorded; PostgreSQL health advisor clean.
-- **Staging Railway:** isolated service `verisigil-passport-staging-api`; latest code deployment from the readiness branch was successful before the dependency-pin rebuild. The dependency-pin change is being rebuilt separately; verify its final deployment status before treating the new image as current.
+- **Staging Railway:** isolated service `verisigil-passport-staging-api`; the pinned-dependency deployment `c7544786-d468-4fa1-a73f-4716b7c1eb9d` succeeded, followed by a successful runbook-only redeploy `3573243a-7f6a-48c4-ba75-8d78c151b585`. The active staging service is on the readiness branch with the pinned dependency set.
 - **CI:** 29 Python tests pass; live health/OpenAPI/fail-closed auth gates pass; live Passport tenant, identity, delegation and authority acceptance passes; dependency pins and `pip-audit` gate pass.
-- **Staging HTTP:** the inspected one-hour window showed 442 requests, zero 5xx responses; expected 4xx denials are included in that total.
+- **Staging HTTP:** the latest inspected one-hour window showed 529 requests, zero 5xx responses; expected 4xx denials are included in that total.
 - **Test cleanup:** acceptance tests revoke their temporary agents, keys and delegations. The inspected database had no active test agents, active agent keys, active delegations, active tenant API keys, unconsumed authorized commitments or durable receipt rows.
 - **Durable legacy receipt path:** table/RLS/grants/RPC are deployed and the SQL single-use probe passed. The complete legacy API revalidation-to-execution path still needs a live end-to-end test.
 - **Supabase Auth:** leaked-password protection is disabled. Enable it in Supabase Dashboard → Authentication → Settings → Password Security if available on the project's plan. Supabase documents that this feature is available on Pro and above: https://supabase.com/docs/guides/auth/password-security
