@@ -1,0 +1,68 @@
+name: VeriSigil staging runtime and release gates
+
+on:
+  push:
+    branches: [hardening/verisigil-production-readiness-20261123]
+    paths:
+      - "agent_identity_layer.py"
+      - "verisigil_entrypoint.py"
+      - "main.py"
+      - "tests/**"
+      - ".github/workflows/verisigil-staging-runtime-gates.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "agent_identity_layer.py"
+      - "verisigil_entrypoint.py"
+      - "main.py"
+      - "tests/**"
+      - ".github/workflows/verisigil-staging-runtime-gates.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  regression:
+    name: Full Python regression suite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Compile application and tests
+        run: python -m compileall -q .
+      - name: Run complete unit suite
+        run: python -m unittest discover -s tests -v
+
+  staging-runtime:
+    name: Live staging health, OpenAPI and fail-closed auth
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Verify live staging runtime
+        env:
+          VERISIGIL_STAGING_BASE_URL: https://verisigil-passport-staging-api-staging.up.railway.app
+        run: python tests/staging_runtime_gates.py
+
+  release-gate-summary:
+    name: Required release gate summary
+    if: always()
+    needs: [regression, staging-runtime]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fail unless every required gate passed
+        env:
+          REGRESSION: ${{ needs.regression.result }}
+          STAGING_RUNTIME: ${{ needs.staging-runtime.result }}
+        run: |
+          echo "Regression: ${REGRESSION}"
+          echo "Staging runtime: ${STAGING_RUNTIME}"
+          test "${REGRESSION}" = success
+          test "${STAGING_RUNTIME}" = success
