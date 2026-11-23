@@ -36,4 +36,6 @@ jobs:
       - name: Compile the identity integration
         run: python -m py_compile agent_identity_layer.py verisigil_entrypoint.py
       - name: Run identity and authority security tests
-        run: python -m unittest discover -s tests -p "test_agent_identity_layer.py" -v
+        run: |
+          python -m unittest discover -s tests -p "test_agent_identity_layer.py" -v
+          python -m unittest discover -s tests -p "test_proof_verification.py" -v
