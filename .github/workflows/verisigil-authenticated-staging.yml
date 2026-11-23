@@ -1,0 +1,43 @@
+name: VeriSigil authenticated staging acceptance
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "agent_identity_layer.py"
+      - "supabase/migrations/**"
+      - "tests/staging_identity_lifecycle.py"
+      - ".github/workflows/verisigil-authenticated-staging.yml"
+  push:
+    branches: [release/production-acceptance-20261123]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verisigil-authenticated-staging-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  authenticated-lifecycle:
+    name: Auth, Passport, delegation, isolation and replay acceptance
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      VERISIGIL_STAGING_BASE_URL: https://verisigil-passport-staging-api-staging.up.railway.app
+      VERISIGIL_STAGING_SUPABASE_URL: ${{ secrets.VERISIGIL_STAGING_SUPABASE_URL }}
+      VERISIGIL_STAGING_SUPABASE_ANON_KEY: ${{ secrets.VERISIGIL_STAGING_SUPABASE_ANON_KEY }}
+      VERISIGIL_STAGING_SUPABASE_SERVICE_KEY: ${{ secrets.VERISIGIL_STAGING_SUPABASE_SERVICE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install application dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Compile acceptance suite
+        run: python -m py_compile tests/staging_identity_lifecycle.py
+      - name: Run authenticated staging lifecycle
+        run: python tests/staging_identity_lifecycle.py
