@@ -20,6 +20,7 @@ from typing import Any, Literal
 
 import httpx
 import nacl.exceptions
+import rfc8785
 from nacl.signing import VerifyKey
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel, Field
@@ -66,7 +67,8 @@ def _parse_time(value: str) -> datetime:
 
 
 def _canonical(value: Any) -> bytes:
-    return core._vcb_canonical(value)
+    """RFC 8785 JSON Canonicalization Scheme for agent-signed payloads."""
+    return rfc8785.dumps(value)
 
 
 def _digest(value: Any) -> str:
