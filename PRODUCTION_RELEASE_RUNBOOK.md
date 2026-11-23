@@ -1,6 +1,6 @@
 # VeriSigil Cryptographic Passport — Production Release Runbook
 
-**Status: staging deployed; production release blocked pending secret provisioning and live end-to-end evidence.**
+**Status: staging deployed; server-only Supabase secret provisioned; production release remains blocked pending live end-to-end evidence and independent release gates.**
 
 This runbook governs the Cryptographic Passport, tenant registry, bounded delegation and runtime-authority endpoints. It is not a declaration of production readiness or a substitute for an independent security assessment.
 
@@ -125,7 +125,10 @@ Production release requires all of the following:
 - Supabase security and health advisors report no findings.
 - Performance advisor reports unused indexes while the ledger is empty; no unindexed foreign-key findings remain.
 - Railway staging service is deployed and reports a successful deployment and healthy process.
-- The `SUPABASE_SERVICE_KEY` is still absent from the Railway variable set. Consequently the live Auth-to-database tenant onboarding and ledger round-trip have not yet been proven.
+- Railway staging variable inventory confirms `SUPABASE_SERVICE_KEY` is present. Its value is redacted and was not exposed to this workflow. Startup logs confirm the application loaded its Supabase registries, but a complete authenticated Auth-to-database tenant onboarding and ledger round-trip still require explicit end-to-end acceptance evidence.
 - Production has not been changed.
+
+- Runtime capability note: current staging logs report Ed25519 only; Dilithium-3 is unavailable and Z3 formal proofs are disabled in this deployment. Do not claim post-quantum Passport signatures or active Z3 proof verification.
+- Observability note: the inspected two-hour Railway HTTP request window contained no request samples beyond the health check in startup logs; collect representative authenticated traffic before setting production SLOs.
 
 **Release state: NOT APPROVED FOR PRODUCTION until every gate above is evidenced.**
