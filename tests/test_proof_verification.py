@@ -84,6 +84,7 @@ class ProofVerificationTests(unittest.TestCase):
         self.assertIn("https://verisigilai.com", cors.kwargs["allow_origins"])
         self.assertIn("https://www.verisigilai.com", cors.kwargs["allow_origins"])
         self.assertNotIn("*", cors.kwargs["allow_origins"])
+        self.assertFalse(cors.kwargs["allow_credentials"])
         schemes = schema["components"]["securitySchemes"]
         self.assertIn("SupabaseBearer", schemes)
         self.assertEqual(
