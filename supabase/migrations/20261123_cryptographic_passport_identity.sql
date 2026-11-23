@@ -244,6 +244,8 @@ begin
 end;
 $$;
 
+drop function if exists public.vgs_consume_agent_authority_commitment(uuid,uuid,text);
+
 create or replace function public.vgs_consume_agent_authority_commitment(
   p_commitment_id uuid, p_org_id uuid, p_action_digest text,
   p_consumed_at timestamptz, p_consumption_receipt jsonb
