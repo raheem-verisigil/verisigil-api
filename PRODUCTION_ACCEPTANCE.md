@@ -17,3 +17,13 @@ A green lifecycle workflow does not itself prove backup restoration, load behavi
 
 ## Legacy database hardening already applied
 The restored legacy project now has explicit `USING (false) WITH CHECK (false)` policies on every public RLS-enabled table that previously had no policy. The migration also revokes all table privileges from `anon` and `authenticated` on those tables, including `TRUNCATE`, `MAINTAIN`, `TRIGGER`, and `REFERENCES`, while leaving `service_role` and database owners untouched. Post-migration checks returned zero RLS-enabled tables without policies, zero remaining client table grants across the affected legacy tables, and no Supabase security or health advisor lints.
+
+## Final production release blockers
+
+1. Configure the three isolated-staging Actions secrets above and obtain a green authenticated lifecycle workflow. The workflow currently fails closed because all three secret values are absent.
+2. Run a Supabase backup restoration rehearsal to a separate recovery target (never overwrite the source project). Record backup timestamp, restored project reference, schema/migration checks, row-count/integrity checks, and successful application smoke tests. The connected Supabase database tools do not expose backup restore controls, so this must be completed in the Supabase dashboard.
+3. Exercise the concurrency/replay suite with at least two staging API replicas and verify restart/recovery against the same persistent database.
+4. Integrate a real customer-side actuator adapter. It must independently enforce the consume response and reject execution on denial, timeout, signature failure, stale commitment, or replay. VeriSigil's API returns evidence/authority; it does not invoke or control a customer's actuator.
+5. Complete independent security review, alerting/incident response rehearsal, and a controlled production rollback rehearsal before promoting any candidate.
+
+Do not mark production ready until these are evidenced. Current staging crypto support is Ed25519; do not advertise post-quantum signatures or active Z3 formal proof verification.
