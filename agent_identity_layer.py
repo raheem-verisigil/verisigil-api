@@ -101,12 +101,8 @@ def _verify_agent_signature(public_key: str, payload: dict, signature: str) -> b
         return False
 
 
-async def _db_request(method: str, path: str, *, params: dict | None = None,
-                      body: dict | None = None, prefer: str = "return=representation") -> Any:
-    base = (os.environ.get("SUPABASE_URL") or "").strip().rstrip("/")
-    key = (os.environ.get("SUPABASE_SERVICE_KEY") or os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or "").strip()
-    if not base.startswith("https://") or not key:
-        raise HTTPException(503, "Identity persistence is not configured; authority fails closed.")
+def _service_auth_headers(key: str, prefer: str = "return=representation") -> dict[str, str]:
+    """Build server-only Supabase headers for legacy JWT or modern secret key."""
     headers = {
         "apikey": key,
         "Content-Type": "application/json",
@@ -117,6 +113,16 @@ async def _db_request(method: str, path: str, *, params: dict | None = None,
     # only. Legacy service_role JWTs may also be sent as Bearer credentials.
     if not key.startswith("sb_secret_"):
         headers["Authorization"] = f"Bearer {key}"
+    return headers
+
+
+async def _db_request(method: str, path: str, *, params: dict | None = None,
+                      body: dict | None = None, prefer: str = "return=representation") -> Any:
+    base = (os.environ.get("SUPABASE_URL") or "").strip().rstrip("/")
+    key = (os.environ.get("SUPABASE_SERVICE_KEY") or os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or "").strip()
+    if not base.startswith("https://") or not key:
+        raise HTTPException(503, "Identity persistence is not configured; authority fails closed.")
+    headers = _service_auth_headers(key, prefer)
     try:
         async with httpx.AsyncClient(timeout=8.0) as client:
             response = await client.request(method, f"{base}/rest/v1/{path}",
