@@ -31,11 +31,14 @@ def call(method,url,headers=None,body=None,ok=(200,),params=None):
 
 def sig(sk,obj): return base64.b64encode(sk.sign(rfc8785.dumps(obj)).signature).decode()
 
-def make_user(admin,label):
+def make_user(admin,label,created_users):
     email=f"vgs-ci-{label}-{uuid.uuid4().hex[:10]}@example.invalid"; password=secrets.token_urlsafe(36)+"A9!"
     _,u=call("POST",SB+"/auth/v1/admin/users",admin,{"email":email,"password":password,"email_confirm":True},(200,201))
-    _,s=call("POST",SB+"/auth/v1/token?grant_type=password",hdr(ANON),{"email":email,"password":password})
-    return {"id":u["id"],"access":s["access_token"]}
+    record={"id":u["id"],"email":email}
+    created_users.append(record)  # register cleanup immediately after admin creation
+    _,session=call("POST",SB+"/auth/v1/token?grant_type=password",hdr(ANON),{"email":email,"password":password})
+    record["access"]=session["access_token"]
+    return record
 
 def tenant(user,name):
     _,r=call("POST",BASE+"/v1/agent-identity/tenants",hdr(ANON,user["access"]),{"tenant_name":name})
@@ -57,7 +60,7 @@ def main():
     admin=hdr(SERVICE,SERVICE if SERVICE.startswith("eyJ") else None)
     users=[]; orgs=[]; agents=[]; api_keys=[]; client=httpx.Client(timeout=25,headers=admin)
     try:
-        u1=make_user(admin,"owner1"); users.append(u1)
+        u1=make_user(admin,"owner1",users)
         o1=tenant(u1,"VeriSigil CI "+uuid.uuid4().hex[:8]); orgs.append(o1)
         _,listed=call("GET",BASE+"/v1/agent-identity/tenants",hdr(ANON,u1["access"]))
         assert any(x["tenant"]["org_id"]==o1 for x in listed["tenants"])
@@ -94,7 +97,7 @@ def main():
             statuses=sorted(pool.map(lambda _:consume_once(),range(2)))
         assert statuses==[200,409],f"concurrent consume statuses {statuses}"
         call("GET",BASE+f"/v1/runtime/authority/receipts/{ev['commitment_id']}",auth)
-        u2=make_user(admin,"owner2"); users.append(u2)
+        u2=make_user(admin,"owner2",users)
         o2=tenant(u2,"VeriSigil isolation "+uuid.uuid4().hex[:8]); orgs.append(o2)
         call("GET",BASE+f"/v1/agent-identity/agents/{grantor['id']}",
              hdr(ANON,u2["access"],{"x-org-id":o2}),ok=(404,))
@@ -112,15 +115,25 @@ def main():
     finally:
         # Only delete this run's synthetic rows. Never point at production.
         try:
+            # Discover tenants even if an HTTP timeout happened after the DB commit.
+            for u in users:
+                response=client.get(SB+"/rest/v1/vgs_agent_identity_tenants",
+                    params={"created_by":"eq."+u["id"],"select":"org_id"})
+                response.raise_for_status()
+                for row in response.json():
+                    if row["org_id"] not in orgs: orgs.append(row["org_id"])
             for org in orgs:
                 for table in ("vgs_agent_authority_commitments","vgs_agent_delegations","vgs_agent_identity_challenges",
-                    "vgs_agent_identity_api_keys","vgs_agent_identity_keys","vgs_agent_identities","passports"):
-                    client.delete(SB+"/rest/v1/"+table,params={"org_id":"eq."+org})
-                for aid in agents: client.delete(SB+"/rest/v1/agents",params={"id":"eq."+aid})
-                client.delete(SB+"/rest/v1/vgs_agent_identity_memberships",params={"org_id":"eq."+org})
-                client.delete(SB+"/rest/v1/vgs_agent_identity_tenants",params={"org_id":"eq."+org})
-                client.delete(SB+"/rest/v1/organisations",params={"id":"eq."+org})
-            for u in users: client.delete(SB+"/auth/v1/admin/users/"+u["id"])
+                    "vgs_agent_identity_api_keys","vgs_agent_identity_keys","vgs_agent_identities","passports","agents"):
+                    response=client.delete(SB+"/rest/v1/"+table,params={"org_id":"eq."+org})
+                    response.raise_for_status()
+                for table in ("vgs_agent_identity_memberships","vgs_agent_identity_tenants","organisations"):
+                    field="id" if table=="organisations" else "org_id"
+                    response=client.delete(SB+"/rest/v1/"+table,params={field:"eq."+org})
+                    response.raise_for_status()
+            for u in users:
+                response=client.delete(SB+"/auth/v1/admin/users/"+u["id"])
+                response.raise_for_status()
         except Exception as e:
             print("Synthetic cleanup failed: "+type(e).__name__,file=sys.stderr); raise
         finally: client.close()
