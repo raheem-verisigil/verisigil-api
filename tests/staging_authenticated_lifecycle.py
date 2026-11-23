@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Live acceptance tests for isolated staging tenant onboarding and API-key lifecycle."""
-import json, os, urllib.error, urllib.parse, urllib.request, uuid
+import base64, json, os, urllib.error, urllib.parse, urllib.request, uuid
 
 BASE=os.environ.get("VERISIGIL_STAGING_BASE_URL","").rstrip("/")
 SUPA=os.environ.get("VERISIGIL_STAGING_SUPABASE_URL","").rstrip("/")
@@ -41,7 +41,7 @@ name="staging-acceptance-"+uuid.uuid4().hex[:12]
 status,body=call(BASE+"/v1/agent-identity/tenants","POST",owner,{"tenant_name":name})
 assert status==200 and isinstance(body,dict),f"tenant onboarding failed: HTTP {status}"
 tenant=body.get("tenant") or {}; membership=body.get("membership") or {}; org=tenant.get("org_id")
-assert body.get("onboarding")=="TENANT_OWNER_CREATED" and org,f"tenant creation not confirmed"
+assert body.get("onboarding")=="TENANT_OWNER_CREATED" and org,"tenant creation not confirmed"
 assert membership.get("org_id")==org and membership.get("role")=="owner","owner membership missing"
 print("PASS: authenticated tenant and owner membership created")
 
@@ -61,9 +61,23 @@ status,_=call(BASE+"/v1/agent-identity/agents",headers={"x-api-key":key})
 assert status==200,f"scoped API key failed: HTTP {status}"
 print("PASS: scoped tenant API key grants read access")
 
+# A read-only key must not create agent challenges or manage other API keys.
+limited={"x-api-key":key}
+status,_=call(BASE+"/v1/agent-identity/challenges","POST",limited,{"purpose":"REGISTER_AGENT","public_key":base64.b64encode(bytes(32)).decode("ascii")})
+assert status==403,f"read-only key unexpectedly created an agent challenge: HTTP {status}"
+print("PASS: agents:read key cannot perform agents:write operation")
+
+status,_=call(BASE+"/v1/agent-identity/api-keys","POST",limited,{"name":"forbidden-escalation","scopes":["agents:read"],"expires_in_days":1})
+assert status==403,f"tenant API key unexpectedly created another API key: HTTP {status}"
+print("PASS: tenant API key cannot escalate or mint credentials")
+
+status,_=call(BASE+"/v1/agent-identity/api-keys","POST",owner,{"name":"invalid-scope","scopes":["*"],"expires_in_days":1})
+assert status==422,f"unsupported API-key scope was not rejected: HTTP {status}"
+print("PASS: unsupported API-key scopes rejected")
+
 status,body=call(BASE+f"/v1/agent-identity/api-keys/{key_id}/revoke","POST",owner)
 assert status==200 and isinstance(body,dict) and body.get("revoked") is True,f"API-key revoke failed: HTTP {status}"
 status,_=call(BASE+"/v1/agent-identity/agents",headers={"x-api-key":key})
 assert status==401,f"revoked API key still accepted: HTTP {status}"
 print("PASS: revoked API key rejected")
-print("PASS: mandatory authenticated staging lifecycle")
+print("PASS: mandatory authenticated staging lifecycle and negative-scope gates")
