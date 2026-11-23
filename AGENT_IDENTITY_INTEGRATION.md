@@ -29,7 +29,7 @@ Two authentication modes are supported:
 
 The caller cannot set a tenant by submitting an `org_id` in a request body. A user with one active membership uses it automatically. A user with multiple memberships must select one using `x-org-id`, and it must match an active membership.
 
-The new routes do not accept the legacy global production API key as a tenant credential. This avoids silently assigning a global credential to an arbitrary tenant. The staging entrypoint also replaces the legacy core API-key validator with an environment-only validator, so source-embedded demo/sandbox strings are no longer accepted by the active staging entrypoint. The legacy literals remain in the large historical core source file pending a separate source-file cleanup; they are not valid credentials through the active staging entrypoint.
+The database enforces composite tenant relationships for agent keys, challenges, delegations, commitments and API-key creator memberships. Client roles have explicit deny-all RLS policies; the server uses a secret/service-role credential only.\n\nThe new routes do not accept the legacy global production API key as a tenant credential. This avoids silently assigning a global credential to an arbitrary tenant. The staging entrypoint also replaces the legacy core API-key validator with an environment-only validator, so source-embedded demo/sandbox strings are no longer accepted by the active staging entrypoint. The legacy literals remain in the large historical core source file pending a separate source-file cleanup; they are not valid credentials through the active staging entrypoint.
 
 ### Bootstrap
 
