@@ -243,16 +243,7 @@ language plpgsql security definer set search_path = public
 as $$
 declare consumed jsonb;
 begin
-  update public.vgs_agent_authority_commitments c
-     set consumed_at = clock_timestamp()
-    from public.vgs_agent_identities a
-    join public.vgs_agent_identity_keys k
-      on k.agent_id = a.agent_id and k.org_id = a.org_id
-    left join public.vgs_agent_delegations d
-      on d.delegation_id = c_dummy_delegation_id_placeholder
-    where false;
-  -- The real guarded update below uses EXISTS predicates to avoid an
-  -- unconstrained join and remains atomic across all API replicas.
+  -- A single guarded UPDATE and EXISTS predicates serialize consumption across replicas.
   update public.vgs_agent_authority_commitments c
      set consumed_at = clock_timestamp()
    where c.commitment_id = p_commitment_id
