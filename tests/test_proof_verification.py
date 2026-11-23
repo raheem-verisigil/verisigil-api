@@ -71,6 +71,23 @@ class ProofVerificationTests(unittest.TestCase):
         expected = base64.b64encode(bytes(core._VERIFY_KEY)).decode("ascii")
         self.assertEqual(core.PUBLIC_KEY_B64, expected)
 
+    def test_agent_identity_routes_and_auth_schemes_are_registered(self):
+        schema = runtime.app.openapi()
+        self.assertIn("/v1/agent-identity/agents", schema["paths"])
+        self.assertIn("/v1/agent-identity/challenges", schema["paths"])
+        self.assertIn("/v1/runtime/authority/evaluate", schema["paths"])
+        self.assertIn("/v1/runtime/authority/consume", schema["paths"])
+        schemes = schema["components"]["securitySchemes"]
+        self.assertIn("SupabaseBearer", schemes)
+        self.assertEqual(
+            schema["paths"]["/v1/agent-identity/api-keys"]["post"]["security"],
+            [{"SupabaseBearer": []}],
+        )
+        self.assertIn(
+            {"ApiKeyAuth": []},
+            schema["paths"]["/v1/runtime/authority/evaluate"]["post"]["security"],
+        )
+
     def test_staging_entrypoint_intercepts_legacy_verify_route_with_runtime_key(self):
         source = (Path(__file__).resolve().parents[1] / "verisigil_entrypoint.py").read_text(encoding="utf-8")
         self.assertIn('request.url.path == "/v1/proof/verify"', source)
