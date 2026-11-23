@@ -812,7 +812,7 @@ def install_openapi_security(app) -> None:
             if path.startswith("/v1/agent-identity/") or path.startswith("/v1/runtime/authority/"):
                 for operation in operations.values():
                     if isinstance(operation, dict) and "operationId" in operation:
-                        if path == "/v1/agent-identity/api-keys":
+                        if path == "/v1/agent-identity/api-keys" or path.startswith("/v1/agent-identity/api-keys/"):
                             operation["security"] = [{"SupabaseBearer": []}]
                         else:
                             operation["security"] = [{"SupabaseBearer": []}, {"ApiKeyAuth": []}]
