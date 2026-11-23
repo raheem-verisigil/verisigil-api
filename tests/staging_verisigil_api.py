@@ -54,8 +54,8 @@ def _response_diagnostic(response, limit=2000):
     except (ValueError, TypeError):
         body = response.text or "<empty response body>"
     body = re.sub(
-        r'(?i)(authorization|x-api-key|api[_-]?key|secret|token)(["\\s:=]+)[^,\\s"}]+',
-        r'\\1\\2[REDACTED]',
+        r'(?i)(authorization|x-api-key|api[_-]?key|secret|token)(["\s:=]+)[^,\s"}]+',
+        r'\1\2[REDACTED]',
         body,
     )
     if len(body) > limit:
