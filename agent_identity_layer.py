@@ -8,6 +8,7 @@ It never accepts an agent private key.
 from __future__ import annotations
 
 import base64
+import binascii
 import hashlib
 import json
 import os
@@ -296,7 +297,7 @@ def _passport(agent_id: str, org_id: str, agent_name: str, did: str,
               capabilities: list[str], key_fingerprints: list[str],
               issued_at: str, expires_at: str, version: int = 1) -> dict:
     claims = {
-        "schema": "VERISIGIL-CRYPTographic-PASSPORT-1.0",
+        "schema": "VERISIGIL-CRYPTOGRAPHIC-PASSPORT-1.0",
         "passport_id": str(uuid.uuid4()),
         "passport_version": version,
         "agent_id": agent_id,
@@ -336,6 +337,8 @@ async def _evaluate_identity(org_id: str, agent_id: str, key_id: str,
     passport = agent.get("passport") or {}
     claims = passport.get("claims") or {}
     capabilities = claims.get("declared_capabilities") or []
+    if key.get("fingerprint") not in (claims.get("public_key_fingerprints") or []):
+        reasons.append("KEY_NOT_BOUND_TO_SIGNED_PASSPORT")
     if delegation_id:
         delegation = await _one("vgs_agent_delegations", {
             "org_id": org_id, "delegation_id": delegation_id,
