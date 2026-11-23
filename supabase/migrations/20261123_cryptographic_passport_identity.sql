@@ -241,45 +241,108 @@ create or replace function public.vgs_consume_agent_authority_commitment(
 ) returns jsonb
 language plpgsql security definer set search_path = public
 as $$
-declare consumed jsonb;
+declare
+  c public.vgs_agent_authority_commitments%rowtype;
+  a public.vgs_agent_identities%rowtype;
+  g public.vgs_agent_identities%rowtype;
+  k public.vgs_agent_identity_keys%rowtype;
+  d public.vgs_agent_delegations%rowtype;
+  consumed jsonb;
 begin
-  -- A single guarded UPDATE and EXISTS predicates serialize consumption across replicas.
-  update public.vgs_agent_authority_commitments c
-     set consumed_at = clock_timestamp()
-   where c.commitment_id = p_commitment_id
-     and c.org_id = p_org_id
-     and c.action_digest = p_action_digest
-     and c.decision = 'AUTHORIZED'
-     and c.consumed_at is null
-     and c.expires_at > clock_timestamp()
-     and exists (
-       select 1 from public.vgs_agent_identities a
-       join public.vgs_agent_identity_keys k
-         on k.agent_id = a.agent_id and k.org_id = a.org_id
-       where a.agent_id = c.agent_id and a.org_id = c.org_id
-         and a.status = 'ACTIVE' and a.expires_at > clock_timestamp()
-         and k.key_id = c.key_id and k.status = 'ACTIVE'
-         and (
-           (c.delegation_id is null and a.capabilities ? c.action)
-           or
-           (c.delegation_id is not null and exists (
-             select 1
-               from public.vgs_agent_delegations d
-               join public.vgs_agent_identities g
-                 on g.agent_id = d.grantor_agent_id and g.org_id = d.org_id
-              where d.delegation_id = c.delegation_id
-                and d.org_id = c.org_id
-                and d.grantee_agent_id = c.agent_id
-                and d.status = 'ACTIVE'
-                and d.expires_at > clock_timestamp()
-                and d.scopes ? c.action
-                and g.status = 'ACTIVE'
-                and g.expires_at > clock_timestamp()
-                and g.capabilities ? c.action
-           ))
+  -- Read immutable identifiers first, then acquire locks in the same order as
+  -- revocation/rotation: agents -> key -> delegation -> commitment.
+  select * into c
+    from public.vgs_agent_authority_commitments
+   where commitment_id = p_commitment_id and org_id = p_org_id;
+  if not found then return null; end if;
+
+  perform 1
+    from public.vgs_agent_identities ai
+   where ai.org_id = p_org_id
+     and (
+       ai.agent_id = c.agent_id
+       or (
+         c.delegation_id is not null
+         and ai.agent_id = (
+           select grantor_agent_id from public.vgs_agent_delegations
+            where delegation_id = c.delegation_id and org_id = p_org_id
          )
+       )
      )
-  returning to_jsonb(c) into consumed;
+   order by ai.agent_id
+   for update;
+
+  perform 1
+    from public.vgs_agent_identity_keys ak
+   where ak.org_id = p_org_id and ak.agent_id = c.agent_id and ak.key_id = c.key_id
+   for update;
+
+  if c.delegation_id is not null then
+    perform 1
+      from public.vgs_agent_delegations ad
+     where ad.org_id = p_org_id and ad.delegation_id = c.delegation_id
+     for update;
+  end if;
+
+  select * into c
+    from public.vgs_agent_authority_commitments
+   where commitment_id = p_commitment_id and org_id = p_org_id
+   for update;
+
+  if not found
+     or c.action_digest <> p_action_digest
+     or c.decision <> 'AUTHORIZED'
+     or c.consumed_at is not null
+     or c.expires_at <= clock_timestamp() then
+    return null;
+  end if;
+
+  select * into a
+    from public.vgs_agent_identities
+   where org_id = p_org_id and agent_id = c.agent_id;
+  if not found or a.status <> 'ACTIVE' or a.expires_at <= clock_timestamp() then
+    return null;
+  end if;
+
+  select * into k
+    from public.vgs_agent_identity_keys
+   where org_id = p_org_id and agent_id = c.agent_id and key_id = c.key_id;
+  if not found or k.status <> 'ACTIVE' or k.fingerprint <> k.key_id then
+    return null;
+  end if;
+
+  if c.delegation_id is null then
+    if not (a.capabilities ? c.action) then return null; end if;
+  else
+    select * into d
+      from public.vgs_agent_delegations
+     where org_id = p_org_id and delegation_id = c.delegation_id;
+    if not found
+       or d.status <> 'ACTIVE'
+       or d.expires_at <= clock_timestamp()
+       or d.grantee_agent_id <> c.agent_id
+       or not (d.scopes ? c.action) then
+      return null;
+    end if;
+
+    select * into g
+      from public.vgs_agent_identities
+     where org_id = p_org_id and agent_id = d.grantor_agent_id;
+    if not found
+       or g.status <> 'ACTIVE'
+       or g.expires_at <= clock_timestamp()
+       or not (g.capabilities ? c.action) then
+      return null;
+    end if;
+  end if;
+
+  update public.vgs_agent_authority_commitments
+     set consumed_at = clock_timestamp()
+   where commitment_id = p_commitment_id
+     and org_id = p_org_id
+     and consumed_at is null
+  returning to_jsonb(vgs_agent_authority_commitments) into consumed;
+
   return consumed;
 end;
 $$;
