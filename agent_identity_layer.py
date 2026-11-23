@@ -47,6 +47,13 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _require_uuid(value: str, field: str) -> str:
+    try:
+        return str(uuid.UUID(str(value)))
+    except (ValueError, TypeError, AttributeError) as exc:
+        raise HTTPException(422, f"{field} must be a UUID.") from exc
+
+
 def _iso(value: datetime | None = None) -> str:
     return (value or _now()).isoformat()
 
@@ -218,7 +225,7 @@ async def get_principal(request: Request) -> Principal:
         if row.get("expires_at") and _parse_time(row["expires_at"]) <= _now():
             raise HTTPException(401, "Tenant API key has expired.")
         scopes = row.get("scopes") or []
-        if not isinstance(scopes, list) or not set(scopes).issubset(KNOWN_SCOPES):
+        if not isinstance(scopes, list) or any(not isinstance(scope, str) for scope in scopes) or not set(scopes).issubset(KNOWN_SCOPES):
             raise HTTPException(403, "Tenant API key has invalid scope metadata.")
         return Principal(org_id=str(row["org_id"]), principal_id=str(row["key_id"]),
                          role="api_key", scopes=scopes, auth_method="tenant_api_key")
@@ -236,6 +243,7 @@ def _require_jwt_owner(principal: Principal) -> None:
 
 
 async def _get_agent(org_id: str, agent_id: str) -> dict:
+    agent_id = _require_uuid(agent_id, "agent_id")
     row = await _one("vgs_agent_identities", {"org_id": org_id, "agent_id": agent_id})
     if not row:
         raise HTTPException(404, "Agent identity not found in this tenant.")
@@ -243,6 +251,9 @@ async def _get_agent(org_id: str, agent_id: str) -> dict:
 
 
 async def _get_key(org_id: str, agent_id: str, key_id: str) -> dict:
+    agent_id = _require_uuid(agent_id, "agent_id")
+    if not re.fullmatch(r"[0-9a-f]{64}", key_id):
+        raise HTTPException(422, "key_id must be a SHA-256 Ed25519 fingerprint.")
     row = await _one("vgs_agent_identity_keys", {
         "org_id": org_id, "agent_id": agent_id, "key_id": key_id,
     })
@@ -283,6 +294,7 @@ def _challenge_payload(challenge: dict) -> dict:
 async def _consume_challenge(principal: Principal, challenge_id: str, purpose: str,
                              agent_id: str | None, public_key: str, proof: str) -> dict:
     fingerprint = _fingerprint(public_key)
+    challenge_id = _require_uuid(challenge_id, "challenge_id")
     challenge = await _one("vgs_agent_identity_challenges", {
         "challenge_id": challenge_id, "org_id": principal.org_id,
     })
@@ -621,6 +633,7 @@ async def create_delegation(req: DelegationCreate, principal: Principal = Depend
 @router.post("/v1/agent-identity/delegations/{delegation_id}/revoke", summary="Revoke a delegation")
 async def revoke_delegation(delegation_id: str, principal: Principal = Depends(get_principal)):
     _need(principal, "delegations:write")
+    delegation_id = _require_uuid(delegation_id, "delegation_id")
     row = await _one("vgs_agent_delegations", {
         "org_id": principal.org_id, "delegation_id": delegation_id,
     })
@@ -683,8 +696,10 @@ async def evaluate_authority(req: AuthorityEvaluate, principal: Principal = Depe
 @router.post("/v1/runtime/authority/consume", summary="Atomically consume an authority commitment once")
 async def consume_authority(req: AuthorityConsume, principal: Principal = Depends(get_principal)):
     _need(principal, "authority:consume")
+    commitment_id = _require_uuid(req.commitment_id, "commitment_id")
+    commitment_id = _require_uuid(commitment_id, "commitment_id")
     row = await _one("vgs_agent_authority_commitments", {
-        "org_id": principal.org_id, "commitment_id": req.commitment_id,
+        "org_id": principal.org_id, "commitment_id": commitment_id,
     })
     if not row:
         raise HTTPException(404, "Authority commitment not found in this tenant.")
