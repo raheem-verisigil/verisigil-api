@@ -3,6 +3,7 @@ on:
   pull_request:
     branches: [hardening/verisigil-production-readiness-20261123]
     paths:
+      - "main.py"
       - "agent_identity_layer.py"
       - "verisigil_entrypoint.py"
       - "tests/staging_authenticated_lifecycle.py"

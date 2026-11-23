@@ -43,6 +43,7 @@ assert status==200 and isinstance(body,dict),f"tenant onboarding failed: HTTP {s
 tenant=body.get("tenant") or {}; membership=body.get("membership") or {}; org=tenant.get("org_id")
 assert body.get("onboarding")=="TENANT_OWNER_CREATED" and org,"tenant creation not confirmed"
 assert membership.get("org_id")==org and membership.get("role")=="owner","owner membership missing"
+owner_tenant={**owner,"x-org-id":org}
 print("PASS: authenticated tenant and owner membership created")
 
 status,body=call(BASE+"/v1/agent-identity/tenants",headers=owner)
@@ -54,7 +55,7 @@ status,_=call(BASE+"/v1/agent-identity/agents",headers={**other,"x-org-id":org})
 assert status==403,f"cross-tenant membership selection not denied: HTTP {status}"
 print("PASS: cross-tenant selection denied")
 
-status,body=call(BASE+"/v1/agent-identity/api-keys","POST",owner,{"name":"staging-"+uuid.uuid4().hex[:8],"scopes":["agents:read"],"expires_in_days":1})
+status,body=call(BASE+"/v1/agent-identity/api-keys","POST",owner_tenant,{"name":"staging-"+uuid.uuid4().hex[:8],"scopes":["agents:read"],"expires_in_days":1})
 assert status==200 and isinstance(body,dict) and body.get("api_key") and body.get("key_id"),f"API-key issue failed: HTTP {status}"
 key=body["api_key"]; key_id=body["key_id"]
 status,_=call(BASE+"/v1/agent-identity/agents",headers={"x-api-key":key})
@@ -71,11 +72,19 @@ status,_=call(BASE+"/v1/agent-identity/api-keys","POST",limited,{"name":"forbidd
 assert status==403,f"tenant API key unexpectedly created another API key: HTTP {status}"
 print("PASS: tenant API key cannot escalate or mint credentials")
 
+    ci/include-main-py-in-passport-gate-20261123
+status,_=call(BASE+"/v1/agent-identity/api-keys","POST",owner_tenant,{"name":"invalid-scope","scopes":["*"],"expires_in_days":1})
+assert status==422,f"unsupported API-key scope was not rejected: HTTP {status}"
+print("PASS: unsupported API-key scopes rejected")
+
+status,body=call(BASE+f"/v1/agent-identity/api-keys/{key_id}/revoke","POST",owner_tenant)
+
 status,_=call(BASE+"/v1/agent-identity/api-keys","POST",owner,{"name":"invalid-scope","scopes":["*"],"expires_in_days":1})
 assert status==422,f"unsupported API-key scope was not rejected: HTTP {status}"
 print("PASS: unsupported API-key scopes rejected")
 
 status,body=call(BASE+f"/v1/agent-identity/api-keys/{key_id}/revoke","POST",owner)
+ main
 assert status==200 and isinstance(body,dict) and body.get("revoked") is True,f"API-key revoke failed: HTTP {status}"
 status,_=call(BASE+"/v1/agent-identity/agents",headers={"x-api-key":key})
 assert status==401,f"revoked API key still accepted: HTTP {status}"
