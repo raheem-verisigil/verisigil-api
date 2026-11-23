@@ -31,21 +31,20 @@ The caller cannot set a tenant by submitting an `org_id` in a request body. A us
 
 The database enforces composite tenant relationships for agent keys, challenges, delegations, commitments and API-key creator memberships. Client roles have explicit deny-all RLS policies; the server uses a secret/service-role credential only.\n\nThe new routes do not accept the legacy global production API key as a tenant credential. This avoids silently assigning a global credential to an arbitrary tenant. The staging entrypoint also replaces the legacy core API-key validator with an environment-only validator, so source-embedded demo/sandbox strings are no longer accepted by the active staging entrypoint. The legacy literals remain in the large historical core source file pending a separate source-file cleanup; they are not valid credentials through the active staging entrypoint.
 
-### Bootstrap
+### Tenant onboarding
 
-After applying the migration to the isolated staging Supabase project, a database administrator must create the tenant membership using the verified Supabase Auth user UUID and the intended tenant UUID:
+A user signs in through Supabase Auth and calls `POST /v1/agent-identity/tenants` with a tenant name. VeriSigil independently validates the access token through Supabase Auth, creates the tenant and its first `owner` membership in one Postgres transaction, and returns the tenant ID. No caller-supplied user or tenant ID is trusted. A user may belong to multiple tenants and selects an active tenant with `x-org-id` on tenant-scoped operations.
 
-```sql
-insert into public.vgs_agent_identity_memberships(user_id, org_id, role)
-values ('<verified-auth-user-uuid>', '<tenant-uuid>', 'owner');
-```
+The tenant registry and membership foreign keys ensure every Passport record belongs to a real tenant and every owner membership belongs to a verified Auth user. Tenant suspension is checked on both JWT and tenant API-key authentication paths.
 
-Do not accept either UUID from an untrusted client as proof of membership. Tenant owners can then create scoped API keys through `POST /v1/agent-identity/api-keys`.
+After onboarding, the tenant owner can create scoped API keys through `POST /v1/agent-identity/api-keys`.
 
 ## API surface
 
 | Method | Path | Purpose |
 |---|---|---|
+| POST | `/v1/agent-identity/tenants` | Create a tenant and its first owner membership from a verified Supabase user |
+| GET | `/v1/agent-identity/tenants` | List the authenticated user's active tenants |
 | POST | `/v1/agent-identity/api-keys` | Create a tenant-scoped, hashed API key (verified tenant owner only) |
 | POST | `/v1/agent-identity/api-keys/{key_id}/revoke` | Revoke a tenant API key (verified tenant owner only) |
 | POST | `/v1/agent-identity/challenges` | Issue a short-lived Ed25519 proof-of-possession challenge |
