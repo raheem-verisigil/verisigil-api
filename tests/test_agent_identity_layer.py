@@ -197,7 +197,7 @@ class AgentIdentityLayerTests(unittest.TestCase):
 
     def test_agent_signature_canonicalization_uses_rfc8785(self):
         # RFC 8785 normalizes number rendering and rejects non-I-JSON values.
-        self.assertEqual(identity._canonical({"z": 333333333.33333329, "a": "€"}), b'{"a":"\\xe2\\x82\\xac","z":333333333.3333333}')
+        self.assertEqual(identity._canonical({"z": 333333333.33333329, "a": "€"}), '{"a":"€","z":333333333.3333333}'.encode("utf-8"))
 
     def test_migration_scopes_agent_keys_by_tenant(self):
         migration = Path(__file__).resolve().parents[1] / "supabase" / "migrations" / "20261123_cryptographic_passport_identity.sql"
