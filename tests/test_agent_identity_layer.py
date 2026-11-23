@@ -217,13 +217,13 @@ class AgentIdentityLayerTests(unittest.TestCase):
         self.assertIn("foreign key (org_id, agent_id)", source)
         self.assertIn("foreign key (org_id, grantor_agent_id)", source)
         self.assertIn("foreign key (org_id, grantee_agent_id)", source)
-        integrity = Path(__file__).resolve().parents[1] / "supabase" / "migrations" / "20261123161000_passport_tenant_integrity.sql"
+        integrity = Path(__file__).resolve().parents[1] / "supabase" / "migrations" / "20261123161005_passport_tenant_integrity.sql"
         integrity_source = integrity.read_text(encoding="utf-8").lower()
         self.assertIn("references auth.users(id)", integrity_source)
         self.assertIn("foreign key (created_by, org_id)", integrity_source)
         self.assertIn("foreign key (org_id, agent_id)", integrity_source)
         self.assertIn("foreign key (org_id, delegation_id)", integrity_source)
-        onboarding = Path(__file__).resolve().parents[1] / "supabase" / "migrations" / "20261123162000_passport_tenant_onboarding.sql"
+        onboarding = Path(__file__).resolve().parents[1] / "supabase" / "migrations" / "20261123161200_passport_tenant_onboarding.sql"
         onboarding_source = onboarding.read_text(encoding="utf-8").lower()
         self.assertIn("create table if not exists public.vgs_agent_identity_tenants", onboarding_source)
         self.assertIn("vgs_create_agent_identity_tenant", onboarding_source)
