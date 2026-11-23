@@ -88,6 +88,14 @@ class ProofVerificationTests(unittest.TestCase):
             schema["paths"]["/v1/runtime/authority/evaluate"]["post"]["security"],
         )
 
+    def test_deployment_commands_use_hardened_staging_entrypoint(self):
+        root = Path(__file__).resolve().parents[1]
+        procfile = (root / "Procfile").read_text(encoding="utf-8")
+        railway = json.loads((root / "railway.json").read_text(encoding="utf-8"))
+        self.assertIn("uvicorn verisigil_entrypoint:app", procfile)
+        self.assertIn("uvicorn verisigil_entrypoint:app", railway["deploy"]["startCommand"])
+        self.assertNotIn("uvicorn main:app", procfile + railway["deploy"]["startCommand"])
+
     def test_staging_entrypoint_intercepts_legacy_verify_route_with_runtime_key(self):
         source = (Path(__file__).resolve().parents[1] / "verisigil_entrypoint.py").read_text(encoding="utf-8")
         self.assertIn('request.url.path == "/v1/proof/verify"', source)
