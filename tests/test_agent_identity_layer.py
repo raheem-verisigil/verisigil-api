@@ -201,9 +201,9 @@ class AgentIdentityLayerTests(unittest.TestCase):
         function = source.split("create or replace function public.vgs_consume_agent_authority_commitment", 1)[1]
         self.assertIn("c.consumed_at is not null", function)
         self.assertIn("c.expires_at <= clock_timestamp()", function)
-        self.assertIn("k.status = 'active'", function)
-        self.assertIn("a.status = 'active'", function)
-        self.assertIn("d.status = 'active'", function)
+        self.assertIn("k.status <> 'active'", function)
+        self.assertIn("a.status <> 'active'", function)
+        self.assertIn("d.status <> 'active'", function)
         self.assertIn("c.action_digest <> p_action_digest", function)
         self.assertIn("for update", function)
         self.assertIn("c.consumed_at is not null", function)
