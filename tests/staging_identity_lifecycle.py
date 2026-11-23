@@ -124,18 +124,18 @@ def main():
                     if row["org_id"] not in orgs: orgs.append(row["org_id"])
             for org in orgs:
                 for table in ("vgs_agent_authority_commitments","vgs_agent_delegations","vgs_agent_identity_challenges",
-                    "vgs_agent_identity_api_keys","vgs_agent_identity_keys","vgs_agent_identities","passports","agents"):
+                    "vgs_agent_identity_api_keys","vgs_agent_identity_keys","vgs_agent_identities"):
                     response=client.delete(SB+"/rest/v1/"+table,params={"org_id":"eq."+org})
                     response.raise_for_status()
-                for table in ("vgs_agent_identity_memberships","vgs_agent_identity_tenants","organisations"):
-                    field="id" if table=="organisations" else "org_id"
+                for table in ("vgs_agent_identity_memberships","vgs_agent_identity_tenants"):
+                    field="org_id"
                     response=client.delete(SB+"/rest/v1/"+table,params={field:"eq."+org})
                     response.raise_for_status()
             for u in users:
                 response=client.delete(SB+"/auth/v1/admin/users/"+u["id"])
                 response.raise_for_status()
         except Exception as e:
-            print("Synthetic cleanup failed: "+type(e).__name__,file=sys.stderr); raise
+            print("Synthetic cleanup failed: "+type(e).__name__+": "+str(e)[:500],file=sys.stderr); raise
         finally: client.close()
 
 if __name__=="__main__": main()
