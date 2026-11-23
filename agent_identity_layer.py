@@ -191,10 +191,20 @@ async def get_principal(request: Request) -> Principal:
             raise
         except Exception as exc:
             raise HTTPException(503, "Supabase Auth could not verify the user.") from exc
-        membership = await _one("vgs_agent_identity_memberships",
-                                {"user_id": user_id, "status": "ACTIVE"})
-        if not membership:
+        memberships = await _select("vgs_agent_identity_memberships",
+                                    {"user_id": user_id, "status": "ACTIVE"}, limit=50)
+        if not memberships:
             raise HTTPException(403, "No active VeriSigil tenant membership is assigned to this user.")
+        requested_org = request.headers.get("x-org-id")
+        if requested_org:
+            matches = [item for item in memberships if str(item.get("org_id")) == requested_org]
+            if len(matches) != 1:
+                raise HTTPException(403, "The requested tenant is not an active membership for this user.")
+            membership = matches[0]
+        elif len(memberships) == 1:
+            membership = memberships[0]
+        else:
+            raise HTTPException(400, "This user belongs to multiple tenants; supply x-org-id for an active membership.")
         role = str(membership.get("role") or "auditor").lower()
         return Principal(org_id=str(membership["org_id"]), principal_id=user_id,
                          role=role, scopes=ROLE_SCOPES.get(role, ROLE_SCOPES["auditor"]),
