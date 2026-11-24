@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Live acceptance tests for isolated staging Passport, tenant and authority lifecycle."""
 import base64, hashlib, json, os, urllib.error, urllib.parse, urllib.request, uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 
 import rfc8785
@@ -68,32 +69,40 @@ status,_=call(BASE+"/v1/agent-identity/agents",headers={**other,"x-org-id":org})
 assert status==403,f"cross-tenant membership selection not denied: HTTP {status}"
 print("PASS: cross-tenant selection denied")
 
-status,body=call(BASE+"/v1/agent-identity/api-keys","POST",owner_tenant,{"name":"staging-"+uuid.uuid4().hex[:8],"scopes":["agents:read"],"expires_in_days":1})
-assert status==200 and isinstance(body,dict) and body.get("api_key") and body.get("key_id"),f"API-key issue failed: HTTP {status}; response={str(body)[:400]}"
-key=body["api_key"]; key_id=body["key_id"]
-status,_=call(BASE+"/v1/agent-identity/agents",headers={"x-api-key":key})
-assert status==200,f"scoped API key failed: HTTP {status}"
-print("PASS: scoped tenant API key grants read access")
+key_id = None
+try:
+    status,body=call(BASE+"/v1/agent-identity/api-keys","POST",owner_tenant,{"name":"staging-"+uuid.uuid4().hex[:8],"scopes":["agents:read"],"expires_in_days":1})
+    assert status==200 and isinstance(body,dict) and body.get("api_key") and body.get("key_id"),f"API-key issue failed: HTTP {status}; response={str(body)[:400]}"
+    key=body["api_key"]; key_id=body["key_id"]
+    status,_=call(BASE+"/v1/agent-identity/agents",headers={"x-api-key":key})
+    assert status==200,f"scoped API key failed: HTTP {status}"
+    print("PASS: scoped tenant API key grants read access")
 
-# A read-only key must not create agent challenges or manage other API keys.
-limited={"x-api-key":key}
-status,_=call(BASE+"/v1/agent-identity/challenges","POST",limited,{"purpose":"REGISTER_AGENT","public_key":base64.b64encode(bytes(32)).decode("ascii")})
-assert status==403,f"read-only key unexpectedly created an agent challenge: HTTP {status}"
-print("PASS: agents:read key cannot perform agents:write operation")
+    # A read-only key must not create agent challenges or manage other API keys.
+    limited={"x-api-key":key}
+    status,_=call(BASE+"/v1/agent-identity/challenges","POST",limited,{"purpose":"REGISTER_AGENT","public_key":base64.b64encode(bytes(32)).decode("ascii")})
+    assert status==403,f"read-only key unexpectedly created an agent challenge: HTTP {status}"
+    print("PASS: agents:read key cannot perform agents:write operation")
 
-status,_=call(BASE+"/v1/agent-identity/api-keys","POST",limited,{"name":"forbidden-escalation","scopes":["agents:read"],"expires_in_days":1})
-assert status==403,f"tenant API key unexpectedly created another API key: HTTP {status}"
-print("PASS: tenant API key cannot escalate or mint credentials")
+    status,_=call(BASE+"/v1/agent-identity/api-keys","POST",limited,{"name":"forbidden-escalation","scopes":["agents:read"],"expires_in_days":1})
+    assert status==403,f"tenant API key unexpectedly created another API key: HTTP {status}"
+    print("PASS: tenant API key cannot escalate or mint credentials")
 
-status,_=call(BASE+"/v1/agent-identity/api-keys","POST",owner_tenant,{"name":"invalid-scope","scopes":["*"],"expires_in_days":1})
-assert status==422,f"unsupported API-key scope was not rejected: HTTP {status}"
-print("PASS: unsupported API-key scopes rejected")
+    status,_=call(BASE+"/v1/agent-identity/api-keys","POST",owner_tenant,{"name":"invalid-scope","scopes":["*"],"expires_in_days":1})
+    assert status==422,f"unsupported API-key scope was not rejected: HTTP {status}"
+    print("PASS: unsupported API-key scopes rejected")
 
-status,body=call(BASE+f"/v1/agent-identity/api-keys/{key_id}/revoke","POST",owner_tenant)
-assert status==200 and isinstance(body,dict) and body.get("revoked") is True,f"API-key revoke failed: HTTP {status}"
-status,_=call(BASE+"/v1/agent-identity/agents",headers={"x-api-key":key})
-assert status==401,f"revoked API key still accepted: HTTP {status}"
-print("PASS: revoked tenant API key rejected")
+    status,body=call(BASE+f"/v1/agent-identity/api-keys/{key_id}/revoke","POST",owner_tenant)
+    assert status==200 and isinstance(body,dict) and body.get("revoked") is True,f"API-key revoke failed: HTTP {status}"
+    status,_=call(BASE+"/v1/agent-identity/agents",headers={"x-api-key":key})
+    assert status==401,f"revoked API key still accepted: HTTP {status}"
+    print("PASS: revoked tenant API key rejected")
+finally:
+    if key_id:
+        try:
+            call(BASE+f"/v1/agent-identity/api-keys/{key_id}/revoke","POST",owner_tenant)
+        except Exception:
+            pass
 
 created_agent_ids=[]
 def register_agent(label,capabilities):
@@ -173,6 +182,33 @@ try:
     replay_status,_=call(BASE+"/v1/runtime/authority/consume","POST",owner_tenant,consume_request)
     assert replay_status==409,f"authority commitment replay was not rejected: HTTP {replay_status}"
     print("PASS: authority commitment cannot be consumed twice")
+
+    # Race two independent HTTP requests against the same durable commitment.
+    # Exactly one request may consume it; the other must observe the atomic replay guard.
+    concurrent_parameters={"invoice_id":"INV-STAGING-CONCURRENT","amount_minor":17500}
+    concurrent_decision,concurrent_request=evaluate(grantee,delegation_id,concurrent_parameters)
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        concurrent_results=list(executor.map(
+            lambda _index: call(BASE+"/v1/runtime/authority/consume","POST",owner_tenant,concurrent_request),
+            range(2),
+        ))
+    concurrent_statuses=[item[0] for item in concurrent_results]
+    assert concurrent_statuses.count(200)==1 and concurrent_statuses.count(409)==1, (
+        "concurrent authority consumption must yield exactly one success and one replay conflict; "
+        f"observed statuses={concurrent_statuses}"
+    )
+    winning_result=next(item[1] for item in concurrent_results if item[0]==200)
+    assert winning_result.get("execution_authorized") is True and winning_result.get("actuator_invoked") is False, (
+        "winning concurrent consume did not preserve the non-actuating authorization boundary"
+    )
+    status,concurrent_receipt=call(
+        BASE+f"/v1/runtime/authority/receipts/{concurrent_decision['commitment_id']}",
+        headers=owner_tenant,
+    )
+    assert status==200 and concurrent_receipt.get("consumed") is True and concurrent_receipt.get("consumable") is False, (
+        "concurrent consume did not leave one durable consumed receipt"
+    )
+    print("PASS: concurrent authority consumption is atomic across requests")
 
     parameters2={"invoice_id":"INV-STAGING-002","amount_minor":25000}
     decision2,consume_request2=evaluate(grantee,delegation_id,parameters2)
