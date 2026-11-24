@@ -51,19 +51,16 @@ jobs:
               raise SystemExit(f"DocumentVerifyRequest schema precondition failed: {source.count(model_old)}")
           source = source.replace(model_old, model_new, 1)
 
-          slash = chr(92)
-          numeric_markers = (
-              "    orig_numbers = set(_re.findall(",
-              "    gen_numbers  = set(_re.findall(",
+          numeric_replacements = (
+              ("    orig_numbers = set(_re.findall(", "    orig_numbers = {float(n['value']) for n in _extract_numbers(original_text)}"),
+              ("    gen_numbers  = set(_re.findall(", "    gen_numbers  = {float(n['value']) for n in _extract_numbers(generated_text)}"),
           )
-          for marker in numeric_markers:
+          for marker, replacement in numeric_replacements:
               start = source.index(marker)
               end = source.index("\\n", start)
-              line = source[start:end]
-              corrected = line.replace(slash * 2 + "d", slash + "d").replace(slash * 2 + ".", slash + ".")
-              if corrected == line:
-                  raise SystemExit(f"Numeric regex correction did not change line: {marker}")
-              source = source[:start] + corrected + source[end:]
+              source = source[:start] + replacement + source[end:]
+          if source.count("_extract_numbers(original_text)") != 1 or source.count("_extract_numbers(generated_text)") != 1:
+              raise SystemExit("Canonical numerical extraction adapter was not applied")
 
           if "workflow_id:      str = \"\"" not in source:
               raise SystemExit("workflow_id field was not added")
