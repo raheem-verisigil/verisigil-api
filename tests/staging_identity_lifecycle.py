@@ -91,16 +91,47 @@ def main():
         consume_body={"commitment_id":ev["commitment_id"],"action":"read_records","parameters":params,
                       "agent_signature":sig(grantee["sk"],proof)}
         auth=hdr(ANON,extra={"x-api-key":api,"x-org-id":o1})
+
+        # The decision receipt must be durably readable and verifiable before
+        # consumption, from a fresh HTTP client/request context.
+        _,before=call("GET",BASE+f"/v1/runtime/authority/receipts/{ev['commitment_id']}",auth)
+        assert before.get("issuer_signature_valid") is True
+        assert before.get("consumed") is False and before.get("consumable") is True
+        assert (before.get("receipt") or {}).get("decision")=="AUTHORIZED"
+
+        # A changed action payload must not consume the original commitment.
+        tampered={**consume_body,"parameters":{"record_id":"tampered-"+uuid.uuid4().hex}}
+        call("POST",BASE+"/v1/runtime/authority/consume",auth,tampered,ok=(409,))
+        _,after_tamper=call("GET",BASE+f"/v1/runtime/authority/receipts/{ev['commitment_id']}",auth)
+        assert after_tamper.get("consumed") is False and after_tamper.get("consumable") is True, (
+            "rejected action mismatch burned the durable authority commitment"
+        )
+
+        # A second authenticated tenant must not be able to read the first
+        # tenant's receipt, even when it knows the commitment identifier.
+        u2=make_user(admin,"owner2",users)
+        o2=tenant(u2,"VeriSigil isolation "+uuid.uuid4().hex[:8]); orgs.append(o2)
+        other_tenant=hdr(ANON,u2["access"],{"x-org-id":o2})
+        call("GET",BASE+f"/v1/runtime/authority/receipts/{ev['commitment_id']}",other_tenant,ok=(404,))
+        call("GET",BASE+f"/v1/agent-identity/agents/{grantor['id']}",other_tenant,ok=(404,))
+
+        # Two independent requests race the same durable one-time consume.
         def consume_once():
             return call("POST",BASE+"/v1/runtime/authority/consume",auth,consume_body,ok=(200,409))[0]
         with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
             statuses=sorted(pool.map(lambda _:consume_once(),range(2)))
         assert statuses==[200,409],f"concurrent consume statuses {statuses}"
-        call("GET",BASE+f"/v1/runtime/authority/receipts/{ev['commitment_id']}",auth)
-        u2=make_user(admin,"owner2",users)
-        o2=tenant(u2,"VeriSigil isolation "+uuid.uuid4().hex[:8]); orgs.append(o2)
-        call("GET",BASE+f"/v1/agent-identity/agents/{grantor['id']}",
-             hdr(ANON,u2["access"],{"x-org-id":o2}),ok=(404,))
+
+        # Read-after-consume must return the persisted signed consumption
+        # receipt, not an in-process cache result.
+        _,after=call("GET",BASE+f"/v1/runtime/authority/receipts/{ev['commitment_id']}",auth)
+        consumed_receipt=after.get("receipt") or {}
+        assert after.get("issuer_signature_valid") is True
+        assert after.get("consumed") is True and after.get("consumable") is False
+        assert consumed_receipt.get("schema")=="VERISIGIL-EXECUTION-AUTHORITY-RECEIPT-1.0"
+        assert consumed_receipt.get("actuator_invoked") is False
+        replay_status,_=call("POST",BASE+"/v1/runtime/authority/consume",auth,consume_body,ok=(409,))
+        assert replay_status==409,"consumed authority commitment replay was not rejected"
         call("POST",BASE+f"/v1/agent-identity/api-keys/{issued['key_id']}/revoke",owner,{})
         call("GET",BASE+"/v1/agent-identity/agents",auth,ok=(401,))
         print("PASS: real Supabase Auth users and verified sessions")
