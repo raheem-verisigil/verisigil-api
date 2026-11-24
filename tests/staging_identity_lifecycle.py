@@ -163,13 +163,20 @@ def main():
                 for table in ("vgs_agent_identity_memberships","vgs_agent_identity_tenants"):
                     response=client.delete(SB+"/rest/v1/"+table,params={"org_id":"eq."+org})
                     response.raise_for_status()
-                # The onboarding bridge also creates legacy organisation,
-                # agent and Passport rows; leaving these behind leaks test data.
-                for table in ("passports","agents"):
-                    response=client.delete(SB+"/rest/v1/"+table,params={"org_id":"eq."+org})
+                # Some deployments also mirror tenants/agents into the
+                # legacy organisations/agents/passports tables. Probe first:
+                # isolated staging may not have that optional legacy schema.
+                for table, filters in (
+                    ("passports", {"org_id":"eq."+org}),
+                    ("agents", {"org_id":"eq."+org}),
+                    ("organisations", {"id":"eq."+org}),
+                ):
+                    probe=client.get(SB+"/rest/v1/"+table,params={"select":"*","limit":"0"})
+                    if probe.status_code == 404:
+                        continue
+                    probe.raise_for_status()
+                    response=client.delete(SB+"/rest/v1/"+table,params=filters)
                     response.raise_for_status()
-                response=client.delete(SB+"/rest/v1/organisations",params={"id":"eq."+org})
-                response.raise_for_status()
             for u in users:
                 response=client.delete(SB+"/auth/v1/admin/users/"+u["id"])
                 response.raise_for_status()
