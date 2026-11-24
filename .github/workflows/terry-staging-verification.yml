@@ -1,0 +1,119 @@
+name: Terry staging security verification
+# Clean replacement: keep one source of truth for release acceptance
+
+on:
+  push:
+    branches:
+      - main
+      - hardening/verisigil-production-readiness-20261123
+    paths:
+      - "requirements.txt"
+      - "main.py"
+      - "agent_identity_layer.py"
+      - "verisigil_entrypoint.py"
+      - "durable_validation_receipts.py"
+      - "proof_verification.py"
+      - "supabase/migrations/**"
+      - "tests/**"
+      - ".github/workflows/terry-staging-verification.yml"
+  pull_request:
+    branches:
+      - main
+      - hardening/verisigil-production-readiness-20261123
+    paths:
+      - "requirements.txt"
+      - "main.py"
+      - "agent_identity_layer.py"
+      - "verisigil_entrypoint.py"
+      - "durable_validation_receipts.py"
+      - "proof_verification.py"
+      - "supabase/migrations/**"
+      - "tests/**"
+      - ".github/workflows/terry-staging-verification.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: terry-security-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  focused-security-tests:
+    name: Full security and regression suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      DEPLOY_ENV: test
+      SUPABASE_URL: http://127.0.0.1:1
+      SUPABASE_KEY: test-anon-key-not-a-credential
+      SUPABASE_SERVICE_KEY: test-service-key-not-a-credential
+      VERISIGIL_API_KEY: test-api-key-not-a-credential
+      SIGN_SECRET: test-signing-secret-not-for-deployment
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install --disable-pip-version-check pip-audit
+      - name: Audit pinned Python dependencies
+        run: pip-audit -r requirements.txt
+      - name: Compile application and tests
+        run: python -m compileall -q .
+      - name: Run cryptographic regression tests
+        run: python -m unittest tests.test_proof_verification -v
+      - name: Run fail-closed execution authorization tests
+        run: python -m unittest tests.test_execution_authorization_fail_closed -v
+      - name: Run agent identity and authority tests
+        run: python -m unittest tests.test_agent_identity_layer -v
+      - name: Run durable receipt credential tests
+        run: python -m unittest tests.test_durable_validation_receipts -v
+      - name: Run bounded adversarial scenario tests
+        run: python -m unittest tests.test_terry_validation -v
+      - name: Run complete unit test suite
+        run: python -m unittest discover -s tests -v
+
+  staging-api-tests:
+    if: ${{ github.event_name == 'push' }}
+    needs: focused-security-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      VERISIGIL_TEST_ENV: staging
+      VERISIGIL_TEST_URL: https://verisigil-passport-staging-api-staging.up.railway.app
+      VERISIGIL_TEST_API_KEY: ${{ secrets.VERISIGIL_TEST_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install live-test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt pytest
+      - name: Validate staging configuration
+        if: ${{ env.VERISIGIL_TEST_URL != '' && env.VERISIGIL_TEST_API_KEY != '' }}
+        run: |
+          python - <<'PY'
+          import os
+          from urllib.parse import urlparse
+
+          url = os.environ["VERISIGIL_TEST_URL"]
+          parsed = urlparse(url)
+          if parsed.scheme != "https":
+              raise SystemExit("Staging URL must use HTTPS")
+          if parsed.hostname != "verisigil-passport-staging-api-staging.up.railway.app":
+              raise SystemExit("Staging URL does not match the approved Passport staging host")
+          print("Staging configuration validated; secret values were not printed.")
+          PY
+      - name: Run live staging API verification
+        if: ${{ env.VERISIGIL_TEST_URL != '' && env.VERISIGIL_TEST_API_KEY != '' }}
+        run: python -m pytest tests/staging_verisigil_api.py -v
+      - name: Report skipped live verification when staging secrets are absent
+        if: ${{ env.VERISIGIL_TEST_URL == '' || env.VERISIGIL_TEST_API_KEY == '' }}
+        run: echo "Live staging verification skipped; required GitHub secrets are not configured."
