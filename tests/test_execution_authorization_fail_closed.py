@@ -30,6 +30,25 @@ class ExecutionAuthorizationFailClosedTests(unittest.TestCase):
     def tearDown(self):
         durable.load_validation_receipt = self.original_load
 
+    def test_revalidation_evaluation_requires_authentication_before_fail_closed_branch(self):
+        registry = runtime.core._PROPOSAL_REGISTRY
+        original = dict(registry)
+        registry["unauthenticated-staging-proposal"] = {"state": {}}
+        try:
+            response = client.post("/v1/revalidation/check", json={
+                "proposal_id": "unauthenticated-staging-proposal",
+                "agent_id": "missing-agent",
+                "action_type": "TRANSFER",
+                "capacity_assertion_id": "missing-assertion",
+                "required_capacity": 1,
+            })
+        finally:
+            registry.clear()
+            registry.update(original)
+
+        self.assertEqual(response.status_code, 401)
+        self.assertIn("Invalid", response.json().get("detail", ""))
+
     def test_missing_revalidation_receipt_is_denied(self):
         response = client.post("/v1/execution/authorize", headers=HEADERS, json={
             "proposal_id": "proposal-without-receipt",

@@ -228,6 +228,18 @@ async def verisigil_runtime_hardening(request: Request, call_next):
         return JSONResponse({**result, "public_key": public_key, "key_id": public_key_id(public_key), "algorithm": "Ed25519", "timestamp": _now()})
 
     if request.method == "POST" and request.url.path == "/v1/revalidation/check":
+        # Authenticate before proposal/authority/capacity evaluation. In
+        # particular, the fail-closed branch below can return a signed
+        # revalidation result without reaching core.revalidation_check(),
+        # which performs its own API-key check.
+        try:
+            core.require_api_key(
+                request.headers.get("x-api-key"),
+                request.headers.get("authorization"),
+            )
+        except core.HTTPException as exc:
+            return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
+
         try:
             req = await request.json()
         except Exception:
