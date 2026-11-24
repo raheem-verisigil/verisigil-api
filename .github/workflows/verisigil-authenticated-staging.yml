@@ -28,7 +28,7 @@ jobs:
       VERISIGIL_STAGING_BASE_URL: https://verisigil-passport-staging-api-staging.up.railway.app
       VERISIGIL_STAGING_SUPABASE_URL: https://lgyxxxvlxlynylhjxbxb.supabase.co
       VERISIGIL_STAGING_SUPABASE_ANON_KEY: sb_publishable_gysib9EKgdCN1W5dgq1dxA_3vKYRSjw
-      VERISIGIL_STAGING_SUPABASE_SERVICE_KEY: ${{ secrets.VERISIGIL_STAGING_SUPABASE_SERVICE_KEY || secrets.SUPABASE_SERVICE_KEY }}
+      VERISIGIL_STAGING_SUPABASE_SERVICE_KEY: ${{ secrets.VERISIGIL_STAGING_SUPABASE_SERVICE_KEY }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
