@@ -46,33 +46,19 @@ jobs:
 
           path = Path("main.py")
           source = path.read_text(encoding="utf-8")
-
-          old_survivability = '''        "human_readable": (
-              f"Governance Survivability Index: {gsi:.0f}/100. "
-              f"Collapse Probability: {collapse_probability_band}. "
-              f"{'Time to critical: ' + str(ttc_hours) + 'h. ' if ttc_hours else ''}"
-              f"{'Escalation overload detected. ' if esc_overload else ''}"
-              f"{'Autonomy over-expansion detected.' if over_expanded else ''}"
-          ).replace("collapse_probability_band", collapse_prob_band),'''
-          new_survivability = '''        "human_readable": (
-              f"Governance Survivability Index: {gsi:.0f}/100. "
-              f"Collapse Probability: {collapse_prob_band}. "
-              f"{'Time to critical: ' + str(ttc_hours) + 'h. ' if ttc_hours else ''}"
-              f"{'Escalation overload detected. ' if esc_overload else ''}"
-              f"{'Autonomy over-expansion detected.' if over_expanded else ''}"
-          ),'''
-          old_vsl = '''        "consequence_sim":    "/v1/simulate/consequence" if parsed.get("amount", 0) > 10000 else None,'''
-          new_vsl = '''        "consequence_sim":    "/v1/simulate/consequence" if isinstance(parsed.get("amount"), (int, float)) and not isinstance(parsed.get("amount"), bool) and parsed.get("amount") > 10000 else None,'''
-
-          counts = {
-              "survivability": source.count(old_survivability),
-              "vsl_amount": source.count(old_vsl),
+          replacements = {
+              '            f"Collapse Probability: {collapse_probability_band}. "':
+                  '            f"Collapse Probability: {collapse_prob_band}. "',
+              '        ).replace("collapse_probability_band", collapse_prob_band),':
+                  '        ),',
+              '        "consequence_sim":    "/v1/simulate/consequence" if parsed.get("amount", 0) > 10000 else None,':
+                  '        "consequence_sim":    "/v1/simulate/consequence" if isinstance(parsed.get("amount"), (int, float)) and not isinstance(parsed.get("amount"), bool) and parsed.get("amount") > 10000 else None,',
           }
-          if counts != {"survivability": 1, "vsl_amount": 1}:
-              raise SystemExit(f"Patch precondition failed; expected one exact match each: {counts}")
-
-          source = source.replace(old_survivability, new_survivability, 1)
-          source = source.replace(old_vsl, new_vsl, 1)
+          counts = {old: source.count(old) for old in replacements}
+          if any(count != 1 for count in counts.values()):
+              raise SystemExit(f"Patch precondition failed; exact-match counts: {counts}")
+          for old, new in replacements.items():
+              source = source.replace(old, new, 1)
           if "collapse_probability_band}." in source or 'parsed.get("amount", 0) > 10000' in source:
               raise SystemExit("Patch verification failed")
           path.write_text(source, encoding="utf-8")
