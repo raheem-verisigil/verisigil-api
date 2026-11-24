@@ -451,11 +451,11 @@ async def hardened_readiness():
 
 
 @app.get("/v1/db/status", tags=["System"])
-async def hardened_db_status(
-    x_api_key: str | None = None,
-    authorization: str | None = None,
-):
-    core.require_api_key(x_api_key, authorization)
+async def hardened_db_status(request: Request):
+    core.require_api_key(
+        request.headers.get("x-api-key"),
+        request.headers.get("authorization"),
+    )
     try:
         identity_health = await _identity_persistence_health()
     except Exception as exc:
