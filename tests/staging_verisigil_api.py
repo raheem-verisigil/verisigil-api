@@ -93,10 +93,14 @@ class TestHealth:
     def test_readiness_returns_200(self, client):
         """System must be ready for traffic."""
         r = client.get("/readiness")
-        assert r.status_code in (200, 503)  # 503 acceptable if DB unavailable
+        assert r.status_code == 200, f"Readiness must fail closed: {_response_diagnostic(r)}"
         data = r.json()
-        assert "status" in data
-        assert "checks" in data
+        assert data.get("status") == "ready"
+        assert data.get("checks", {}).get("api_process", {}).get("status") == "ok"
+        assert data.get("checks", {}).get("database", {}).get("status") == "ok", (
+            "Readiness cannot pass while durable database persistence is unavailable: "
+            + json.dumps(data.get("checks", {}).get("database", {}), sort_keys=True)
+        )
 
     def test_liveness_returns_200(self, client):
         """Process must be alive."""
@@ -129,8 +133,13 @@ class TestHealth:
         r = client.get("/v1/db/status", headers=HEADERS)
         assert r.status_code == 200
         data = r.json()
-        assert "db_connected" in data
-        assert "mode" in data
+        assert data.get("db_connected") is True, (
+            "Production/staging acceptance requires Supabase persistence; "
+            "in-memory fallback is not an acceptable operational mode: "
+            + json.dumps(data, sort_keys=True, default=str)[:1500]
+        )
+        assert data.get("mode") not in (None, "", "memory", "in_memory")
+        assert data.get("provider") == "supabase"
 
 
 # ============================================================
@@ -199,9 +208,10 @@ class TestDocumentIntegrity:
         assert_staging_http_200(r, "POST /v1/document/semantic-verify")
         data = r.json()
         assert data.get("workflow_id") == "staging-document-workflow"
-        assert data.get("decision") == "ALLOW"
-        assert data.get("action") == "ALLOW"
-        assert data.get("color") == "GREEN"
+        assert data.get("corruption_detected") is False
+        assert data.get("governance_decision") == "ALLOW"
+        assert data.get("governance_action") == "ALLOW"
+        assert data.get("governance_color") == "GREEN"
         assert data.get("governance_reason")
 
     def test_semantic_verify_corruption(self, client):
@@ -214,10 +224,12 @@ class TestDocumentIntegrity:
         })
         assert_staging_http_200(r, "POST /v1/document/semantic-verify")
         data = r.json()
-        # Should detect corruption — decision should not be clean ALLOW
-        assert data.get("decision") == "ESCALATE"
-        assert data.get("action") == "REQUIRE_HUMAN_REVIEW"
-        assert data.get("color") == "ORANGE"
+        # Corruption must be surfaced through the canonical governance contract.
+        assert data.get("corruption_detected") is True
+        assert data.get("governance_decision") == "ESCALATE"
+        assert data.get("governance_action") == "REQUIRE_HUMAN_REVIEW"
+        assert data.get("governance_color") == "ORANGE"
+        assert data.get("governance_reason")
 
 
     def test_document_verify_unified_alias(self, client):
