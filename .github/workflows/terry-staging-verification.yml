@@ -3,11 +3,35 @@ name: Terry staging security verification
 on:
   push:
     branches:
+ fix/terry-staging-workflow-repair-20261124
       - security/proof-verification-hardening-20261113
+
+      - hardening/verisigil-production-readiness-20261123
+    paths:
+      - "requirements.txt"
+      - "main.py"
+      - "agent_identity_layer.py"
+      - "verisigil_entrypoint.py"
+      - "durable_validation_receipts.py"
+      - "proof_verification.py"
+      - "supabase/migrations/**"
+      - "tests/**"
+      - ".github/workflows/terry-staging-verification.yml"
+         main
   pull_request:
     branches:
       - main
-      - security/proof-verification-hardening-20261113
+      - hardening/verisigil-production-readiness-20261123
+    paths:
+      - "requirements.txt"
+      - "main.py"
+      - "agent_identity_layer.py"
+      - "verisigil_entrypoint.py"
+      - "durable_validation_receipts.py"
+      - "proof_verification.py"
+      - "supabase/migrations/**"
+      - "tests/**"
+      - ".github/workflows/terry-staging-verification.yml"
 
 permissions:
   contents: read
@@ -18,16 +42,20 @@ concurrency:
 
 jobs:
   focused-security-tests:
+     fix/terry-staging-workflow-repair-20261124
     name: Focused repository test suite
+
+    name: Full security and regression suite
+        main
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
       DEPLOY_ENV: test
       SUPABASE_URL: http://127.0.0.1:1
-      SUPABASE_KEY: verisigil-test-only-not-a-credential
-      SUPABASE_SERVICE_KEY: verisigil-test-service-only
-      VERISIGIL_API_KEY: verisigil-test-api-key-only
-      SIGN_SECRET: verisigil-test-signing-secret-not-for-deployment
+      SUPABASE_KEY: test-anon-key-not-a-credential
+      SUPABASE_SERVICE_KEY: test-service-key-not-a-credential
+      VERISIGIL_API_KEY: test-api-key-not-a-credential
+      SIGN_SECRET: test-signing-secret-not-for-deployment
     steps:
       - name: Check out source
         uses: actions/checkout@v4
@@ -35,6 +63,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
+         fix/terry-staging-workflow-repair-20261124
           python-version: "3.12"
           cache: pip
 
@@ -107,3 +136,28 @@ jobs:
 
       - name: Run isolated staging API tests
         run: python -m pytest tests/staging_verisigil_api.py -v
+
+          python-version: "3.11"
+          cache: "pip"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install --disable-pip-version-check pip-audit
+      - name: Audit pinned Python dependencies
+        run: pip-audit -r requirements.txt
+      - name: Compile application and tests
+        run: python -m compileall -q .
+      - name: Run cryptographic regression tests
+        run: python -m unittest tests.test_proof_verification -v
+      - name: Run fail-closed execution authorization tests
+        run: python -m unittest tests.test_execution_authorization_fail_closed -v
+      - name: Run agent identity and authority tests
+        run: python -m unittest tests.test_agent_identity_layer -v
+      - name: Run durable receipt credential tests
+        run: python -m unittest tests.test_durable_validation_receipts -v
+      - name: Run bounded adversarial scenario tests
+        run: python -m unittest tests.test_terry_validation -v
+      - name: Run complete unit test suite
+        run: python -m unittest discover -s tests -v
+         main
