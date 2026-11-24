@@ -98,6 +98,7 @@ def main():
         assert before.get("issuer_signature_valid") is True
         assert before.get("consumed") is False and before.get("consumable") is True
         assert (before.get("receipt") or {}).get("decision")=="AUTHORIZED"
+        print("PASS: signed decision receipt read from durable tenant storage before consumption")
 
         # A changed action payload must not consume the original commitment.
         tampered={**consume_body,"parameters":{"record_id":"tampered-"+uuid.uuid4().hex}}
@@ -106,6 +107,7 @@ def main():
         assert after_tamper.get("consumed") is False and after_tamper.get("consumable") is True, (
             "rejected action mismatch burned the durable authority commitment"
         )
+        print("PASS: wrong action parameters rejected without consuming the receipt")
 
         # A second authenticated tenant must not be able to read the first
         # tenant's receipt, even when it knows the commitment identifier.
@@ -113,6 +115,7 @@ def main():
         o2=tenant(u2,"VeriSigil isolation "+uuid.uuid4().hex[:8]); orgs.append(o2)
         other_tenant=hdr(ANON,u2["access"],{"x-org-id":o2})
         call("GET",BASE+f"/v1/runtime/authority/receipts/{ev['commitment_id']}",other_tenant,ok=(404,))
+        print("PASS: cross-tenant authority receipt retrieval denied")
         call("GET",BASE+f"/v1/agent-identity/agents/{grantor['id']}",other_tenant,ok=(404,))
 
         # Two independent requests race the same durable one-time consume.
@@ -130,8 +133,10 @@ def main():
         assert after.get("consumed") is True and after.get("consumable") is False
         assert consumed_receipt.get("schema")=="VERISIGIL-EXECUTION-AUTHORITY-RECEIPT-1.0"
         assert consumed_receipt.get("actuator_invoked") is False
+        print("PASS: signed consumption receipt recovered from durable storage after consume")
         replay_status,_=call("POST",BASE+"/v1/runtime/authority/consume",auth,consume_body,ok=(409,))
         assert replay_status==409,"consumed authority commitment replay was not rejected"
+        print("PASS: consumed authority commitment replay denied")
         call("POST",BASE+f"/v1/agent-identity/api-keys/{issued['key_id']}/revoke",owner,{})
         call("GET",BASE+"/v1/agent-identity/agents",auth,ok=(401,))
         print("PASS: real Supabase Auth users and verified sessions")
