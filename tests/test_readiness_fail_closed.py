@@ -20,6 +20,14 @@ class TestFailClosedReadiness(unittest.TestCase):
         self.assertEqual(payload["status"], "not_ready")
         self.assertEqual(payload["checks"]["database"]["status"], "degraded")
 
+    def test_production_legacy_surface_is_denied_by_default(self):
+        self.assertFalse(entrypoint._production_surface_allows("/v1/execution/control", "production", False))
+        self.assertFalse(entrypoint._production_surface_allows("/v1/execution/control", "prod", False))
+        self.assertTrue(entrypoint._production_surface_allows("/v1/agent-identity/agents", "production", False))
+        self.assertTrue(entrypoint._production_surface_allows("/v1/runtime/authority/evaluate", "production", False))
+        self.assertTrue(entrypoint._production_surface_allows("/v1/execution/control", "staging", False))
+        self.assertTrue(entrypoint._production_surface_allows("/v1/execution/control", "production", True))
+
     def test_healthy_passport_database_returns_200(self):
         with patch.object(
             entrypoint,
