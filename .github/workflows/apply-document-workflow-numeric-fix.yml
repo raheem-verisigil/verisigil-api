@@ -59,7 +59,7 @@ jobs:
           lines[orig_indexes[0]] = "    orig_numbers = {float(n['value']) for n in _extract_numbers(original_text)}"
           lines[gen_indexes[0]] = "    gen_numbers  = {float(n['value']) for n in _extract_numbers(generated_text)}"
           source = "\\n".join(lines) + "\\n"
-          if source.count("_extract_numbers(original_text)") != 1 or source.count("_extract_numbers(generated_text)") != 1:
+          if "orig_numbers = {float(n['value'])" not in source or "gen_numbers  = {float(n['value'])" not in source:
               raise SystemExit("Canonical numerical extraction adapter was not applied")
 
           if "workflow_id:      str = \"\"" not in source:
