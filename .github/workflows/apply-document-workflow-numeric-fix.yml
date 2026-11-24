@@ -51,8 +51,8 @@ jobs:
               raise SystemExit(f"DocumentVerifyRequest schema precondition failed: {source.count(model_old)}")
           source = source.replace(model_old, model_new, 1)
 
-          regex_old = StringRaw = r"r'\b\\d+(?:\\.\\d+)?%?\b'"
-          regex_new = r"r'\b\d+(?:\.\d+)?%?\b'"
+          regex_old = r"\\d+(?:\\.\\d+)?"
+          regex_new = r"\d+(?:\.\d+)?"
           count = source.count(regex_old)
           if count != 2:
               raise SystemExit(f"Numeric regex precondition failed: expected 2 double-escaped patterns, found {count}")
