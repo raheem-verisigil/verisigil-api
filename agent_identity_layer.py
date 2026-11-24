@@ -138,8 +138,11 @@ async def _db_request(method: str, path: str, *, params: dict | None = None,
         raise HTTPException(503, "Identity persistence is unavailable; authority fails closed.") from exc
 
 
-async def _select(table: str, filters: dict, *, limit: int = 1) -> list[dict]:
+async def _select(table: str, filters: dict, *, limit: int = 1,
+                 order: str | None = None) -> list[dict]:
     params = {"select": "*", "limit": str(limit)}
+    if order:
+        params["order"] = order
     params.update({key: f"eq.{value}" for key, value in filters.items()})
     result = await _db_request("GET", table, params=params)
     if not isinstance(result, list):
@@ -220,8 +223,12 @@ async def get_principal(request: Request) -> Principal:
     if authorization.startswith("Bearer ") and authorization[7:].strip():
         user = await get_verified_supabase_user(request)
         user_id = str(user["id"])
-        memberships = await _select("vgs_agent_identity_memberships",
-                                    {"user_id": user_id, "status": "ACTIVE"}, limit=50)
+        memberships = await _select(
+            "vgs_agent_identity_memberships",
+            {"user_id": user_id, "status": "ACTIVE"},
+            limit=1000,
+            order="created_at.desc",
+        )
         if not memberships:
             raise HTTPException(403, "No active VeriSigil tenant membership is assigned to this user.")
         requested_org = request.headers.get("x-org-id")
@@ -501,8 +508,12 @@ async def create_tenant(req: TenantCreate, user: dict = Depends(get_verified_sup
 @router.get("/v1/agent-identity/tenants", summary="List the authenticated user's active tenants")
 async def list_my_tenants(user: dict = Depends(get_verified_supabase_user)):
     user_id = _require_uuid(str(user.get("id") or ""), "verified_user_id")
-    memberships = await _select("vgs_agent_identity_memberships",
-                                {"user_id": user_id, "status": "ACTIVE"}, limit=50)
+    memberships = await _select(
+        "vgs_agent_identity_memberships",
+        {"user_id": user_id, "status": "ACTIVE"},
+        limit=1000,
+        order="created_at.desc",
+    )
     tenants = []
     for membership in memberships:
         tenant = await _one("vgs_agent_identity_tenants", {
