@@ -4185,6 +4185,7 @@ class DocumentVerifyRequest(BaseModel):
     current_text:    str = ""
     current_fields:  dict = {}
     interaction_num: int  = 1
+    workflow_id:      str = ""
     document_type:   str = "general"
     context:         str = "general"
     consequence:     str = "OPERATIONAL"
@@ -20286,8 +20287,8 @@ def detect_semantic_corruption(
 
     # ── VECTOR 3: NUMERICAL INCONSISTENCY ─────────────────────
     # Extract numbers from both and compare
-    orig_numbers = set(_re.findall(r'\d+(?:\.\d+)?%?', original_text))
-    gen_numbers  = set(_re.findall(r'\d+(?:\.\d+)?%?', generated_text))
+    orig_numbers = {float(n['value']) for n in _extract_numbers(original_text)}
+    gen_numbers  = {float(n['value']) for n in _extract_numbers(generated_text)}
 
     added_numbers   = gen_numbers - orig_numbers
     removed_numbers = orig_numbers - gen_numbers
