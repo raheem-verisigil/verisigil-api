@@ -139,7 +139,7 @@ class TestHealth:
             + json.dumps(data, sort_keys=True, default=str)[:1500]
         )
         assert data.get("mode") not in (None, "", "memory", "in_memory")
-        assert data.get("provider") == "supabase"
+        assert str(data.get("provider", "")).lower() == "supabase"
 
 
 # ============================================================
