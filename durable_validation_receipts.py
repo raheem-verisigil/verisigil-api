@@ -292,6 +292,41 @@ def install_durable_middleware(app, core, receipt_cache, authority_check,
                 })
                 return JSONResponse(blocked, status_code=403)
 
+            # Consume only after signature, proposal, ruling, authority and
+            # capacity checks pass. The database update remains the single
+            # atomic winner across concurrent workers and replicas.
+            try:
+                consumed = await consume_validation_receipt(rid, proposal_id)
+            except ReceiptPersistenceUnavailable:
+                return JSONResponse({
+                    "revalidation_id": rid,
+                    "proposal_id": proposal_id,
+                    "ruling": "ATOMIC_RECEIPT_CONSUME_UNAVAILABLE",
+                    "allowed": False,
+                    "checked_at": now_fn(),
+                    "consequence_boundary": "NO_EXECUTION_AUTHORIZATION_ISSUED",
+                }, status_code=503)
+            if not consumed:
+                return JSONResponse({
+                    "revalidation_id": rid,
+                    "proposal_id": proposal_id,
+                    "ruling": "REVALIDATION_RECEIPT_ALREADY_CONSUMED",
+                    "allowed": False,
+                    "reason": "Another request consumed this receipt first.",
+                    "checked_at": now_fn(),
+                    "consequence_boundary": "NO_EXECUTION_AUTHORIZATION_ISSUED",
+                }, status_code=403)
+            if consumed != record:
+                return JSONResponse({
+                    "revalidation_id": rid,
+                    "proposal_id": proposal_id,
+                    "ruling": "REVALIDATION_RECEIPT_CHANGED",
+                    "allowed": False,
+                    "reason": "The atomically consumed record differs from the validated record.",
+                    "checked_at": now_fn(),
+                    "consequence_boundary": "NO_EXECUTION_AUTHORIZATION_ISSUED",
+                }, status_code=503)
+
             result = await core.execution_authorize(
                 req,
                 x_api_key=request.headers.get("x-api-key"),
