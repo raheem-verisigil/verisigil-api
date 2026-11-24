@@ -23305,6 +23305,52 @@ class AgentStateUpdateRequest(BaseModel):
 
 # [CONSOLIDATED] Earlier duplicate of /v1/dashboard/agents/at-risk removed at line 24228
 
+def analyze_document_integrity(
+    original_text: str,
+    generated_text: str,
+    document_type: str = "general",
+    agent_id: str = "document-integrity",
+    consequence: str = "HIGH",
+) -> dict:
+    """Run the canonical four-vector semantic corruption engine once."""
+    analysis = detect_semantic_corruption(
+        original_text=original_text,
+        generated_text=generated_text,
+        document_type=document_type,
+        agent_id=agent_id,
+        consequence=consequence,
+    )
+    vectors = analysis.get("corruption_vectors") or {}
+
+    drift_vector = vectors.get("semantic_drift") or {}
+    drift = dict(drift_vector.get("details") or {})
+    drift["score"] = float(drift_vector.get("score", drift.get("drift_score", 0.0)))
+    drift["detected"] = bool(drift_vector.get("detected", drift.get("drift_score", 0.0) > 0.2))
+    drift["severity"] = drift.get("severity", "CLEAN")
+
+    mutation = dict(vectors.get("clause_mutation") or {})
+    mutation["severity"] = "CRITICAL" if mutation.get("detected") else "NONE"
+
+    intent = dict(vectors.get("intent_corruption") or {})
+    intent["severity"] = "CRITICAL" if intent.get("detected") else "NONE"
+
+    numerical = dict(vectors.get("numerical_inconsistency") or {})
+    issues = numerical.get("issues") or []
+    numerical["severity"] = (
+        "HIGH" if any(issue.get("severity") == "HIGH" for issue in issues)
+        else "MEDIUM" if any(issue.get("severity") == "MEDIUM" for issue in issues)
+        else "NONE"
+    )
+
+    return {
+        "analysis": analysis,
+        "semantic_drift": drift,
+        "clause_mutation": mutation,
+        "intent_corruption": intent,
+        "numerical_inconsistency": numerical,
+    }
+
+
 @app.post("/v1/document/semantic-verify", tags=["Document Integrity"])
 async def document_semantic_verify(
     req: DocumentVerifyRequest,
@@ -23354,27 +23400,23 @@ async def document_semantic_verify(
             detail="Both original_text and generated_text are required"
         )
 
-    # ── Run all 4 detection layers ────────────────────────────
-    drift     = detect_semantic_drift(original, generated, req.document_type or req.context or "general", req.interaction_num)
-    if "score" not in drift: drift["score"] = drift.get("drift_score", 0.0)
-    mutation  = detect_clause_mutation(original, generated)
-    intent    = detect_intent_corruption(original, generated)
-    numerical = detect_numerical_inconsistency(original, generated)
+    layers = analyze_document_integrity(
+        original,
+        generated,
+        req.document_type or req.context or "general",
+        req.agent_id,
+        req.consequence,
+    )
+    drift = layers["semantic_drift"]
+    mutation = layers["clause_mutation"]
+    intent = layers["intent_corruption"]
+    numerical = layers["numerical_inconsistency"]
+    analysis = layers["analysis"]
 
-    # ── Master score ──────────────────────────────────────────
-    corruption_score = compute_corruption_score(drift, mutation, intent, numerical)
-    gov              = governance_decision(corruption_score, req.consequence)
-    corruption_detected = corruption_score > 0.10
-
-    # ── Overall severity ──────────────────────────────────────
-    sev_order = {"CRITICAL": 4, "HIGH": 3, "MEDIUM": 2, "LOW": 1, "NONE": 0}
-    severities = [
-        drift.get("severity", "NONE"),
-        mutation.get("severity", "NONE"),
-        intent.get("severity", "NONE"),
-        numerical.get("severity", "NONE"),
-    ]
-    overall_severity = max(severities, key=lambda s: sev_order.get(s, 0))
+    corruption_score = float(analysis.get("corruption_score", 0.0))
+    gov = governance_decision(corruption_score, req.consequence)
+    corruption_detected = bool(analysis.get("corruption_detected", corruption_score > 0.20))
+    overall_severity = analysis.get("severity", "CLEAN")
 
     # ── Integrity score (inverse of corruption) ───────────────
     integrity_score = round((1.0 - corruption_score) * 100, 1)
@@ -46803,7 +46845,7 @@ class DriftScoreRequest(BaseModel):
 
 @app.post("/v1/document/verify", tags=["Document Integrity — Deep Build"])
 async def document_verify_unified(
-    req:       dict,
+    req:       DocumentVerifyRequest,
     x_api_key: Optional[str] = Header(None),
     authorization: Optional[str] = Header(None),
 ):
@@ -46833,25 +46875,23 @@ async def document_verify_unified(
 
     verify_id = f"SVERIFY-{_sha256(req.document_id + original)[:10].upper()}"
 
-    # Run all 4 detection layers
-    drift     = detect_semantic_drift(original, generated, doc_type, req.interaction_num)
-    # Normalise score key
-    if "score" not in drift: drift["score"] = drift.get("drift_score", 0.0)
-    mutation  = detect_clause_mutation(original, generated)
-    intent    = detect_intent_corruption(original, generated)
-    numerical = detect_numerical_inconsistency(original, generated)
-
-    # Master corruption score
-    corruption_score = compute_corruption_score(drift, mutation, intent, numerical)
-    gov_decision     = governance_decision(corruption_score, req.consequence)
-    integrity_score  = round((1.0 - corruption_score) * 100, 1)
-
-    sev_order = {"CRITICAL":4,"HIGH":3,"MEDIUM":2,"LOW":1,"NONE":0}
-    overall_severity = max(
-            [drift.get("severity","NONE"), mutation.get("severity","NONE"),
-             intent.get("severity","NONE"), numerical.get("severity","NONE")],
-            key=lambda s: sev_order.get(s, 0)
+    layers = analyze_document_integrity(
+        original,
+        generated,
+        doc_type,
+        req.agent_id,
+        req.consequence,
     )
+    drift = layers["semantic_drift"]
+    mutation = layers["clause_mutation"]
+    intent = layers["intent_corruption"]
+    numerical = layers["numerical_inconsistency"]
+    analysis = layers["analysis"]
+
+    corruption_score = float(analysis.get("corruption_score", 0.0))
+    gov_decision = governance_decision(corruption_score, req.consequence)
+    integrity_score = round((1.0 - corruption_score) * 100, 1)
+    overall_severity = analysis.get("severity", "CLEAN")
 
     original_hash  = _sha256(original)
     generated_hash = _sha256(generated)
@@ -46953,7 +46993,7 @@ async def document_clause_mutation_endpoint(
     regulatory compliance, employment agreements.
     """
     require_api_key(x_api_key, authorization)
-    result = detect_clause_mutation(req.original_text, req.current_text)
+    result = analyze_document_integrity(req.original_text, req.get_current(), req.document_type, req.agent_id, "HIGH")["clause_mutation"]
     result["document_id"]    = req.document_id
     result["document_type"]  = req.document_type
     result["schema"]         = "VGS-CLAUSE-MUTATION-v1"
@@ -46987,7 +47027,7 @@ async def document_intent_corruption_endpoint(
     clinical protocols, regulatory submissions.
     """
     require_api_key(x_api_key, authorization)
-    result = detect_intent_corruption(req.original_text, req.current_text)
+    result = analyze_document_integrity(req.original_text, req.get_current(), req.domain, req.agent_id, "HIGH")["intent_corruption"]
     result["document_id"] = req.document_id
     result["domain"]      = req.domain
     result["schema"]      = "VGS-INTENT-CORRUPTION-v1"
@@ -47023,7 +47063,7 @@ async def document_numerical_inconsistency_endpoint(
     SLA agreements, pharmaceutical dosages, legal notices.
     """
     require_api_key(x_api_key, authorization)
-    result = detect_numerical_inconsistency(req.original_text, req.current_text)
+    result = analyze_document_integrity(req.original_text, req.get_current(), req.currency, req.agent_id, "HIGH")["numerical_inconsistency"]
     result["document_id"] = req.document_id
     result["currency"]    = req.currency
     result["schema"]      = "VGS-NUMERICAL-v1"

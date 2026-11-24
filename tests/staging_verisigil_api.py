@@ -213,6 +213,47 @@ class TestDocumentIntegrity:
         assert "decision" in data or "integrity_decision" in data
 
 
+    def test_document_verify_unified_alias(self, client):
+        r = client.post("/v1/document/verify", headers=HEADERS, json={
+            "original_text": "The payment shall not exceed $50,000 and requires board approval.",
+            "current_text": "The payment shall not exceed $50,000 and requires board approval.",
+            "document_type": "contract",
+            "agent_id": "staging-document-agent",
+            "consequence": "HIGH",
+        })
+        assert_staging_http_200(r, "POST /v1/document/verify")
+        assert "detection_layers" in r.json()
+
+    def test_clause_mutation_layer(self, client):
+        r = client.post("/v1/document/clause-mutation", headers=HEADERS, json={
+            "original_text": "The supplier shall not disclose confidential information.",
+            "current_text": "The supplier shall disclose confidential information.",
+            "document_type": "contract",
+            "agent_id": "staging-document-agent",
+        })
+        assert_staging_http_200(r, "POST /v1/document/clause-mutation")
+        assert r.json().get("detected") is True
+
+    def test_intent_corruption_layer(self, client):
+        r = client.post("/v1/document/intent-corruption", headers=HEADERS, json={
+            "original_text": "The board must approve and authorize the transaction.",
+            "current_text": "The board must reject and revoke the transaction.",
+            "domain": "governance",
+            "agent_id": "staging-document-agent",
+        })
+        assert_staging_http_200(r, "POST /v1/document/intent-corruption")
+        assert r.json().get("detected") is True
+
+    def test_numerical_inconsistency_layer(self, client):
+        r = client.post("/v1/document/numerical-inconsistency", headers=HEADERS, json={
+            "original_text": "The payment limit is USD 25,000 and the review period is 30 days.",
+            "current_text": "The payment limit is USD 250,000 and the review period is 300 days.",
+            "currency": "USD",
+            "agent_id": "staging-document-agent",
+        })
+        assert_staging_http_200(r, "POST /v1/document/numerical-inconsistency")
+        assert r.json().get("detected") is True
+
 # ============================================================
 # 4. HUMAN SOVEREIGNTY TESTS
 # ============================================================
