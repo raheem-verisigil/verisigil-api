@@ -1,0 +1,145 @@
+name: Add consequence-aware document governance decision
+
+on:
+  push:
+    branches:
+      - fix/document-governance-decision-v2-20261124
+
+permissions:
+  contents: write
+
+concurrency:
+  group: document-governance-decision-v2
+  cancel-in-progress: false
+
+jobs:
+  patch-test-and-commit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      DEPLOY_ENV: test
+      SUPABASE_URL: http://127.0.0.1:1
+      SUPABASE_KEY: test-anon-key-not-a-credential
+      SUPABASE_SERVICE_KEY: test-service-key-not-a-credential
+      VERISIGIL_API_KEY: test-api-key-not-a-credential
+      SIGN_SECRET: test-signing-secret-not-for-deployment
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/document-governance-decision-v2-20261124
+          persist-credentials: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install pytest
+      - name: Add consequence-aware governance decision and normalize responses
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("main.py")
+          source = path.read_text(encoding="utf-8")
+          helper = '''def governance_decision(corruption_score: float, consequence: str = "HIGH") -> dict:
+              """Return a deterministic, consequence-aware document governance decision."""
+              try:
+                  score = float(corruption_score)
+              except (TypeError, ValueError):
+                  score = 1.0
+              if not (0.0 <= score <= 1.0):
+                  score = 1.0
+
+              severity = "CLEAN"
+              for candidate in ("CRITICAL", "HIGH", "MEDIUM", "LOW"):
+                  if score >= CORRUPTION_SEVERITY[candidate]["score_threshold"]:
+                      severity = candidate
+                      break
+
+              consequence_class = str(consequence or "HIGH").strip().upper()
+              if consequence_class not in {"LOW", "MEDIUM", "HIGH", "CRITICAL"}:
+                  consequence_class = "HIGH"
+
+              # Clean evidence remains ALLOW. Non-zero corruption is escalated
+              # to the minimum severity required by the consequence class.
+              if score > 0.0:
+                  minimum = {"LOW": "LOW", "MEDIUM": "MEDIUM", "HIGH": "HIGH", "CRITICAL": "CRITICAL"}[consequence_class]
+                  rank = {"CLEAN": 0, "LOW": 1, "MEDIUM": 2, "HIGH": 3, "CRITICAL": 4}
+                  if rank[severity] < rank[minimum]:
+                      severity = minimum
+
+              action = CORRUPTION_SEVERITY[severity]["action"]
+              decision = {
+                  "CLEAN": "ALLOW",
+                  "LOW": "MONITOR",
+                  "MEDIUM": "WARN",
+                  "HIGH": "ESCALATE",
+                  "CRITICAL": "BLOCK_AND_ESCALATE",
+              }[severity]
+              color = {
+                  "CLEAN": "GREEN",
+                  "LOW": "BLUE",
+                  "MEDIUM": "YELLOW",
+                  "HIGH": "ORANGE",
+                  "CRITICAL": "RED",
+              }[severity]
+              return {
+                  "decision": decision,
+                  "action": action,
+                  "color": color,
+                  "severity": severity,
+                  "score": round(score, 4),
+                  "consequence": consequence_class,
+                  "reason": f"{severity} semantic integrity result for {consequence_class} consequence (score={score:.4f})",
+              }
+
+
+          '''
+          anchor = "def analyze_document_integrity("
+          if source.count(anchor) != 1 or "def governance_decision(" in source:
+              raise SystemExit("Governance decision insertion precondition failed")
+          source = source.replace(anchor, helper + anchor, 1)
+
+          replacements = {
+              '"decision":        gov_decision,':
+                  '"decision":        gov_decision["decision"],',
+              '"decision": gov_decision, "document_id": req.document_id':
+                  '"decision": gov_decision["decision"], "document_id": req.document_id',
+              '"governance_decision": gov_decision,':
+                  '"governance_decision": gov_decision["decision"],\n            "governance_action": gov_decision["action"],\n            "governance_color": gov_decision["color"],\n            "governance_reason": gov_decision["reason"],',
+          }
+          counts = {old: source.count(old) for old in replacements}
+          if any(count != 1 for count in counts.values()):
+              raise SystemExit(f"Governance response normalization precondition failed: {counts}")
+          for old, new in replacements.items():
+              source = source.replace(old, new, 1)
+
+          anchor = '"governance_color":    gov["color"],'
+          if source.count(anchor) != 1:
+              raise SystemExit("Semantic-verify governance color anchor missing")
+          source = source.replace(anchor, anchor + '\n        "governance_reason":   gov["reason"],', 1)
+
+          path.write_text(source, encoding="utf-8")
+          print("Added consequence-aware governance decision and normalized both unified document response contracts.")
+          PY
+      - name: Compile application and tests
+        run: python -m compileall -q .
+      - name: Run focused security and regression tests
+        run: |
+          python -m unittest tests.test_proof_verification -v
+          python -m unittest tests.test_execution_authorization_fail_closed -v
+          python -m unittest tests.test_agent_identity_layer -v
+          python -m unittest tests.test_durable_validation_receipts -v
+          python -m unittest tests.test_terry_validation -v
+      - name: Run complete unit test suite
+        run: python -m unittest discover -s tests -v
+      - name: Commit tested governance decision
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add main.py
+          git commit -m "Add consequence-aware document governance decisions"
+          git push origin HEAD:fix/document-governance-decision-v2-20261124
