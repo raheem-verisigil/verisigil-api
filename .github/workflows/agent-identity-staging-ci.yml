@@ -9,6 +9,7 @@ on:
       - "supabase/migrations/**"
       - "tests/test_agent_identity_layer.py"
       - ".github/workflows/agent-identity-staging-ci.yml"
+      - "tests/staging_authenticated_lifecycle.py"
   push:
     branches: [feature/cryptographic-passport-runtime-identity-20261123, hardening/verisigil-production-readiness-20261123]
 
@@ -39,3 +40,25 @@ jobs:
         run: |
           python -m unittest discover -s tests -p "test_agent_identity_layer.py" -v
           python -m unittest discover -s tests -p "test_proof_verification.py" -v
+
+  authenticated-staging-lifecycle:
+    name: Live authenticated Passport and tenant-isolation acceptance
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      VERISIGIL_STAGING_BASE_URL: https://verisigil-passport-staging-api-staging.up.railway.app
+      VERISIGIL_STAGING_SUPABASE_URL: ${{ secrets.VERISIGIL_STAGING_SUPABASE_URL }}
+      VERISIGIL_STAGING_SUPABASE_ANON_KEY: ${{ secrets.VERISIGIL_STAGING_SUPABASE_ANON_KEY }}
+      VERISIGIL_STAGING_TEST_OWNER_EMAIL: ${{ secrets.VERISIGIL_STAGING_TEST_OWNER_EMAIL }}
+      VERISIGIL_STAGING_TEST_OWNER_PASSWORD: ${{ secrets.VERISIGIL_STAGING_TEST_OWNER_PASSWORD }}
+      VERISIGIL_STAGING_TEST_OTHER_EMAIL: ${{ secrets.VERISIGIL_STAGING_TEST_OTHER_EMAIL }}
+      VERISIGIL_STAGING_TEST_OTHER_PASSWORD: ${{ secrets.VERISIGIL_STAGING_TEST_OTHER_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install live acceptance dependencies
+        run: python -m pip install --disable-pip-version-check "PyNaCl>=1.5.0" "rfc8785>=0.1.0"
+      - name: Run live authenticated staging lifecycle
+        run: python tests/staging_authenticated_lifecycle.py
