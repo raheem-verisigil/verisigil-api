@@ -23305,6 +23305,59 @@ class AgentStateUpdateRequest(BaseModel):
 
 # [CONSOLIDATED] Earlier duplicate of /v1/dashboard/agents/at-risk removed at line 24228
 
+def governance_decision(corruption_score: float, consequence: str = "HIGH") -> dict:
+    """Return a deterministic, consequence-aware document governance decision."""
+    try:
+        score = float(corruption_score)
+    except (TypeError, ValueError):
+        score = 1.0
+    if not (0.0 <= score <= 1.0):
+        score = 1.0
+
+    severity = "CLEAN"
+    for candidate in ("CRITICAL", "HIGH", "MEDIUM", "LOW"):
+        if score >= CORRUPTION_SEVERITY[candidate]["score_threshold"]:
+            severity = candidate
+            break
+
+    consequence_class = str(consequence or "HIGH").strip().upper()
+    if consequence_class not in {"LOW", "MEDIUM", "HIGH", "CRITICAL"}:
+        consequence_class = "HIGH"
+
+    # Clean evidence remains ALLOW. Non-zero corruption is escalated
+    # to the minimum severity required by the consequence class.
+    if score > 0.0:
+        minimum = {"LOW": "LOW", "MEDIUM": "MEDIUM", "HIGH": "HIGH", "CRITICAL": "CRITICAL"}[consequence_class]
+        rank = {"CLEAN": 0, "LOW": 1, "MEDIUM": 2, "HIGH": 3, "CRITICAL": 4}
+        if rank[severity] < rank[minimum]:
+            severity = minimum
+
+    action = CORRUPTION_SEVERITY[severity]["action"]
+    decision = {
+        "CLEAN": "ALLOW",
+        "LOW": "MONITOR",
+        "MEDIUM": "WARN",
+        "HIGH": "ESCALATE",
+        "CRITICAL": "BLOCK_AND_ESCALATE",
+    }[severity]
+    color = {
+        "CLEAN": "GREEN",
+        "LOW": "BLUE",
+        "MEDIUM": "YELLOW",
+        "HIGH": "ORANGE",
+        "CRITICAL": "RED",
+    }[severity]
+    return {
+        "decision": decision,
+        "action": action,
+        "color": color,
+        "severity": severity,
+        "score": round(score, 4),
+        "consequence": consequence_class,
+        "reason": f"{severity} semantic integrity result for {consequence_class} consequence (score={score:.4f})",
+    }
+
+
 def analyze_document_integrity(
     original_text: str,
     generated_text: str,
@@ -23458,6 +23511,7 @@ async def document_semantic_verify(
         "governance_decision": gov["decision"],
         "governance_action":   gov["action"],
         "governance_color":    gov["color"],
+        "governance_reason":   gov["reason"],
 
         # ── Context ────────────────────────────────────────────
         "document_type":      req.document_type,
@@ -46901,14 +46955,14 @@ async def document_verify_unified(
             "verify_id":       verify_id,
             "document_id":     req.document_id,
             "corruption_score":corruption_score,
-            "decision":        gov_decision,
+            "decision":        gov_decision["decision"],
             "timestamp":       datetime.now(timezone.utc).isoformat(),
     }
     signature = sign_governance_payload(gov_payload)
 
     await log_event("semantic_verify", "DOCUMENT_VERIFIED", {
             "verify_id": verify_id, "corruption_score": corruption_score,
-            "decision": gov_decision, "document_id": req.document_id
+            "decision": gov_decision["decision"], "document_id": req.document_id
     })
 
     return {
@@ -46920,7 +46974,10 @@ async def document_verify_unified(
             "corruption_score":  round(corruption_score, 4),
             "corruption_detected": corruption_score > 0.10,
             "overall_severity":  overall_severity,
-            "governance_decision": gov_decision,
+            "governance_decision": gov_decision["decision"],
+            "governance_action": gov_decision["action"],
+            "governance_color": gov_decision["color"],
+            "governance_reason": gov_decision["reason"],
             "detection_layers": {
                 "semantic_drift":          drift,
                 "clause_mutation":         mutation,

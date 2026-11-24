@@ -197,7 +197,10 @@ class TestDocumentIntegrity:
         })
         assert_staging_http_200(r, "POST /v1/document/semantic-verify")
         data = r.json()
-        assert "decision" in data or "integrity_decision" in data
+        assert data.get("decision") == "ALLOW"
+        assert data.get("action") == "ALLOW"
+        assert data.get("color") == "GREEN"
+        assert data.get("governance_reason")
 
     def test_semantic_verify_corruption(self, client):
         """Corrupted document should be flagged."""
@@ -210,7 +213,9 @@ class TestDocumentIntegrity:
         assert_staging_http_200(r, "POST /v1/document/semantic-verify")
         data = r.json()
         # Should detect corruption — decision should not be clean ALLOW
-        assert "decision" in data or "integrity_decision" in data
+        assert data.get("decision") == "ESCALATE"
+        assert data.get("action") == "REQUIRE_HUMAN_REVIEW"
+        assert data.get("color") == "ORANGE"
 
 
     def test_document_verify_unified_alias(self, client):
@@ -222,7 +227,11 @@ class TestDocumentIntegrity:
             "consequence": "HIGH",
         })
         assert_staging_http_200(r, "POST /v1/document/verify")
-        assert "detection_layers" in r.json()
+        data = r.json()
+        assert "detection_layers" in data
+        assert data.get("governance_decision") == "ALLOW"
+        assert data.get("governance_action") == "ALLOW"
+        assert data.get("governance_color") == "GREEN"
 
     def test_clause_mutation_layer(self, client):
         r = client.post("/v1/document/clause-mutation", headers=HEADERS, json={
