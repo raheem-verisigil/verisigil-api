@@ -375,3 +375,55 @@ from agent_identity_layer import router as agent_identity_router, install_openap
 
 app.include_router(agent_identity_router)
 install_openapi_security(app)
+
+# Production readiness must be fail-closed: the legacy core readiness handler
+# reported "ready" even when its database check was degraded. Replace that
+# route at the entrypoint so Railway never routes traffic to an in-memory-only
+# instance that cannot durably persist security and authority state.
+app.router.routes = [
+    route for route in app.router.routes
+    if not (
+        getattr(route, "path", None) == "/readiness"
+        and "GET" in getattr(route, "methods", set())
+    )
+]
+
+
+@app.get("/readiness", tags=["System"], summary="Fail-closed readiness for durable service traffic")
+async def hardened_readiness():
+    checks: dict[str, Any] = {
+        "api_process": {"status": "ok"},
+    }
+    db_ok = False
+    try:
+        db_health = core.db.health_check()
+        db_ok = db_health.get("db_connected") is True
+        checks["database"] = {
+            "status": "ok" if db_ok else "degraded",
+            "provider": db_health.get("provider", "unknown"),
+            "mode": db_health.get("mode", "unknown"),
+        }
+    except Exception as exc:
+        checks["database"] = {
+            "status": "degraded",
+            "error": type(exc).__name__,
+        }
+
+    stores_ok = all(
+        getattr(core, name, None) is not None
+        for name in ("_AGENT_INVENTORY", "_SAC_STORE", "_DELEGATION_PASSPORTS")
+    )
+    checks["governance_stores"] = {
+        "status": "ok" if stores_ok else "degraded",
+    }
+    ready = db_ok and stores_ok
+    return JSONResponse(
+        status_code=200 if ready else 503,
+        content={
+            "status": "ready" if ready else "not_ready",
+            "service": getattr(core, "SERVICE_NAME", "verisigil-api"),
+            "timestamp": _now(),
+            "checks": checks,
+            "version": getattr(core, "BUILD_VERSION", getattr(core, "DEPLOY_VERSION", "unknown")),
+        },
+    )
