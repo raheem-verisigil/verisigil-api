@@ -3,6 +3,18 @@ name: Terry staging security verification
 on:
   push:
     branches:
+     fix/terry-staging-workflow-parse-20261124
+      - main
+      - security/proof-verification-hardening-20261113
+      - hardening/verisigil-production-readiness-20261123
+      - fix/staging-test-discovery-20261114
+      - fix/terry-staging-workflow-parse-20261124
+  pull_request:
+    branches:
+      - main
+      - security/proof-verification-hardening-20261113
+      - hardening/verisigil-production-readiness-20261123
+
  fix/terry-staging-workflow-repair-20261124
       - security/proof-verification-hardening-20261113
         fix/terry-workflow-isolated-20261124
@@ -35,6 +47,7 @@ on:
       - "supabase/migrations/**"
       - "tests/**"
       - ".github/workflows/terry-staging-verification.yml"
+          main
 
 permissions:
   contents: read
@@ -64,26 +77,45 @@ jobs:
       VERISIGIL_API_KEY: test-api-key-not-a-credential
       SIGN_SECRET: test-signing-secret-not-for-deployment
     steps:
+        fix/terry-staging-workflow-parse-20261124
+      - uses: actions/checkout@v4
+     
       - name: Check out source
         uses: actions/checkout@v4
 
+         main
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
          fix/terry-staging-workflow-repair-20261124
           python-version: "3.12"
           cache: pip
+          fix/terry-staging-workflow-parse-20261124
+        
 
+         main
       - name: Install test dependencies
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
           python -m pip install pytest
+          fix/terry-staging-workflow-parse-20261124
+      - name: Compile source
+        run: python -m compileall -q .
+      - name: Run cryptographic regression tests
+        run: python -m pytest -q tests/test_proof_verification.py
+      - name: Run fail-closed execution authorization tests
+        run: python -m pytest -q tests/test_execution_authorization_fail_closed.py
+      - name: Run bounded adversarial scenario tests
+        run: python -m pytest -q tests/test_terry_validation.py
+      - name: Run complete unit test suite
+        
 
       - name: Compile Python source
         run: python -m compileall -q .
 
       - name: Run repository tests
+        main
         run: python -m pytest -q tests
 
   staging-api-tests:
@@ -97,15 +129,22 @@ jobs:
       VERISIGIL_TEST_URL: ${{ secrets.VERISIGIL_TEST_URL }}
       VERISIGIL_TEST_API_KEY: ${{ secrets.VERISIGIL_TEST_API_KEY }}
     steps:
+       fix/terry-staging-workflow-parse-20261124
+      - uses: actions/checkout@v4
+      
       - name: Check out source
         uses: actions/checkout@v4
 
+        main
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          fix/terry-staging-workflow-parse-20261124
+         
           cache: pip
 
+        main
       - name: Install live-test dependencies
         run: |
           python -m pip install --upgrade pip
@@ -118,8 +157,14 @@ jobs:
           import os
           from urllib.parse import urlparse
 
+          fix/terry-staging-workflow-parse-20261124
+          url = os.environ.get("VERISIGIL_TEST_URL", "").strip()
+          key = os.environ.get("VERISIGIL_TEST_API_KEY", "").strip()
+          parsed = urlparse(url)
+         
           raw_url = os.environ.get("VERISIGIL_TEST_URL", "").strip()
           api_key = os.environ.get("VERISIGIL_TEST_API_KEY", "").strip()
+          main
 
           if not raw_url:
               raise SystemExit("VERISIGIL_TEST_URL is missing")
@@ -143,6 +188,8 @@ jobs:
 
       - name: Run isolated staging API tests
         run: python -m pytest tests/staging_verisigil_api.py -v
+             fix/terry-staging-workflow-parse-20261124
+          
          fix/terry-workflow-isolated-20261124
 
 
@@ -169,5 +216,6 @@ jobs:
         run: python -m unittest tests.test_terry_validation -v
       - name: Run complete unit test suite
         run: python -m unittest discover -s tests -v
+         main
          main
          main
