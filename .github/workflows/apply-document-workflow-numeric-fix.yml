@@ -64,8 +64,8 @@ jobs:
 
           if "workflow_id:      str = \"\"" not in source:
               raise SystemExit("workflow_id field was not added")
-          if source.count(regex_new) < 2:
-              raise SystemExit("Numeric regex correction was not applied")
+          if "orig_numbers = {float(n['value'])" not in source or "gen_numbers  = {float(n['value'])" not in source:
+              raise SystemExit("Numeric extraction correction was not applied")
 
           path.write_text(source, encoding="utf-8")
           print("Added workflow_id to DocumentVerifyRequest and corrected numeric extraction regexes.")
