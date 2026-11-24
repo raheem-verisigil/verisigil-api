@@ -5,6 +5,8 @@ on:
     branches:
  fix/terry-staging-workflow-repair-20261124
       - security/proof-verification-hardening-20261113
+        fix/terry-workflow-isolated-20261124
+
 
       - hardening/verisigil-production-readiness-20261123
     paths:
@@ -18,6 +20,7 @@ on:
       - "tests/**"
       - ".github/workflows/terry-staging-verification.yml"
          main
+        main
   pull_request:
     branches:
       - main
@@ -42,10 +45,14 @@ concurrency:
 
 jobs:
   focused-security-tests:
+     fix/terry-workflow-isolated-20261124
+    name: Focused repository test suite
+
      fix/terry-staging-workflow-repair-20261124
     name: Focused repository test suite
 
     name: Full security and regression suite
+        main
         main
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -136,6 +143,8 @@ jobs:
 
       - name: Run isolated staging API tests
         run: python -m pytest tests/staging_verisigil_api.py -v
+         fix/terry-workflow-isolated-20261124
+
 
           python-version: "3.11"
           cache: "pip"
@@ -160,4 +169,5 @@ jobs:
         run: python -m unittest tests.test_terry_validation -v
       - name: Run complete unit test suite
         run: python -m unittest discover -s tests -v
+         main
          main
