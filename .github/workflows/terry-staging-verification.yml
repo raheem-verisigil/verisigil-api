@@ -4,12 +4,6 @@ on:
   push:
     branches:
       - security/proof-verification-hardening-20261113
-        hardening/verisigil-production-readiness-20261123
-      - hardening/verisigil-production-readiness-20261123
-
-      - main
-      - fix/staging-test-discovery-20261114
-        security/proof-verification-hardening-20261113
   pull_request:
     branches:
       - main
@@ -19,11 +13,12 @@ permissions:
   contents: read
 
 concurrency:
-  group: terry-security-${{ github.ref }}
+  group: terry-security-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   focused-security-tests:
+    name: Focused repository test suite
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -34,43 +29,30 @@ jobs:
       VERISIGIL_API_KEY: verisigil-test-api-key-only
       SIGN_SECRET: verisigil-test-signing-secret-not-for-deployment
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: "pip"
-      - name: Install dependencies
+          cache: pip
+
+      - name: Install test dependencies
         run: |
           python -m pip install --upgrade pip
-         hardening/verisigil-production-readiness-20261123
           python -m pip install -r requirements.txt
-
-          security/proof-verification-hardening-20261113
-          pip install -r requirements.txt pytest
-
-          pip install -r requirements.txt
           python -m pip install pytest
-         main
-          security/proof-verification-hardening-20261113
-      - name: Compile source
+
+      - name: Compile Python source
         run: python -m compileall -q .
-      - name: Run cryptographic regression tests
-        run: python -m unittest tests.test_proof_verification -v
-      - name: Run fail-closed execution authorization tests
-        run: python -m unittest tests.test_execution_authorization_fail_closed -v
-      - name: Run bounded adversarial scenario tests
-        run: python -m unittest tests.test_terry_validation -v
-      - name: Run complete unit test suite
-            hardening/verisigil-production-readiness-20261123
-        run: python -m unittest discover -s tests -v
 
-             security/proof-verification-hardening-20261113
-        run: PYTHONPATH=. pytest -q tests
-
-        run: python -m unittest discover -s tests -v
+      - name: Run repository tests
+        run: python -m pytest -q tests
 
   staging-api-tests:
-    if: ${{ github.event_name == 'push' }}
+    name: Isolated staging API verification
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/security/proof-verification-hardening-20261113' }}
     needs: focused-security-tests
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -79,34 +61,49 @@ jobs:
       VERISIGIL_TEST_URL: ${{ secrets.VERISIGIL_TEST_URL }}
       VERISIGIL_TEST_API_KEY: ${{ secrets.VERISIGIL_TEST_API_KEY }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: "3.12"
+          cache: pip
+
       - name: Install live-test dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          python -m pip install -r requirements.txt
           python -m pip install pytest
-      - name: Validate staging configuration
+
+      - name: Validate isolated staging configuration
         run: |
           python - <<'PY'
           import os
           from urllib.parse import urlparse
 
-          url = os.environ.get("VERISIGIL_TEST_URL", "")
-          key = os.environ.get("VERISIGIL_TEST_API_KEY", "")
-          parsed = urlparse(url)
+          raw_url = os.environ.get("VERISIGIL_TEST_URL", "").strip()
+          api_key = os.environ.get("VERISIGIL_TEST_API_KEY", "").strip()
 
-          if not key:
+          if not raw_url:
+              raise SystemExit("VERISIGIL_TEST_URL is missing")
+          if not api_key:
               raise SystemExit("VERISIGIL_TEST_API_KEY is missing")
-          if parsed.scheme != "https":
+
+          parsed = urlparse(raw_url)
+          if parsed.scheme.lower() != "https":
               raise SystemExit("Staging URL must use HTTPS")
           if parsed.hostname != "verisigil-security-repair-test-staging.up.railway.app":
-              raise SystemExit("Staging URL does not match the approved staging host")
-          print("Staging configuration validated; secret values were not printed.")
+              raise SystemExit("Staging URL does not match the approved isolated staging host")
+          if parsed.username or parsed.password:
+              raise SystemExit("Credentials must not be embedded in the staging URL")
+          if parsed.port not in (None, 443):
+              raise SystemExit("Staging URL must use the standard HTTPS port")
+          if parsed.query or parsed.fragment:
+              raise SystemExit("Staging URL must not contain a query string or fragment")
+
+          print("Isolated staging configuration validated; secret values were not printed.")
           PY
-      - name: Run live staging API verification
+
+      - name: Run isolated staging API tests
         run: python -m pytest tests/staging_verisigil_api.py -v
-           main
-         security/proof-verification-hardening-20261113
