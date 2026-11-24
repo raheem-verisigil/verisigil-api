@@ -51,14 +51,14 @@ jobs:
               raise SystemExit(f"DocumentVerifyRequest schema precondition failed: {source.count(model_old)}")
           source = source.replace(model_old, model_new, 1)
 
-          numeric_replacements = (
-              ("    orig_numbers = set(_re.findall(", "    orig_numbers = {float(n['value']) for n in _extract_numbers(original_text)}"),
-              ("    gen_numbers  = set(_re.findall(", "    gen_numbers  = {float(n['value']) for n in _extract_numbers(generated_text)}"),
-          )
-          for marker, replacement in numeric_replacements:
-              start = source.index(marker)
-              end = source.index("\\n", start)
-              source = source[:start] + replacement + source[end:]
+          lines = source.splitlines()
+          orig_indexes = [i for i, line in enumerate(lines) if "orig_numbers" in line and "_re.findall" in line]
+          gen_indexes = [i for i, line in enumerate(lines) if "gen_numbers" in line and "_re.findall" in line]
+          if len(orig_indexes) != 1 or len(gen_indexes) != 1:
+              raise SystemExit(f"Numeric detector source lines not unique: orig={orig_indexes}, gen={gen_indexes}")
+          lines[orig_indexes[0]] = "    orig_numbers = {float(n['value']) for n in _extract_numbers(original_text)}"
+          lines[gen_indexes[0]] = "    gen_numbers  = {float(n['value']) for n in _extract_numbers(generated_text)}"
+          source = "\\n".join(lines) + "\\n"
           if source.count("_extract_numbers(original_text)") != 1 or source.count("_extract_numbers(generated_text)") != 1:
               raise SystemExit("Canonical numerical extraction adapter was not applied")
 
