@@ -2,6 +2,7 @@ import asyncio
 import json
 import unittest
 from unittest.mock import AsyncMock, patch
+from fastapi import HTTPException
 
 import verisigil_entrypoint as entrypoint
 
@@ -19,6 +20,27 @@ class TestFailClosedReadiness(unittest.TestCase):
         payload = json.loads(response.body)
         self.assertEqual(payload["status"], "not_ready")
         self.assertEqual(payload["checks"]["database"]["status"], "degraded")
+
+    def test_production_accepts_only_production_api_key(self):
+        environment = {
+            "DEPLOY_ENV": "production",
+            "VERISIGIL_API_KEY": "production-secret-key",
+            "SANDBOX_API_KEY": "sandbox-secret-key",
+            "VERISIGIL_SANDBOX_KEY": "legacy-sandbox-secret",
+        }
+        with patch.dict("os.environ", environment, clear=True):
+            self.assertTrue(entrypoint._environment_only_api_key("production-secret-key", None))
+            with self.assertRaises(HTTPException):
+                entrypoint._environment_only_api_key("sandbox-secret-key", None)
+
+    def test_staging_can_use_isolated_sandbox_key(self):
+        environment = {
+            "DEPLOY_ENV": "staging",
+            "VERISIGIL_API_KEY": "staging-api-secret",
+            "SANDBOX_API_KEY": "staging-sandbox-secret",
+        }
+        with patch.dict("os.environ", environment, clear=True):
+            self.assertTrue(entrypoint._environment_only_api_key("staging-sandbox-secret", None))
 
     def test_production_legacy_surface_is_denied_by_default(self):
         self.assertFalse(entrypoint._production_surface_allows("/v1/execution/control", "production", False))
