@@ -1,0 +1,82 @@
+name: Apply bounded staging runtime regressions v2
+
+on:
+  push:
+    branches:
+      - fix/staging-runtime-regressions-20261124
+
+permissions:
+  contents: write
+
+concurrency:
+  group: staging-runtime-hotfix-v2
+  cancel-in-progress: false
+
+jobs:
+  patch-test-and-commit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      DEPLOY_ENV: test
+      SUPABASE_URL: http://127.0.0.1:1
+      SUPABASE_KEY: test-anon-key-not-a-credential
+      SUPABASE_SERVICE_KEY: test-service-key-not-a-credential
+      VERISIGIL_API_KEY: test-api-key-not-a-credential
+      SIGN_SECRET: test-signing-secret-not-for-deployment
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/staging-runtime-regressions-20261124
+          persist-credentials: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install pytest
+      - name: Apply two evidence-backed runtime corrections
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("main.py")
+          source = path.read_text(encoding="utf-8")
+          replacements = {
+              '            f"Collapse Probability: {collapse_probability_band}. "':
+                  '            f"Collapse Probability: {collapse_prob_band}. "',
+              '        ).replace("collapse_probability_band", collapse_prob_band),':
+                  '        ),',
+              '        "consequence_sim":    "/v1/simulate/consequence" if parsed.get("amount", 0) > 10000 else None,':
+                  '        "consequence_sim":    "/v1/simulate/consequence" if isinstance(parsed.get("amount"), (int, float)) and not isinstance(parsed.get("amount"), bool) and parsed.get("amount") > 10000 else None,',
+          }
+          counts = {old: source.count(old) for old in replacements}
+          if any(count != 1 for count in counts.values()):
+              raise SystemExit(f"Patch precondition failed; exact-match counts: {counts}")
+          for old, new in replacements.items():
+              source = source.replace(old, new, 1)
+          if "collapse_probability_band}." in source or 'parsed.get("amount", 0) > 10000' in source:
+              raise SystemExit("Patch verification failed")
+          path.write_text(source, encoding="utf-8")
+          print("Applied exact survivability-name and null-safe VSL amount corrections.")
+          PY
+      - name: Compile application and tests
+        run: python -m compileall -q .
+      - name: Run focused security and regression tests
+        run: |
+          python -m unittest tests.test_proof_verification -v
+          python -m unittest tests.test_execution_authorization_fail_closed -v
+          python -m unittest tests.test_agent_identity_layer -v
+          python -m unittest tests.test_durable_validation_receipts -v
+          python -m unittest tests.test_terry_validation -v
+      - name: Run complete unit test suite
+        run: python -m unittest discover -s tests -v
+      - name: Commit tested runtime corrections
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add main.py
+          git commit -m "Fix staging survivability and VSL parser runtime errors"
+          git push origin HEAD:fix/staging-runtime-regressions-20261124

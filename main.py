@@ -30904,11 +30904,11 @@ async def survivability_diagnostics(
         },
         "human_readable": (
             f"Governance Survivability Index: {gsi:.0f}/100. "
-            f"Collapse Probability: {collapse_probability_band}. "
+            f"Collapse Probability: {collapse_prob_band}. "
             f"{'Time to critical: ' + str(ttc_hours) + 'h. ' if ttc_hours else ''}"
             f"{'Escalation overload detected. ' if esc_overload else ''}"
             f"{'Autonomy over-expansion detected.' if over_expanded else ''}"
-        ).replace("collapse_probability_band", collapse_prob_band),
+        ),
     }
 
 
@@ -32552,7 +32552,7 @@ async def vsl_parse(
         "governance_gate":    "/v1/execution/control",
         "hal_check":          "/v1/human/authority/check" if parsed["action"] else None,
         "concurrence_workflow":"/v1/concurrence/workflow/create" if parsed.get("concurrence_n", 1) > 1 else None,
-        "consequence_sim":    "/v1/simulate/consequence" if parsed.get("amount", 0) > 10000 else None,
+        "consequence_sim":    "/v1/simulate/consequence" if isinstance(parsed.get("amount"), (int, float)) and not isinstance(parsed.get("amount"), bool) and parsed.get("amount") > 10000 else None,
         "accountability":     "/v1/accountability/execution-record",
     }
 

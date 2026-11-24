@@ -23,6 +23,8 @@ import pytest
 import httpx
 import os
 import json
+import re
+from datetime import datetime, timedelta, timezone
 
 # ── CONFIG ────────────────────────────────────────────────────
 BASE_URL = os.environ.get("VERISIGIL_TEST_URL", "").strip().rstrip("/")
@@ -43,6 +45,27 @@ HEADERS = {
     "Content-Type": "application/json",
 }
 TIMEOUT   = 30.0
+
+
+def _response_diagnostic(response, limit=2000):
+    """Return bounded, redacted response details for staging assertion failures."""
+    try:
+        body = json.dumps(response.json(), ensure_ascii=False, sort_keys=True, default=str)
+    except (ValueError, TypeError):
+        body = response.text or "<empty response body>"
+    body = re.sub(
+        r'(?i)(authorization|x-api-key|api[_-]?key|secret|token)(["\s:=]+)[^,\s"}]+',
+        r'\1\2[REDACTED]',
+        body,
+    )
+    if len(body) > limit:
+        body = body[:limit] + "... [truncated]"
+    return f"HTTP {response.status_code}; response body: {body}"
+
+
+def assert_staging_http_200(response, endpoint):
+    """Fail with useful server response context instead of status code alone."""
+    assert response.status_code == 200, f"{endpoint} failed: {_response_diagnostic(response)}"
 
 
 @pytest.fixture(scope="session")
@@ -171,7 +194,7 @@ class TestDocumentIntegrity:
             "document_type": "contract",
             "domain":        "finance",
         })
-        assert r.status_code == 200
+        assert_staging_http_200(r, "POST /v1/document/semantic-verify")
         data = r.json()
         assert "decision" in data or "integrity_decision" in data
 
@@ -183,7 +206,7 @@ class TestDocumentIntegrity:
             "document_type": "contract",
             "domain":        "finance",
         })
-        assert r.status_code == 200
+        assert_staging_http_200(r, "POST /v1/document/semantic-verify")
         data = r.json()
         # Should detect corruption — decision should not be clean ALLOW
         assert "decision" in data or "integrity_decision" in data
@@ -281,7 +304,6 @@ class TestConcurrenceEngine:
         assert data["status"] == "PENDING"
         assert "legitimacy_graph" in data
         assert data["concurrence_rule"] == "4-of-4"
-        return data["workflow_id"]
 
     def test_threshold_advisor(self, client):
         """Threshold advisor must recommend based on amount."""
@@ -318,7 +340,7 @@ class TestVSLParser:
                 "EVIDENCE cryptographic"
             ),
         })
-        assert r.status_code == 200
+        assert_staging_http_200(r, "POST /v1/vsl/parse (valid script)")
         data = r.json()
         assert data["valid"] is True
         assert len(data["errors"]) == 0
@@ -333,7 +355,7 @@ class TestVSLParser:
             "agent_id": "test-agent-001",
             "script":   "IDENTITY agent: test\nACTION test_action\nCONCURRENCE 5_of_3",
         })
-        assert r.status_code == 200
+        assert_staging_http_200(r, "POST /v1/vsl/parse (invalid script)")
         data = r.json()
         assert data["valid"] is False
         assert len(data["errors"]) > 0
@@ -344,7 +366,7 @@ class TestVSLParser:
             "agent_id": "test-agent-001",
             "script":   "ACTION payment\nREQUIRES compliance.ok",
         })
-        assert r.status_code == 200
+        assert_staging_http_200(r, "POST /v1/vsl/parse (invalid script)")
         data = r.json()
         assert data["valid"] is False
 
@@ -356,7 +378,12 @@ class TestVSLParser:
 class TestATFBridge:
 
     def test_bridge_validate_nominal(self, client):
-        """Nominal ATF trace must pass bridge validation."""
+        """A current, internally time-consistent ATF trace must pass validation."""
+        now = datetime.now(timezone.utc).replace(microsecond=0)
+        created_at = now - timedelta(minutes=1)
+        expires_at = now + timedelta(hours=1)
+        execution_ts = now
+        execution_ns = int(execution_ts.timestamp() * 1_000_000_000)
         r = client.post("/v1/bridge/atf/validate", headers=HEADERS, json={
             "dr": {
                 "delegation_id":              "ATFDR-A1B2C3D4E5F60001",
@@ -370,31 +397,37 @@ class TestATFBridge:
                 "delegator_public_key":       "",
                 "posture_state_hash":         "28c1dcbd36bae0faf708af58f72d5cc5103974266b3ab47c52cf76c23bcb1095",
                 "status":                     "ACTIVE",
-                "created_at":                 "2026-05-21T10:00:00+00:00",
-                "expires_at":                 "2026-05-22T10:00:00+00:00",
+                "created_at":                 created_at.isoformat(),
+                "expires_at":                 expires_at.isoformat(),
                 "metadata":                   {},
             },
             "tar": {
                 "tar_id":                 "ATFTAR-F1E2D3C4B5A60001",
                 "delegation_id":          "ATFDR-A1B2C3D4E5F60001",
                 "agent_id":               "AID-AUDIT-F1E2D3C4B5A60007",
-                "execution_ns":           1748131200000000000,
-                "execution_ts":           "2026-05-21T10:00:00+00:00",
+                "execution_ns":           execution_ns,
+                "execution_ts":           execution_ts.isoformat(),
                 "dr_status_at_admission": "ACTIVE",
-                "dr_expires_at":          "2026-05-22T10:00:00+00:00",
+                "dr_expires_at":          expires_at.isoformat(),
                 "authority_budget":        60.0,
                 "domain":                 "compliance",
                 "task_action":            "read_evidence",
                 "admission_status":       "ADMITTED",
                 "chain_root_id":          "ATFDR-ROOT0000000001",
-                "issued_at":              "2026-05-21T10:00:01+00:00",
+                "issued_at":              execution_ts.isoformat(),
                 "metadata":               {},
             },
         })
-        assert r.status_code == 200
+        assert_staging_http_200(r, "POST /v1/bridge/atf/validate")
         data = r.json()
-        assert data.get("bridge_valid") is True
-        assert data.get("critical_violations", 1) == 0
+        assert data.get("bridge_valid") is True, (
+            "ATF bridge rejected a current trace: "
+            + json.dumps(data, ensure_ascii=False, sort_keys=True, default=str)[:3000]
+        )
+        assert data.get("critical_violations", 1) == 0, (
+            "ATF bridge reported critical violations: "
+            + json.dumps(data, ensure_ascii=False, sort_keys=True, default=str)[:3000]
+        )
 
     def test_bridge_summary(self, client):
         """Bridge summary must return session count."""
@@ -493,7 +526,7 @@ class TestSovereignty:
     def test_survivability_diagnostics(self, client):
         """Survivability must return GSI score."""
         r = client.get("/v1/diagnostics/survivability", headers=HEADERS)
-        assert r.status_code == 200
+        assert_staging_http_200(r, "GET /v1/diagnostics/survivability")
         data = r.json()
         assert "governance_survivability_index" in data
         assert "collapse_probability" in data
