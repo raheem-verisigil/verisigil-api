@@ -69,32 +69,40 @@ status,_=call(BASE+"/v1/agent-identity/agents",headers={**other,"x-org-id":org})
 assert status==403,f"cross-tenant membership selection not denied: HTTP {status}"
 print("PASS: cross-tenant selection denied")
 
-status,body=call(BASE+"/v1/agent-identity/api-keys","POST",owner_tenant,{"name":"staging-"+uuid.uuid4().hex[:8],"scopes":["agents:read"],"expires_in_days":1})
-assert status==200 and isinstance(body,dict) and body.get("api_key") and body.get("key_id"),f"API-key issue failed: HTTP {status}; response={str(body)[:400]}"
-key=body["api_key"]; key_id=body["key_id"]
-status,_=call(BASE+"/v1/agent-identity/agents",headers={"x-api-key":key})
-assert status==200,f"scoped API key failed: HTTP {status}"
-print("PASS: scoped tenant API key grants read access")
+key_id = None
+try:
+    status,body=call(BASE+"/v1/agent-identity/api-keys","POST",owner_tenant,{"name":"staging-"+uuid.uuid4().hex[:8],"scopes":["agents:read"],"expires_in_days":1})
+    assert status==200 and isinstance(body,dict) and body.get("api_key") and body.get("key_id"),f"API-key issue failed: HTTP {status}; response={str(body)[:400]}"
+    key=body["api_key"]; key_id=body["key_id"]
+    status,_=call(BASE+"/v1/agent-identity/agents",headers={"x-api-key":key})
+    assert status==200,f"scoped API key failed: HTTP {status}"
+    print("PASS: scoped tenant API key grants read access")
 
-# A read-only key must not create agent challenges or manage other API keys.
-limited={"x-api-key":key}
-status,_=call(BASE+"/v1/agent-identity/challenges","POST",limited,{"purpose":"REGISTER_AGENT","public_key":base64.b64encode(bytes(32)).decode("ascii")})
-assert status==403,f"read-only key unexpectedly created an agent challenge: HTTP {status}"
-print("PASS: agents:read key cannot perform agents:write operation")
+    # A read-only key must not create agent challenges or manage other API keys.
+    limited={"x-api-key":key}
+    status,_=call(BASE+"/v1/agent-identity/challenges","POST",limited,{"purpose":"REGISTER_AGENT","public_key":base64.b64encode(bytes(32)).decode("ascii")})
+    assert status==403,f"read-only key unexpectedly created an agent challenge: HTTP {status}"
+    print("PASS: agents:read key cannot perform agents:write operation")
 
-status,_=call(BASE+"/v1/agent-identity/api-keys","POST",limited,{"name":"forbidden-escalation","scopes":["agents:read"],"expires_in_days":1})
-assert status==403,f"tenant API key unexpectedly created another API key: HTTP {status}"
-print("PASS: tenant API key cannot escalate or mint credentials")
+    status,_=call(BASE+"/v1/agent-identity/api-keys","POST",limited,{"name":"forbidden-escalation","scopes":["agents:read"],"expires_in_days":1})
+    assert status==403,f"tenant API key unexpectedly created another API key: HTTP {status}"
+    print("PASS: tenant API key cannot escalate or mint credentials")
 
-status,_=call(BASE+"/v1/agent-identity/api-keys","POST",owner_tenant,{"name":"invalid-scope","scopes":["*"],"expires_in_days":1})
-assert status==422,f"unsupported API-key scope was not rejected: HTTP {status}"
-print("PASS: unsupported API-key scopes rejected")
+    status,_=call(BASE+"/v1/agent-identity/api-keys","POST",owner_tenant,{"name":"invalid-scope","scopes":["*"],"expires_in_days":1})
+    assert status==422,f"unsupported API-key scope was not rejected: HTTP {status}"
+    print("PASS: unsupported API-key scopes rejected")
 
-status,body=call(BASE+f"/v1/agent-identity/api-keys/{key_id}/revoke","POST",owner_tenant)
-assert status==200 and isinstance(body,dict) and body.get("revoked") is True,f"API-key revoke failed: HTTP {status}"
-status,_=call(BASE+"/v1/agent-identity/agents",headers={"x-api-key":key})
-assert status==401,f"revoked API key still accepted: HTTP {status}"
-print("PASS: revoked tenant API key rejected")
+    status,body=call(BASE+f"/v1/agent-identity/api-keys/{key_id}/revoke","POST",owner_tenant)
+    assert status==200 and isinstance(body,dict) and body.get("revoked") is True,f"API-key revoke failed: HTTP {status}"
+    status,_=call(BASE+"/v1/agent-identity/agents",headers={"x-api-key":key})
+    assert status==401,f"revoked API key still accepted: HTTP {status}"
+    print("PASS: revoked tenant API key rejected")
+finally:
+    if key_id:
+        try:
+            call(BASE+f"/v1/agent-identity/api-keys/{key_id}/revoke","POST",owner_tenant)
+        except Exception:
+            pass
 
 created_agent_ids=[]
 def register_agent(label,capabilities):

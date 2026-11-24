@@ -213,6 +213,8 @@ class TestDocumentIntegrity:
         assert data.get("governance_action") == "ALLOW"
         assert data.get("governance_color") == "GREEN"
         assert data.get("governance_reason")
+        assert data.get("verify_id")
+        assert data.get("schema") == "VGS-DOCUMENT-INTEGRITY-v1"
 
     def test_semantic_verify_corruption(self, client):
         """Corrupted document should be flagged."""
@@ -230,6 +232,9 @@ class TestDocumentIntegrity:
         assert data.get("governance_action") == "REQUIRE_HUMAN_REVIEW"
         assert data.get("governance_color") == "ORANGE"
         assert data.get("governance_reason")
+        # The endpoint's contract exposes the integrity result as corruption_detected.
+        assert data.get("verify_id")
+        assert data.get("schema") == "VGS-DOCUMENT-INTEGRITY-v1"
 
 
     def test_document_verify_unified_alias(self, client):

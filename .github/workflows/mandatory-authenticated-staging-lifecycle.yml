@@ -1,30 +1,6 @@
 name: Mandatory authenticated Passport staging lifecycle
 
 on:
-  pull_request:
-    branches:
-      - hardening/verisigil-production-readiness-20261123
-    paths:
-      - "main.py"
-      - "agent_identity_layer.py"
-      - "verisigil_entrypoint.py"
-      - "durable_validation_receipts.py"
-      - "proof_verification.py"
-      - "supabase/migrations/**"
-      - "tests/staging_authenticated_lifecycle.py"
-      - ".github/workflows/mandatory-authenticated-staging-lifecycle.yml"
-  push:
-    branches:
-      - hardening/verisigil-production-readiness-20261123
-    paths:
-      - "main.py"
-      - "agent_identity_layer.py"
-      - "verisigil_entrypoint.py"
-      - "durable_validation_receipts.py"
-      - "proof_verification.py"
-      - "supabase/migrations/**"
-      - "tests/staging_authenticated_lifecycle.py"
-      - ".github/workflows/mandatory-authenticated-staging-lifecycle.yml"
   workflow_dispatch:
 
 permissions:
@@ -32,7 +8,7 @@ permissions:
 
 concurrency:
   group: passport-staging-lifecycle-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   authenticated-staging-lifecycle:
@@ -53,7 +29,31 @@ jobs:
         with:
           python-version: "3.11"
       - name: Install cryptographic acceptance dependencies
+        run: python -m pip install --disable-pip-version-check "PyNaCl>=1.5.0" "rfc8785>=0.1.0"
+      - name: Require isolated staging configuration
+        env:
+          REQUIRED_STAGING_URL: https://verisigil-passport-staging-api-staging.up.railway.app
         run: |
-          python -m pip install --disable-pip-version-check "PyNaCl>=1.5.0" "rfc8785>=0.1.0"
+          python - <<'PY'
+          import os
+          from urllib.parse import urlparse
+
+          required = (
+              "VERISIGIL_STAGING_SUPABASE_URL",
+              "VERISIGIL_STAGING_SUPABASE_ANON_KEY",
+              "VERISIGIL_STAGING_TEST_OWNER_EMAIL",
+              "VERISIGIL_STAGING_TEST_OWNER_PASSWORD",
+              "VERISIGIL_STAGING_TEST_OTHER_EMAIL",
+              "VERISIGIL_STAGING_TEST_OTHER_PASSWORD",
+          )
+          missing = [name for name in required if not os.environ.get(name, "").strip()]
+          if missing:
+              raise SystemExit("Missing required staging secrets: " + ", ".join(missing))
+          configured = urlparse(os.environ.get("VERISIGIL_STAGING_BASE_URL", ""))
+          expected = urlparse(os.environ["REQUIRED_STAGING_URL"])
+          if configured.scheme != "https" or configured.hostname != expected.hostname:
+              raise SystemExit("Refusing to run authenticated acceptance against an unapproved staging host.")
+          print("Isolated staging configuration validated; secret values were not printed.")
+          PY
       - name: Run mandatory authenticated live staging acceptance
         run: python tests/staging_authenticated_lifecycle.py

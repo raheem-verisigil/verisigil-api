@@ -1,0 +1,128 @@
+name: Apply canonical document semantic engine integration
+
+on:
+  push:
+    branches:
+      - fix/document-semantic-engine-20261124
+
+permissions:
+  contents: write
+
+concurrency:
+  group: document-semantic-engine-fix
+  cancel-in-progress: false
+
+jobs:
+  patch-test-and-commit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      DEPLOY_ENV: test
+      SUPABASE_URL: http://127.0.0.1:1
+      SUPABASE_KEY: test-anon-key-not-a-credential
+      SUPABASE_SERVICE_KEY: test-service-key-not-a-credential
+      VERISIGIL_API_KEY: test-api-key-not-a-credential
+      SIGN_SECRET: test-signing-secret-not-for-deployment
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/document-semantic-engine-20261124
+          persist-credentials: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install pytest
+      - name: Replace undefined document helpers with canonical engine
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("main.py")
+          source = path.read_text(encoding="utf-8")
+          old = '''    # ── Run all 4 detection layers ────────────────────────────
+              drift     = detect_semantic_drift(original, generated, req.document_type or req.context or "general", req.interaction_num)
+              if "score" not in drift: drift["score"] = drift.get("drift_score", 0.0)
+              mutation  = detect_clause_mutation(original, generated)
+              intent    = detect_intent_corruption(original, generated)
+              numerical = detect_numerical_inconsistency(original, generated)
+
+              # ── Master score ──────────────────────────────────────────
+              corruption_score = compute_corruption_score(drift, mutation, intent, numerical)
+              gov              = governance_decision(corruption_score, req.consequence)
+              corruption_detected = corruption_score > 0.10
+
+              # ── Overall severity ──────────────────────────────────────
+              sev_order = {"CRITICAL": 4, "HIGH": 3, "MEDIUM": 2, "LOW": 1, "NONE": 0}
+              severities = [
+                  drift.get("severity", "NONE"),
+                  mutation.get("severity", "NONE"),
+                  intent.get("severity", "NONE"),
+                  numerical.get("severity", "NONE"),
+              ]
+              overall_severity = max(severities, key=lambda s: sev_order.get(s, 0))'''
+          new = '''    # Use the existing consolidated semantic-corruption engine as the single source of truth.
+              semantic_result = detect_semantic_corruption(
+                  original_text=original,
+                  generated_text=generated,
+                  document_type=req.document_type or req.context or "general",
+                  agent_id=req.agent_id,
+                  consequence=req.consequence,
+              )
+              vectors = semantic_result.get("corruption_vectors", {})
+
+              drift_vector = vectors.get("semantic_drift", {})
+              drift = dict(drift_vector.get("details") or {})
+              drift["score"] = float(drift_vector.get("score", drift.get("drift_score", 0.0)))
+              drift["detected"] = bool(drift_vector.get("detected", drift.get("drift_score", 0.0) > 0.2))
+              drift["severity"] = drift.get("severity", "CLEAN")
+
+              mutation = dict(vectors.get("clause_mutation") or {})
+              mutation["severity"] = "CRITICAL" if mutation.get("detected") else "NONE"
+
+              intent = dict(vectors.get("intent_corruption") or {})
+              intent["severity"] = "CRITICAL" if intent.get("detected") else "NONE"
+
+              numerical = dict(vectors.get("numerical_inconsistency") or {})
+              numerical_issues = numerical.get("issues") or []
+              numerical["severity"] = (
+                  "HIGH" if any(issue.get("severity") == "HIGH" for issue in numerical_issues)
+                  else "MEDIUM" if any(issue.get("severity") == "MEDIUM" for issue in numerical_issues)
+                  else "NONE"
+              )
+
+              corruption_score = float(semantic_result.get("corruption_score", 0.0))
+              gov = governance_decision(corruption_score, req.consequence)
+              corruption_detected = bool(semantic_result.get("corruption_detected", corruption_score > 0.20))
+              overall_severity = semantic_result.get("severity", "CLEAN")'''
+          count = source.count(old)
+          if count != 1:
+              raise SystemExit(f"Document integration patch expected one exact block, found {count}")
+          source = source.replace(old, new, 1)
+          if "detect_clause_mutation(original, generated)" in source or "detect_intent_corruption(original, generated)" in source or "detect_numerical_inconsistency(original, generated)" in source:
+              raise SystemExit("Undefined document helper calls remain")
+          path.write_text(source, encoding="utf-8")
+          print("Document semantic verification now consumes the consolidated four-vector engine.")
+          PY
+      - name: Compile application and tests
+        run: python -m compileall -q .
+      - name: Run focused security and regression tests
+        run: |
+          python -m unittest tests.test_proof_verification -v
+          python -m unittest tests.test_execution_authorization_fail_closed -v
+          python -m unittest tests.test_agent_identity_layer -v
+          python -m unittest tests.test_durable_validation_receipts -v
+          python -m unittest tests.test_terry_validation -v
+      - name: Run complete unit test suite
+        run: python -m unittest discover -s tests -v
+      - name: Commit tested document integration
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add main.py
+          git commit -m "Use canonical semantic engine in document verification"
+          git push origin HEAD:fix/document-semantic-engine-20261124

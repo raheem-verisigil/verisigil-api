@@ -3,6 +3,7 @@ name: Terry staging security verification
 on:
   push:
     branches:
+      - main
       - hardening/verisigil-production-readiness-20261123
     paths:
       - "requirements.txt"
