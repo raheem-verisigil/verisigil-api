@@ -1,0 +1,108 @@
+name: Apply document and ATF staging corrections
+
+on:
+  push:
+    branches:
+      - fix/document-semantic-atf-fixture-20261124
+
+permissions:
+  contents: write
+
+concurrency:
+  group: document-atf-runtime-fix
+  cancel-in-progress: false
+
+jobs:
+  patch-test-and-commit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      DEPLOY_ENV: test
+      SUPABASE_URL: http://127.0.0.1:1
+      SUPABASE_KEY: test-anon-key-not-a-credential
+      SUPABASE_SERVICE_KEY: test-service-key-not-a-credential
+      VERISIGIL_API_KEY: test-api-key-not-a-credential
+      SIGN_SECRET: test-signing-secret-not-for-deployment
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/document-semantic-atf-fixture-20261124
+          persist-credentials: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install pytest
+      - name: Correct document request model and ATF test fixture
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          main_path = Path("main.py")
+          main = main_path.read_text(encoding="utf-8")
+          model_old = '''    context:         str = "general"
+              consequence:     str = "OPERATIONAL"'''
+          model_new = '''    document_type:   str = "general"
+              context:         str = "general"
+              consequence:     str = "OPERATIONAL"'''
+          route_old = '''@app.post("/v1/document/semantic-verify", tags=["Document Integrity"])
+          async def document_semantic_verify(
+              req: dict,'''
+          route_new = '''@app.post("/v1/document/semantic-verify", tags=["Document Integrity"])
+          async def document_semantic_verify(
+              req: DocumentVerifyRequest,'''
+          counts = {
+              "document_model": main.count(model_old),
+              "document_route": main.count(route_old),
+          }
+          if counts != {"document_model": 1, "document_route": 1}:
+              raise SystemExit(f"Document patch precondition failed: {counts}")
+          main = main.replace(model_old, model_new, 1).replace(route_old, route_new, 1)
+          main_path.write_text(main, encoding="utf-8")
+
+          test_path = Path("tests/staging_verisigil_api.py")
+          test = test_path.read_text(encoding="utf-8")
+          import_old = "import json\nimport re"
+          import_new = "import json\nimport hashlib\nimport re"
+          hash_old = '"posture_state_hash":         "28c1dcbd36bae0faf708af58f72d5cc5103974266b3ab47c52cf76c23bcb1095",'
+          hash_new = '''"posture_state_hash":         hashlib.sha256(json.dumps({
+                      "delegator_id": "AID-COMPLIANCE-A1B2C3D4E5F60001",
+                      "task_scope": {"domain": "compliance", "permitted_actions": ["read_evidence"]},
+                      "authority_budget_delegator": 80.0,
+                      "authority_budget_granted": 60.0,
+                      "delegation_depth": 1,
+                      "chain_root_id": "ATFDR-ROOT0000000001",
+                      "created_at": created_at.isoformat(),
+                  }, sort_keys=True, separators=(",", ":")).encode()).hexdigest(),'''
+          test_counts = {
+              "hashlib_import": test.count(import_old),
+              "static_posture_hash": test.count(hash_old),
+          }
+          if test_counts != {"hashlib_import": 1, "static_posture_hash": 1}:
+              raise SystemExit(f"ATF fixture patch precondition failed: {test_counts}")
+          test = test.replace(import_old, import_new, 1).replace(hash_old, hash_new, 1)
+          test_path.write_text(test, encoding="utf-8")
+          print("Document request model corrected; ATF fixture now computes the v1.4 posture hash.")
+          PY
+      - name: Compile application and tests
+        run: python -m compileall -q .
+      - name: Run focused security and regression tests
+        run: |
+          python -m unittest tests.test_proof_verification -v
+          python -m unittest tests.test_execution_authorization_fail_closed -v
+          python -m unittest tests.test_agent_identity_layer -v
+          python -m unittest tests.test_durable_validation_receipts -v
+          python -m unittest tests.test_terry_validation -v
+      - name: Run complete unit test suite
+        run: python -m unittest discover -s tests -v
+      - name: Commit tested corrections
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add main.py tests/staging_verisigil_api.py
+          git commit -m "Fix document semantic verification and ATF fixture binding"
+          git push origin HEAD:fix/document-semantic-atf-fixture-20261124
