@@ -154,14 +154,22 @@ def main():
                 for row in response.json():
                     if row["org_id"] not in orgs: orgs.append(row["org_id"])
             for org in orgs:
+                # Remove tenant-scoped rows first, then the legacy mirror rows
+                # created by vgs_create_agent_identity_tenant/register_agent.
                 for table in ("vgs_agent_authority_commitments","vgs_agent_delegations","vgs_agent_identity_challenges",
                     "vgs_agent_identity_api_keys","vgs_agent_identity_keys","vgs_agent_identities"):
                     response=client.delete(SB+"/rest/v1/"+table,params={"org_id":"eq."+org})
                     response.raise_for_status()
                 for table in ("vgs_agent_identity_memberships","vgs_agent_identity_tenants"):
-                    field="org_id"
-                    response=client.delete(SB+"/rest/v1/"+table,params={field:"eq."+org})
+                    response=client.delete(SB+"/rest/v1/"+table,params={"org_id":"eq."+org})
                     response.raise_for_status()
+                # The onboarding bridge also creates legacy organisation,
+                # agent and Passport rows; leaving these behind leaks test data.
+                for table in ("passports","agents"):
+                    response=client.delete(SB+"/rest/v1/"+table,params={"org_id":"eq."+org})
+                    response.raise_for_status()
+                response=client.delete(SB+"/rest/v1/organisations",params={"id":"eq."+org})
+                response.raise_for_status()
             for u in users:
                 response=client.delete(SB+"/auth/v1/admin/users/"+u["id"])
                 response.raise_for_status()
