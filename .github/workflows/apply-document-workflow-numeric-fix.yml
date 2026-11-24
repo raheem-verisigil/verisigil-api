@@ -45,6 +45,63 @@ jobs:
           path = Path("main.py")
           source = path.read_text(encoding="utf-8")
 
+          helper = '''def governance_decision(corruption_score: float, consequence: str = "HIGH") -> dict:
+              """Return a deterministic, consequence-aware document governance decision."""
+              try:
+                  score = float(corruption_score)
+              except (TypeError, ValueError):
+                  score = 1.0
+              if not (0.0 <= score <= 1.0):
+                  score = 1.0
+
+              severity = "CLEAN"
+              for candidate in ("CRITICAL", "HIGH", "MEDIUM", "LOW"):
+                  if score >= CORRUPTION_SEVERITY[candidate]["score_threshold"]:
+                      severity = candidate
+                      break
+
+              consequence_class = str(consequence or "HIGH").strip().upper()
+              if consequence_class not in {"LOW", "MEDIUM", "HIGH", "CRITICAL"}:
+                  consequence_class = "HIGH"
+
+              if score > 0.0:
+                  minimum = {"LOW": "LOW", "MEDIUM": "MEDIUM", "HIGH": "HIGH", "CRITICAL": "CRITICAL"}[consequence_class]
+                  rank = {"CLEAN": 0, "LOW": 1, "MEDIUM": 2, "HIGH": 3, "CRITICAL": 4}
+                  if rank[severity] < rank[minimum]:
+                      severity = minimum
+
+              action = CORRUPTION_SEVERITY[severity]["action"]
+              decision = {
+                  "CLEAN": "ALLOW",
+                  "LOW": "MONITOR",
+                  "MEDIUM": "WARN",
+                  "HIGH": "ESCALATE",
+                  "CRITICAL": "BLOCK_AND_ESCALATE",
+              }[severity]
+              color = {
+                  "CLEAN": "GREEN",
+                  "LOW": "BLUE",
+                  "MEDIUM": "YELLOW",
+                  "HIGH": "ORANGE",
+                  "CRITICAL": "RED",
+              }[severity]
+              return {
+                  "decision": decision,
+                  "action": action,
+                  "color": color,
+                  "severity": severity,
+                  "score": round(score, 4),
+                  "consequence": consequence_class,
+                  "reason": f"{severity} semantic integrity result for {consequence_class} consequence (score={score:.4f})",
+              }
+
+
+          '''
+          anchor = "def detect_semantic_corruption("
+          if source.count(anchor) != 1 or "def governance_decision(" in source:
+              raise SystemExit("Governance policy insertion precondition failed")
+          source = source.replace(anchor, helper + anchor, 1)
+
           model_old = '    interaction_num: int  = 1\n    document_type:   str = "general"'
           model_new = '    interaction_num: int  = 1\n    workflow_id:      str = ""\n    document_type:   str = "general"'
           if source.count(model_old) != 1:
