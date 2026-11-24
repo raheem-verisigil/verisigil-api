@@ -222,7 +222,11 @@ class TestDocumentIntegrity:
             "consequence": "HIGH",
         })
         assert_staging_http_200(r, "POST /v1/document/verify")
-        assert "detection_layers" in r.json()
+        data = r.json()
+    assert "detection_layers" in data
+    assert data.get("governance_decision") == "ALLOW"
+    assert data.get("governance_action") == "ALLOW"
+    assert data.get("governance_color") == "GREEN"
 
     def test_clause_mutation_layer(self, client):
         r = client.post("/v1/document/clause-mutation", headers=HEADERS, json={
