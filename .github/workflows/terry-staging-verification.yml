@@ -29,6 +29,7 @@ on:
       - "supabase/migrations/**"
       - "tests/**"
       - ".github/workflows/terry-staging-verification.yml"
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -78,7 +79,7 @@ jobs:
         run: python -m unittest discover -s tests -v
 
   staging-api-tests:
-    if: ${{ github.event_name == 'push' }}
+    if: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
     needs: focused-security-tests
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -86,6 +87,7 @@ jobs:
       VERISIGIL_TEST_ENV: staging
       VERISIGIL_TEST_URL: https://verisigil-passport-staging-api-staging.up.railway.app
       VERISIGIL_TEST_API_KEY: ${{ secrets.VERISIGIL_TEST_API_KEY }}
+      VERISIGIL_EXPECTED_BUILD_ID: ${{ github.sha }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -95,14 +97,18 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt pytest
-      - name: Validate staging configuration
-        if: ${{ env.VERISIGIL_TEST_URL != '' && env.VERISIGIL_TEST_API_KEY != '' }}
+      - name: Require and validate staging configuration
         run: |
           python - <<'PY'
           import os
           from urllib.parse import urlparse
 
-          url = os.environ["VERISIGIL_TEST_URL"]
+          url = os.environ.get("VERISIGIL_TEST_URL", "").strip()
+          api_key = os.environ.get("VERISIGIL_TEST_API_KEY", "").strip()
+          if not api_key:
+              raise SystemExit("VERISIGIL_TEST_API_KEY is required; live staging acceptance may not be skipped.")
+          if not url:
+              raise SystemExit("VERISIGIL_TEST_URL is required.")
           parsed = urlparse(url)
           if parsed.scheme != "https":
               raise SystemExit("Staging URL must use HTTPS")
@@ -110,9 +116,36 @@ jobs:
               raise SystemExit("Staging URL does not match the approved Passport staging host")
           print("Staging configuration validated; secret values were not printed.")
           PY
-      - name: Run live staging API verification
-        if: ${{ env.VERISIGIL_TEST_URL != '' && env.VERISIGIL_TEST_API_KEY != '' }}
+      - name: Wait until Railway serves this exact commit
+        run: |
+          python - <<'PY'
+          import os
+          import time
+          import httpx
+
+          health_url = os.environ["VERISIGIL_TEST_URL"].rstrip("/") + "/health"
+          expected = os.environ["VERISIGIL_EXPECTED_BUILD_ID"][:16]
+          deadline = time.monotonic() + 600
+          last = "health endpoint not yet available"
+
+          with httpx.Client(timeout=10.0) as client:
+              while time.monotonic() < deadline:
+                  try:
+                      response = client.get(health_url)
+                      if response.status_code == 200:
+                          actual = str(response.json().get("build_id", ""))
+                          if actual == expected:
+                              print(f"Verified deployed Railway build_id={actual}")
+                              break
+                          last = f"healthy but build_id={actual!r}; expected={expected!r}"
+                      else:
+                          last = f"health returned HTTP {response.status_code}"
+                  except Exception as exc:
+                      last = f"{type(exc).__name__}: {exc}"
+                  print(last)
+                  time.sleep(10)
+              else:
+                  raise SystemExit(f"Railway did not deploy expected commit: {last}")
+          PY
+      - name: Run mandatory live staging API verification
         run: python -m pytest tests/staging_verisigil_api.py -v
-      - name: Report skipped live verification when staging secrets are absent
-        if: ${{ env.VERISIGIL_TEST_URL == '' || env.VERISIGIL_TEST_API_KEY == '' }}
-        run: echo "Live staging verification skipped; required GitHub secrets are not configured."

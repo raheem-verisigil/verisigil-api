@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
 import math
 import os
@@ -50,14 +51,18 @@ def _environment_only_api_key(x_api_key: str | None = None,
     if candidate and getattr(core, "_check_canary", lambda _value: False)(candidate):
         raise core.HTTPException(status_code=401, detail="Invalid or missing API key.")
 
-    configured = {
-        normalize(os.environ.get("VERISIGIL_API_KEY")),
-        normalize(os.environ.get("VS_API_KEY")),
-        normalize(os.environ.get("SANDBOX_API_KEY")),
-        normalize(os.environ.get("VERISIGIL_SANDBOX_KEY")),
-    }
+    deploy_env = (os.environ.get("DEPLOY_ENV", "production") or "production").strip().lower()
+    if deploy_env in {"production", "prod", "live"}:
+        configured = {normalize(os.environ.get("VERISIGIL_API_KEY"))}
+    else:
+        configured = {
+            normalize(os.environ.get("VERISIGIL_API_KEY")),
+            normalize(os.environ.get("VS_API_KEY")),
+            normalize(os.environ.get("SANDBOX_API_KEY")),
+            normalize(os.environ.get("VERISIGIL_SANDBOX_KEY")),
+        }
     configured.discard("")
-    if not candidate or candidate not in configured:
+    if not candidate or not any(hmac.compare_digest(candidate, item) for item in configured):
         raise core.HTTPException(status_code=401, detail="Invalid or missing environment-managed API key.")
     return True
 
@@ -371,7 +376,150 @@ install_durable_middleware(
 
 # Tenant-scoped Cryptographic Passport identity and one-time runtime authority.
 # Routes are attached to the existing FastAPI core; legacy routes remain intact.
-from agent_identity_layer import router as agent_identity_router, install_openapi_security
+from agent_identity_layer import _db_request, router as agent_identity_router, install_openapi_security
 
 app.include_router(agent_identity_router)
 install_openapi_security(app)
+
+
+# Production readiness is measured against the Passport identity and durable
+# receipt schema. The older monolithic DB adapter targets a separate legacy
+# schema that is not part of the tenant-scoped Passport data plane.
+app.router.routes = [
+    route for route in app.router.routes
+    if not (
+        getattr(route, "path", None) in {"/readiness", "/v1/db/status"}
+        and "GET" in getattr(route, "methods", set())
+    )
+]
+
+
+async def _identity_persistence_health() -> dict[str, Any]:
+    required_tables = (
+        "vgs_agent_identities",
+        "vgs_validation_receipts",
+    )
+    checked: list[str] = []
+    for table in required_tables:
+        result = await _db_request(
+            "GET", table, params={"select": "*", "limit": "1"}
+        )
+        if not isinstance(result, list):
+            raise RuntimeError(f"Supabase table probe returned an invalid result for {table}.")
+        checked.append(table)
+    return {
+        "db_connected": True,
+        "provider": "Supabase",
+        "mode": "SUPABASE_PASSPORT_PERSISTENT",
+        "tables_checked": checked,
+    }
+
+
+@app.get("/readiness", tags=["System"], summary="Fail-closed Passport and durable-store readiness")
+async def hardened_readiness():
+    checks: dict[str, Any] = {"api_process": {"status": "ok"}}
+    try:
+        database = await _identity_persistence_health()
+        checks["database"] = {"status": "ok", **database}
+    except Exception as exc:
+        checks["database"] = {
+            "status": "degraded",
+            "error": type(exc).__name__,
+        }
+
+    stores_ok = all(
+        getattr(core, name, None) is not None
+        for name in ("_AGENT_INVENTORY", "_SAC_STORE", "_DELEGATION_PASSPORTS")
+    )
+    checks["governance_stores"] = {"status": "ok" if stores_ok else "degraded"}
+
+    # The legacy, non-tenant-aware core DB is deliberately reported separately.
+    # It is not allowed to make Passport readiness look healthy or unhealthy.
+    legacy_health = core.db.health_check()
+    checks["legacy_core_persistence"] = {
+        "status": "isolated" if not legacy_health.get("db_connected") else "available",
+        "mode": legacy_health.get("mode", "unknown"),
+        "production_surface": "disabled unless VERISIGIL_ENABLE_LEGACY_API=true",
+    }
+
+    ready = checks["database"]["status"] == "ok" and stores_ok
+    return JSONResponse(
+        status_code=200 if ready else 503,
+        content={
+            "status": "ready" if ready else "not_ready",
+            "service": getattr(core, "SERVICE_NAME", "verisigil-api"),
+            "timestamp": _now(),
+            "checks": checks,
+            "version": getattr(core, "BUILD_VERSION", getattr(core, "DEPLOY_VERSION", "unknown")),
+        },
+    )
+
+
+@app.get("/v1/db/status", tags=["System"])
+async def hardened_db_status(request: Request):
+    core.require_api_key(
+        request.headers.get("x-api-key"),
+        request.headers.get("authorization"),
+    )
+    try:
+        identity_health = await _identity_persistence_health()
+    except Exception as exc:
+        return JSONResponse(
+            status_code=503,
+            content={
+                "schema": "VGS-DB-STATUS-v2",
+                "db_connected": False,
+                "mode": "UNAVAILABLE",
+                "provider": "Supabase",
+                "error": type(exc).__name__,
+            },
+        )
+    legacy_health = core.db.health_check()
+    return {
+        "schema": "VGS-DB-STATUS-v2",
+        "timestamp": _now(),
+        "db_connected": True,
+        "mode": identity_health["mode"],
+        "provider": identity_health["provider"],
+        "tables": len(identity_health["tables_checked"]),
+        "durable_surfaces": identity_health["tables_checked"],
+        "legacy_core_db_connected": legacy_health.get("db_connected", False),
+        "legacy_core_mode": legacy_health.get("mode", "unknown"),
+        "legacy_core_note": (
+            "Legacy non-tenant-aware stores are isolated from the Passport production surface."
+        ),
+    }
+
+
+# Production exposes only the tenant-scoped Passport/runtime authority surface.
+# The legacy monolithic endpoints remain available in isolated staging for
+# regression testing, but are denied in production unless explicitly enabled.
+def _production_surface_allows(path: str, deploy_env: str | None = None,
+                                legacy_enabled: bool | None = None) -> bool:
+    environment = (deploy_env if deploy_env is not None else os.environ.get("DEPLOY_ENV", "production"))
+    environment = (environment or "production").strip().lower()
+    enabled = legacy_enabled if legacy_enabled is not None else (
+        os.environ.get("VERISIGIL_ENABLE_LEGACY_API", "false").strip().lower() == "true"
+    )
+    if environment not in {"production", "prod", "live"} or enabled:
+        return True
+    exact_allowed = {
+        "/health", "/readiness", "/liveness", "/health/version",
+        "/health/deep", "/v1/db/status", "/v1/proof/verify",
+        "/v1/crypto/verify", "/openapi.json", "/docs", "/redoc",
+    }
+    prefix_allowed = ("/v1/agent-identity/", "/v1/runtime/authority/")
+    return path in exact_allowed or path.startswith(prefix_allowed)
+
+
+@app.middleware("http")
+async def production_legacy_surface_guard(request: Request, call_next):
+    if not _production_surface_allows(request.url.path):
+        return JSONResponse(
+            {
+                "detail": "This legacy endpoint is not enabled on the production Passport API surface.",
+                "code": "LEGACY_API_DISABLED",
+            },
+            status_code=404,
+        )
+    return await call_next(request)
