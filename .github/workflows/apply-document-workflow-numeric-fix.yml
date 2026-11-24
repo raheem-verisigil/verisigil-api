@@ -72,6 +72,14 @@ jobs:
           PY
       - name: Compile application and tests
         run: python -m compileall -q .
+      - name: Diagnose document governance import
+        run: |
+          python - <<'PY'
+          import main
+          print("MAIN_FILE", main.__file__)
+          print("HAS_GOVERNANCE_DECISION", hasattr(main, "governance_decision"))
+          print("GOVERNANCE_NAMES", [name for name in vars(main) if "governance" in name.lower()])
+          PY
       - name: Run focused security and regression tests
         run: |
           python -m unittest tests.test_document_governance_decision -v
