@@ -4185,6 +4185,7 @@ class DocumentVerifyRequest(BaseModel):
     current_text:    str = ""
     current_fields:  dict = {}
     interaction_num: int  = 1
+    document_type:   str = "general"
     context:         str = "general"
     consequence:     str = "OPERATIONAL"
 
@@ -23306,7 +23307,7 @@ class AgentStateUpdateRequest(BaseModel):
 
 @app.post("/v1/document/semantic-verify", tags=["Document Integrity"])
 async def document_semantic_verify(
-    req: dict,
+    req: DocumentVerifyRequest,
     x_api_key: Optional[str] = Header(None),
     authorization: Optional[str] = Header(None),
 ):

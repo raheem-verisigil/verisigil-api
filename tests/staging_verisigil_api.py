@@ -23,6 +23,7 @@ import pytest
 import httpx
 import os
 import json
+import hashlib
 import re
 from datetime import datetime, timedelta, timezone
 
@@ -395,7 +396,15 @@ class TestATFBridge:
                 "chain_root_id":              "ATFDR-ROOT0000000001",
                 "delegation_depth":           1,
                 "delegator_public_key":       "",
-                "posture_state_hash":         "28c1dcbd36bae0faf708af58f72d5cc5103974266b3ab47c52cf76c23bcb1095",
+                "posture_state_hash":         hashlib.sha256(json.dumps({
+            "delegator_id": "AID-COMPLIANCE-A1B2C3D4E5F60001",
+            "task_scope": {"domain": "compliance", "permitted_actions": ["read_evidence"]},
+            "authority_budget_delegator": 80.0,
+            "authority_budget_granted": 60.0,
+            "delegation_depth": 1,
+            "chain_root_id": "ATFDR-ROOT0000000001",
+            "created_at": created_at.isoformat(),
+        }, sort_keys=True, separators=(",", ":")).encode()).hexdigest(),
                 "status":                     "ACTIVE",
                 "created_at":                 created_at.isoformat(),
                 "expires_at":                 expires_at.isoformat(),
