@@ -489,24 +489,32 @@ async def hardened_db_status(request: Request):
 # Production exposes only the tenant-scoped Passport/runtime authority surface.
 # The legacy monolithic endpoints remain available in isolated staging for
 # regression testing, but are denied in production unless explicitly enabled.
+def _production_surface_allows(path: str, deploy_env: str | None = None,
+                                legacy_enabled: bool | None = None) -> bool:
+    environment = (deploy_env if deploy_env is not None else os.environ.get("DEPLOY_ENV", "production"))
+    environment = (environment or "production").strip().lower()
+    enabled = legacy_enabled if legacy_enabled is not None else (
+        os.environ.get("VERISIGIL_ENABLE_LEGACY_API", "false").strip().lower() == "true"
+    )
+    if environment not in {"production", "prod", "live"} or enabled:
+        return True
+    exact_allowed = {
+        "/health", "/readiness", "/liveness", "/health/version",
+        "/health/deep", "/v1/db/status", "/v1/proof/verify",
+        "/v1/crypto/verify", "/openapi.json", "/docs", "/redoc",
+    }
+    prefix_allowed = ("/v1/agent-identity/", "/v1/runtime/authority/")
+    return path in exact_allowed or path.startswith(prefix_allowed)
+
+
 @app.middleware("http")
 async def production_legacy_surface_guard(request: Request, call_next):
-    deploy_env = (os.environ.get("DEPLOY_ENV", "production") or "production").strip().lower()
-    legacy_enabled = os.environ.get("VERISIGIL_ENABLE_LEGACY_API", "false").strip().lower() == "true"
-    if deploy_env == "production" and not legacy_enabled:
-        path = request.url.path
-        exact_allowed = {
-            "/health", "/readiness", "/liveness", "/health/version",
-            "/health/deep", "/v1/db/status", "/v1/proof/verify",
-            "/v1/crypto/verify", "/openapi.json", "/docs", "/redoc",
-        }
-        prefix_allowed = ("/v1/agent-identity/", "/v1/runtime/authority/")
-        if path not in exact_allowed and not path.startswith(prefix_allowed):
-            return JSONResponse(
-                {
-                    "detail": "This legacy endpoint is not enabled on the production Passport API surface.",
-                    "code": "LEGACY_API_DISABLED",
-                },
-                status_code=404,
-            )
+    if not _production_surface_allows(request.url.path):
+        return JSONResponse(
+            {
+                "detail": "This legacy endpoint is not enabled on the production Passport API surface.",
+                "code": "LEGACY_API_DISABLED",
+            },
+            status_code=404,
+        )
     return await call_next(request)
