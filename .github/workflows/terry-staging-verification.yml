@@ -96,14 +96,18 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt pytest
-      - name: Validate staging configuration
-        if: ${{ env.VERISIGIL_TEST_URL != '' && env.VERISIGIL_TEST_API_KEY != '' }}
+      - name: Require and validate staging configuration
         run: |
           python - <<'PY'
           import os
           from urllib.parse import urlparse
 
-          url = os.environ["VERISIGIL_TEST_URL"]
+          url = os.environ.get("VERISIGIL_TEST_URL", "").strip()
+          api_key = os.environ.get("VERISIGIL_TEST_API_KEY", "").strip()
+          if not api_key:
+              raise SystemExit("VERISIGIL_TEST_API_KEY is required; live staging acceptance may not be skipped.")
+          if not url:
+              raise SystemExit("VERISIGIL_TEST_URL is required.")
           parsed = urlparse(url)
           if parsed.scheme != "https":
               raise SystemExit("Staging URL must use HTTPS")
@@ -142,9 +146,5 @@ jobs:
               else:
                   raise SystemExit(f"Railway did not deploy expected commit: {last}")
           PY
-      - name: Run live staging API verification
-        if: ${{ env.VERISIGIL_TEST_URL != '' && env.VERISIGIL_TEST_API_KEY != '' }}
+      - name: Run mandatory live staging API verification
         run: python -m pytest tests/staging_verisigil_api.py -v
-      - name: Report skipped live verification when staging secrets are absent
-        if: ${{ env.VERISIGIL_TEST_URL == '' || env.VERISIGIL_TEST_API_KEY == '' }}
-        run: echo "Live staging verification skipped; required GitHub secrets are not configured."
