@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Live acceptance tests for isolated staging Passport, tenant and authority lifecycle."""
 import base64, hashlib, json, os, urllib.error, urllib.parse, urllib.request, uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 
 import rfc8785
@@ -173,6 +174,33 @@ try:
     replay_status,_=call(BASE+"/v1/runtime/authority/consume","POST",owner_tenant,consume_request)
     assert replay_status==409,f"authority commitment replay was not rejected: HTTP {replay_status}"
     print("PASS: authority commitment cannot be consumed twice")
+
+    # Race two independent HTTP requests against the same durable commitment.
+    # Exactly one request may consume it; the other must observe the atomic replay guard.
+    concurrent_parameters={"invoice_id":"INV-STAGING-CONCURRENT","amount_minor":17500}
+    concurrent_decision,concurrent_request=evaluate(grantee,delegation_id,concurrent_parameters)
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        concurrent_results=list(executor.map(
+            lambda _index: call(BASE+"/v1/runtime/authority/consume","POST",owner_tenant,concurrent_request),
+            range(2),
+        ))
+    concurrent_statuses=[item[0] for item in concurrent_results]
+    assert concurrent_statuses.count(200)==1 and concurrent_statuses.count(409)==1, (
+        "concurrent authority consumption must yield exactly one success and one replay conflict; "
+        f"observed statuses={concurrent_statuses}"
+    )
+    winning_result=next(item[1] for item in concurrent_results if item[0]==200)
+    assert winning_result.get("execution_authorized") is True and winning_result.get("actuator_invoked") is False, (
+        "winning concurrent consume did not preserve the non-actuating authorization boundary"
+    )
+    status,concurrent_receipt=call(
+        BASE+f"/v1/runtime/authority/receipts/{concurrent_decision['commitment_id']}",
+        headers=owner_tenant,
+    )
+    assert status==200 and concurrent_receipt.get("consumed") is True and concurrent_receipt.get("consumable") is False, (
+        "concurrent consume did not leave one durable consumed receipt"
+    )
+    print("PASS: concurrent authority consumption is atomic across requests")
 
     parameters2={"invoice_id":"INV-STAGING-002","amount_minor":25000}
     decision2,consume_request2=evaluate(grantee,delegation_id,parameters2)
