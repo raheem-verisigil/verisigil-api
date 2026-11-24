@@ -44,63 +44,8 @@ jobs:
 
           path = Path("main.py")
           source = path.read_text(encoding="utf-8")
-
-          helper = '''def governance_decision(corruption_score: float, consequence: str = "HIGH") -> dict:
-              """Return a deterministic, consequence-aware document governance decision."""
-              try:
-                  score = float(corruption_score)
-              except (TypeError, ValueError):
-                  score = 1.0
-              if not (0.0 <= score <= 1.0):
-                  score = 1.0
-
-              severity = "CLEAN"
-              for candidate in ("CRITICAL", "HIGH", "MEDIUM", "LOW"):
-                  if score >= CORRUPTION_SEVERITY[candidate]["score_threshold"]:
-                      severity = candidate
-                      break
-
-              consequence_class = str(consequence or "HIGH").strip().upper()
-              if consequence_class not in {"LOW", "MEDIUM", "HIGH", "CRITICAL"}:
-                  consequence_class = "HIGH"
-
-              if score > 0.0:
-                  minimum = {"LOW": "LOW", "MEDIUM": "MEDIUM", "HIGH": "HIGH", "CRITICAL": "CRITICAL"}[consequence_class]
-                  rank = {"CLEAN": 0, "LOW": 1, "MEDIUM": 2, "HIGH": 3, "CRITICAL": 4}
-                  if rank[severity] < rank[minimum]:
-                      severity = minimum
-
-              action = CORRUPTION_SEVERITY[severity]["action"]
-              decision = {
-                  "CLEAN": "ALLOW",
-                  "LOW": "MONITOR",
-                  "MEDIUM": "WARN",
-                  "HIGH": "ESCALATE",
-                  "CRITICAL": "BLOCK_AND_ESCALATE",
-              }[severity]
-              color = {
-                  "CLEAN": "GREEN",
-                  "LOW": "BLUE",
-                  "MEDIUM": "YELLOW",
-                  "HIGH": "ORANGE",
-                  "CRITICAL": "RED",
-              }[severity]
-              return {
-                  "decision": decision,
-                  "action": action,
-                  "color": color,
-                  "severity": severity,
-                  "score": round(score, 4),
-                  "consequence": consequence_class,
-                  "reason": f"{severity} semantic integrity result for {consequence_class} consequence (score={score:.4f})",
-              }
-
-
-          '''
-          anchor = "def detect_semantic_corruption("
-          if source.count(anchor) != 1 or "def governance_decision(" in source:
-              raise SystemExit("Governance policy insertion precondition failed")
-          source = source.replace(anchor, helper + anchor, 1)
+          if not any(line.startswith("def governance_decision(") for line in source.splitlines()):
+              raise SystemExit("Top-level governance_decision function is missing")
 
           model_old = '    interaction_num: int  = 1\n    document_type:   str = "general"'
           model_new = '    interaction_num: int  = 1\n    workflow_id:      str = ""\n    document_type:   str = "general"'
@@ -115,27 +60,25 @@ jobs:
               raise SystemExit(f"Numeric detector source lines not unique: orig={orig_indexes}, gen={gen_indexes}")
           lines[orig_indexes[0]] = "    orig_numbers = {float(n['value']) for n in _extract_numbers(original_text)}"
           lines[gen_indexes[0]] = "    gen_numbers  = {float(n['value']) for n in _extract_numbers(generated_text)}"
-          source = "\\n".join(lines) + "\\n"
+          source = "\n".join(lines) + "\n"
           if "orig_numbers = {float(n['value'])" not in source or "gen_numbers  = {float(n['value'])" not in source:
               raise SystemExit("Canonical numerical extraction adapter was not applied")
 
-          if "workflow_id:      str = \"\"" not in source:
-              raise SystemExit("workflow_id field was not added")
-          if "orig_numbers = {float(n['value'])" not in source or "gen_numbers  = {float(n['value'])" not in source:
-              raise SystemExit("Numeric extraction correction was not applied")
+          model = source[source.index("class DocumentVerifyRequest"):source.index("@app.post", source.index("class DocumentVerifyRequest"))]
+          if 'workflow_id:      str = ""' not in model:
+              raise SystemExit("workflow_id was not added to DocumentVerifyRequest")
 
           path.write_text(source, encoding="utf-8")
-          print("Added workflow_id to DocumentVerifyRequest and corrected numeric extraction regexes.")
+          print("Added workflow_id and routed numerical detection through the shared number parser.")
           PY
       - name: Compile application and tests
         run: python -m compileall -q .
-      - name: Diagnose document governance import
+      - name: Verify governance policy import
         run: |
           python - <<'PY'
           import main
-          print("MAIN_FILE", main.__file__)
-          print("HAS_GOVERNANCE_DECISION", hasattr(main, "governance_decision"))
-          print("GOVERNANCE_NAMES", [name for name in vars(main) if "governance" in name.lower()])
+          assert callable(getattr(main, "governance_decision", None))
+          print("Governance policy import verified:", main.__file__)
           PY
       - name: Run focused security and regression tests
         run: |
