@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
 import math
 import os
@@ -50,14 +51,18 @@ def _environment_only_api_key(x_api_key: str | None = None,
     if candidate and getattr(core, "_check_canary", lambda _value: False)(candidate):
         raise core.HTTPException(status_code=401, detail="Invalid or missing API key.")
 
-    configured = {
-        normalize(os.environ.get("VERISIGIL_API_KEY")),
-        normalize(os.environ.get("VS_API_KEY")),
-        normalize(os.environ.get("SANDBOX_API_KEY")),
-        normalize(os.environ.get("VERISIGIL_SANDBOX_KEY")),
-    }
+    deploy_env = (os.environ.get("DEPLOY_ENV", "production") or "production").strip().lower()
+    if deploy_env in {"production", "prod", "live"}:
+        configured = {normalize(os.environ.get("VERISIGIL_API_KEY"))}
+    else:
+        configured = {
+            normalize(os.environ.get("VERISIGIL_API_KEY")),
+            normalize(os.environ.get("VS_API_KEY")),
+            normalize(os.environ.get("SANDBOX_API_KEY")),
+            normalize(os.environ.get("VERISIGIL_SANDBOX_KEY")),
+        }
     configured.discard("")
-    if not candidate or candidate not in configured:
+    if not candidate or not any(hmac.compare_digest(candidate, item) for item in configured):
         raise core.HTTPException(status_code=401, detail="Invalid or missing environment-managed API key.")
     return True
 
