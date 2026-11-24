@@ -197,7 +197,9 @@ class TestDocumentIntegrity:
         })
         assert_staging_http_200(r, "POST /v1/document/semantic-verify")
         data = r.json()
-        assert "decision" in data or "integrity_decision" in data
+        assert data.get("verify_id")
+        assert data.get("schema") == "VGS-DOCUMENT-INTEGRITY-v1"
+        assert data.get("corruption_detected") is False
 
     def test_semantic_verify_corruption(self, client):
         """Corrupted document should be flagged."""
@@ -209,8 +211,10 @@ class TestDocumentIntegrity:
         })
         assert_staging_http_200(r, "POST /v1/document/semantic-verify")
         data = r.json()
-        # Should detect corruption — decision should not be clean ALLOW
-        assert "decision" in data or "integrity_decision" in data
+        # The endpoint's contract exposes the integrity result as corruption_detected.
+        assert data.get("verify_id")
+        assert data.get("schema") == "VGS-DOCUMENT-INTEGRITY-v1"
+        assert data.get("corruption_detected") is True
 
 
     def test_document_verify_unified_alias(self, client):
