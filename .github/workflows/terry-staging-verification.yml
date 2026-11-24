@@ -3,6 +3,9 @@ name: Terry staging security verification
 on:
   push:
     branches:
+ fix/terry-staging-workflow-repair-20261124
+      - security/proof-verification-hardening-20261113
+
       - hardening/verisigil-production-readiness-20261123
     paths:
       - "requirements.txt"
@@ -14,6 +17,7 @@ on:
       - "supabase/migrations/**"
       - "tests/**"
       - ".github/workflows/terry-staging-verification.yml"
+         main
   pull_request:
     branches:
       - main
@@ -33,12 +37,16 @@ permissions:
   contents: read
 
 concurrency:
-  group: terry-security-${{ github.ref }}
+  group: terry-security-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   focused-security-tests:
+     fix/terry-staging-workflow-repair-20261124
+    name: Focused repository test suite
+
     name: Full security and regression suite
+        main
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -49,9 +57,86 @@ jobs:
       VERISIGIL_API_KEY: test-api-key-not-a-credential
       SIGN_SECRET: test-signing-secret-not-for-deployment
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
+         fix/terry-staging-workflow-repair-20261124
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install pytest
+
+      - name: Compile Python source
+        run: python -m compileall -q .
+
+      - name: Run repository tests
+        run: python -m pytest -q tests
+
+  staging-api-tests:
+    name: Isolated staging API verification
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/security/proof-verification-hardening-20261113' }}
+    needs: focused-security-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      VERISIGIL_TEST_ENV: staging
+      VERISIGIL_TEST_URL: ${{ secrets.VERISIGIL_TEST_URL }}
+      VERISIGIL_TEST_API_KEY: ${{ secrets.VERISIGIL_TEST_API_KEY }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install live-test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install pytest
+
+      - name: Validate isolated staging configuration
+        run: |
+          python - <<'PY'
+          import os
+          from urllib.parse import urlparse
+
+          raw_url = os.environ.get("VERISIGIL_TEST_URL", "").strip()
+          api_key = os.environ.get("VERISIGIL_TEST_API_KEY", "").strip()
+
+          if not raw_url:
+              raise SystemExit("VERISIGIL_TEST_URL is missing")
+          if not api_key:
+              raise SystemExit("VERISIGIL_TEST_API_KEY is missing")
+
+          parsed = urlparse(raw_url)
+          if parsed.scheme.lower() != "https":
+              raise SystemExit("Staging URL must use HTTPS")
+          if parsed.hostname != "verisigil-security-repair-test-staging.up.railway.app":
+              raise SystemExit("Staging URL does not match the approved isolated staging host")
+          if parsed.username or parsed.password:
+              raise SystemExit("Credentials must not be embedded in the staging URL")
+          if parsed.port not in (None, 443):
+              raise SystemExit("Staging URL must use the standard HTTPS port")
+          if parsed.query or parsed.fragment:
+              raise SystemExit("Staging URL must not contain a query string or fragment")
+
+          print("Isolated staging configuration validated; secret values were not printed.")
+          PY
+
+      - name: Run isolated staging API tests
+        run: python -m pytest tests/staging_verisigil_api.py -v
+
           python-version: "3.11"
           cache: "pip"
       - name: Install dependencies
@@ -75,3 +160,4 @@ jobs:
         run: python -m unittest tests.test_terry_validation -v
       - name: Run complete unit test suite
         run: python -m unittest discover -s tests -v
+         main
