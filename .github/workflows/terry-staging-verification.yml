@@ -7,6 +7,7 @@ on:
       - security/proof-verification-hardening-20261113
       - hardening/verisigil-production-readiness-20261123
       - fix/staging-test-discovery-20261114
+      - fix/terry-staging-workflow-parse-20261124
   pull_request:
     branches:
       - main
