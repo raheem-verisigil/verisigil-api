@@ -51,12 +51,19 @@ jobs:
               raise SystemExit(f"DocumentVerifyRequest schema precondition failed: {source.count(model_old)}")
           source = source.replace(model_old, model_new, 1)
 
-          regex_old = r"\\d+(?:\\.\\d+)?"
-          regex_new = r"\d+(?:\.\d+)?"
-          count = source.count(regex_old)
-          if count != 2:
-              raise SystemExit(f"Numeric regex precondition failed: expected 2 double-escaped patterns, found {count}")
-          source = source.replace(regex_old, regex_new)
+          slash = chr(92)
+          numeric_markers = (
+              "    orig_numbers = set(_re.findall(",
+              "    gen_numbers  = set(_re.findall(",
+          )
+          for marker in numeric_markers:
+              start = source.index(marker)
+              end = source.index("\\n", start)
+              line = source[start:end]
+              corrected = line.replace(slash * 2 + "d", slash + "d").replace(slash * 2 + ".", slash + ".")
+              if corrected == line:
+                  raise SystemExit(f"Numeric regex correction did not change line: {marker}")
+              source = source[:start] + corrected + source[end:]
 
           if "workflow_id:      str = \"\"" not in source:
               raise SystemExit("workflow_id field was not added")
