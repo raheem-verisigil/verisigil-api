@@ -1,0 +1,193 @@
+name: Apply canonical document semantic engine integration v3
+
+on:
+  push:
+    branches:
+      - fix/document-semantic-engine-v3-20261124
+
+permissions:
+  contents: write
+
+concurrency:
+  group: document-semantic-engine-v3
+  cancel-in-progress: false
+
+jobs:
+  patch-test-and-commit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      DEPLOY_ENV: test
+      SUPABASE_URL: http://127.0.0.1:1
+      SUPABASE_KEY: test-anon-key-not-a-credential
+      SUPABASE_SERVICE_KEY: test-service-key-not-a-credential
+      VERISIGIL_API_KEY: test-api-key-not-a-credential
+      SIGN_SECRET: test-signing-secret-not-for-deployment
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/document-semantic-engine-v3-20261124
+          persist-credentials: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install pytest
+      - name: Integrate every document endpoint with the canonical semantic engine
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("main.py")
+          source = path.read_text(encoding="utf-8")
+
+          helper = '''def analyze_document_integrity(
+              original_text: str,
+              generated_text: str,
+              document_type: str = "general",
+              agent_id: str = "document-integrity",
+              consequence: str = "HIGH",
+          ) -> dict:
+              """Run the canonical four-vector semantic corruption engine once."""
+              analysis = detect_semantic_corruption(
+                  original_text=original_text,
+                  generated_text=generated_text,
+                  document_type=document_type,
+                  agent_id=agent_id,
+                  consequence=consequence,
+              )
+              vectors = analysis.get("corruption_vectors") or {}
+
+              drift_vector = vectors.get("semantic_drift") or {}
+              drift = dict(drift_vector.get("details") or {})
+              drift["score"] = float(drift_vector.get("score", drift.get("drift_score", 0.0)))
+              drift["detected"] = bool(drift_vector.get("detected", drift.get("drift_score", 0.0) > 0.2))
+              drift["severity"] = drift.get("severity", "CLEAN")
+
+              mutation = dict(vectors.get("clause_mutation") or {})
+              mutation["severity"] = "CRITICAL" if mutation.get("detected") else "NONE"
+
+              intent = dict(vectors.get("intent_corruption") or {})
+              intent["severity"] = "CRITICAL" if intent.get("detected") else "NONE"
+
+              numerical = dict(vectors.get("numerical_inconsistency") or {})
+              issues = numerical.get("issues") or []
+              numerical["severity"] = (
+                  "HIGH" if any(issue.get("severity") == "HIGH" for issue in issues)
+                  else "MEDIUM" if any(issue.get("severity") == "MEDIUM" for issue in issues)
+                  else "NONE"
+              )
+
+              return {
+                  "analysis": analysis,
+                  "semantic_drift": drift,
+                  "clause_mutation": mutation,
+                  "intent_corruption": intent,
+                  "numerical_inconsistency": numerical,
+              }
+
+
+          '''
+          anchor = '@app.post("/v1/document/semantic-verify", tags=["Document Integrity"])'
+          if source.count(anchor) != 1 or "def analyze_document_integrity(" in source:
+              raise SystemExit("Document helper insertion precondition failed")
+          source = source.replace(anchor, helper + anchor, 1)
+
+          # Repair /v1/document/semantic-verify.
+          start = source.index("    # ── Run all 4 detection layers")
+          end = source.index("    # ── Integrity score", start)
+          semantic_block = '''    layers = analyze_document_integrity(
+                  original,
+                  generated,
+                  req.document_type or req.context or "general",
+                  req.agent_id,
+                  req.consequence,
+              )
+              drift = layers["semantic_drift"]
+              mutation = layers["clause_mutation"]
+              intent = layers["intent_corruption"]
+              numerical = layers["numerical_inconsistency"]
+              analysis = layers["analysis"]
+
+              corruption_score = float(analysis.get("corruption_score", 0.0))
+              gov = governance_decision(corruption_score, req.consequence)
+              corruption_detected = bool(analysis.get("corruption_detected", corruption_score > 0.20))
+              overall_severity = analysis.get("severity", "CLEAN")
+
+          '''
+          source = source[:start] + semantic_block + source[end:]
+
+          # Repair the backward-compatible /v1/document/verify endpoint.
+          route_start = source.index('@app.post("/v1/document/verify"')
+          route_end = source.index('@app.post("/v1/document/semantic-drift"', route_start)
+          route = source[route_start:route_end]
+          if route.count("req:       dict,") != 1:
+              raise SystemExit("Unified document route model precondition failed")
+          route = route.replace("req:       dict,", "req:       DocumentVerifyRequest,", 1)
+          start = route.index("    # Run all 4 detection layers")
+          end = route.index("    original_hash", start)
+          unified_block = '''    layers = analyze_document_integrity(
+                  original,
+                  generated,
+                  doc_type,
+                  req.agent_id,
+                  req.consequence,
+              )
+              drift = layers["semantic_drift"]
+              mutation = layers["clause_mutation"]
+              intent = layers["intent_corruption"]
+              numerical = layers["numerical_inconsistency"]
+              analysis = layers["analysis"]
+
+              corruption_score = float(analysis.get("corruption_score", 0.0))
+              gov_decision = governance_decision(corruption_score, req.consequence)
+              integrity_score = round((1.0 - corruption_score) * 100, 1)
+              overall_severity = analysis.get("severity", "CLEAN")
+
+          '''
+          route = route[:start] + unified_block + route[end:]
+          source = source[:route_start] + route + source[route_end:]
+
+          # Repair the three dedicated layer endpoints.
+          replacements = {
+              "result = detect_clause_mutation(req.original_text, req.current_text)":
+                  'result = analyze_document_integrity(req.original_text, req.get_current(), req.document_type, req.agent_id, "HIGH")["clause_mutation"]',
+              "result = detect_intent_corruption(req.original_text, req.current_text)":
+                  'result = analyze_document_integrity(req.original_text, req.get_current(), req.domain, req.agent_id, "HIGH")["intent_corruption"]',
+              "result = detect_numerical_inconsistency(req.original_text, req.current_text)":
+                  'result = analyze_document_integrity(req.original_text, req.get_current(), req.currency, req.agent_id, "HIGH")["numerical_inconsistency"]',
+          }
+          counts = {old: source.count(old) for old in replacements}
+          if any(count != 1 for count in counts.values()):
+              raise SystemExit(f"Dedicated document endpoint precondition failed: {counts}")
+          for old, new in replacements.items():
+              source = source.replace(old, new, 1)
+
+          if "detect_clause_mutation(original, generated)" in source or "detect_intent_corruption(original, generated)" in source or "detect_numerical_inconsistency(original, generated)" in source:
+              raise SystemExit("Unified document routes still reference undefined helpers")
+
+          path.write_text(source, encoding="utf-8")
+          print("Integrated all five document routes with the canonical four-vector engine.")
+          PY
+      - name: Compile application and tests
+        run: python -m compileall -q .
+      - name: Run focused security and regression tests
+        run: |
+          python -m unittest tests.test_proof_verification -v
+          python -m unittest tests.test_execution_authorization_fail_closed -v
+          python -m unittest tests.test_agent_identity_layer -v
+          python -m unittest tests.test_durable_validation_receipts -v
+          python -m unittest tests.test_terry_validation -v
+      - name: Run complete unit test suite
+        run: python -m unittest discover -s tests -v
+      - name: Commit tested document integration
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add main.py
+          git commit -m "Use canonical semantic engine across document endpoints"
+          git push origin HEAD:fix/document-semantic-engine-v3-20261124
