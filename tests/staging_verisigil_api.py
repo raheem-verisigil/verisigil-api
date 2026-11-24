@@ -194,9 +194,11 @@ class TestDocumentIntegrity:
             "current_text":  "The payment shall not exceed $50,000 and requires board approval.",
             "document_type": "contract",
             "domain":        "finance",
+            "workflow_id":   "staging-document-workflow",
         })
         assert_staging_http_200(r, "POST /v1/document/semantic-verify")
         data = r.json()
+        assert data.get("workflow_id") == "staging-document-workflow"
         assert data.get("decision") == "ALLOW"
         assert data.get("action") == "ALLOW"
         assert data.get("color") == "GREEN"
